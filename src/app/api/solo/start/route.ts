@@ -44,6 +44,9 @@ export async function POST(request: Request) {
     aiMessage = await debateOpening({ topicTitle: topic.title, topicPrompt: topic.prompt, aiSide });
   } catch (error) {
     console.error("Failed to generate opening:", error);
+    // Compensating delete: an active debate with zero turns is a dead end —
+    // the dashboard would keep linking it and every turn submit would fail.
+    await supabase.from("solo_debates").delete().eq("id", debate.id);
     return NextResponse.json({ error: "Failed to generate AI opening." }, { status: 502 });
   }
 
@@ -54,6 +57,7 @@ export async function POST(request: Request) {
     .single();
   if (turnError || !turn) {
     console.error("Failed to create opening turn:", turnError);
+    await supabase.from("solo_debates").delete().eq("id", debate.id);
     return NextResponse.json({ error: "Failed to start debate." }, { status: 500 });
   }
 

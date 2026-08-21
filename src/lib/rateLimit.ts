@@ -67,6 +67,25 @@ async function dbRateLimit(key: string, limit: number, windowMs: number): Promis
 
   const supabase = createServiceClient();
   const now = Date.now();
+
+  // Preferred path: one atomic round-trip (006_rate_limit_atomic.sql). The
+  // read-then-write fallback below undercounts when two serverless instances
+  // read the same row concurrently.
+  try {
+    const { data: rows, error: rpcError } = await supabase.rpc("increment_rate_limit", { p_key: key, p_window_ms: windowMs });
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!rpcError && row) {
+      const count = Number(row.new_count);
+      const resetMs = new Date(row.new_reset_at).getTime();
+      if (count > limit) {
+        return { ok: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil((resetMs - now) / 1000)) };
+      }
+      return { ok: true, remaining: limit - count, retryAfterSeconds: 0 };
+    }
+  } catch {
+    // RPC not deployed yet — fall through to the legacy read-then-write path.
+  }
+
   const windowEnd = new Date(now + windowMs).toISOString();
 
   // Read existing window

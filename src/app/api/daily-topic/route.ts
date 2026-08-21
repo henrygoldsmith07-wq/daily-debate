@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/rateLimit";
 import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  // First request of the day triggers a paid model call; keep that path
+  // rate-limited like every other route.
+  const limited = await checkRateLimit(request, { name: "daily-topic", limit: 30, windowMs: 60_000 });
+  if (limited) return limited;
+
   const supabase = await createClient();
   const {
     data: { user },

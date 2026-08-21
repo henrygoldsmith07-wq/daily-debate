@@ -10,6 +10,7 @@ import { drillsFor, weaknessProfile, topWeakness } from "./drills";
 import { eloGate, eloDelta, expectedScore, pickOpponent } from "./competitive";
 import { moderateMessage, isBlocked, repeatScore, isSuspiciousLength } from "./moderation";
 import { transcriptForReplay, isOverdue } from "./transcript";
+import type { PvpTurn } from "./types";
 import { dailyQuests, comebackCopy, onboardingChecklist } from "./retention";
 import type { ArgGraph, ArgNode } from "./argGraph";
 
@@ -150,7 +151,7 @@ describe("moderation & anti-cheat", () => {
 
 describe("transcript + async + retention + onboarding", () => {
   it("replay orders by round", () => {
-    const turns = [{ id:"1", match_id:"m", player_id:"a", round_number:2, message:"b", input_mode:"text", created_at:"" }, { id:"2", match_id:"m", player_id:"a", round_number:1, message:"a", input_mode:"text", created_at:"" }] as any;
+    const turns: PvpTurn[] = [{ id:"1", match_id:"m", player_id:"a", round_number:2, message:"b", input_mode:"text", created_at:"" }, { id:"2", match_id:"m", player_id:"a", round_number:1, message:"a", input_mode:"text", created_at:"" }];
     expect(transcriptForReplay(turns)[0].round).toBe(1);
   });
   it("isOverdue", () => { expect(isOverdue("2026-01-01T00:00:00Z","2026-01-02T12:00:00Z",24)).toBe(true); });

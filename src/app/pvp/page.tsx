@@ -7,7 +7,26 @@ import PvpLobby from "@/components/PvpLobby";
 export const dynamic = "force-dynamic";
 
 export default async function PvpLobbyPage() {
-  const topic = await getOrCreateTodayTopic();
+  let topic: Awaited<ReturnType<typeof getOrCreateTodayTopic>> | null = null;
+  try {
+    topic = await getOrCreateTodayTopic();
+  } catch (error) {
+    console.error("Failed to load daily topic:", error);
+  }
+
+  if (!topic) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <AppHeader />
+        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-6 py-10 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight">Today&apos;s topic isn&apos;t ready</h1>
+          <p className="text-sm text-ink3">
+            PvP needs today&apos;s debate topic, but it couldn&apos;t be loaded. Please refresh in a moment.
+          </p>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col">

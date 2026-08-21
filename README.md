@@ -18,11 +18,11 @@ Next.js (App Router) + Supabase (auth, Postgres, Realtime) + Gemini API (primary
   Gemini does not have live web access in this app, so these are named
   credible sources to go research yourself, not live-fetched citations.
 - **Solo debate vs AI** — pick a side, then go back and forth with an AI
-  arguing the opposite side for a minimum of 5 rounds. Each response is
-  converted into an observable argument graph; the legacy five display badges
-  are projections of graph features, not model-authored 0-10 judgements.
-  Finishing awards derived points, updates your level, and updates your daily
-  streak.
+  arguing the opposite side for a minimum of 5 rounds (capped at 12). Each
+  response is converted into an observable argument graph; the legacy five
+  display badges are projections of graph features, not model-authored 0-10
+  judgements. Finishing awards derived points, updates your level, and updates
+  your daily streak.
 - **Player vs player** — join the matchmaking queue for today's topic, get
   randomly assigned a side, and take alternating turns. Once both players hit
   the round limit, a model extracts the argument graph and deterministic rules
@@ -95,7 +95,7 @@ Until invariance is measured on the real judge, Elo/rank/social expansion stays 
 
 ## Rate limiting & testing
 
-- **Rate limiting** is now Supabase-backed (`supabase/migrations/002_rate_limits.sql`): `rate_limits(key, count, reset_at)` is shared across all serverless instances with a local in-memory fallback for tests/local dev without credentials. Before serious public use (PvP expansion) run both migrations. See `src/lib/rateLimit.ts` (`checkRateLimit` is now async — callers `await` it).
+- **Rate limiting** is now Supabase-backed (`supabase/migrations/002_rate_limits.sql`): `rate_limits(key, count, reset_at)` is shared across all serverless instances with a local in-memory fallback for tests/local dev without credentials. Migration `006_rate_limit_atomic.sql` adds an atomic `increment_rate_limit()` RPC so concurrent instances cannot undercount; the read-then-write path remains as a fallback when the RPC isn't deployed. 002 also ships `cleanup_rate_limits()` — schedule it via Supabase cron (or pg_cron) to prune expired windows. Before serious public use (PvP expansion) run all migrations. See `src/lib/rateLimit.ts` (`checkRateLimit` is async — callers `await` it).
 - **Tests:** `npm test` (`vitest run`) / `npm run test:watch`. The assessment tests cover score composition, evidence references, insufficient evidence, side swaps, verbosity, source-count traps, and eloquent-nonsense vs concise-evidence cases.
 
 ## Trust, bias & benchmark suite (9.5)
@@ -121,7 +121,6 @@ Live-model note: run the real Gemini/Anthropic judge twice per fixture with each
 ## Known limitations / TODO before wider PvP
 
 - **Elo/ranking stays gated by `eloGate`** (invariance + ≥70% human agreement) — matchmaking is FIFO until green. Tournament/challenge modes stay behind the same gate.
-- Consider a periodic `cleanup_rate_limits()` (or Supabase cron) to prune expired windows.
 - Live-model judge invariance e2e (real Gemini calls) still needs an API key — fixtures + `judgeInvariance` transforms are ready for it.
 - Article-level citation verification (fetch the URL and check the excerpt) is a future server action; the offline allowlist is the floor.
 

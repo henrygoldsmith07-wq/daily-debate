@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { debateTurn } from "@/lib/gemini";
 import { assessTurn } from "@/lib/observableAssessment";
-import type { InputMode } from "@/lib/types";
+import { isSuspiciousLength, moderateContent } from "@/lib/moderation";
+import { MAX_ROUNDS, type InputMode } from "@/lib/types";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   const limited = await checkRateLimit(request, { name: "solo-turn", limit: 20, windowMs: 60_000 });
@@ -20,9 +21,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   const inputMode: InputMode = body?.inputMode === "voice" ? "voice" : "text";
   if (!message) return NextResponse.json({ error: "message is required." }, { status: 400 });
+  if (isSuspiciousLength(message)) {
+    return NextResponse.json({ error: "Response is too long. Keep it under 6,000 characters." }, { status: 400 });
+  }
 
   // Moderation: block high-severity only; do not alter scoring
-  const { moderateContent } = await import("@/lib/moderation");
   const mod = moderateContent(message);
   if (mod.blocked) {
     return NextResponse.json({ error: `Message blocked: ${mod.flags.map((f) => f.note).join(" ")}`, moderation: mod.flags }, { status: 400 });
@@ -57,6 +60,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (pendingTurn.user_message) {
     return NextResponse.json({ error: "Latest round already answered." }, { status: 409 });
   }
+  if (pendingTurn.round_number >= MAX_ROUNDS) {
+    return NextResponse.json(
+      { error: `Round limit reached (${MAX_ROUNDS}). Finish the debate to get scored.` },
+      { status: 409 },
+    );
+  }
 
   const history = turns.slice(0, -1).flatMap((turn) => [
     { role: "ai" as const, text: turn.ai_message },
@@ -89,7 +98,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const scores = observable.scores;
   const turnScore = observable.turnScore;
 
-  const { error: updateError } = await supabase
+  // Claim the turn atomically: only the first concurrent submit may write the
+  // answer. A loser gets zero rows back and must not insert a duplicate
+  // next-round turn.
+  const { data: claimed, error: updateError } = await supabase
     .from("solo_debate_turns")
     .update({
       user_message: message,
@@ -99,10 +111,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       feedback: result.feedback,
       assessment: observable.assessment,
     })
-    .eq("id", pendingTurn.id);
+    .eq("id", pendingTurn.id)
+    .is("user_message", null)
+    .select("id");
   if (updateError) {
     console.error("Failed to save turn result:", updateError);
     return NextResponse.json({ error: "Failed to save your response." }, { status: 500 });
+  }
+  if (!claimed || claimed.length === 0) {
+    return NextResponse.json({ error: "Latest round already answered." }, { status: 409 });
   }
 
   const nextRoundNumber = pendingTurn.round_number + 1;

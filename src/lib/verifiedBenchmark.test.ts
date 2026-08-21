@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { groundedEvidenceRatio, validateGraph, claimCoverageWithGroundedEvidence, emptyGraph } from "./argGraph";
-import type { ArgGraph } from "./argGraph";
+import type { ArgGraph, ArgNode } from "./argGraph";
 import { verifyCitation, verifyGraphCitations, graphSourceQuality } from "./citationVerifier";
 import { runAllProbesOffline, swapLabels, stripNames, inflateVerbosity, injectFakeCitation, sophisticateWording, BIAS_PROBES } from "./judgeInvariance";
 import { TRANSCRIPTS } from "./benchmark.fixtures";
@@ -176,7 +176,7 @@ describe("evidence verification — distortion / cherry-pick / map", () => {
   });
 
   it("cherryPickSignal flags broad claim + single source", () => {
-    const ev = { id: "e1", kind: "evidence", owner: "a", text: "x", round: 1, evidenceStrength: "cited", citations: [{ sourceName: "Lazard", homepage: "https://www.lazard.com" }] } as any;
+    const ev: ArgNode = { id: "e1", kind: "evidence", owner: "a", text: "x", round: 1, evidenceStrength: "cited", citations: [{ sourceName: "Lazard", homepage: "https://www.lazard.com" }] };
     expect(cherryPickSignal("All global studies always show X", [ev]).atRisk).toBe(true);
     expect(cherryPickSignal("This case shows X", [ev]).atRisk).toBe(false);
   });
@@ -219,12 +219,12 @@ describe("graph enrichers — fallacy classifier + detectors", () => {
   });
 
   it("detectConcessions / detectContradictions / detectBurdenShifts", () => {
-    expect(detectConcessions([{ id: "x", kind: "claim", owner: "a", text: "I concede the cost point but impact still wins", round: 2 } as any]).length).toBe(1);
+    expect(detectConcessions([{ id: "x", kind: "claim", owner: "a", text: "I concede the cost point but impact still wins", round: 2 }]).length).toBe(1);
     expect(detectContradictions([
-      { id: "c1", kind: "claim", owner: "a", text: "Solar is cheap", round: 1 } as any,
-      { id: "c2", kind: "claim", owner: "a", text: "Solar is not cheap at all", round: 2 } as any,
+      { id: "c1", kind: "claim", owner: "a", text: "Solar is cheap", round: 1 },
+      { id: "c2", kind: "claim", owner: "a", text: "Solar is not cheap at all", round: 2 },
     ]).length).toBeGreaterThan(0);
-    expect(detectBurdenShifts([{ id: "r1", kind: "rebuttal", owner: "a", text: "You must prove that claim", round: 2 } as any]).length).toBe(1);
+    expect(detectBurdenShifts([{ id: "r1", kind: "rebuttal", owner: "a", text: "You must prove that claim", round: 2 }]).length).toBe(1);
   });
 
   it("applyGraphEdits + argumentEvolution are auditable", () => {

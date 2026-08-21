@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import MessageComposer from "./MessageComposer";
@@ -26,6 +26,13 @@ export default function PvpRoom({
   const [turns, setTurns] = useState(initialTurns);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [turns.length, sending]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -93,7 +100,13 @@ export default function PvpRoom({
         </p>
       </div>
 
-      <div className="surface-card flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+      <div
+        ref={scrollRef}
+        className="surface-card flex flex-1 flex-col gap-3 overflow-y-auto p-4"
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions"
+      >
         {turns.map((turn) => {
           const mine = turn.player_id === currentUserId;
           return (

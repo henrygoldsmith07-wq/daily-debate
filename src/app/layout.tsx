@@ -18,8 +18,8 @@ export const metadata: Metadata = {
     template: "%s · Daily Debate",
   },
   description:
-    "Sharpen your critical thinking with daily AI-judged debates — solo against Claude or head-to-head with other players. Points, levels, and streaks make it a game.",
-  keywords: ["debate", "critical thinking", "AI", "Claude", "PvP", "gamification"],
+    "Sharpen your critical thinking with daily AI-judged debates — solo against an AI opponent or head-to-head with other players. Points, levels, and streaks make it a game.",
+  keywords: ["debate", "critical thinking", "AI", "PvP", "gamification"],
   icons: { icon: "/logo.svg", apple: "/logo.svg" },
 };
 

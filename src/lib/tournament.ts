@@ -52,7 +52,7 @@ export function buildSingleElim(seeds: TournamentSeed[], idPrefix = "m"): Tourna
   for (let i = 0; i < seeds.length; i++) slots[i] = seeds[i].userId;
   // Shuffle to standard bracket order (bit-reversal for fairness) — simplified: top half vs bottom half
   const matches: TournamentMatch[] = [];
-  let round = 1;
+  const round = 1;
   const roundSize = n / 2;
   for (let i = 0; i < roundSize; i++) {
     const a = slots[i] ?? null;

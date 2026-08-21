@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { levelForPoints, updateStreak } from "@/lib/gamification";
+import { isSuspiciousLength } from "@/lib/moderation";
 import type { InputMode, PvpVerdict } from "@/lib/types";
 
 async function awardPoints(userId: string, points: number) {
@@ -39,6 +40,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   const inputMode: InputMode = body?.inputMode === "voice" ? "voice" : "text";
   const idempotencyKey = typeof body?.idempotencyKey === "string" ? body.idempotencyKey.trim().slice(0, 80) : null;
   if (!message) return NextResponse.json({ error: "message is required." }, { status: 400 });
+  if (isSuspiciousLength(message)) {
+    return NextResponse.json({ error: "Response is too long. Keep it under 6,000 characters." }, { status: 400 });
+  }
 
   // Moderation: flag but do not distort scoring — block only high-severity (harassment/malicious/unsafe)
   const { moderateContent } = await import("@/lib/moderation");
@@ -67,8 +71,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
   // Idempotency / duplicate event: if same round+player already has this exact message, return existing without re-scoring
   const { data: existingTurns } = await supabase.from("pvp_turns").select("*").eq("match_id", matchId).order("created_at", { ascending: true });
-  if (idempotencyKey && existingTurns?.some((t) => t.player_id === user.id && t.round_number === match.current_round && (t as any).message === message)) {
-    const dup = existingTurns.find((t) => t.player_id === user.id && t.round_number === match.current_round && (t as any).message === message);
+  const isDuplicate = existingTurns?.some((t) => t.player_id === user.id && t.round_number === match.current_round && t.message === message);
+  if (idempotencyKey && isDuplicate) {
+    const dup = existingTurns!.find((t) => t.player_id === user.id && t.round_number === match.current_round && t.message === message);
     return NextResponse.json({ turn: dup, matchComplete: false, duplicate: true });
   }
   // Late submission: round mismatch already checked; timer expiry is best-effort (client sends startedAt optional)
@@ -175,7 +180,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   // If another request already completed scoring, return existing result for consistency
   if (!updated) {
     const { data: existing } = await service.from("pvp_matches").select("*").eq("id", matchId).single();
-    return NextResponse.json({ turn, matchComplete: true, verdict: (existing?.judge_verdict as any) ?? verdict, alreadyScored: true });
+    return NextResponse.json({ turn, matchComplete: true, verdict: (existing?.judge_verdict as PvpVerdict | null) ?? verdict, alreadyScored: true });
   }
 
   if (verdict.scoreStatus !== "insufficient_evidence") {

@@ -26,12 +26,28 @@ export default function PvpLobby() {
         router.push(`/pvp/${data.match.id}`);
         return;
       }
+      let consecutiveFailures = 0;
       pollRef.current = setInterval(async () => {
-        const pollRes = await fetch("/api/pvp/queue");
-        const pollData = await pollRes.json();
-        if (pollData.match) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          router.push(`/pvp/${pollData.match.id}`);
+        try {
+          const pollRes = await fetch("/api/pvp/queue");
+          const pollData = await pollRes.json();
+          if (!pollRes.ok) throw new Error(pollData.error || "Lost the queue.");
+          consecutiveFailures = 0;
+          if (pollData.match) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            router.push(`/pvp/${pollData.match.id}`);
+          } else if (pollData.waiting === false) {
+            // Queue entry vanished (e.g. cleared server-side) — stop instead of polling forever.
+            if (pollRef.current) clearInterval(pollRef.current);
+            setSearching(false);
+          }
+        } catch {
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= 4 && pollRef.current) {
+            clearInterval(pollRef.current);
+            setSearching(false);
+            setError("Lost connection while searching. Please try again.");
+          }
         }
       }, 2500);
     } catch (err) {

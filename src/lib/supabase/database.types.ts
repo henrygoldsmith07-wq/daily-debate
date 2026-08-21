@@ -146,7 +146,12 @@ export type Database = {
       reports: TableDef<ReportRow>;
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      increment_rate_limit: {
+        Args: { p_key: string; p_window_ms: number };
+        Returns: { new_count: number; new_reset_at: string }[];
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

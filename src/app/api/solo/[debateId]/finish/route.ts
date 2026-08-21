@@ -44,6 +44,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
   const totalScore = answered.reduce((sum, turn) => sum + (turn.turn_score ?? 0), 0);
 
+  // Claim completion atomically before any model call or point award. Two
+  // concurrent finishes must not both summarize (double cost) or both award
+  // profile points (double credit).
+  const { data: completedDebate, error: completeError } = await supabase
+    .from("solo_debates")
+    .update({ status: "completed", total_score: totalScore, completed_at: new Date().toISOString() })
+    .eq("id", debateId)
+    .eq("status", "active")
+    .select("id");
+  if (completeError) {
+    console.error("Failed to complete debate:", completeError);
+    return NextResponse.json({ error: "Failed to finish debate." }, { status: 500 });
+  }
+  if (!completedDebate || completedDebate.length === 0) {
+    return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
+  }
+
   const { data: topic } = await supabase.from("daily_topics").select("title").eq("id", debate.topic_id).single();
 
   const transcript = answered
@@ -68,11 +85,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       )
     : null;
   if (finalAssessment) summary = { ...summary, argGraph: finalAssessment.graph, assessment: finalAssessment };
-
-  await supabase
-    .from("solo_debates")
-    .update({ status: "completed", total_score: totalScore, completed_at: new Date().toISOString() })
-    .eq("id", debateId);
 
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
   if (profile) {

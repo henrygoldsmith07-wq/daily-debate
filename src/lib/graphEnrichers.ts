@@ -193,7 +193,7 @@ export type GraphEdit =
   | { op: "removeEdge"; from: string; to: string };
 
 export function applyGraphEdits(graph: ArgGraph, edits: GraphEdit[]): { graph: ArgGraph; audit: string[] } {
-  let g: ArgGraph = {
+  const g: ArgGraph = {
     ...graph,
     nodes: [...graph.nodes],
     edges: [...graph.edges],

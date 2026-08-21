@@ -6,7 +6,7 @@ import MessageComposer from "./MessageComposer";
 import ScoreBadges from "./ScoreBadges";
 import { ArgGraphInline, TrackingGrid } from "./ArgGraphView";
 import { useSpeechSynthesis } from "./useSpeechSynthesis";
-import { MIN_ROUNDS, type DebateSummary, type InputMode, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
+import { MIN_ROUNDS, MAX_ROUNDS, type DebateSummary, type InputMode, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
 
 interface DebateSummaryPayload {
   totalScore: number;
@@ -29,7 +29,7 @@ export default function DebateRoom({
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DebateSummaryPayload | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -95,10 +95,16 @@ export default function DebateRoom({
       "To improve:",
       ...result.summary.improvements.map((s) => `• ${s}`),
     ].join("\n");
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopyState("copied");
+        setTimeout(() => setCopyState("idle"), 2000);
+      },
+      () => {
+        setCopyState("failed");
+        setTimeout(() => setCopyState("idle"), 3000);
+      },
+    );
   }
 
   if (result) {
@@ -108,7 +114,7 @@ export default function DebateRoom({
           <div className="flex items-start justify-between gap-3">
             <h2 className="text-xl font-semibold">Debate complete — {result.totalScore} pts</h2>
             <button type="button" onClick={copyResult} className="btn btn-ghost shrink-0 px-3 py-1 text-xs">
-              {copied ? "Copied!" : "Copy summary"}
+              {copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}
             </button>
           </div>
           <p className="text-sm text-ink3">{result.summary.overallFeedback}</p>
@@ -196,7 +202,15 @@ export default function DebateRoom({
         </p>
       )}
 
-      {status === "active" && !pending?.user_message && <MessageComposer onSubmit={submitTurn} disabled={sending} />}
+      {status === "active" && !pending?.user_message && roundCount < MAX_ROUNDS && (
+        <MessageComposer onSubmit={submitTurn} disabled={sending} />
+      )}
+
+      {status === "active" && !pending?.user_message && roundCount >= MAX_ROUNDS && (
+        <p className="text-center text-sm text-ink3">
+          Round limit reached ({MAX_ROUNDS}). Finish the debate to get scored.
+        </p>
+      )}
 
       {canFinish && status === "active" && (
         <button

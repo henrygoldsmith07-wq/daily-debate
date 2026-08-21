@@ -220,6 +220,9 @@ export async function liveEnsembleJudge(params: {
  * and per-judge agreement. Pure function — no I/O.
  */
 export function verdictFromEnsemble(e: EnsembleResult): PvpVerdict {
+  // Surface the breakdown of a judge that actually scored the debate —
+  // judges[0] may have returned insufficient_evidence while another scored.
+  const breakdownSource = e.judges.find(isScoredJudge) ?? e.judges[0];
   return {
     winner: e.winner,
     playerAScore: e.playerAScore,
@@ -227,7 +230,7 @@ export function verdictFromEnsemble(e: EnsembleResult): PvpVerdict {
     rationale: e.rationale,
     decidingFactor: e.decidingFactor,
     argGraph: e.argGraph,
-    breakdown: e.judges[0]?.breakdown,
+    breakdown: breakdownSource?.breakdown,
     confidence: e.confidence,
     scoreCI: e.scoreCI,
     winnerCI: e.winnerCI,
