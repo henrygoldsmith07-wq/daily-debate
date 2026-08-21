@@ -11,7 +11,7 @@ export default async function LeaderboardPage() {
 
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("*")
+    .select("id, username, total_points, level, current_streak")
     .order("total_points", { ascending: false })
     .limit(50);
 
@@ -21,7 +21,7 @@ export default async function LeaderboardPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
+      <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
         <h1 className="text-2xl font-semibold tracking-tight">Leaderboard</h1>
         {ratings && <RatingBreakdown ratings={ratings} />}
         <div className="surface-card overflow-hidden">
@@ -31,13 +31,14 @@ export default async function LeaderboardPage() {
             </p>
           ) : (
             <table className="w-full text-sm">
+              <caption className="sr-only">Global leaderboard ranked by total points</caption>
               <thead>
                 <tr className="border-b border-[var(--rule)] text-left text-xs uppercase tracking-wide text-ink3">
-                  <th className="px-4 py-3">#</th>
-                  <th className="px-4 py-3">Player</th>
-                  <th className="px-4 py-3">Level</th>
-                  <th className="px-4 py-3">Streak</th>
-                  <th className="px-4 py-3 text-right">Points</th>
+                  <th scope="col" className="px-4 py-3">#</th>
+                  <th scope="col" className="px-4 py-3">Player</th>
+                  <th scope="col" className="px-4 py-3">Level</th>
+                  <th scope="col" className="px-4 py-3">Streak</th>
+                  <th scope="col" className="px-4 py-3 text-right">Points</th>
                 </tr>
               </thead>
               <tbody>

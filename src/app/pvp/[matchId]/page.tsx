@@ -33,7 +33,7 @@ export default async function PvpMatchPage({ params }: { params: Promise<{ match
   return (
     <div className="flex min-h-screen flex-col">
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-8">
+      <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-8">
         <PvpRoom
           match={match as unknown as PvpMatch}
           topic={topic}

@@ -12,7 +12,13 @@ function getClient(): GoogleGenAI {
 
 function parseJson<T>(text: string | undefined): T {
   if (!text) throw new Error("Gemini did not return structured output");
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch (error) {
+    // Surface a snippet so 502s are diagnosable from logs alone.
+    const snippet = text.slice(0, 200);
+    throw new Error(`Gemini returned invalid JSON: ${(error as Error).message} — "${snippet}"`);
+  }
 }
 
 export interface GeneratedTopic {

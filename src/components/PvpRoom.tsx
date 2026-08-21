@@ -26,16 +26,49 @@ export default function PvpRoom({
   const [turns, setTurns] = useState(initialTurns);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottom = useRef(true);
 
   useEffect(() => {
-    if (scrollRef.current) {
+    // Follow new messages only while the reader is already near the bottom.
+    if (scrollRef.current && pinnedToBottom.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [turns.length, sending]);
 
+  // Full-state reconciliation: merges match + turns from the server so a
+  // reconnecting client (or one that slept through events) resyncs exactly.
+  useEffect(() => {
+    let cancelled = false;
+    async function reconcile() {
+      try {
+        const res = await fetch(`/api/pvp/${initialMatch.id}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setMatch(data.match);
+        setTurns(data.turns);
+      } catch {
+        // Network blip — realtime or the next reconcile will catch up.
+      }
+    }
+
+    function onVisible() {
+      if (document.visibilityState === "visible") void reconcile();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [initialMatch.id]);
+
   useEffect(() => {
     const supabase = createClient();
+    let poll: ReturnType<typeof setInterval> | null = null;
     const channel = supabase
       .channel(`pvp-match-${match.id}`)
       .on(
@@ -50,9 +83,34 @@ export default function PvpRoom({
         { event: "UPDATE", schema: "public", table: "pvp_matches", filter: `id=eq.${match.id}` },
         (payload) => setMatch(payload.new as PvpMatch),
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          setReconnecting(false);
+          if (poll) {
+            clearInterval(poll);
+            poll = null;
+          }
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          // Realtime dropped — fall back to snapshot polling until it returns.
+          setReconnecting(true);
+          if (!poll) {
+            poll = setInterval(async () => {
+              try {
+                const res = await fetch(`/api/pvp/${match.id}`, { cache: "no-store" });
+                if (!res.ok) return;
+                const data = await res.json();
+                setMatch(data.match);
+                setTurns(data.turns);
+              } catch {
+                // keep polling
+              }
+            }, 3000);
+          }
+        }
+      });
 
     return () => {
+      if (poll) clearInterval(poll);
       supabase.removeChannel(channel);
     };
   }, [match.id]);
@@ -102,6 +160,10 @@ export default function PvpRoom({
 
       <div
         ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
         className="surface-card flex flex-1 flex-col gap-3 overflow-y-auto p-4"
         role="log"
         aria-live="polite"
@@ -123,6 +185,12 @@ export default function PvpRoom({
       </div>
 
       {error && <p className="text-sm text-[var(--bad)]">{error}</p>}
+
+      {reconnecting && match.status === "active" && (
+        <p className="text-center text-xs text-ink3" role="status">
+          Connection lost — reconnecting…
+        </p>
+      )}
 
       {match.status === "active" ? (
         myTurn ? (

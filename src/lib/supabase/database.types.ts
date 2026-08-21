@@ -151,6 +151,10 @@ export type Database = {
         Args: { p_key: string; p_window_ms: number };
         Returns: { new_count: number; new_reset_at: string }[];
       };
+      increment_total_points: {
+        Args: { p_user_id: string; p_points: number; p_points_per_level: number };
+        Returns: number;
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

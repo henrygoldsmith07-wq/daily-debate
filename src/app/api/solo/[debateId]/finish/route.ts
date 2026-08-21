@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { summarizeSoloDebate } from "@/lib/gemini";
-import { levelForPoints, updateStreak } from "@/lib/gamification";
+import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { MIN_ROUNDS } from "@/lib/types";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
@@ -86,16 +86,32 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     : null;
   if (finalAssessment) summary = { ...summary, argGraph: finalAssessment.graph, assessment: finalAssessment };
 
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+  // Award points atomically when possible (007_profile_points_atomic.sql);
+  // streak fields are idempotent per day so their read-modify-write is safe.
+  const { data: profile } = await supabase.from("profiles").select("total_points, last_activity_date, current_streak, longest_streak").eq("id", user.id).single();
   if (profile) {
     const today = new Date().toISOString().slice(0, 10);
     const streak = updateStreak(today, profile.last_activity_date, profile.current_streak, profile.longest_streak);
-    const newTotalPoints = profile.total_points + totalScore;
+
+    let awarded = false;
+    try {
+      const { data: newTotal } = await supabase.rpc("increment_total_points", {
+        p_user_id: user.id,
+        p_points: totalScore,
+        p_points_per_level: POINTS_PER_LEVEL,
+      });
+      awarded = typeof newTotal === "number";
+    } catch {
+      // RPC not deployed yet — fall through to read-modify-write.
+    }
+
+    if (!awarded) {
+      const newTotalPoints = profile.total_points + totalScore;
+      await supabase.from("profiles").update({ total_points: newTotalPoints, level: levelForPoints(newTotalPoints) }).eq("id", user.id);
+    }
     await supabase
       .from("profiles")
       .update({
-        total_points: newTotalPoints,
-        level: levelForPoints(newTotalPoints),
         current_streak: streak.current_streak,
         longest_streak: streak.longest_streak,
         last_activity_date: streak.last_activity_date,

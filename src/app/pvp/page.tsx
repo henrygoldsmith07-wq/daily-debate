@@ -18,7 +18,7 @@ export default async function PvpLobbyPage() {
     return (
       <div className="flex min-h-screen flex-col">
         <AppHeader />
-        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-6 py-10 text-center">
+        <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-6 py-10 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">Today&apos;s topic isn&apos;t ready</h1>
           <p className="text-sm text-ink3">
             PvP needs today&apos;s debate topic, but it couldn&apos;t be loaded. Please refresh in a moment.
@@ -31,7 +31,7 @@ export default async function PvpLobbyPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
+      <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
         <div>
           <p className="text-xs uppercase tracking-wide text-ink3">Player vs Player</p>
           <h1 className="text-2xl font-semibold tracking-tight">{topic.title}</h1>

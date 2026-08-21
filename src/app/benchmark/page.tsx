@@ -2,9 +2,21 @@ import AppHeader from "@/components/AppHeader";
 import { HUMAN_CORPUS, HUMAN_CORPUS_AUDIT, corpusStats, ratingMatrix, fleissKappa, syntheticCorpus } from "@/lib/humanCorpus";
 import { evaluateFallacyDetection, FALLACY_BENCHMARK_CASES } from "@/lib/fallacyBenchmark";
 import { runAllProbesOffline } from "@/lib/judgeInvariance";
+import { dailyDebateEvaluation } from "@/lib/debateEvaluation";
+import { syntheticEvalCorpus, systemVerdictsTrackingHumans } from "@/lib/evalFixtures";
 import { TRANSCRIPTS } from "@/lib/benchmark.fixtures";
 
 export const dynamic = "force-dynamic";
+
+function meanPearson(report: ReturnType<typeof dailyDebateEvaluation>): string {
+  if (!report.comparison.length) return "—";
+  return (report.comparison.reduce((s, c) => s + c.pearson, 0) / report.comparison.length).toFixed(2);
+}
+
+function meanMae(report: ReturnType<typeof dailyDebateEvaluation>): string {
+  if (!report.comparison.length) return "—";
+  return (report.comparison.reduce((s, c) => s + c.mae, 0) / report.comparison.length).toFixed(2);
+}
 
 export default function BenchmarkPage() {
   const syn = syntheticCorpus({ n: 200, seed: 42, agreement: "medium" });
@@ -16,10 +28,16 @@ export default function BenchmarkPage() {
   const fallacyReport = evaluateFallacyDetection(FALLACY_BENCHMARK_CASES);
   const cohenMean = statsFixture.byRaterPair.length ? statsFixture.byRaterPair.reduce((a, p) => a + p.cohenKappa, 0) / statsFixture.byRaterPair.length : null;
 
+  // Full evaluation pipeline over the deterministic synthetic scaffold:
+  // reliability first, then system-vs-human comparison, calibration, and bias.
+  const evalCorpus = syntheticEvalCorpus();
+  const evalReport = dailyDebateEvaluation(evalCorpus, systemVerdictsTrackingHumans(evalCorpus));
+  const tiltedReport = dailyDebateEvaluation(evalCorpus, systemVerdictsTrackingHumans(evalCorpus, true));
+
   return (
     <div className="flex min-h-screen flex-col">
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
+      <main id="main" className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
         <div>
           <p className="text-xs uppercase tracking-wide text-ink3">Benchmark</p>
           <h1 className="text-2xl font-semibold tracking-tight">Judge benchmark — how Daily Debate proves its judges</h1>
@@ -143,6 +161,38 @@ export default function BenchmarkPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </section>
+
+        <section className="surface-card p-5">
+          <h2 className="text-sm font-semibold">Evaluation pipeline (synthetic scaffold)</h2>
+          <p className="mt-1 text-xs text-ink3">
+            The six-dimension rubric — evidence quality, reasoning, relevance, rebuttal quality, logical validity,
+            source quality — runs through the full pipeline: inter-rater reliability first, then system-vs-human
+            comparison, calibration, and bias detection. Numbers below come from the deterministic synthetic corpus
+            and mock judge; they prove the pipeline works, not that the live judge is valid.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+            <div className="rounded-xl border border-[var(--rule)] bg-surface-2 p-3">
+              <p className="font-medium">Reliability gate</p>
+              <p className="tabular text-ink3">{evalReport.reliability.gatePassed ? "passed ✓" : "failed ✗"}</p>
+              <p className="tabular text-ink3">ICC per dimension; failing: {evalReport.reliability.failingDimensions.length}</p>
+            </div>
+            <div className="rounded-xl border border-[var(--rule)] bg-surface-2 p-3">
+              <p className="font-medium">System vs human</p>
+              <p className="tabular text-ink3">Pearson mean={meanPearson(evalReport)}</p>
+              <p className="tabular text-ink3">MAE mean={meanMae(evalReport)}</p>
+            </div>
+            <div className="rounded-xl border border-[var(--rule)] bg-surface-2 p-3">
+              <p className="font-medium">Calibration</p>
+              <p className="tabular text-ink3">slope≈{evalReport.calibration[0]?.slope.toFixed(2) ?? "—"} · intercept≈{evalReport.calibration[0]?.intercept.toFixed(2) ?? "—"}</p>
+              <p className="tabular text-ink3">MAE {evalReport.calibration[0]?.maeBefore.toFixed(2) ?? "—"} → {evalReport.calibration[0]?.maeAfter.toFixed(2) ?? "—"} after linear fit</p>
+            </div>
+            <div className="rounded-xl border border-[var(--rule)] bg-surface-2 p-3">
+              <p className="font-medium">Bias probes</p>
+              <p className="tabular text-ink3">neutral judge: verbosity {evalReport.bias.verbosity.detected ? "flagged" : "clear"} · style {evalReport.bias.style.detected ? "flagged" : "clear"}</p>
+              <p className="tabular text-ink3">verbosity-tilted judge: {tiltedReport.bias.verbosity.detected ? "flagged ✓" : "missed ✗"} (partial r={tiltedReport.bias.verbosity.pooledPartialR.toFixed(2)})</p>
+            </div>
           </div>
         </section>
 

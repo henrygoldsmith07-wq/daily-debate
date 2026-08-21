@@ -10,10 +10,17 @@ export default async function AppHeader() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("total_points, level, current_streak")
+    .eq("id", user.id)
+    .single();
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--rule)] bg-[var(--panel)] px-4 py-3 sm:px-6">
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
       <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
         <img src="/logo.svg" alt="" width={22} height={22} className="rounded-md" aria-hidden="true" />
         Daily Debate
@@ -27,6 +34,9 @@ export default async function AppHeader() {
         </Link>
         <Link href="/leaderboard" className="hover:text-[var(--foreground)]">
           Leaderboard
+        </Link>
+        <Link href="/history" className="hover:text-[var(--foreground)]">
+          History
         </Link>
         <Link href="/benchmark" className="hover:text-[var(--foreground)]">
           Benchmark

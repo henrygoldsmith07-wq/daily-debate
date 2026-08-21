@@ -7,6 +7,7 @@ import ScoreBadges from "./ScoreBadges";
 import { ArgGraphInline, TrackingGrid } from "./ArgGraphView";
 import { useSpeechSynthesis } from "./useSpeechSynthesis";
 import { MIN_ROUNDS, MAX_ROUNDS, type DebateSummary, type InputMode, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
+import type { ArgGraph } from "@/lib/argGraph";
 
 interface DebateSummaryPayload {
   totalScore: number;
@@ -17,10 +18,12 @@ export default function DebateRoom({
   debate,
   topic,
   initialTurns,
+  completedResult,
 }: {
   debate: SoloDebate;
   topic: { title: string; prompt: string };
   initialTurns: SoloDebateTurn[];
+  completedResult?: { totalScore: number; argGraph?: ArgGraph } | null;
 }) {
   const [turns, setTurns] = useState(initialTurns);
   const [roundCount, setRoundCount] = useState(debate.round_count);
@@ -32,13 +35,16 @@ export default function DebateRoom({
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottom = useRef(true);
 
   const aiSide = debate.side === "for" ? "against" : "for";
   const pending = turns[turns.length - 1];
   const canFinish = turns.filter((t) => t.user_message).length >= MIN_ROUNDS;
 
   useEffect(() => {
-    if (scrollRef.current) {
+    // Follow new messages only while the reader is already near the bottom;
+    // scrolling up to re-read history must not be yanked forward.
+    if (scrollRef.current && pinnedToBottom.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [turns, sending]);
@@ -159,6 +165,22 @@ export default function DebateRoom({
 
   return (
     <div className="flex flex-1 flex-col gap-4">
+      {debate.status === "completed" && !result && completedResult && (
+        <div className="surface-card flex flex-col gap-3 p-5">
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-lg font-semibold">Replay — {completedResult.totalScore} pts</h2>
+            <Link href="/history" className="btn btn-ghost shrink-0 px-3 py-1 text-xs">
+              All debates
+            </Link>
+          </div>
+          {completedResult.argGraph && (
+            <>
+              <ArgGraphInline graph={completedResult.argGraph} playerAName="You" playerBName="AI opponent" />
+              <TrackingGrid graph={completedResult.argGraph} />
+            </>
+          )}
+        </div>
+      )}
       <div>
         <p className="text-xs uppercase tracking-wide text-ink3">{topic.title}</p>
         <p className="text-sm text-ink3">{topic.prompt}</p>
@@ -174,6 +196,10 @@ export default function DebateRoom({
 
       <div
         ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
         className="surface-card flex flex-1 flex-col gap-4 overflow-y-auto p-4"
         role="log"
         aria-live="polite"

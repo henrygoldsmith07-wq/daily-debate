@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { debateTurn } from "@/lib/gemini";
 import { assessTurn } from "@/lib/observableAssessment";
-import { isSuspiciousLength, moderateContent } from "@/lib/moderation";
+import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
 import { MAX_ROUNDS, type InputMode } from "@/lib/types";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
@@ -65,6 +65,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       { error: `Round limit reached (${MAX_ROUNDS}). Finish the debate to get scored.` },
       { status: 409 },
     );
+  }
+
+  // Anti-cheat: refuse a verbatim repeat of the user's previous response.
+  const answered = turns.filter((t) => t.user_message);
+  const prevUserMessage = answered[answered.length - 1]?.user_message ?? null;
+  if (prevUserMessage && repeatScore([prevUserMessage, message]) === 1) {
+    return NextResponse.json({ error: "That response repeats your previous turn — make a new argument." }, { status: 400 });
   }
 
   const history = turns.slice(0, -1).flatMap((turn) => [

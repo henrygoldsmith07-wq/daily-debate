@@ -138,6 +138,7 @@ export interface DebateSummary {
 export const MIN_ROUNDS = 5;
 // Solo debates must finish after this many rounds: each turn costs a model
 // call, and an uncapped debate can run indefinitely. PvP is capped by the
-// `pvp_matches.round_limit` column (default 5).
+// `pvp_matches.round_limit` column — PVP_ROUNDS must match its default (5).
 export const MAX_ROUNDS = 12;
+export const PVP_ROUNDS = 5;
 

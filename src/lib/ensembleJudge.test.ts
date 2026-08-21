@@ -78,5 +78,14 @@ describe("verdictFromEnsemble — persists uncertainty onto the stored verdict",
     expect(v.isTie).toBe(true);
     expect(v.tieReason).toBeDefined();
   });
+
+  it("takes the breakdown from a judge that scored, not from judges[0]", () => {
+    const scoredBreakdown = { a: { claims: 4, evidence: 3, rebuttals: 2, impacts: 1, fallacies: 0, droppedSuffered: 0 }, b: { claims: 2, evidence: 1, rebuttals: 0, impacts: 0, fallacies: 1, droppedSuffered: 2 } };
+    const insufficient = { ...judge("gemini", "tie", 0, 0), scoreStatus: "insufficient_evidence" as const };
+    const scored = { ...judge("anthropic", "a", 72, 45), breakdown: scoredBreakdown };
+    const e = ensembleVerdicts([insufficient, scored]);
+    const v = verdictFromEnsemble(e);
+    expect(v.breakdown).toEqual(scoredBreakdown);
+  });
 });
 

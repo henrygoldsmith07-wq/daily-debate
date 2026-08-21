@@ -24,7 +24,7 @@ export default async function DashboardPage() {
     return (
       <div className="flex min-h-screen flex-col">
         <AppHeader />
-        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-4 py-10 text-center sm:px-6">
+        <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-4 py-10 text-center sm:px-6">
           <h1 className="text-2xl font-semibold tracking-tight">Today&apos;s topic isn&apos;t ready</h1>
           <p className="text-sm text-ink3">
             We couldn&apos;t generate today&apos;s debate topic. Please refresh in a moment — if it keeps failing, the
@@ -50,7 +50,7 @@ export default async function DashboardPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
+      <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
         <div>
           <p className="text-xs uppercase tracking-wide text-ink3">Today&apos;s topic</p>
           <h1 className="text-2xl font-semibold tracking-tight">{topic.title}</h1>

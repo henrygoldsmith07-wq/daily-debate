@@ -1,27 +1,49 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { levelForPoints, updateStreak } from "@/lib/gamification";
-import { isSuspiciousLength } from "@/lib/moderation";
+import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
+import { isSuspiciousLength, repeatScore } from "@/lib/moderation";
 import type { InputMode, PvpVerdict } from "@/lib/types";
 
 async function awardPoints(userId: string, points: number) {
   const service = createServiceClient();
-  const { data: profile } = await service.from("profiles").select("*").eq("id", userId).single();
-  if (!profile) return;
   const today = new Date().toISOString().slice(0, 10);
-  const streak = updateStreak(today, profile.last_activity_date, profile.current_streak, profile.longest_streak);
-  const newTotalPoints = profile.total_points + points;
-  await service
+
+  // Points + level atomically (007_profile_points_atomic.sql): a concurrent
+  // finish of another match must not lose this award.
+  let awarded = false;
+  try {
+    const { data: newTotal } = await service.rpc("increment_total_points", {
+      p_user_id: userId,
+      p_points: points,
+      p_points_per_level: POINTS_PER_LEVEL,
+    });
+    awarded = typeof newTotal === "number";
+  } catch {
+    // RPC not deployed yet — fall through to read-modify-write.
+  }
+
+  const { data: profile } = await service
     .from("profiles")
-    .update({
-      total_points: newTotalPoints,
-      level: levelForPoints(newTotalPoints),
-      current_streak: streak.current_streak,
-      longest_streak: streak.longest_streak,
-      last_activity_date: streak.last_activity_date,
-    })
-    .eq("id", userId);
+    .select("total_points, last_activity_date, current_streak, longest_streak")
+    .eq("id", userId)
+    .single();
+  if (!profile) return;
+
+  const update: Partial<{ total_points: number; level: number; current_streak: number; longest_streak: number; last_activity_date: string }> = {};
+  if (!awarded) {
+    // Legacy path (pre-006/007 deployments): small lost-update window remains.
+    const newTotalPoints = profile.total_points + points;
+    update.total_points = newTotalPoints;
+    update.level = levelForPoints(newTotalPoints);
+  }
+  // Streak fields are idempotent per day, so their read-modify-write is safe.
+  const streak = updateStreak(today, profile.last_activity_date, profile.current_streak, profile.longest_streak);
+  update.current_streak = streak.current_streak;
+  update.longest_streak = streak.longest_streak;
+  update.last_activity_date = streak.last_activity_date;
+
+  await service.from("profiles").update(update).eq("id", userId);
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
@@ -75,6 +97,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   if (idempotencyKey && isDuplicate) {
     const dup = existingTurns!.find((t) => t.player_id === user.id && t.round_number === match.current_round && t.message === message);
     return NextResponse.json({ turn: dup, matchComplete: false, duplicate: true });
+  }
+  // Anti-cheat: refuse a verbatim repeat of the player's previous response
+  // (copy/paste spam). Genuine retries are caught earlier by the idempotency
+  // check above, so this only blocks fresh duplicate submissions.
+  const myLastTurn = existingTurns?.filter((t) => t.player_id === user.id).at(-1);
+  if (myLastTurn && repeatScore([myLastTurn.message, message]) === 1) {
+    return NextResponse.json({ error: "That response repeats your previous turn — make a new argument." }, { status: 400 });
   }
   // Late submission: round mismatch already checked; timer expiry is best-effort (client sends startedAt optional)
   if (typeof body?.turnDeadline === "string") {

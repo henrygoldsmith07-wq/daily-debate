@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
-import type { DebateSide } from "@/lib/types";
+import { PVP_ROUNDS, type DebateSide } from "@/lib/types";
 
 // Join the day's PvP matchmaking queue. If another waiting player is found on
 // the same topic, a match is created immediately and both players' queue
@@ -20,6 +20,11 @@ export async function POST(request: Request) {
 
   const topic = await getOrCreateTodayTopic();
   const service = createServiceClient();
+
+  // Best-effort housekeeping: queue rows older than a day are stale (their
+  // owners left without cancelling) and would accumulate forever.
+  const staleCutoff = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  await service.from("pvp_queue").delete().lt("joined_at", staleCutoff);
 
   // Duplicate join: if already queued or already in active match, return waiting/active without double-join
   const { data: existingQueue } = await service.from("pvp_queue").select("*").eq("user_id", user.id).maybeSingle();
@@ -56,6 +61,7 @@ export async function POST(request: Request) {
       player_a: opponentRow.user_id,
       player_b: user.id,
       player_a_side: playerASide,
+      round_limit: PVP_ROUNDS,
       current_turn_player: opponentRow.user_id,
     })
     .select("*")
