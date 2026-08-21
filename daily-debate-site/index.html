@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Daily Debate — Think out loud. Get judged fairly.</title>
+<meta name="description" content="Daily Debate — solo vs AI or PvP on a daily topic, judged on a structured argument graph.">
+<link rel="canonical" href="https://daily-debate-site-henrygoldsmith07-9188s-projects.vercel.app/">
+<meta name="theme-color" content="#111111" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
+<meta property="og:title" content="Daily Debate — Think out loud. Get judged fairly.">
+<meta property="og:description" content="Daily Debate — five rounds vs AI or another player, judged on an argument graph.">
+<meta property="og:site_name" content="Le Studio">
+<meta property="og:url" content="https://daily-debate-site-henrygoldsmith07-9188s-projects.vercel.app/">
+<meta property="og:image" content="https://daily-debate-site-henrygoldsmith07-9188s-projects.vercel.app/icon-512.png">
+<meta property="og:image:width" content="512">
+<meta property="og:image:height" content="512">
+<meta property="og:image:alt" content="Daily Debate app icon">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="en_GB">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Daily Debate — Think out loud. Get judged fairly.">
+<meta name="twitter:description" content="Daily Debate — five rounds vs AI or another player, judged on an argument graph.">
+<meta name="twitter:image" content="https://daily-debate-site-henrygoldsmith07-9188s-projects.vercel.app/icon-512.png">
+<link rel="icon" href="./icon.svg">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<style>
+  :root { --ls-bg:#f4f4f6; --ls-surface:#fff; --ls-line:#dcdce1; --ls-ink:#131316; --ls-ink2:#4d4d55; --ls-ink3:#6a6a74; }
+  @media (prefers-color-scheme: dark) { :root { --ls-bg:#0b0b0d; --ls-surface:#17171a; --ls-line:#34343a; --ls-ink:#f4f4f5; --ls-ink2:#b2b2ba; --ls-ink3:#8f8f99; } }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--ls-bg); color:var(--ls-ink); font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1020px; margin:0 auto; padding:0 22px; }
+  a:focus-visible, button:focus-visible { outline:2px solid var(--ls-ink); outline-offset:3px; }
+  .skip { position:absolute; left:-9999px; }
+  .skip:focus { position:fixed; left:12px; top:12px; z-index:100; padding:10px 14px; background:var(--ls-ink); color:var(--ls-bg); border-radius:10px; text-decoration:none; font-weight:700; font-size:14px; }
+  header { padding:18px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  header img { width:34px; height:34px; border-radius:9px; }
+  header b { font-size:17px; letter-spacing:-.01em; }
+  header nav { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  header nav a { color:var(--ls-ink2); text-decoration:none; font-size:13px; font-weight:600; padding:8px 10px; }
+  header nav a:hover { color:var(--ls-ink); }
+  .hero { text-align:center; padding:48px 0 36px; }
+  .hero img { width:84px; height:84px; border-radius:22px; box-shadow:0 12px 40px rgba(0,0,0,.18); }
+  h1 { font-size:clamp(30px,6vw,52px); font-weight:800; letter-spacing:-.03em; line-height:1.1; margin:22px 0 12px; }
+  .hero p.sub { font-size:clamp(15px,2.4vw,19px); color:var(--ls-ink2); max-width:640px; margin:0 auto 26px; }
+  a.cta { display:inline-block; background:var(--ls-ink); color:var(--ls-bg); font-weight:700; text-decoration:none; padding:13px 26px; border-radius:14px; font-size:15px; transition:opacity .15s ease, transform .15s ease; }
+  a.cta:hover { opacity:.85; transform:translateY(-1px); }
+  a.ghost { display:inline-block; color:var(--ls-ink); text-decoration:none; font-weight:600; padding:13px 20px; font-size:15px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px; }
+  .card { background:var(--ls-surface); border:1px solid var(--ls-line); border-radius:18px; padding:20px; }
+  .card h3 { font-size:15px; margin:8px 0 4px; display:flex; align-items:center; gap:8px; }
+  .card p { font-size:13px; color:var(--ls-ink2); }
+  .ic { width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; padding:28px 0; }
+  .stat { background:var(--ls-surface); border:1px solid var(--ls-line); border-radius:16px; padding:18px 8px; text-align:center; }
+  .stat b { display:block; font-size:26px; letter-spacing:-.02em; }
+  .stat span { font-size:12px; color:var(--ls-ink3); }
+  .privacy, .faq { background:var(--ls-surface); border:1px solid var(--ls-line); border-radius:22px; padding:28px; margin:48px 0; }
+  .privacy { text-align:center; }
+  .privacy h2, .faq h2 { font-size:clamp(20px,3.5vw,26px); letter-spacing:-.02em; margin-bottom:8px; }
+  .privacy p { color:var(--ls-ink2); max-width:560px; margin:0 auto 18px; font-size:14px; }
+  .pill { display:inline-block; background:var(--ls-bg); border:1px solid var(--ls-line); border-radius:999px; padding:6px 14px; font-size:12px; font-weight:600; color:var(--ls-ink2); margin:0 4px 12px; }
+  details { border-top:1px solid var(--ls-line); padding:12px 0; }
+  details:first-of-type { border-top:0; }
+  summary { cursor:pointer; font-weight:700; font-size:14px; list-style:none; }
+  summary::-webkit-details-marker { display:none; }
+  details p { margin-top:8px; font-size:13px; color:var(--ls-ink2); }
+  footer { border-top:1px solid var(--ls-line); padding:26px 0 40px; text-align:center; color:var(--ls-ink3); font-size:12px; margin-top:24px; }
+  footer a { color:var(--ls-ink2); }
+  @media (prefers-reduced-motion: reduce) { a.cta { transition:none; } a.cta:hover { transform:none; } }
+</style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Daily Debate",
+  "url": "https://daily-debate-site-henrygoldsmith07-9188s-projects.vercel.app/",
+  "description": "Daily Debate — solo vs AI or PvP on a daily topic, judged on a structured argument graph.",
+  "image": "https://daily-debate-site-henrygoldsmith07-9188s-projects.vercel.app/icon-512.png",
+  "applicationCategory": "EducationalApplication",
+  "operatingSystem": "Web",
+  "isAccessibleForFree": true,
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "GBP"
+  }
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="wrap">
+  <header>
+    <a href="https://le-studio-site-henrygoldsmith07-9188s-projects.vercel.app/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit"><img src="./icon-192.png" alt="" aria-hidden="true"><b>Daily Debate</b></a>
+    <nav aria-label="Site">
+      <a href="https://le-studio-site-henrygoldsmith07-9188s-projects.vercel.app/">Family</a>
+      <a href="#features">Features</a>
+      <a href="#faq">FAQ</a>
+      <a class="cta" href="https://github.com/henrygoldsmith07-wq/Claude-Code/tree/main/apps/daily-debate">Open Daily Debate</a>
+    </nav>
+  </header>
+  <section class="hero" id="main">
+    <img src="./icon-192.png" alt="" aria-hidden="true">
+    <p style="margin:14px 0 0;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ls-ink3);font-weight:700">Le Studio family · Daily Debate</p>
+    <h1>Debate daily.<br>Prove the win.</h1>
+    <p class="sub">A daily proposition, five rounds vs AI or another player, judged on an argument graph (claim→evidence→counterclaim→rebuttal→impact) that explains why the winner won.</p>
+    <a class="cta" href="https://github.com/henrygoldsmith07-wq/Claude-Code/tree/main/apps/daily-debate">Open Daily Debate</a>
+    <a class="ghost" href="https://le-studio-site-henrygoldsmith07-9188s-projects.vercel.app/">← Back to family</a>
+  </section>
+  <section class="stats" aria-label="Stats">
+    <div class="stat"><b>5+</b><span>rounds</span></div>
+    <div class="stat"><b>Graph</b><span>judging</span></div>
+    <div class="stat"><b>Live</b><span>Realtime PvP</span></div>
+    <div class="stat"><b>Voice</b><span>in + out</span></div>
+  </section>
+  <section class="grid" id="features" style="margin-top:8px">
+    <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a4 4 0 0 1 4 4v2H8V7a4 4 0 0 1 4-4Z"/><path d="M5 11h14v7a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-7Z"/></svg>Daily topic</h3><p>One debatable proposition a day, grounded with 3–5 real institutions to go research yourself.</p></div>
+    <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Solo vs AI</h3><p>Pick a side, trade rounds, scored 0–10 on depth/evidence/logic/rebuttal/clarity with feedback.</p></div>
+    <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>PvP queue</h3><p>FIFO matchmaking, alternating turns, Realtime updates, neutral AI judge declares winner or tie.</p></div>
+    <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 4v8l-7 4-7-4V7z"/><path d="M12 12v8"/></svg>Argument graph</h3><p>Tracks unsupported claims, dropped arguments, contradictions, concessions, rebuttals, evidence strength, fallacies and impact.</p></div>
+    <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-6 3 4 3-8"/></svg>Why you won</h3><p>Verdict returns rationale + decidingFactor + per-side breakdown, not just a score.</p></div>
+    <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M8 8h8M7 12h10M9 16h6"/></svg>Voice</h3><p>Web Speech dictation in, speechSynthesis out — Chrome-family, with typing fallback.</p></div>
+  </section>
+  <section class="privacy" style="margin-top:28px">
+    <h2>Judged, not vibed</h2>
+    <p>Every finished debate produces a graph the UI can render — unsupported claims, dropped lines, fallacies and impact — plus a one-sentence deciding factor.</p>
+    <div><span class="pill">Next.js + Supabase</span><span class="pill">Anthropic</span><span class="pill">Realtime</span><span class="pill">Vitest</span></div>
+    <a class="cta" href="https://github.com/henrygoldsmith07-wq/Claude-Code/tree/main/apps/daily-debate">Open Daily Debate</a>
+  </section>
+  <section class="faq" id="faq">
+    <h2>FAQ</h2>
+    <details><summary>Is it elo-paired?</summary><p>Not yet — FIFO today; Elo/skill pairing is the next PvP milestone.</p></details>
+    <details><summary>How does judging stay fair?</summary><p>Structured graph + breakdown; evidence/fallacy tagging is model-judged with rule heuristics planned.</p></details>
+    <details><summary>What about spam?</summary><p>Supabase-backed rate limits (shared across serverless) with in-memory fallback for tests.</p></details>
+  </section>
+  <footer><a href="https://le-studio-site-henrygoldsmith07-9188s-projects.vercel.app/">Le Studio family</a> · Daily Debate · <a href="https://github.com/henrygoldsmith07-wq/Claude-Code/tree/main/apps/daily-debate">Open app</a> · <a href="https://github.com/henrygoldsmith07-wq/Claude-Code">Source</a></footer>
+</div>
+</body>
+</html>

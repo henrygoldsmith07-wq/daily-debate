@@ -1,0 +1,60 @@
+name: Daily Debate
+
+on:
+  push:
+    paths:
+      - "**"
+      - ".github/workflows/daily-debate.yml"
+  pull_request:
+    paths:
+      - "**"
+      - ".github/workflows/daily-debate.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      # Type-check where appropriate (tsc --noEmit over the app)
+      - run: npm run type-check
+      # Unit + regression tests, including source-verification regressions
+      # (misleading-evidence adversarial cases, entailment, retrieval contracts)
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e -- --reporter=github,html
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: daily-debate-playwright-report
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore

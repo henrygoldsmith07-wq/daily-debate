@@ -1,0 +1,391 @@
+/* ============================================================================
+   Le Studio design system — the single source of truth for every app's theme.
+   Canonical origin: packages/theme/le-studio.css.
+
+   DO NOT EDIT the copies inside apps/. Each app carries a generated
+   src/le-studio.css; edit this file and run scripts/sync-theme.sh to
+   propagate. The copies exist because each Vercel project builds with its
+   root directory set to its own app, so a CSS @import reaching outside the
+   app directory is not reliable.
+
+   Requires Tailwind v4. Each app's stylesheet should read:
+
+       @import "tailwindcss";
+       @import "./le-studio.css";
+
+   Dark mode is driven by EITHER a `.dark` class or `[data-theme="dark"]` on
+   <html>, so both wiring conventions already in the monorepo keep working.
+   Because the tokens flip themselves, component markup needs no `dark:`
+   colour variants — that is the point of the system.
+   ========================================================================= */
+
+/* ---- monochrome design tokens: light is the default, dark flips them ----
+   The neutral ramp carries a hair of cool tint (blue ~235°) so the greys read
+   as designed rather than as a broken white, and each step is a perceptible
+   luminance jump so white cards separate cleanly from the canvas. */
+:root {
+  color-scheme: light;
+  --bg: #f4f4f6;
+  --surface: #ffffff;
+  --surface-2: #ececef;
+  --line: #dcdce1;
+  --ink: #131316;
+  --ink-2: #4d4d55;
+  --ink-3: #6a6a74;
+  --accent: #131316;
+  --on-accent: #ffffff;
+  /* Semantic accents — used sparingly on a monochrome base to signal state:
+     success (goal met / correct), speak (conversation), review (due).
+     Each doubles as text and as a fill, so the light-mode values are set dark
+     enough to clear WCAG AA (4.5:1) against the hardest case — their own soft
+     tint — which also leaves them legible on white and able to carry white
+     text when filled. The dark-mode values already clear AA on --surface. */
+  --success: #197e46;
+  --success-soft: #e4f5ec;
+  --speak: #2a62d2;
+  --on-speak: #ffffff;
+  --speak-soft: #e6eefb;
+  --review: #a55a12;
+  --review-soft: #fbeedd;
+  --danger: #b3403f;
+  --danger-soft: #fbe9e9;
+  /* elevation: restrained, tinted toward ink so shadows never look muddy */
+  --shadow-sm: 0 1px 2px rgba(19, 19, 22, 0.06), 0 1px 1px rgba(19, 19, 22, 0.04);
+  --shadow-md: 0 6px 20px -6px rgba(19, 19, 22, 0.14), 0 2px 6px -2px rgba(19, 19, 22, 0.08);
+  --shadow-nav: 0 -1px 0 var(--line), 0 -6px 20px -12px rgba(19, 19, 22, 0.16);
+  --shadow-lg: 0 -12px 40px -12px rgba(19, 19, 22, 0.28), 0 -1px 0 var(--line);
+  /* radii — one scale, so cards/buttons/sheets agree across apps */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+}
+
+.dark,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0b0d;
+  --surface: #17171a;
+  --surface-2: #242428;
+  --line: #34343a;
+  --ink: #f4f4f5;
+  --ink-2: #b2b2ba;
+  --ink-3: #8f8f99;
+  --accent: #f4f4f5;
+  --on-accent: #0b0b0d;
+  --success: #37c47e;
+  --success-soft: #16311f;
+  --speak: #6fa0ff;
+  --on-speak: #0b0b0d;
+  --speak-soft: #172236;
+  --review: #f2933a;
+  --review-soft: #33230f;
+  --danger: #d97a79;
+  --danger-soft: #331717;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px -6px rgba(0, 0, 0, 0.6), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  --shadow-nav: 0 -1px 0 var(--line), 0 -8px 24px -12px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 -16px 48px -12px rgba(0, 0, 0, 0.7), 0 -1px 0 var(--line);
+}
+
+/* ---- accessibility preferences (opt-in, applied on <html>) ----
+   Independent of the OS-level media queries further down. */
+:root.large-text { font-size: 112.5%; }
+:root.dyslexia, :root.dyslexia body {
+  font-family: "Comic Sans MS", "Trebuchet MS", var(--font-sans);
+  letter-spacing: 0.015em;
+  word-spacing: 0.06em;
+  line-height: 1.75;
+}
+:root.high-contrast {
+  --ink: #000000;
+  --ink-2: #1a1a1a;
+  --ink-3: #333333;
+  --line: #000000;
+}
+.dark.high-contrast,
+:root[data-theme="dark"].high-contrast {
+  --ink: #ffffff;
+  --ink-2: #ededed;
+  --ink-3: #d0d0d0;
+  --line: #ffffff;
+}
+:root.reduce-motion *,
+:root.reduce-motion *::before,
+:root.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ---- expose the tokens as Tailwind utilities (bg-surface, text-ink, …) ----
+   Apps supply the Inter webfont themselves (next/font, @font-face, or the
+   system fallback below); the stack is declared here so it stays uniform. */
+@theme inline {
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink-2);
+  --color-ink3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-onaccent: var(--on-accent);
+  --color-success: var(--success);
+  --color-successsoft: var(--success-soft);
+  --color-speak: var(--speak);
+  --color-onspeak: var(--on-speak);
+  --color-speaksoft: var(--speak-soft);
+  --color-review: var(--review);
+  --color-reviewsoft: var(--review-soft);
+  --color-danger: var(--danger);
+  --color-dangersoft: var(--danger-soft);
+  --radius-card: var(--radius);
+  --radius-cardlg: var(--radius-lg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.25s ease;
+  line-height: 1.5;
+  /* Inter: automatic optical sizing + smoothing for crisper text on retina */
+  font-optical-sizing: auto;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- type scale: tighter tracking and leading as text gets larger, the way
+   a real display face is set — Inter looks loose at headline sizes otherwise */
+h1, h2, h3, h4 { line-height: 1.22; letter-spacing: -0.014em; }
+.text-2xl, .text-3xl, .text-4xl { letter-spacing: -0.02em; }
+/* Align figures in any stat/score/progress readout so columns don't jitter */
+.tabular-nums, .font-mono { font-variant-numeric: tabular-nums; }
+h1, h2, h3 { text-wrap: balance; }
+html { -webkit-text-size-adjust: 100%; }
+
+/* ---- surfaces ----
+   Cards stay flat and rely on their 1px border; only things that genuinely
+   float get a shadow. That restraint is what keeps the interface calm. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.card-2 { background: var(--surface-2); }
+.elev-nav { box-shadow: var(--shadow-nav); }
+.elev-sheet { box-shadow: var(--shadow-lg); }
+.elev-card { box-shadow: var(--shadow-sm); }
+.elev-pop { box-shadow: var(--shadow-md); }
+
+/* ---- refined flat buttons ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.95rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    transform 0.1s ease, box-shadow 0.15s ease;
+}
+.btn:active:not(:disabled) { transform: scale(0.98); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-sm);
+}
+.btn-primary:hover:not(:disabled) { filter: brightness(0.9); }
+.dark .btn-primary:hover:not(:disabled),
+:root[data-theme="dark"] .btn-primary:hover:not(:disabled) { filter: brightness(1.12); }
+.btn-secondary {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.btn-secondary:hover:not(:disabled) { border-color: var(--ink-3); }
+.btn-ghost { background: transparent; color: var(--ink-2); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+
+/* ---- form controls ---- */
+.field {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  padding: 0.55rem 0.75rem;
+  width: 100%;
+  transition: border-color 0.15s ease;
+}
+.field::placeholder { color: var(--ink-3); }
+.field:focus { border-color: var(--ink-3); }
+.field:focus:not(:focus-visible) { outline: none; }
+
+/* ---- pills / badges ---- */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 9999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+}
+
+/* ---- press feedback, focus, motion ---- */
+button { -webkit-tap-highlight-color: transparent; }
+.btn:active, button:active { transform: scale(0.985); }
+.btn, button { transition: transform 0.06s ease-out; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+:focus:not(:focus-visible) { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- thin scrollbars on desktop ---- */
+.nice-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.nice-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 9999px; }
+.nice-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- horizontal snap rail ---- */
+.snap-rail {
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.snap-rail::-webkit-scrollbar { display: none; }
+.snap-rail > * { scroll-snap-align: start; }
+
+/* ---- motion vocabulary ---- */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.fade-in { animation: fade-in 0.25s ease-out; }
+
+@keyframes app-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.app-enter { animation: app-enter 0.35s ease-out; }
+
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.sheet-enter { animation: sheet-up 0.28s cubic-bezier(0.2, 0.9, 0.3, 1); }
+
+@keyframes bubble-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.bubble-in { animation: bubble-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.1); }
+
+/* ---- typing indicator (three bouncing dots) ---- */
+@keyframes dot-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-5px); opacity: 1; }
+}
+.typing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--ink-2);
+  animation: dot-bounce 1.2s infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+/* Progress bars animate smoothly when their width changes. */
+.bar-anim { transition: width 0.7s cubic-bezier(0.3, 0.8, 0.3, 1); }
+
+/* iOS safe areas */
+.pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0.75rem); }
+
+/* Skip link: first tab stop, visible only on focus */
+.skip-link {
+  position: absolute; left: 8px; top: -48px; z-index: 100;
+  background: var(--accent); color: var(--on-accent);
+  padding: 8px 14px; border-radius: 10px; font-size: 12px; font-weight: 600;
+  transition: top 0.15s ease-out;
+}
+.skip-link:focus { top: 8px; }
+
+/* Long-list scroll & battery: skip layout/paint for off-screen rows.
+   contain-intrinsic-size reserves height so the scrollbar stays stable. */
+.cv-list > * { content-visibility: auto; contain-intrinsic-size: auto 64px; }
+
+/* Home's primary action has its own speaking colour and a compact mode
+   vocabulary, so the studio is scannable without abandoning its calm base. */
+.home-hero {
+  position: relative;
+  overflow: hidden;
+  border-left: 4px solid var(--speak);
+  background: var(--surface);
+}
+.home-hero::after {
+  content: "";
+  position: absolute;
+  width: 132px;
+  height: 132px;
+  right: -70px;
+  top: -70px;
+  border: 1px solid var(--speak);
+  border-radius: 50%;
+  opacity: 0.2;
+  pointer-events: none;
+}
+.home-hero > * { position: relative; z-index: 1; }
+.home-brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+.home-brand-lockup .home-brand-copy { line-height: 1.1; }
+.home-mode-card {
+  position: relative;
+  display: flex;
+  min-height: 126px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 0.875rem;
+  text-align: left;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
+}
+.home-mode-card:hover { border-color: var(--mode-color); background: var(--mode-soft); }
+.home-mode-card:active { transform: scale(0.985); }
+.home-mode-card-speak { --mode-color: var(--speak); --mode-soft: var(--speak-soft); }
+.home-mode-card-review { --mode-color: var(--review); --mode-soft: var(--review-soft); }
+.home-mode-card-build { --mode-color: var(--success); --mode-soft: var(--success-soft); }
+.home-mode-icon {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 0.75rem;
+  background: var(--mode-soft);
+  color: var(--mode-color);
+}
+.home-mode-arrow {
+  position: absolute;
+  right: 0.75rem;
+  top: 0.9rem;
+  color: var(--mode-color);
+}

@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@import "./le-studio.css";
+
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+/* This app is dark by design, so layout.tsx pins `dark` on <html>. Colours now
+   come from the shared Le Studio tokens rather than its own indigo palette.
+
+   The names below predate the shared system and are kept as aliases so
+   existing markup keeps working. Prefer the shared names in new code. */
+:root {
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --panel: var(--surface);
+  --rule: var(--line);
+  --accent-strong: var(--ink-2);
+  --accent-soft: var(--surface-2);
+  --good: var(--success);
+  --bad: var(--danger);
+
+  --surface-1: var(--surface);
+  --surface-2: var(--surface-2);
+  --radius-standard: var(--radius);
+  --transition-smooth: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --color-panel: var(--surface);
+  --color-rule: var(--line);
+  --color-good: var(--success);
+  --color-bad: var(--danger);
+  --font-mono: var(--font-geist-mono);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Depth primitives, restated on the shared elevation scale -------------
+   Le Studio keeps cards flat behind a 1px border and reserves shadow for
+   things that genuinely float, so the previous gradient/glow tiers and the
+   pill gradient buttons are gone. `.btn`, `.btn-primary`, `.btn-secondary`
+   and `.btn-ghost` now come from the shared theme unchanged. */
+
+.surface-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.surface-raised {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.chip-elevated {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 9999px;
+  transition: border-color var(--transition-smooth), background-color var(--transition-smooth);
+}
+
+.chip-elevated:hover {
+  border-color: var(--ink-3);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 0.8s linear infinite;
+}
