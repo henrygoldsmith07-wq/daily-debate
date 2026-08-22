@@ -9,7 +9,9 @@ const GENERATED_RE = /\b(as an ai|as a language model)\b/i;
 const MALICIOUS_URL_RE = /(https?:\/\/[^\s]+)/gi;
 // Simple unsafe-content lexicon (offline floor; provider handles nuance)
 const UNSAFE_RE = /\b(nude|porn|explicit sexual|graphic gore|self.?harm instructions)\b/i;
-const LINK_SPAM_RE = /(https?:\/\/\S+.*){3,}/i;
+// Link spam is counted from extracted URLs (see moderateMessage) rather than a
+// regex like /(https?:\/\/\S+.*){3,}/ — that form has catastrophic backtracking
+// on adversarial link-dense input (found by reliability.stress.test.ts).
 
 export type ModerationKind =
   | "harassment"
@@ -53,7 +55,7 @@ export function moderateMessage(text: string): ModerationFlag[] {
   const urls = [...text.matchAll(MALICIOUS_URL_RE)].map((m) => m[1]);
   const malicious = urls.filter(isLikelyMaliciousUrl);
   if (malicious.length) out.push({ kind: "malicious_link", note: `Suspicious link: ${malicious[0].slice(0, 60)}`, severity: "high" });
-  if (LINK_SPAM_RE.test(text) || urls.length >= 3) out.push({ kind: "link_spam", note: `Too many links (${urls.length}) — possible spam.`, severity: "low" });
+  if (urls.length >= 3) out.push({ kind: "link_spam", note: `Too many links (${urls.length}) — possible spam.`, severity: "low" });
   return out;
 }
 

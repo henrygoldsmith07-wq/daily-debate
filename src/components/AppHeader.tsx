@@ -38,6 +38,9 @@ export default async function AppHeader() {
         <Link href="/history" className="hover:text-[var(--foreground)]">
           History
         </Link>
+        <Link href="/rate" className="hover:text-[var(--foreground)]">
+          Rate
+        </Link>
         <Link href="/benchmark" className="hover:text-[var(--foreground)]">
           Benchmark
         </Link>

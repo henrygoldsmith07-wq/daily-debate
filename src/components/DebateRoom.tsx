@@ -40,6 +40,7 @@ export default function DebateRoom({
   const aiSide = debate.side === "for" ? "against" : "for";
   const pending = turns[turns.length - 1];
   const canFinish = turns.filter((t) => t.user_message).length >= MIN_ROUNDS;
+  const runningTotal = turns.reduce((sum, t) => sum + (t.turn_score ?? 0), 0);
 
   useEffect(() => {
     // Follow new messages only while the reader is already near the bottom;
@@ -191,6 +192,7 @@ export default function DebateRoom({
         </p>
         <p className="tabular text-sm text-ink3">
           Round {roundCount} {roundCount < MIN_ROUNDS && `· ${MIN_ROUNDS - roundCount + 1} to go`}
+          {runningTotal > 0 && ` · ${runningTotal} pts so far`}
         </p>
       </div>
 

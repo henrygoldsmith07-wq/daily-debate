@@ -18,11 +18,32 @@ export default async function LeaderboardPage() {
   const ratings = user ? await getFactorRatings(supabase, user.id) : null;
   const list = profiles ?? [];
 
+  // Absolute rank for the signed-in player, even when they sit outside the
+  // top 50 shown in the table.
+  let yourRank: number | null = null;
+  if (user) {
+    const { data: mine } = await supabase.from("profiles").select("total_points").eq("id", user.id).single();
+    if (mine) {
+      const { count } = await supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .gt("total_points", mine.total_points);
+      yourRank = (count ?? 0) + 1;
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col">
       <AppHeader />
       <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Leaderboard</h1>
+        <div className="flex items-baseline justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Leaderboard</h1>
+          {yourRank !== null && (
+            <p className="tabular text-sm text-ink3">
+              You&apos;re <span className="font-medium text-[var(--foreground)]">#{yourRank}</span>
+            </p>
+          )}
+        </div>
         {ratings && <RatingBreakdown ratings={ratings} />}
         <div className="surface-card overflow-hidden">
           {list.length === 0 ? (

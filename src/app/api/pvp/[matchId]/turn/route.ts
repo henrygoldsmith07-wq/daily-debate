@@ -3,7 +3,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { isSuspiciousLength, repeatScore } from "@/lib/moderation";
-import type { InputMode, PvpVerdict } from "@/lib/types";
+import { TURN_ABANDON_MINUTES, type InputMode, type PvpVerdict } from "@/lib/types";
 
 async function awardPoints(userId: string, points: number) {
   const service = createServiceClient();
@@ -91,6 +91,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     return NextResponse.json({ error: "Not your turn." }, { status: 409 });
   }
 
+  // Late submission: turns expire. The waiting opponent may claim a forfeit
+  // once the window lapses, so a stale submission must not count.
+  const turnStarted = match.turn_started_at ? new Date(match.turn_started_at).getTime() : null;
+  const abandonMs = TURN_ABANDON_MINUTES * 60_000;
+  if (turnStarted && Date.now() - turnStarted > abandonMs) {
+    return NextResponse.json(
+      { error: `Turn expired (${TURN_ABANDON_MINUTES} min limit). Your opponent may claim the match.` },
+      { status: 409 },
+    );
+  }
+
   // Idempotency / duplicate event: if same round+player already has this exact message, return existing without re-scoring
   const { data: existingTurns } = await supabase.from("pvp_turns").select("*").eq("match_id", matchId).order("created_at", { ascending: true });
   const isDuplicate = existingTurns?.some((t) => t.player_id === user.id && t.round_number === match.current_round && t.message === message);
@@ -138,7 +149,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     // Use optimistic concurrency: only advance if still on expected round (prevents simultaneous submission race)
     const { error: advError } = await supabase
       .from("pvp_matches")
-      .update({ current_round: nextRound, current_turn_player: nextTurnPlayer })
+      .update({ current_round: nextRound, current_turn_player: nextTurnPlayer, turn_started_at: new Date().toISOString() })
       .eq("id", matchId)
       .eq("current_round", match.current_round)
       .eq("current_turn_player", user.id);

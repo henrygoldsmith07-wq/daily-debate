@@ -10,11 +10,20 @@ const FACTORS: (keyof TurnScores)[] = ["depth", "evidence", "logic", "rebuttal",
 
 // Averages the five observable-feature projections across a user's scored
 // solo-debate turns, giving a profile rather than a single point total.
+// Deliberately windowed to RECENT debates: an all-time average dilutes signal
+// as the debater improves, while the last few sessions show current form.
+const RECENT_DEBATE_WINDOW = 10;
+
 export async function getFactorRatings(
   supabase: SupabaseClient<Database>,
   userId: string,
 ): Promise<FactorRatings | null> {
-  const { data: debates } = await supabase.from("solo_debates").select("id").eq("user_id", userId);
+  const { data: debates } = await supabase
+    .from("solo_debates")
+    .select("id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(RECENT_DEBATE_WINDOW);
   const debateIds = (debates ?? []).map((d) => d.id);
   if (debateIds.length === 0) return null;
 

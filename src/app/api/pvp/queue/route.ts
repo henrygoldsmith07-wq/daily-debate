@@ -63,6 +63,7 @@ export async function POST(request: Request) {
       player_a_side: playerASide,
       round_limit: PVP_ROUNDS,
       current_turn_player: opponentRow.user_id,
+      turn_started_at: new Date().toISOString(),
     })
     .select("*")
     .single();

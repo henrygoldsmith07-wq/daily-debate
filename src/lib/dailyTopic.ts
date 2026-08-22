@@ -1,5 +1,6 @@
 import { createServiceClient } from "./supabase/server";
 import { generateDailyTopic } from "./gemini";
+import { sanitizeGeneratedTopic } from "./topicSanitizer";
 import type { DailyTopic } from "./types";
 
 function todayIso(): string {
@@ -27,7 +28,7 @@ export async function getOrCreateTodayTopic(): Promise<DailyTopic> {
     .order("topic_date", { ascending: false })
     .limit(14);
 
-  const generated = await generateDailyTopic((recent ?? []).map((row) => row.title as string));
+  const generated = sanitizeGeneratedTopic(await generateDailyTopic((recent ?? []).map((row) => row.title as string)));
 
   const { data: inserted, error } = await supabase
     .from("daily_topics")

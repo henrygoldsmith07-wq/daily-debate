@@ -124,6 +124,25 @@ Live-model note: run the real Gemini/Anthropic judge twice per fixture with each
 - Live-model judge invariance e2e (real Gemini calls) still needs an API key — fixtures + `judgeInvariance` transforms are ready for it.
 - Article-level citation verification (fetch the URL and check the excerpt) is a future server action; the offline allowlist is the floor.
 
+## Human-evaluation corpus population pipeline
+
+The evaluation pipeline (six-dimension rubric, inter-rater reliability → comparison → calibration → bias) needs a real human-labelled corpus. Migration `008_corpus_pipeline.sql` plus `src/app/api/corpus/*` add the collection tooling:
+
+- `POST /api/corpus/import` *(admin)* — imports finished solo/PvP debates as anonymised items: sides become "Side A"/"Side B", contributor identity and AI/user mapping stay server-side (`corpus_items.contributor_id` / `side_mapping`, never exposed to raters). Stratified by length bucket, topic category, and ability band.
+- `GET/POST /api/corpus/rate` — blind rating: raters get the next open item they didn't author and haven't rated, submit six-dimension scores per side + winner + confidence; double-submission blocked by unique constraint; self-rating rejected.
+- `GET /api/corpus/reliability` *(admin)* — human-human reliability FIRST: per-dimension ICC across raters, pairwise winner Cohen's κ, strata coverage (length × ability × subject), and an `agreementReady` count. System-vs-human accuracy is only meaningful over those agreement-ready items.
+- `POST /api/corpus/adjudicate` *(admin)* — settles disputed items by rater majority or explicit override.
+
+Set `CORPUS_ADMIN_EMAILS` to enable admin endpoints (closed when unset). Until this corpus is populated and humans agree with each other, the evidence registry's status stands: scoring evidence remains synthetic-only.
+
+Raters use **`/rate`** in the app: blind transcript, six-dimension 1–5 scoring per side, winner + confidence + rationale. Once items are `agreementReady`, admins can run **`POST /api/corpus/system-comparison`** — it judges those items with the live ensemble and reports winner agreement against human consensus. That number (plus ≥70% agreement on a large corpus) is what eventually un-gates ranked play; until then it stays synthetic-only in the evidence registry.
+
+## PvP reliability
+
+- One turn per `(match, player, round)` enforced by a DB unique index (008), backing the API's concurrency guards.
+- Turn timestamps (`pvp_matches.turn_started_at`) power late-submission rejection (>30 min) and forfeit claims (`POST /api/pvp/[matchId]/forfeit`) so abandoned matches resolve without fabricating a judge score.
+- The room resyncs on focus/tab-visible and falls back to snapshot polling if Realtime drops; stress suites fuzz source verification + moderation (they caught and killed a ReDoS in link-spam detection).
+
 ## Roadmap
 
 - [`docs/roadmap.md`](docs/roadmap.md) — evaluation corpus, judge bias benchmarks, and the gated path to ranked/tournament/classroom play.

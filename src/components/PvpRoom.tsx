@@ -5,7 +5,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import MessageComposer from "./MessageComposer";
 import { VerdictExplainPanel } from "./ArgGraphView";
-import type { InputMode, PvpMatch, PvpTurn } from "@/lib/types";
+import type { InputMode, PvpMatch, PvpTurn, PvpVerdict } from "@/lib/types";
+import { TURN_ABANDON_MINUTES } from "@/lib/types";
 
 export default function PvpRoom({
   match: initialMatch,
@@ -27,7 +28,7 @@ export default function PvpRoom({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [nowTs, setNowTs] = useState<number | null>(null);  const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
 
   useEffect(() => {
@@ -36,6 +37,43 @@ export default function PvpRoom({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [turns.length, sending]);
+
+  // Re-evaluate forfeit eligibility periodically while waiting on opponent.
+  const waitingOnOpponent = match.status === "active" && match.current_turn_player !== currentUserId;
+  useEffect(() => {
+    if (!waitingOnOpponent) return;
+    // Async so the lint no-sync-setState-in-effect rule stays satisfied.
+    const tick = () => setNowTs(Date.now());
+    const initial = setTimeout(tick, 0);
+    const timer = setInterval(tick, 30_000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(timer);
+    };
+  }, [waitingOnOpponent]);
+
+  const turnElapsedMin =
+    match.turn_started_at && nowTs ? (nowTs - new Date(match.turn_started_at).getTime()) / 60_000 : 0;
+  const canClaimForfeit =
+    match.status === "active" &&
+    match.current_turn_player !== null &&
+    match.current_turn_player !== currentUserId &&
+    turnElapsedMin > TURN_ABANDON_MINUTES;
+
+  async function claimForfeit() {
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/pvp/${match.id}/forfeit`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to claim forfeit.");
+      setMatch((prev) => ({ ...prev, status: "completed", winner_id: currentUserId, judge_verdict: data.verdict as PvpVerdict }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to claim forfeit.");
+    } finally {
+      setSending(false);
+    }
+  }
 
   // Full-state reconciliation: merges match + turns from the server so a
   // reconnecting client (or one that slept through events) resyncs exactly.
@@ -196,7 +234,24 @@ export default function PvpRoom({
         myTurn ? (
           <MessageComposer onSubmit={submitTurn} disabled={sending} />
         ) : (
-          <p className="text-center text-sm text-ink3">Waiting for your opponent…</p>
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-center text-sm text-ink3">Waiting for your opponent…</p>
+            {match.turn_started_at && nowTs && !canClaimForfeit && (
+              <p className="text-center text-xs text-ink3">
+                Forfeit claimable in ~{Math.max(1, Math.ceil(TURN_ABANDON_MINUTES - turnElapsedMin))} min
+              </p>
+            )}
+            {canClaimForfeit && (
+              <button
+                type="button"
+                onClick={claimForfeit}
+                disabled={sending}
+                className="btn btn-ghost px-4 py-1.5 text-xs text-[var(--bad)] disabled:opacity-40"
+              >
+                Opponent timed out — claim win by forfeit
+              </button>
+            )}
+          </div>
         )
       ) : (
         <div className="flex flex-col gap-4">

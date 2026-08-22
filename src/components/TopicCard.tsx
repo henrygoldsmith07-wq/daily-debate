@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { isKnownSource } from "@/lib/citationVerifier";
 import type { DailyTopic, DebateSide } from "@/lib/types";
 
 export default function TopicCard({ topic, activeDebateId }: { topic: DailyTopic; activeDebateId: string | null }) {
@@ -41,19 +42,30 @@ export default function TopicCard({ topic, activeDebateId }: { topic: DailyTopic
       <div>
         <p className="mb-2 text-xs uppercase tracking-wide text-ink3">Credible sources to consider</p>
         <ul className="flex flex-col gap-2">
-          {topic.sources.map((source) => (
-            <li key={source.name} className="text-sm text-ink3">
-              <a
-                href={source.homepage}
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium text-ink hover:underline"
-              >
-                {source.name}
-              </a>{" "}
-              — {source.angle}
-            </li>
-          ))}
+          {topic.sources.map((source) => {
+            // Offline allowlist check: flag institutions we can't vouch for so
+            // a hallucinated "source" is visible before anyone cites it.
+            const known = isKnownSource(source.name);
+            return (
+              <li key={source.name} className="text-sm text-ink3">
+                <a
+                  href={source.homepage}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-ink hover:underline"
+                >
+                  {known ? <span className="mr-1 text-[var(--accent)]" title="Verified institution">✓</span> : null}
+                  {source.name}
+                </a>
+                {!known && (
+                  <span className="ml-1 text-xs text-amber-600" title="Not in the verified-source allowlist — double-check before citing">
+                    ⚠ unverified
+                  </span>
+                )}{" "}
+                — {source.angle}
+              </li>
+            );
+          })}
         </ul>
       </div>
 

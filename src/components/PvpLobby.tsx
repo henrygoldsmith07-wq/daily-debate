@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PVP_ROUNDS } from "@/lib/types";
 
@@ -8,7 +9,24 @@ export default function PvpLobby() {
   const router = useRouter();
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    // Surface an already-active match so a returning player doesn't try to
+    // re-queue (the API would just bounce them back anyway).
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/pvp/queue", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.match?.id) setActiveMatchId(data.match.id);
+      } catch {
+        // non-critical
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -65,6 +83,11 @@ export default function PvpLobby() {
 
   return (
     <div className="surface-card flex flex-col items-center gap-4 p-8 text-center">
+      {activeMatchId && !searching && (
+        <Link href={`/pvp/${activeMatchId}`} className="btn btn-primary w-full px-4 py-2 text-sm">
+          Return to your active match →
+        </Link>
+      )}
       {searching ? (
         <>
           <p className="text-sm text-ink3">Looking for an opponent on today&apos;s topic…</p>

@@ -53,6 +53,22 @@ test.describe("pvp + history surfaces", () => {
     }
   });
 
+  test("rate page renders rater guidance or auth-gates", async ({ page }) => {
+    await page.goto("/rate");
+    await page.waitForLoadState("domcontentloaded");
+    const url = page.url();
+    if (url.includes("/login")) {
+      await expect(page.locator("body")).toBeVisible();
+    } else {
+      await expect(page.getByText(/Blind-rate a debate/i).first()).toBeVisible({ timeout: 15000 });
+      await expect(page.getByText(/Rater guidance/i).first()).toBeVisible();
+      // The six rubric dimensions must be visible to the rater.
+      for (const dim of [/Evidence quality/i, /Reasoning/i, /Relevance/i, /Rebuttal quality/i, /Logical validity/i, /Source quality/i]) {
+        await expect(page.getByText(dim).first()).toBeVisible();
+      }
+    }
+  });
+
   test("authenticated two-player pvp flow: queue, alternate turns, verdict", async ({ browser }) => {
     test.skip(!HAS_E2E_BACKEND, "Requires E2E_SUPABASE_URL/E2E_SUPABASE_ANON_KEY with a seeded project and two accounts");
     const ctxA = await browser.newContext();

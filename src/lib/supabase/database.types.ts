@@ -66,6 +66,7 @@ export type PvpMatchRow = {
   round_limit: number;
   current_round: number;
   current_turn_player: string | null;
+  turn_started_at: string | null;
   winner_id: string | null;
   judge_verdict: unknown;
   created_at: string;
@@ -125,6 +126,36 @@ export type ReportRow = {
   created_at: string;
 };
 
+export type CorpusItemRow = {
+  id: string;
+  transcript: string;
+  topic: string | null;
+  source_type: string;
+  source_id: string | null;
+  contributor_id: string;
+  side_mapping: unknown;
+  length_bucket: string;
+  subject_category: string | null;
+  ability_band: string;
+  topic_id: string | null;
+  topic_title: string;
+  topic_prompt: string;
+  status: string;
+  created_at: string;
+};
+
+export type CorpusRatingRow = {
+  id: string;
+  corpus_id: string;
+  rater_id: string;
+  scores_a: unknown;
+  scores_b: unknown;
+  winner: string;
+  confidence: number | null;
+  rationale: string;
+  created_at: string;
+};
+
 type TableDef<Row> = { Row: Row; Insert: Partial<Row>; Update: Partial<Row>; Relationships: [] };
 
 export type Database = {
@@ -144,6 +175,8 @@ export type Database = {
       benchmark_corpus: TableDef<BenchmarkCorpusRow>;
       match_appeals: TableDef<MatchAppealRow>;
       reports: TableDef<ReportRow>;
+      corpus_items: TableDef<CorpusItemRow>;
+      corpus_ratings: TableDef<CorpusRatingRow>;
     };
     Views: Record<string, never>;
     Functions: {
