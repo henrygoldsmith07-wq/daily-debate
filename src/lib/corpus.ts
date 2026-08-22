@@ -83,6 +83,75 @@ export function completeScores(partial: Partial<SideScores>, fallback = 3): Side
   return out;
 }
 
+// --- Population tracking ----------------------------------------------------
+// The benchmark target: 500-1,000+ real debates, >=2 blind raters each,
+// spread across subjects, ability bands, and argument lengths. These helpers
+// make collection progress measurable instead of anecdotal.
+
+export const POPULATION_TARGET_ITEMS = 500;
+/** Minimum corpus items per stratum cell (length bucket / ability band). */
+export const STRATUM_MINIMUM = 30;
+
+/** Canonical strata — zero-coverage cells must be flagged, not invisible. */
+export const LENGTH_BUCKETS = ["short", "medium", "long"] as const;
+export const ABILITY_BANDS = ["novice", "intermediate", "advanced"] as const;
+
+export interface PopulationItemSummary {
+  id?: string;
+  length_bucket: string;
+  ability_band: string;
+  subject_category: string | null;
+}
+
+export interface PopulationProgress {
+  totalItems: number;
+  fullyRatedItems: number;
+  targetItems: number;
+  remainingToTarget: number;
+  byLength: Record<string, number>;
+  byAbility: Record<string, number>;
+  bySubject: Record<string, number>;
+  /** Stratum cells still below STRATUM_MINIMUM — where recruitment should aim. */
+  cellsNeedingCoverage: string[];
+}
+
+export function populationProgress(
+  items: PopulationItemSummary[],
+  ratingCounts: Map<string, number>,
+): PopulationProgress {
+  const byLength: Record<string, number> = {};
+  const byAbility: Record<string, number> = {};
+  const bySubject: Record<string, number> = {};
+  let fullyRated = 0;
+
+  for (const item of items) {
+    byLength[item.length_bucket] = (byLength[item.length_bucket] ?? 0) + 1;
+    byAbility[item.ability_band] = (byAbility[item.ability_band] ?? 0) + 1;
+    const subj = item.subject_category ?? "unknown";
+    bySubject[subj] = (bySubject[subj] ?? 0) + 1;
+    if ((ratingCounts.get(item.id ?? "") ?? 0) >= MIN_RATERS_PER_ITEM) fullyRated += 1;
+  }
+
+  const cellsNeedingCoverage: string[] = [];
+  for (const bucket of LENGTH_BUCKETS) {
+    if ((byLength[bucket] ?? 0) < STRATUM_MINIMUM) cellsNeedingCoverage.push(`length:${bucket}`);
+  }
+  for (const band of ABILITY_BANDS) {
+    if ((byAbility[band] ?? 0) < STRATUM_MINIMUM) cellsNeedingCoverage.push(`ability:${band}`);
+  }
+
+  return {
+    totalItems: items.length,
+    fullyRatedItems: fullyRated,
+    targetItems: POPULATION_TARGET_ITEMS,
+    remainingToTarget: Math.max(0, POPULATION_TARGET_ITEMS - items.length),
+    byLength,
+    byAbility,
+    bySubject,
+    cellsNeedingCoverage,
+  };
+}
+
 // --- System-vs-human comparison ---------------------------------------------
 
 export function oppositeStance(stance: "for" | "against"): "for" | "against" {

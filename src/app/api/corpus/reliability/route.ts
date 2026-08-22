@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { isCorpusAdmin, completeScores } from "@/lib/corpus";
+import { isCorpusAdmin, completeScores, populationProgress } from "@/lib/corpus";
 import { iccTwoWay, EVAL_DIMENSIONS, type SideScores } from "@/lib/debateEvaluation";
 import { cohenKappa } from "@/lib/humanCorpus";
 import type { WinnerLabel } from "@/lib/humanCorpus";
@@ -61,11 +61,15 @@ export async function GET() {
   // Winner agreement per item; disagreement → flagged for adjudication.
   let agreementReady = 0;
   let needsAdjudication = 0;
-  for (const itemRatings of byItem.values()) {
+  const adjudicationQueue: Array<{ id: string; verdicts: WinnerLabel[] }> = [];
+  for (const [itemId, itemRatings] of byItem) {
     if (itemRatings.length < 2) continue;
     const winners = itemRatings.map((r) => r.winner as WinnerLabel);
     if (winners.every((w) => w === winners[0])) agreementReady += 1;
-    else needsAdjudication += 1;
+    else {
+      needsAdjudication += 1;
+      if (adjudicationQueue.length < 50) adjudicationQueue.push({ id: itemId, verdicts: winners });
+    }
   }
 
   // Cohen's kappa per rater pair over their commonly-rated items.
@@ -88,26 +92,45 @@ export async function GET() {
 
   // Strata coverage — population targets need spread across subjects,
   // ability levels, and argument lengths.
-  const strata = {
-    byLength: {} as Record<string, number>,
-    byAbility: {} as Record<string, number>,
-    bySubject: {} as Record<string, number>,
-  };
-  for (const item of items ?? []) {
-    strata.byLength[item.length_bucket] = (strata.byLength[item.length_bucket] ?? 0) + 1;
-    strata.byAbility[item.ability_band] = (strata.byAbility[item.ability_band] ?? 0) + 1;
-    const subj = item.subject_category ?? "unknown";
-    strata.bySubject[subj] = (strata.bySubject[subj] ?? 0) + 1;
+  const ratingCounts = new Map<string, number>();
+  for (const r of (ratingRows ?? []) as RatingRow[]) {
+    ratingCounts.set(r.corpus_id, (ratingCounts.get(r.corpus_id) ?? 0) + 1);
   }
+  const progress = populationProgress(
+    (items ?? []).map((i) => ({
+      id: i.id,
+      length_bucket: i.length_bucket,
+      ability_band: i.ability_band,
+      subject_category: i.subject_category,
+    })),
+    ratingCounts,
+  );
+  const confidences = ((ratingRows ?? []) as Array<RatingRow & { confidence?: number | null }>)
+    .map((r) => r.confidence)
+    .filter((c): c is number => typeof c === "number");
 
   return NextResponse.json({
-    totalItems: (items ?? []).length,
+    totalItems: progress.totalItems,
+    fullyRatedItems: progress.fullyRatedItems,
     ratedItems: byItem.size,
     agreementReady,
     needsAdjudication,
+    adjudicationQueue,
     meanWinnerKappa: kappas.length ? Number((kappas.reduce((s, k) => s + k, 0) / kappas.length).toFixed(3)) : null,
     perDimensionIcc,
-    strata,
+    strata: {
+      byLength: progress.byLength,
+      byAbility: progress.byAbility,
+      bySubject: progress.bySubject,
+    },
+    population: {
+      targetItems: progress.targetItems,
+      remainingToTarget: progress.remainingToTarget,
+      cellsNeedingCoverage: progress.cellsNeedingCoverage,
+      meanRaterConfidence: confidences.length
+        ? Number((confidences.reduce((s, c) => s + c, 0) / confidences.length).toFixed(3))
+        : null,
+    },
     note: "System-vs-human accuracy must only be computed over agreementReady items.",
   });
 }

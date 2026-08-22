@@ -8,6 +8,8 @@ import {
   completeScores,
   oppositeStance,
   aggregateSystemComparison,
+  populationProgress,
+  POPULATION_TARGET_ITEMS,
 } from "./corpus";
 
 describe("corpus admin gating", () => {
@@ -103,5 +105,53 @@ describe("system-vs-human comparison", () => {
 
   it("reports null rate when nothing was judged", () => {
     expect(aggregateSystemComparison([])).toEqual({ judged: 0, agree: 0, disagreement: 0, agreementRate: null });
+  });
+});
+
+describe("population progress", () => {
+  const item = (id: string, length: string, ability: string, subject: string | null) => ({
+    id,
+    length_bucket: length,
+    ability_band: ability,
+    subject_category: subject,
+  });
+
+  it("counts fully-rated items against the >=2-raters requirement", () => {
+    const items = [item("a", "short", "novice", "Tech"), item("b", "long", "advanced", "Ethics")];
+    const counts = new Map([
+      ["a", 2],
+      ["b", 1],
+    ]);
+    const p = populationProgress(items, counts);
+    expect(p.totalItems).toBe(2);
+    expect(p.fullyRatedItems).toBe(1);
+    expect(p.remainingToTarget).toBe(POPULATION_TARGET_ITEMS - 2);
+  });
+
+  it("flags stratum cells below the minimum so recruitment has targets", () => {
+    const items = Array.from({ length: 40 }, (_, i) => item(`s${i}`, "short", "novice", "Tech"));
+    items.push(item("lonely", "long", "advanced", null));
+    const p = populationProgress(items, new Map());
+    expect(p.byLength).toEqual({ short: 40, long: 1 });
+    expect(p.cellsNeedingCoverage).toContain("length:long");
+    expect(p.cellsNeedingCoverage).toContain("ability:intermediate");
+    expect(p.cellsNeedingCoverage).toContain("ability:advanced");
+    expect(p.cellsNeedingCoverage).not.toContain("length:short");
+    // Null subjects land in an explicit "unknown" bucket, never silently dropped.
+    expect(p.bySubject.unknown).toBe(1);
+  });
+
+  it("handles an empty corpus without throwing — every cell needs coverage", () => {
+    const p = populationProgress([], new Map());
+    expect(p.totalItems).toBe(0);
+    expect(p.fullyRatedItems).toBe(0);
+    expect(p.cellsNeedingCoverage).toEqual([
+      "length:short",
+      "length:medium",
+      "length:long",
+      "ability:novice",
+      "ability:intermediate",
+      "ability:advanced",
+    ]);
   });
 });
