@@ -172,12 +172,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
   let verdict: PvpVerdict;
   try {
-    // Route every judged match through the ensemble harness: it runs Gemini and
-    // Anthropic in parallel (whichever keys are present), falls back to a single
-    // judge when only one key is set, and always yields uncertainty fields
-    // (confidence, score CI, winner posterior, "too close to call").
-    if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
-      throw new Error("No judge configured (set GEMINI_API_KEY or ANTHROPIC_API_KEY).");
+    // Route every judged match through the ensemble harness: it runs OpenRouter
+    // and Anthropic in parallel (whichever keys are present), falls back to a
+    // single judge when only one key is set, and always yields uncertainty
+    // fields (confidence, score CI, winner posterior, "too close to call").
+    if (!process.env.OPENROUTER_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+      throw new Error("No judge configured (set OPENROUTER_API_KEY or ANTHROPIC_API_KEY).");
     }
     const { liveEnsembleJudge, verdictFromEnsemble } = await import("@/lib/ensembleJudge");
     const ensemble = await liveEnsembleJudge({

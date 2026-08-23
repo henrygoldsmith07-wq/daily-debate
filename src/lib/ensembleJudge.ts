@@ -1,12 +1,12 @@
 // Ensemble judges + confidence intervals / calibration.
-// Combines Gemini + Anthropic verdicts, adds explicit uncertainty, and avoids
+// Combines OpenRouter + Anthropic verdicts, adds explicit uncertainty, and avoids
 // pretending tiny score differences are meaningful. Used by the public benchmark
 // and by PvP when live keys are present; falls back to single-judge otherwise.
 
 import type { PvpJudgeResult, PvpVerdict } from "./types";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
 
-export type JudgeId = "gemini" | "anthropic";
+export type JudgeId = "openrouter" | "anthropic";
 export interface JudgedVerdict extends PvpJudgeResult {
   judgeId: JudgeId;
   latencyMs?: number;
@@ -25,7 +25,7 @@ export interface EnsembleResult {
   // Uncertainty
   scoreCI: { lo: number; hi: number }; // 95% CI for scoreGap (normal approx over judge scores)
   winnerCI: { a: number; b: number; tie: number }; // posterior over winner from judge votes
-  // Which argGraph to show (prefer the majority winner's graph, or Gemini's if tie)
+  // Which argGraph to show (prefer the majority winner's graph, or OpenRouter's if tie)
   argGraph?: PvpJudgeResult["argGraph"];
   rationale: string;
   decidingFactor?: string;
@@ -185,7 +185,7 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
   }
 }
 
-/** Live ensemble: runs Gemini and Anthropic judges in parallel (best-effort). Returns whatever succeeded. */
+/** Live ensemble: runs OpenRouter and Anthropic judges in parallel (best-effort). Returns whatever succeeded. */
 export async function liveEnsembleJudge(params: {
   topicTitle: string;
   topicPrompt: string;
@@ -194,10 +194,10 @@ export async function liveEnsembleJudge(params: {
 }): Promise<EnsembleResult> {
   const settled = await Promise.allSettled([
     (async (): Promise<JudgedVerdict> => {
-      const gemini = await import("./gemini");
+      const openrouter = await import("./openrouter");
       const t0 = Date.now();
-      const r = await withTimeout(gemini.judgePvpMatch(params), JUDGE_TIMEOUT_MS, "gemini");
-      return { ...r, judgeId: "gemini" as const, latencyMs: Date.now() - t0 };
+      const r = await withTimeout(openrouter.judgePvpMatch(params), JUDGE_TIMEOUT_MS, "openrouter");
+      return { ...r, judgeId: "openrouter" as const, latencyMs: Date.now() - t0 };
     })(),
     (async (): Promise<JudgedVerdict> => {
       const anthropic = await import("./anthropic");

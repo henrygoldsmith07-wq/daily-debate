@@ -1,5 +1,5 @@
 // Moderation & anti-cheat helpers — pure, offline.
-// Real moderation will call a provider (Gemini/Anthropic) but these are the fast local guards.
+// Real moderation will call a provider (OpenRouter/Anthropic) but these are the fast local guards.
 // Scoring is never distorted by moderation: flags are surfaced separately and the judge
 // scores only argument structure. Moderation can hide/block a message but does not add/subtract points.
 

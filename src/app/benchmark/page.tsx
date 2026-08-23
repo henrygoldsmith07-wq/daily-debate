@@ -42,7 +42,7 @@ export default function BenchmarkPage() {
           <p className="text-xs uppercase tracking-wide text-ink3">Benchmark</p>
           <h1 className="text-2xl font-semibold tracking-tight">Judge benchmark — how Daily Debate proves its judges</h1>
           <p className="mt-2 text-sm text-ink3">
-            Mock-harness numbers run on every CI turn (no keys needed). Live-model numbers appear when GEMINI_API_KEY / ANTHROPIC_API_KEY are set — see{" "}
+            Mock-harness numbers run on every CI turn (no keys needed). Live-model numbers appear when OPENROUTER_API_KEY / ANTHROPIC_API_KEY are set — see{" "}
             <code className="rounded bg-surface-2 px-1 py-0.5 text-xs">scripts/benchmark-judges.mjs</code>.
           </p>
         </div>
@@ -96,7 +96,7 @@ export default function BenchmarkPage() {
             </table>
           </div>
           <p className="mt-2 text-xs text-ink3">
-            Live: the same probes call Gemini + Anthropic twice per transcript (transformed vs original) and report flip-rate + exact binomial p-value with
+            Live: the same probes call OpenRouter + Anthropic twice per transcript (transformed vs original) and report flip-rate + exact binomial p-value with
             effect size. Run <code className="text-xs">node scripts/benchmark-judges.mjs --bias</code> with keys set.
           </p>
         </section>

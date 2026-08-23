@@ -1,5 +1,5 @@
 import { createServiceClient } from "./supabase/server";
-import { generateDailyTopic } from "./gemini";
+import { generateDailyTopic } from "./openrouter";
 import { generateDailyTopic as anthropicGenerateTopic } from "./anthropic";
 import { withProviderFallback } from "./aiFallback";
 import { isValidGeneratedTopic } from "./aiSchema";
@@ -10,7 +10,7 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Returns today's topic, generating and persisting one via Gemini the first
+// Returns today's topic, generating and persisting one via OpenRouter the first
 // time it's requested each day. Uses the service client so any signed-in
 // user can trigger generation without needing elevated RLS permissions.
 export async function getOrCreateTodayTopic(): Promise<DailyTopic> {

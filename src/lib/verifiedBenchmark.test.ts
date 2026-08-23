@@ -138,7 +138,7 @@ describe("bias probes — statistical, offline", () => {
 
 describe("ensemble + uncertainty", () => {
   it("single judge: confidence derived from gap", () => {
-    const j: PvpJudgeResult & { judgeId: "gemini" } = { winner: "a", playerAScore: 78, playerBScore: 62, rationale: "A wins on evidence", judgeId: "gemini" };
+    const j: PvpJudgeResult & { judgeId: "openrouter" } = { winner: "a", playerAScore: 78, playerBScore: 62, rationale: "A wins on evidence", judgeId: "openrouter" };
     const e = ensembleVerdicts([j]);
     expect(e.winner).toBe("a");
     expect(e.confidence).toBeGreaterThan(0.5);
@@ -146,7 +146,7 @@ describe("ensemble + uncertainty", () => {
   });
 
   it("two judges agreeing => higher confidence than one", () => {
-    const a: PvpJudgeResult & { judgeId: "gemini" } = { winner: "a", playerAScore: 80, playerBScore: 60, rationale: "A", judgeId: "gemini" };
+    const a: PvpJudgeResult & { judgeId: "openrouter" } = { winner: "a", playerAScore: 80, playerBScore: 60, rationale: "A", judgeId: "openrouter" };
     const b: PvpJudgeResult & { judgeId: "anthropic" } = { winner: "a", playerAScore: 78, playerBScore: 62, rationale: "A", judgeId: "anthropic" };
     const two = ensembleVerdicts([a, b]);
     const one = ensembleVerdicts([a]);
@@ -156,7 +156,7 @@ describe("ensemble + uncertainty", () => {
   });
 
   it("disagreeing judges => tie or low confidence", () => {
-    const a: PvpJudgeResult & { judgeId: "gemini" } = { winner: "a", playerAScore: 72, playerBScore: 68, rationale: "A", judgeId: "gemini" };
+    const a: PvpJudgeResult & { judgeId: "openrouter" } = { winner: "a", playerAScore: 72, playerBScore: 68, rationale: "A", judgeId: "openrouter" };
     const b: PvpJudgeResult & { judgeId: "anthropic" } = { winner: "b", playerAScore: 68, playerBScore: 72, rationale: "B", judgeId: "anthropic" };
     const e = ensembleVerdicts([a, b]);
     expect(e.isTie).toBe(true);
@@ -164,7 +164,7 @@ describe("ensemble + uncertainty", () => {
   });
 
   it("small gap < threshold => tie", () => {
-    const j: PvpJudgeResult & { judgeId: "gemini" } = { winner: "a", playerAScore: 70, playerBScore: 69, rationale: "A", judgeId: "gemini" };
+    const j: PvpJudgeResult & { judgeId: "openrouter" } = { winner: "a", playerAScore: 70, playerBScore: 69, rationale: "A", judgeId: "openrouter" };
     expect(ensembleVerdicts([j]).isTie).toBe(true);
   });
 });

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Live judge benchmark: runs real Gemini + Anthropic judges over the corpus,
+// Live judge benchmark: runs real OpenRouter + Anthropic judges over the corpus,
 // computes bias probes with significance, ensemble, correlation and calibration.
 // Usage:
-//   GEMINI_API_KEY=... ANTHROPIC_API_KEY=... node apps/daily-debate/scripts/benchmark-judges.mjs [--corpus 50] [--bias]
+//   OPENROUTER_API_KEY=... ANTHROPIC_API_KEY=... node scripts/benchmark-judges.mjs [--corpus 50] [--bias]
 //
 // Outputs JSON to stdout and a human summary to stderr.
 // Exit code 0 always (don't break CI when keys are missing — just report).
@@ -19,11 +19,11 @@ const out = (o) => process.stdout.write(JSON.stringify(o, null, 2) + "\n");
 const log = (...a) => process.stderr.write(a.join(" ") + "\n");
 
 async function main() {
-  const hasGemini = !!process.env.GEMINI_API_KEY;
+  const hasOpenRouter = !!process.env.OPENROUTER_API_KEY;
   const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
-  if (!hasGemini && !hasAnthropic) {
+  if (!hasOpenRouter && !hasAnthropic) {
     const stub = {
-      skipped: "No GEMINI_API_KEY / ANTHROPIC_API_KEY set — run with keys to exercise live judges.",
+      skipped: "No OPENROUTER_API_KEY / ANTHROPIC_API_KEY set — run with keys to exercise live judges.",
       offline: { hint: "Mock probes still run in `npm test` (src/lib/benchmarks.test.ts)." },
     };
     out(stub);
@@ -46,13 +46,13 @@ async function main() {
     out({ error: "No corpus loaded" });
     return;
   }
-  log(`[benchmark-judges] corpus=${pool.length} gemini=${hasGemini} anthropic=${hasAnthropic} bias=${doBias}`);
+  log(`[benchmark-judges] corpus=${pool.length} openrouter=${hasOpenRouter} anthropic=${hasAnthropic} bias=${doBias}`);
   const judges = [];
-  if (hasGemini) {
+  if (hasOpenRouter) {
     try {
-      const gemini = await import("../src/lib/gemini.ts");
-      judges.push({ id: "gemini", fn: gemini.judgePvpMatch });
-    } catch (e) { log("gemini import failed", String(e?.message ?? e)); }
+      const openrouter = await import("../src/lib/openrouter.ts");
+      judges.push({ id: "openrouter", fn: openrouter.judgePvpMatch });
+    } catch (e) { log("openrouter import failed", String(e?.message ?? e)); }
   }
   if (hasAnthropic) {
     try {

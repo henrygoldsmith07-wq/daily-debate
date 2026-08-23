@@ -1,6 +1,6 @@
 // Provider fallback: run the primary model call, validate the output shape,
 // and fall back to the alternate provider on failure OR invalid output.
-// Gemini is primary; Anthropic is the alternate. Pure orchestration — no
+// OpenRouter is primary; Anthropic is the alternate. Pure orchestration — no
 // provider imports here.
 
 export type AiProvider<T> = () => Promise<T>;

@@ -3,7 +3,7 @@ import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
 import AppHeader from "@/components/AppHeader";
 import TopicCard from "@/components/TopicCard";
 
-// Generates today's topic via the Gemini API on first request each day —
+// Generates today's topic via the OpenRouter API on first request each day —
 // not something that can be prerendered at build time.
 export const dynamic = "force-dynamic";
 

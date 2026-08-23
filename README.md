@@ -8,14 +8,14 @@ streaks make it a game.
 
 ## Stack
 
-Next.js (App Router) + Supabase (auth, Postgres, Realtime) + Gemini API (primary) / Anthropic (alternate judge backend).
+Next.js (App Router) + Supabase (auth, Postgres, Realtime) + OpenRouter (primary, default model `z-ai/glm-5.2:free`) / Anthropic (alternate judge backend).
 
 ## Features
 
 - **Daily topic** — a new debatable proposition is generated once per day
   (`getOrCreateTodayTopic`), grounded with 3-5 real, well-known institutions
   relevant to the topic (their homepage + what angle/data they're known for).
-  Gemini does not have live web access in this app, so these are named
+  The model does not have live web access in this app, so these are named
   credible sources to go research yourself, not live-fetched citations.
 - **Solo debate vs AI** — pick a side, then go back and forth with an AI
   arguing the opposite side for a minimum of 5 rounds (capped at 12). Each
@@ -46,7 +46,7 @@ Next.js (App Router) + Supabase (auth, Postgres, Realtime) + Gemini API (primary
    (including 004 for stored observable assessments and 005 for benchmark
    provenance).
 2. Copy `.env.example` to `.env.local` and fill in your Supabase project URL,
-   anon key, service role key, and a `GEMINI_API_KEY`.
+   anon key, service role key, and an `OPENROUTER_API_KEY`.
 3. `npm install && npm run dev`.
 
 ## Deploying to Vercel
@@ -65,7 +65,8 @@ Variables** for Production, Preview, and Development before the first deploy:
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Inlined at build time; changing it needs a redeploy, not just a restart. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Same build-time inlining. |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only. Never expose it with a `NEXT_PUBLIC_` prefix. |
-| `GEMINI_API_KEY` | yes | Primary judge; solo debates and daily topics fail without it. |
+| `OPENROUTER_API_KEY` | yes | Primary judge; solo debates and daily topics fail without it. |
+| `OPENROUTER_MODEL` | optional | Defaults to `z-ai/glm-5.2:free`. The free pool rate-limits under load — set a paid model for reliable throughput. |
 | `ANTHROPIC_API_KEY` | optional | Second judge in the ensemble when present. |
 | `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |
 
@@ -81,7 +82,7 @@ The scored features are `claimsMade`, `claimsDirectlySupported`, `evidenceActual
 
 ### Source-grounded evidence
 
-Evidence nodes are **source-grounded**: `ArgNode.citations?: EvidenceCitation[]` (`{ sourceName, homepage?, excerpt? }`). Judging prompts in both `src/lib/gemini.ts` and `src/lib/anthropic.ts` now require that every `cited`/`strong` evidence node carry ≥1 citation naming a **real institution or outlet** (root homepage only — never invent article URLs). `validateGraph()` enforces this: cited/strong evidence without citations is a validation error, shown in the UI as `⚠ no citation`. New helpers:
+Evidence nodes are **source-grounded**: `ArgNode.citations?: EvidenceCitation[]` (`{ sourceName, homepage?, excerpt? }`). Judging prompts in both `src/lib/openrouter.ts` and `src/lib/anthropic.ts` now require that every `cited`/`strong` evidence node carry ≥1 citation naming a **real institution or outlet** (root homepage only — never invent article URLs). `validateGraph()` enforces this: cited/strong evidence without citations is a validation error, shown in the UI as `⚠ no citation`. New helpers:
 
 - `groundedEvidenceRatio(graph)` — share of cited/strong evidence that is grounded
 - `claimCoverageWithGroundedEvidence(graph)` — share of claims backed by grounded evidence
@@ -112,7 +113,7 @@ for them. No excerpt attached means **unverifiable**, not a violation.
 `src/lib/benchmarks.test.ts` + `src/lib/benchmark.fixtures.ts` run on every `npm test` without network/DB:
 
 - **Grounded evidence benchmark** — synthetic grounded graphs pass validation; uncited cited-nodes are flagged; metrics computed.
-- **Judge invariance benchmark** — deterministic graph scoring verifies that swapping A/B ownership preserves every argument and inverts only the side label, while whitespace/verbosity changes do not buy points. Transcript fixtures still exercise the label-swap harness. Live-model invariance (run the real Gemini judge twice with shuffled framing and assert `winner` stability) belongs in a future `*.e2e.ts` suite — fixtures are reusable for it.
+- **Judge invariance benchmark** — deterministic graph scoring verifies that swapping A/B ownership preserves every argument and inverts only the side label, while whitespace/verbosity changes do not buy points. Transcript fixtures still exercise the label-swap harness. Live-model invariance (run the real OpenRouter judge twice with shuffled framing and assert `winner` stability) belongs in a future `*.e2e.ts` suite — fixtures are reusable for it.
 
 Until invariance is measured on the real judge, Elo/rank/social expansion stays paused — the task brief's milestone.
 
@@ -139,7 +140,7 @@ New pure modules in `src/lib/` — all offline, all in `npm test` without creden
 
 Tests: `src/lib/dailyDebate95.test.ts` (24 tests) covering all of the above.
 
-Live-model note: run the real Gemini/Anthropic judge twice per fixture with each transform and report `positionBias`, `nameBias`, `verbosityBias`, `confidenceBias`, `hallucinationRate` — keep fixtures in `benchmark.fixtures.ts` reusable and add a `scripts/judge-invariance-e2e.mjs` once an API key is provisioned.
+Live-model note: run the real OpenRouter/Anthropic judge twice per fixture with each transform and report `positionBias`, `nameBias`, `verbosityBias`, `confidenceBias`, `hallucinationRate` — keep fixtures in `benchmark.fixtures.ts` reusable and add a `scripts/judge-invariance-e2e.mjs` once an API key is provisioned.
 
 ## Known limitations / TODO before wider PvP
 

@@ -3,7 +3,7 @@
 // The user asked for position, name/identity, verbosity, confidence and
 // hallucination tests. These are the transforms; the real-model double is a
 // thin harness that calls the live judge twice over the same fixture.
-// Every probe is measurable offline (mock) and live (Gemini + Anthropic).
+// Every probe is measurable offline (mock) and live (OpenRouter + Anthropic).
 
 export type JudgeRunner = (transcript: string) => Promise<{ winner: "a" | "b" | "tie"; playerAScore: number; playerBScore: number }>;
 

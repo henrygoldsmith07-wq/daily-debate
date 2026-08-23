@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { summarizeSoloDebate } from "@/lib/gemini";
+import { summarizeSoloDebate } from "@/lib/openrouter";
 import { summarizeSoloDebate as anthropicSummarize } from "@/lib/anthropic";
 import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidSummary } from "@/lib/aiSchema";

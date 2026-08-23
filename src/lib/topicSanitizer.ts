@@ -1,9 +1,9 @@
-// Sanitises Gemini-generated daily topics before they are persisted. A bad
+// Sanitises model-generated daily topics before they are persisted. A bad
 // topic sticks around all day (topic_date is unique), so validate defensively:
 // clamp text lengths, normalise homepages to real https roots, dedupe and cap
 // sources. Pure — unit-tested.
 
-import type { GeneratedTopic } from "./gemini";
+import type { GeneratedTopic } from "./openrouter";
 import type { TopicSource } from "./types";
 
 function clamp(value: unknown, maxLen: number): string {
