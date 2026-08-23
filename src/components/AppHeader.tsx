@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/app/login/actions";
 import { pointsIntoLevel, POINTS_PER_LEVEL } from "@/lib/gamification";
+import NavLinks from "./NavLinks";
 
 export default async function AppHeader() {
   const supabase = await createClient();
@@ -25,26 +26,7 @@ export default async function AppHeader() {
         <img src="/logo.svg" alt="" width={22} height={22} className="rounded-md" aria-hidden="true" />
         Daily Debate
       </Link>
-      <nav className="flex items-center gap-3 text-sm text-ink3 sm:gap-4" aria-label="Main">
-        <Link href="/" className="hover:text-[var(--foreground)]">
-          Today
-        </Link>
-        <Link href="/pvp" className="hover:text-[var(--foreground)]">
-          PvP
-        </Link>
-        <Link href="/leaderboard" className="hover:text-[var(--foreground)]">
-          Leaderboard
-        </Link>
-        <Link href="/history" className="hover:text-[var(--foreground)]">
-          History
-        </Link>
-        <Link href="/rate" className="hover:text-[var(--foreground)]">
-          Rate
-        </Link>
-        <Link href="/benchmark" className="hover:text-[var(--foreground)]">
-          Benchmark
-        </Link>
-      </nav>
+      <NavLinks />
       <div className="flex items-center gap-3 text-sm sm:gap-4">
         {profile && (
           <span

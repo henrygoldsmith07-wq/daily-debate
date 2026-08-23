@@ -65,6 +65,7 @@ export default async function LeaderboardPage() {
               <tbody>
                 {list.map((profile, index) => {
                   const isYou = profile.id === user?.id;
+                  const medal = ["🥇", "🥈", "🥉"][index];
                   return (
                     <tr
                       key={profile.id}
@@ -72,7 +73,7 @@ export default async function LeaderboardPage() {
                         isYou ? "bg-[var(--accent-soft)]" : ""
                       }`}
                     >
-                      <td className="px-4 py-3 text-ink3">{index + 1}</td>
+                      <td className="px-4 py-3 text-ink3">{medal ?? index + 1}</td>
                       <td className="px-4 py-3">
                         {profile.username ?? "Anonymous"}
                         {isYou && (

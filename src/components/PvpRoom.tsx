@@ -187,11 +187,36 @@ export default function PvpRoom({
         <p className="text-xs uppercase tracking-wide text-ink3">{topic.title}</p>
         <p className="text-sm text-ink3">{topic.prompt}</p>
       </div>
-      <div className="flex items-center justify-between text-sm">
-        <p className="text-ink3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-ink3">
           You&apos;re arguing <span className="text-[var(--foreground)]">{mySide}</span> as {isPlayerA ? "Player A" : "Player B"}
         </p>
-        <p className="tabular text-ink3">
+        {match.status === "active" && (
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-medium ${
+              myTurn ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "bg-surface-2 text-ink3"
+            }`}
+            role="status"
+          >
+            {myTurn ? "Your turn" : "Opponent's turn"}
+          </span>
+        )}
+      </div>
+      <div
+        className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={match.round_limit}
+        aria-valuenow={Math.min(match.current_round, match.round_limit)}
+        aria-label={`Round ${match.current_round} of ${match.round_limit}`}
+      >
+        <div
+          className="h-full rounded-full bg-[var(--accent)] transition-all"
+          style={{ width: `${Math.min(100, ((match.current_round - 1) / Math.max(1, match.round_limit)) * 100)}%` }}
+        />
+      </div>
+      <div className="flex items-center justify-end">
+        <p className="tabular text-xs text-ink3">
           Round {match.current_round}/{match.round_limit}
         </p>
       </div>

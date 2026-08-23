@@ -6,7 +6,7 @@
 import type { PvpJudgeResult, PvpVerdict } from "./types";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
 
-export type JudgeId = "openrouter" | "anthropic";
+export type JudgeId = "openrouter" | "anthropic" | "nvidia";
 export interface JudgedVerdict extends PvpJudgeResult {
   judgeId: JudgeId;
   latencyMs?: number;
@@ -194,10 +194,11 @@ export async function liveEnsembleJudge(params: {
 }): Promise<EnsembleResult> {
   const settled = await Promise.allSettled([
     (async (): Promise<JudgedVerdict> => {
-      const openrouter = await import("./openrouter");
+      // Primary chat transport: NVIDIA when its key is set, else OpenRouter.
+      const primary = await import("./openrouter");
       const t0 = Date.now();
-      const r = await withTimeout(openrouter.judgePvpMatch(params), JUDGE_TIMEOUT_MS, "openrouter");
-      return { ...r, judgeId: "openrouter" as const, latencyMs: Date.now() - t0 };
+      const r = await withTimeout(primary.judgePvpMatch(params), JUDGE_TIMEOUT_MS, primary.activeProviderLabel());
+      return { ...r, judgeId: primary.activeProviderLabel(), latencyMs: Date.now() - t0 };
     })(),
     (async (): Promise<JudgedVerdict> => {
       const anthropic = await import("./anthropic");

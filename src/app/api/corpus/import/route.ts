@@ -8,6 +8,9 @@ import { abilityBandFor, anonymiseTranscript, isCorpusAdmin, lengthBucketFor, op
 // player names, or which side was the AI.
 
 export async function POST(request: Request) {
+  const limited = await checkRateLimit(request, { name: "corpus-import", limit: 6, windowMs: 60 * 60_000 });
+  if (limited) return limited;
+
   const supabase = await createClient();
   const {
     data: { user },

@@ -160,9 +160,11 @@ Live-model note: run the real OpenRouter/Anthropic judge twice per fixture with 
 - **Rebuttal-quality scoring** (beyond coverage) — target coverage × evidence-backing × engagement with the opponent's strongest material (impacts/counterclaims) × substance.
 - **Steelman-quality scoring** — steelman markers ("even if", "granting", "concede") plus recorded concessions, minus strawman/ad-hominem penalties.
 
-## AI provider fallback
+## AI providers
 
-Solo flows (topic generation, openings, turns, summaries) validate every provider response against an output schema (`aiSchema.ts`) and fall back Gemini → Anthropic on failure *or* invalid shape (`withProviderFallback`). PvP judging already ran both providers as an ensemble.
+**NVIDIA (build.nvidia.com) is the primary transport** when `NVIDIA_API_KEY` is set — direct Nemotron access (default Ultra, failing over to Super) without the shared free-pool saturation. Without an NVIDIA key the same module uses the **OpenRouter free tier** (GLM 5.2 → Nemotron Ultra → Super). Both transports share retry/backoff with Retry-After handling, reasoning-token control, and schema-validated outputs; per-model failover is configured via `NVIDIA_FALLBACK_MODELS` / `OPENROUTER_FALLBACK_MODELS`.
+
+Solo flows additionally validate every response against `aiSchema.ts`; PvP judging runs the primary transport + Anthropic in parallel as an ensemble.
 
 ## Human-evaluation corpus population pipeline
 

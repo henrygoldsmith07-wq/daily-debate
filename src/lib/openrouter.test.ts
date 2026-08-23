@@ -243,7 +243,7 @@ describe("generateDailyTopic transport", () => {
 
     it("fails fast and clearly when the key is absent", async () => {
       vi.stubEnv("OPENROUTER_API_KEY", "");
-      await expect(generateDailyTopic([])).rejects.toThrow("OPENROUTER_API_KEY is not configured.");
+      await expect(generateDailyTopic([])).rejects.toThrow("OPENROUTER_API_KEY is not configured");
     });
   });
 

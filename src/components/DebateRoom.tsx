@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import MessageComposer from "./MessageComposer";
 import ScoreBadges from "./ScoreBadges";
+import RoundProgress from "./RoundProgress";
+import ThinkingIndicator from "./ThinkingIndicator";
 import { ArgGraphInline, TrackingGrid } from "./ArgGraphView";
 import { useSpeechSynthesis } from "./useSpeechSynthesis";
 import { MIN_ROUNDS, MAX_ROUNDS, type DebateSummary, type InputMode, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
@@ -39,7 +41,8 @@ export default function DebateRoom({
 
   const aiSide = debate.side === "for" ? "against" : "for";
   const pending = turns[turns.length - 1];
-  const canFinish = turns.filter((t) => t.user_message).length >= MIN_ROUNDS;
+  const answeredCount = turns.filter((t) => t.user_message).length;
+  const canFinish = answeredCount >= MIN_ROUNDS;
   const runningTotal = turns.reduce((sum, t) => sum + (t.turn_score ?? 0), 0);
 
   useEffect(() => {
@@ -186,10 +189,13 @@ export default function DebateRoom({
         <p className="text-xs uppercase tracking-wide text-ink3">{topic.title}</p>
         <p className="text-sm text-ink3">{topic.prompt}</p>
       </div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-ink3">
           You&apos;re arguing <span className="text-[var(--foreground)]">{debate.side}</span> · AI argues {aiSide}
         </p>
+        <RoundProgress answered={answeredCount} />
+      </div>
+      <div className="flex items-center justify-between">
         <p className="tabular text-sm text-ink3">
           Round {roundCount} {roundCount < MIN_ROUNDS && `· ${MIN_ROUNDS - roundCount + 1} to go`}
           {runningTotal > 0 && ` · ${runningTotal} pts so far`}
@@ -221,7 +227,7 @@ export default function DebateRoom({
             )}
           </div>
         ))}
-        {sending && <div className="text-sm text-ink3">AI is thinking…</div>}
+        {sending && <ThinkingIndicator />}
       </div>
 
       {error && (

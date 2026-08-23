@@ -20,10 +20,33 @@
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
 
-const API_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 
-/** Free GLM 5.2. Override per-environment without a code change. */
+/**
+ * Two interchangeable OpenAI-style transports:
+ *  - NVIDIA (build.nvidia.com) when NVIDIA_API_KEY is set — the intended primary;
+ *    direct Nemotron access without the ":free" pool saturation.
+ *  - OpenRouter free tier otherwise.
+ */
+export type ProviderLabel = "nvidia" | "openrouter";
+
+export function activeProvider(): { label: ProviderLabel; url: string; key: string } {
+  if (process.env.NVIDIA_API_KEY) {
+    return { label: "nvidia", url: NVIDIA_API_URL, key: process.env.NVIDIA_API_KEY };
+  }
+  return { label: "openrouter", url: OPENROUTER_API_URL, key: process.env.OPENROUTER_API_KEY ?? "" };
+}
+
+export function activeProviderLabel(): ProviderLabel {
+  return activeProvider().label;
+}
+
+/** Free GLM 5.2 on the OpenRouter transport. Override per-environment without a code change. */
 export const DEFAULT_MODEL = "z-ai/glm-5.2:free";
+
+/** Direct-NVIDIA default: the strongest Nemotron, no shared free-pool saturation. */
+export const NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
 
 /**
  * GLM 5.2's free tier is served by a single upstream provider whose shared pool
@@ -37,29 +60,44 @@ export const DEFAULT_FALLBACK_MODELS = [
   "nvidia/nemotron-3-super-120b-a12b:free",
 ];
 
+/** NVIDIA-transport fallbacks (no ":free" suffix on the direct API). */
+export const NVIDIA_DEFAULT_FALLBACK_MODELS = ["nvidia/nemotron-3-super-120b-a12b"];
+
 const MAX_ATTEMPTS = Number(process.env.OPENROUTER_MAX_ATTEMPTS ?? 4);
 const RETRY_BUDGET_MS = Number(process.env.OPENROUTER_RETRY_BUDGET_MS ?? 45_000);
 
 function apiKey(): string {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error("OPENROUTER_API_KEY is not configured.");
-  return key;
+  const provider = activeProvider();
+  if (!provider.key) {
+    throw new Error(
+      provider.label === "nvidia"
+        ? "NVIDIA_API_KEY is not configured."
+        : "OPENROUTER_API_KEY is not configured (or set NVIDIA_API_KEY for the NVIDIA transport).",
+    );
+  }
+  return provider.key;
 }
 
 function model(): string {
+  if (activeProvider().label === "nvidia") {
+    return process.env.NVIDIA_MODEL || NVIDIA_DEFAULT_MODEL;
+  }
   return process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
 }
 
 /**
- * Preferred model first, then fallbacks. Set OPENROUTER_FALLBACK_MODELS to a
- * comma-separated list to override, or to an empty string to disable failover
- * and pin the app to a single model.
+ * Preferred model first, then fallbacks. Set OPENROUTER_FALLBACK_MODELS (or
+ * NVIDIA_FALLBACK_MODELS on the NVIDIA transport) to a comma-separated list to
+ * override, or to an empty string to disable failover and pin the app to a
+ * single model.
  */
 export function modelChain(): string[] {
-  const configured = process.env.OPENROUTER_FALLBACK_MODELS;
+  const onNvidia = activeProvider().label === "nvidia";
+  const configured = onNvidia ? process.env.NVIDIA_FALLBACK_MODELS : process.env.OPENROUTER_FALLBACK_MODELS;
+  const defaults = onNvidia ? NVIDIA_DEFAULT_FALLBACK_MODELS : DEFAULT_FALLBACK_MODELS;
   const fallbacks =
     configured === undefined
-      ? DEFAULT_FALLBACK_MODELS
+      ? defaults
       : configured.split(",").map((m) => m.trim()).filter(Boolean);
   const primary = model();
   return [primary, ...fallbacks.filter((m) => m !== primary)];
@@ -154,14 +192,20 @@ async function post(
   };
   if (disableReasoning) payload.reasoning = { enabled: false };
 
-  return fetch(API_URL, {
+  const provider = activeProvider();
+
+  return fetch(provider.url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
       // Attribution only; OpenRouter uses these for its model rankings.
-      "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://daily-debate-brown.vercel.app",
-      "X-Title": "Daily Debate",
+      ...(provider.label === "openrouter"
+        ? {
+            "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://daily-debate-brown.vercel.app",
+            "X-Title": "Daily Debate",
+          }
+        : {}),
     },
     body: JSON.stringify(payload),
   });
