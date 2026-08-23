@@ -1,6 +1,6 @@
 // OpenRouter-backed model calls. Replaces the previous Gemini integration.
 //
-// Two things differ from the Google SDK this grew out of:
+// Three things differ from the Google SDK this grew out of:
 //
 //  1. There is no `responseSchema` parameter. OpenRouter's `json_object` mode
 //     guarantees syntactically valid JSON but not a particular shape, and the
@@ -8,9 +8,14 @@
 //     call therefore ships its JSON Schema in the system message, and callers
 //     shape-validate the result (see aiFallback.withProviderFallback).
 //
-//  2. The free model pool is shared and returns upstream 429s under load, so
-//     every request retries with backoff and honours Retry-After. The budget is
-//     bounded to stay inside the serverless function timeout.
+//  2. Free pools are shared and return upstream 429s under load, so a request
+//     retries with backoff, honours Retry-After, and then fails over to the
+//     next model in the chain. The whole budget is bounded to stay inside the
+//     serverless function timeout.
+//
+//  3. Several of these are reasoning models that bill thinking tokens against
+//     max_tokens, which can consume the entire budget before any JSON is
+//     emitted. Reasoning is disabled by default for that reason.
 
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
@@ -19,6 +24,18 @@ const API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 /** Free GLM 5.2. Override per-environment without a code change. */
 export const DEFAULT_MODEL = "z-ai/glm-5.2:free";
+
+/**
+ * GLM 5.2's free tier is served by a single upstream provider whose shared pool
+ * is frequently saturated — it can return 429 for long stretches. These two are
+ * the free models measured to hold up on the heaviest call (the PvP argument
+ * graph): both returned a well-formed 12-node graph with every cited evidence
+ * node carrying a citation. Ordered strongest first.
+ */
+export const DEFAULT_FALLBACK_MODELS = [
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+];
 
 const MAX_ATTEMPTS = Number(process.env.OPENROUTER_MAX_ATTEMPTS ?? 4);
 const RETRY_BUDGET_MS = Number(process.env.OPENROUTER_RETRY_BUDGET_MS ?? 45_000);
@@ -31,6 +48,30 @@ function apiKey(): string {
 
 function model(): string {
   return process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+}
+
+/**
+ * Preferred model first, then fallbacks. Set OPENROUTER_FALLBACK_MODELS to a
+ * comma-separated list to override, or to an empty string to disable failover
+ * and pin the app to a single model.
+ */
+export function modelChain(): string[] {
+  const configured = process.env.OPENROUTER_FALLBACK_MODELS;
+  const fallbacks =
+    configured === undefined
+      ? DEFAULT_FALLBACK_MODELS
+      : configured.split(",").map((m) => m.trim()).filter(Boolean);
+  const primary = model();
+  return [primary, ...fallbacks.filter((m) => m !== primary)];
+}
+
+/**
+ * A saturated pool rarely clears within seconds, so burning the whole attempt
+ * budget on it starves the known-good fallbacks. Only the last model in the
+ * chain — which has nothing to fall through to — gets the full allowance.
+ */
+function attemptsFor(index: number, chainLength: number): number {
+  return index === chainLength - 1 ? MAX_ATTEMPTS : Math.min(2, MAX_ATTEMPTS);
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -82,43 +123,87 @@ interface ChatOptions {
   maxTokens?: number;
 }
 
-async function chatJson<T>({ instruction, schema, maxTokens = 2_000 }: ChatOptions): Promise<T> {
-  const key = apiKey();
-  const deadline = Date.now() + RETRY_BUDGET_MS;
+type Attempt<T> = { ok: true; value: T } | { ok: false; error: string };
+
+/**
+ * Several of these models are reasoning models that bill thinking tokens
+ * against max_tokens — GLM 5.2 spent 324 of 349 completion tokens on reasoning
+ * and returned 25 tokens of JSON. Disabling reasoning is what keeps the token
+ * budget available for the answer. Endpoints that require reasoning reject the
+ * flag with a 400, and are retried without it.
+ */
+async function post(
+  m: string,
+  { instruction, schema, maxTokens }: Required<ChatOptions>,
+  key: string,
+  disableReasoning: boolean,
+): Promise<Response> {
+  const payload: Record<string, unknown> = {
+    model: m,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You return a single JSON object and nothing else — no prose, no markdown fences. " +
+          `It must conform to this JSON Schema:\n${JSON.stringify(schema)}`,
+      },
+      { role: "user", content: instruction },
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: maxTokens,
+  };
+  if (disableReasoning) payload.reasoning = { enabled: false };
+
+  return fetch(API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      // Attribution only; OpenRouter uses these for its model rankings.
+      "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://daily-debate-brown.vercel.app",
+      "X-Title": "Daily Debate",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function tryModel<T>(
+  m: string,
+  options: Required<ChatOptions>,
+  key: string,
+  deadline: number,
+  maxAttempts: number,
+): Promise<Attempt<T>> {
+  let disableReasoning = true;
   let lastError = "";
 
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-        // Attribution only; OpenRouter uses these for its model rankings.
-        "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://daily-debate-brown.vercel.app",
-        "X-Title": "Daily Debate",
-      },
-      body: JSON.stringify({
-        model: model(),
-        messages: [
-          {
-            role: "system",
-            content:
-              "You return a single JSON object and nothing else — no prose, no markdown fences. " +
-              `It must conform to this JSON Schema:\n${JSON.stringify(schema)}`,
-          },
-          { role: "user", content: instruction },
-        ],
-        response_format: { type: "json_object" },
-        max_tokens: maxTokens,
-      }),
-    });
-
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const response = await post(m, options, key, disableReasoning);
     const body: unknown = await response.json().catch(() => null);
 
     if (response.ok) {
-      const content = (body as { choices?: { message?: { content?: string } }[] })?.choices?.[0]
-        ?.message?.content;
-      return parseJson<T>(content);
+      const choice = (
+        body as { choices?: { message?: { content?: string }; finish_reason?: string }[] }
+      )?.choices?.[0];
+      const content = choice?.message?.content;
+
+      if (!content) {
+        // A reasoning model that burns the whole budget thinking returns a null
+        // content with finish_reason "length" — say so rather than reporting
+        // unparseable JSON.
+        const why =
+          choice?.finish_reason === "length"
+            ? `hit the ${options.maxTokens}-token limit before emitting any content`
+            : `returned no content (finish_reason: ${choice?.finish_reason ?? "unknown"})`;
+        return { ok: false, error: `${m} ${why}` };
+      }
+
+      try {
+        return { ok: true, value: parseJson<T>(content) };
+      } catch (error) {
+        const truncated = choice?.finish_reason === "length" ? " — output was truncated at max_tokens" : "";
+        return { ok: false, error: `${(error as Error).message}${truncated}` };
+      }
     }
 
     lastError =
@@ -126,15 +211,41 @@ async function chatJson<T>({ instruction, schema, maxTokens = 2_000 }: ChatOptio
       (body as { error?: { message?: string } })?.error?.message ??
       `HTTP ${response.status}`;
 
-    // Anything 4xx other than 429 will not improve on retry.
-    if (response.status !== 429 && response.status < 500) break;
+    // Endpoints where reasoning is mandatory reject the disable flag outright.
+    if (response.status === 400 && disableReasoning && /reasoning/i.test(lastError)) {
+      disableReasoning = false;
+      continue;
+    }
+
+    // Anything else in the 4xx range will not improve on retry — fall through
+    // to the next model instead of spending the budget here.
+    if (response.status !== 429 && response.status < 500) {
+      return { ok: false, error: `${m}: ${lastError}` };
+    }
 
     const delay = retryDelayMs(response, body, attempt);
     if (Date.now() + delay > deadline) break;
     await sleep(delay);
   }
 
-  throw new Error(`OpenRouter request failed (${model()}): ${lastError}`);
+  return { ok: false, error: `${m}: ${lastError}` };
+}
+
+async function chatJson<T>({ instruction, schema, maxTokens = 2_000 }: ChatOptions): Promise<T> {
+  const key = apiKey();
+  const deadline = Date.now() + RETRY_BUDGET_MS;
+  const chain = modelChain();
+  const options = { instruction, schema, maxTokens };
+  const failures: string[] = [];
+
+  for (const [index, m] of chain.entries()) {
+    const result = await tryModel<T>(m, options, key, deadline, attemptsFor(index, chain.length));
+    if (result.ok) return result.value;
+    failures.push(result.error);
+    if (Date.now() >= deadline) break;
+  }
+
+  throw new Error(`OpenRouter request failed. Tried ${chain.length}: ${failures.join(" | ")}`);
 }
 
 // --- Daily topic -----------------------------------------------------------

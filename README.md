@@ -8,7 +8,9 @@ streaks make it a game.
 
 ## Stack
 
-Next.js (App Router) + Supabase (auth, Postgres, Realtime) + OpenRouter (primary, default model `z-ai/glm-5.2:free`) / Anthropic (alternate judge backend).
+Next.js (App Router) + Supabase (auth, Postgres, Realtime) + OpenRouter (primary, default model `z-ai/glm-5.2:free` with automatic failover) / Anthropic (alternate judge backend).
+
+> **On the free tier:** `z-ai/glm-5.2:free` is served by a single upstream provider whose shared pool is often saturated and returns 429 for long stretches. Requests retry with backoff and then fail over to the next model in `OPENROUTER_FALLBACK_MODELS`. Most of these models also bill reasoning tokens against `max_tokens` — GLM 5.2 spent 324 of 349 completion tokens thinking — so reasoning is disabled by default; endpoints that require it are retried without the flag.
 
 ## Features
 
@@ -66,7 +68,8 @@ Variables** for Production, Preview, and Development before the first deploy:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Same build-time inlining. |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only. Never expose it with a `NEXT_PUBLIC_` prefix. |
 | `OPENROUTER_API_KEY` | yes | Primary judge; solo debates and daily topics fail without it. |
-| `OPENROUTER_MODEL` | optional | Defaults to `z-ai/glm-5.2:free`. The free pool rate-limits under load — set a paid model for reliable throughput. |
+| `OPENROUTER_MODEL` | optional | Defaults to `z-ai/glm-5.2:free`. |
+| `OPENROUTER_FALLBACK_MODELS` | optional | Comma-separated failover chain. Defaults to free Nemotron 3 Ultra then Super. Empty string pins to one model. |
 | `ANTHROPIC_API_KEY` | optional | Second judge in the ensemble when present. |
 | `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |
 
