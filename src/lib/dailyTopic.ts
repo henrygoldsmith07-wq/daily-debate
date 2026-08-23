@@ -1,5 +1,8 @@
 import { createServiceClient } from "./supabase/server";
 import { generateDailyTopic } from "./gemini";
+import { generateDailyTopic as anthropicGenerateTopic } from "./anthropic";
+import { withProviderFallback } from "./aiFallback";
+import { isValidGeneratedTopic } from "./aiSchema";
 import { sanitizeGeneratedTopic } from "./topicSanitizer";
 import type { DailyTopic } from "./types";
 
@@ -28,7 +31,14 @@ export async function getOrCreateTodayTopic(): Promise<DailyTopic> {
     .order("topic_date", { ascending: false })
     .limit(14);
 
-  const generated = sanitizeGeneratedTopic(await generateDailyTopic((recent ?? []).map((row) => row.title as string)));
+  const recentTitles = (recent ?? []).map((row) => row.title as string);
+  const generated = sanitizeGeneratedTopic(
+    await withProviderFallback(
+      () => generateDailyTopic(recentTitles),
+      isValidGeneratedTopic,
+      () => anthropicGenerateTopic(recentTitles),
+    ),
+  );
 
   const { data: inserted, error } = await supabase
     .from("daily_topics")

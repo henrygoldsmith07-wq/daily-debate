@@ -124,6 +124,19 @@ Live-model note: run the real Gemini/Anthropic judge twice per fixture with each
 - Live-model judge invariance e2e (real Gemini calls) still needs an API key — fixtures + `judgeInvariance` transforms are ready for it.
 - Article-level citation verification (fetch the URL and check the excerpt) is a future server action; the offline allowlist is the floor.
 
+## Argument-evaluation engine
+
+`src/lib/argumentEvaluation.ts` adds deterministic detectors on top of the observable graph, surfaced as `assessment.engine` on every scored debate:
+
+- **Causal overclaim detection** — certainty/causal language ("proves", "guarantees", "leads to") checked against the side's own evidence: unhedged causation over associational-only citations is flagged high-severity.
+- **Fake-precision detection** — decimal-exact figures ("exactly 3.42%") without a nearby attribution cue; bare "per" deliberately does not count as a source cue.
+- **Rebuttal-quality scoring** (beyond coverage) — target coverage × evidence-backing × engagement with the opponent's strongest material (impacts/counterclaims) × substance.
+- **Steelman-quality scoring** — steelman markers ("even if", "granting", "concede") plus recorded concessions, minus strawman/ad-hominem penalties.
+
+## AI provider fallback
+
+Solo flows (topic generation, openings, turns, summaries) validate every provider response against an output schema (`aiSchema.ts`) and fall back Gemini → Anthropic on failure *or* invalid shape (`withProviderFallback`). PvP judging already ran both providers as an ensemble.
+
 ## Human-evaluation corpus population pipeline
 
 The evaluation pipeline (six-dimension rubric, inter-rater reliability → comparison → calibration → bias) needs a real human-labelled corpus. Migration `008_corpus_pipeline.sql` plus `src/app/api/corpus/*` add the collection tooling:

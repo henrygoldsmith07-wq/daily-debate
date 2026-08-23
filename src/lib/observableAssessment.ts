@@ -16,6 +16,7 @@ import {
   type Owner,
 } from "./argGraph";
 import { validateGraph } from "./argGraph";
+import { engineReport, type EngineReport } from "./argumentEvaluation";
 import {
   classifyFallacies,
   detectConcessions,
@@ -140,6 +141,8 @@ export interface ObservableAssessment {
   rationale: string;
   /** The graph shown to users is the graph after deterministic enrichment. */
   graph: ArgGraph;
+  /** Engine findings (causal overclaim, fake precision, rebuttal/steelman quality) — additive, may be absent on older records. */
+  engine?: EngineReport;
 }
 
 export interface AssessmentOptions {
@@ -784,6 +787,7 @@ export function assessArgumentGraph(input: ArgGraph | null | undefined, options:
     uncertainty: [...uncertainty],
     decidingFactor,
     rationale,
+    engine: engineReport(enrichedForDisplay, { a: sideA, b: sideB }),
     graph: enrichedForDisplay,
   };
 }

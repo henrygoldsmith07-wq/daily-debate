@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { summarizeSoloDebate } from "@/lib/gemini";
+import { summarizeSoloDebate as anthropicSummarize } from "@/lib/anthropic";
+import { withProviderFallback } from "@/lib/aiFallback";
+import { isValidSummary } from "@/lib/aiSchema";
 import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { MIN_ROUNDS } from "@/lib/types";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
@@ -69,7 +72,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
   let summary;
   try {
-    summary = await summarizeSoloDebate({ topicTitle: topic?.title ?? "the debate", transcript });
+    summary = await withProviderFallback(
+      () => summarizeSoloDebate({ topicTitle: topic?.title ?? "the debate", transcript }),
+      isValidSummary,
+      () => anthropicSummarize({ topicTitle: topic?.title ?? "the debate", transcript }),
+    );
   } catch (error) {
     console.error("Failed to summarize debate:", error);
     summary = { overallFeedback: "Great work completing the debate.", strengths: [], improvements: [] };

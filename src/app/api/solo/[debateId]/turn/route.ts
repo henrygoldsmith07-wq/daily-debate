@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { debateTurn } from "@/lib/gemini";
+import { debateTurn as anthropicTurn } from "@/lib/anthropic";
+import { withProviderFallback } from "@/lib/aiFallback";
+import { isValidDebateTurn } from "@/lib/aiSchema";
 import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
 import { MAX_ROUNDS, type InputMode } from "@/lib/types";
@@ -82,13 +85,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
   let result;
   try {
-    result = await debateTurn({
-      topicTitle: topic.title,
-      topicPrompt: topic.prompt,
-      userSide: debate.side as "for" | "against",
-      history,
-      latestUserMessage: message,
-    });
+    result = await withProviderFallback(
+      () =>
+        debateTurn({
+          topicTitle: topic.title,
+          topicPrompt: topic.prompt,
+          userSide: debate.side as "for" | "against",
+          history,
+          latestUserMessage: message,
+        }),
+      isValidDebateTurn,
+      () =>
+        anthropicTurn({
+          topicTitle: topic.title,
+          topicPrompt: topic.prompt,
+          userSide: debate.side as "for" | "against",
+          history,
+          latestUserMessage: message,
+        }),
+    );
   } catch (error) {
     console.error("Failed to score debate turn:", error);
     return NextResponse.json({ error: "Failed to evaluate your response." }, { status: 502 });

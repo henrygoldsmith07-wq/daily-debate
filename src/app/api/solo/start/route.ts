@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { debateOpening } from "@/lib/gemini";
+import { debateOpening as anthropicOpening } from "@/lib/anthropic";
+import { withProviderFallback } from "@/lib/aiFallback";
+import { isValidOpening } from "@/lib/aiSchema";
 import type { DebateSide } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -41,7 +44,11 @@ export async function POST(request: Request) {
   const aiSide: DebateSide = side === "for" ? "against" : "for";
   let aiMessage: string;
   try {
-    aiMessage = await debateOpening({ topicTitle: topic.title, topicPrompt: topic.prompt, aiSide });
+    aiMessage = await withProviderFallback(
+      () => debateOpening({ topicTitle: topic.title, topicPrompt: topic.prompt, aiSide }),
+      isValidOpening,
+      () => anthropicOpening({ topicTitle: topic.title, topicPrompt: topic.prompt, aiSide }),
+    );
   } catch (error) {
     console.error("Failed to generate opening:", error);
     // Compensating delete: an active debate with zero turns is a dead end —
