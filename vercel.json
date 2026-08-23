@@ -1,5 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs",
-  "ignoreCommand": "node \"$(git rev-parse --show-toplevel)/scripts/vercel-ignore.mjs\" --project daily-debate"
+  "framework": "nextjs"
 }

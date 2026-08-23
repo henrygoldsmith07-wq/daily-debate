@@ -3,6 +3,5 @@
   "framework": null,
   "outputDirectory": ".",
   "cleanUrls": true,
-  "trailingSlash": false,
-  "ignoreCommand": "node \"$(git rev-parse --show-toplevel)/scripts/vercel-ignore.mjs\" --project daily-debate-site"
+  "trailingSlash": false
 }

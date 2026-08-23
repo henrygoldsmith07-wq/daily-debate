@@ -49,6 +49,29 @@ Next.js (App Router) + Supabase (auth, Postgres, Realtime) + Gemini API (primary
    anon key, service role key, and a `GEMINI_API_KEY`.
 3. `npm install && npm run dev`.
 
+## Deploying to Vercel
+
+The Vercel project must point its **Root Directory** at the repository root
+(this is a standalone repo, not the monorepo it was split out of) with the
+framework preset left on **Next.js**.
+
+Every route runs through `middleware.ts`, which builds a Supabase client on each
+request. If the Supabase variables are absent the middleware throws and *every*
+path returns 500 — including `/login` — so set these in **Settings → Environment
+Variables** for Production, Preview, and Development before the first deploy:
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | yes | Inlined at build time; changing it needs a redeploy, not just a restart. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Same build-time inlining. |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only. Never expose it with a `NEXT_PUBLIC_` prefix. |
+| `GEMINI_API_KEY` | yes | Primary judge; solo debates and daily topics fail without it. |
+| `ANTHROPIC_API_KEY` | optional | Second judge in the ensemble when present. |
+| `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |
+
+A paused Supabase project produces the same symptoms as missing credentials, so
+confirm the project is active before debugging the deployment itself.
+
 ## Argument graph & judging (why the winner won)
 
 Every finished debate now produces a structured **argument graph**: `claim → evidence → counterclaim → rebuttal → impact`.
