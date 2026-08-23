@@ -1,0 +1,9 @@
+{
+  "positionMirrorMin": 0.97,
+  "verbosityStabilityMin": 0.95,
+  "nameStabilityMin": 0.97,
+  "whitespaceStabilityMin": 0.98,
+  "falseCitationInfluenceMax": 0.05,
+  "humanAgreementMin": 0.75,
+  "eceMax": 0.08
+}

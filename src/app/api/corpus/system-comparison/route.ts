@@ -79,8 +79,10 @@ export async function POST(request: Request) {
   }
 
   const { liveEnsembleJudge, verdictFromEnsemble } = await import("@/lib/ensembleJudge");
+  const { verifyGraphCitations } = await import("@/lib/citationVerifier");
   const pairs: ComparisonPair[] = [];
   const errors: string[] = [];
+  const swapCheck = body?.swapCheck === true;
 
   for (const { item, consensusWinner } of candidates.slice(0, limit)) {
     try {
@@ -93,22 +95,55 @@ export async function POST(request: Request) {
         transcript: item.transcript,
       });
       const verdict = verdictFromEnsemble(ensemble);
+
+      // Citation-integrity telemetry for the published metrics: how many
+      // cited evidence nodes did the verifier flag on this judged graph?
+      const graph = verdict.argGraph;
+      const citedNodes = (graph?.nodes ?? []).filter((n) => n.kind === "evidence" && (n.citations?.length ?? 0) > 0);
+      const citationFlags =
+        citedNodes.length > 0 ? { cited: citedNodes.length, flagged: verifyGraphCitations(graph!).length } : undefined;
+
+      const systemVerdict = {
+        winner: verdict.winner,
+        playerAScore: verdict.playerAScore,
+        playerBScore: verdict.playerBScore,
+        confidence: verdict.confidence ?? null,
+        scoreStatus: verdict.scoreStatus ?? null,
+        ...(citationFlags ? { citationFlags } : {}),
+      };
       await service
         .from("corpus_items")
-        .update({
-          side_mapping: {
-            ...mapping,
-            system_verdict: {
-              winner: verdict.winner,
-              playerAScore: verdict.playerAScore,
-              playerBScore: verdict.playerBScore,
-              confidence: verdict.confidence ?? null,
-              scoreStatus: verdict.scoreStatus ?? null,
-            },
-          },
-        })
+        .update({ side_mapping: { ...mapping, system_verdict: systemVerdict } })
         .eq("id", item.id);
       pairs.push({ judgeWinner: verdict.winner, consensusWinner });
+
+      // Optional position-swap stability probe: judge the mirrored debate and
+      // check the winner mirrors too. Doubles model cost for this item.
+      if (swapCheck && graph) {
+        try {
+          const swappedTranscript = item.transcript
+            .replaceAll("Side A", "Side §")
+            .replaceAll("Side B", "Side A")
+            .replaceAll("Side §", "Side B");
+          const swapEnsemble = await liveEnsembleJudge({
+            topicTitle: item.topic_title || "the debate topic",
+            topicPrompt: item.topic_prompt || "",
+            playerASide: aStance === "for" ? "against" : "for",
+            transcript: swappedTranscript,
+          });
+          const swapVerdict = verdictFromEnsemble(swapEnsemble);
+          const mirror: Record<string, string> = { a: "b", b: "a", tie: "tie" };
+          const stable = mirror[swapVerdict.winner] === verdict.winner;
+          await service
+            .from("corpus_items")
+            .update({
+              side_mapping: { ...mapping, system_verdict: { ...systemVerdict, swap_check: { stable } } },
+            })
+            .eq("id", item.id);
+        } catch (swapError) {
+          errors.push(`swap ${item.id}: ${swapError instanceof Error ? swapError.message : String(swapError)}`);
+        }
+      }
     } catch (error) {
       errors.push(`${item.id}: ${error instanceof Error ? error.message : String(error)}`);
     }

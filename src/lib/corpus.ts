@@ -152,6 +152,47 @@ export function populationProgress(
   };
 }
 
+// --- Population-campaign stratification (deterministic, no model judgement) -
+
+export type DynamicsTier = "close" | "decisive" | "weak_vs_weak";
+export type EvidenceDensity = "evidence_heavy" | "balanced" | "evidence_light";
+export type StyleBucket = "formal" | "hedged" | "plain" | "intense";
+
+/**
+ * Debate-difficulty tier from the deterministic assessment: a close debate
+ * exercises the judge hardest; weak-vs-weak debates test whether the judge
+ * resists rewarding confident nonsense.
+ */
+export function deriveDynamicsTier(scoreA: number, scoreB: number): DynamicsTier {
+  const gap = Math.abs(scoreA - scoreB);
+  if (scoreA < 45 && scoreB < 45) return "weak_vs_weak";
+  return gap < 10 ? "close" : "decisive";
+}
+
+export function deriveEvidenceDensity(evidenceNodes: number, claimsMade: number): EvidenceDensity {
+  const ratio = claimsMade > 0 ? evidenceNodes / claimsMade : evidenceNodes > 0 ? 2 : 0;
+  if (ratio >= 1) return "evidence_heavy";
+  if (ratio >= 0.34) return "balanced";
+  return "evidence_light";
+}
+
+export interface StyleSignals {
+  /** formalConnectorsPer100 from debateEvaluation.styleFeatures */
+  formality: number;
+  /** hedgesPer100 */
+  hedges: number;
+  /** assertivesPer100 */
+  assertives: number;
+}
+
+/** Writing-style bucket so the corpus covers formal, hedged, plain, and intense prose. */
+export function deriveStyleBucket(s: StyleSignals): StyleBucket {
+  if (s.assertives > 3) return "intense";
+  if (s.hedges > 2.5) return "hedged";
+  if (s.formality > 1.5) return "formal";
+  return "plain";
+}
+
 // --- System-vs-human comparison ---------------------------------------------
 
 export function oppositeStance(stance: "for" | "against"): "for" | "against" {

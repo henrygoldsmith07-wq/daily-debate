@@ -1,11 +1,53 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { abilityBandFor, anonymiseTranscript, isCorpusAdmin, lengthBucketFor, oppositeStance } from "@/lib/corpus";
+import {
+  abilityBandFor,
+  anonymiseTranscript,
+  deriveDynamicsTier,
+  deriveEvidenceDensity,
+  deriveStyleBucket,
+  isCorpusAdmin,
+  lengthBucketFor,
+  oppositeStance,
+} from "@/lib/corpus";
+import { assessArgumentGraph, mergeAssessmentGraphs, graphFromTurn } from "@/lib/observableAssessment";
+import { styleFeatures } from "@/lib/debateEvaluation";
 
 // Admin-only: import finished debates into the blind-rating corpus.
 // Anonymisation happens HERE — raters never see contributor identity,
 // player names, or which side was the AI.
+
+// Deterministic stratification from the observable argument assessment — no
+// model judgement involved, so strata labels are reproducible.
+function deriveStrataFromRounds(rounds: Array<{ round: number; user: string; opponent: string }>) {
+  const graphs = rounds
+    .filter((r) => r.user.trim())
+    .map((r) => graphFromTurn({ userMessage: r.user, opponentMessage: r.opponent, round: r.round }));
+  if (!graphs.length) return null;
+  const merged = mergeAssessmentGraphs(graphs);
+  const assessment = assessArgumentGraph(merged, {
+    sideA: "a",
+    sideB: "b",
+    extractionSource: "deterministic",
+    labelA: "Side A",
+    labelB: "Side B",
+  });
+  const scoreA = assessment.scores.a ?? 0;
+  const scoreB = assessment.scores.b ?? 0;
+  const claims = merged.nodes.filter((n) => n.kind === "claim" || n.kind === "counterclaim").length;
+  const fullText = rounds.map((r) => `${r.user} ${r.opponent}`).join(" ");
+  const style = styleFeatures(fullText);
+  return {
+    dynamics_tier: deriveDynamicsTier(scoreA, scoreB),
+    evidence_density: deriveEvidenceDensity(merged.evidenceStats.total, claims),
+    style_bucket: deriveStyleBucket({
+      formality: style.formalConnectorsPer100,
+      hedges: style.hedgesPer100,
+      assertives: style.assertivesPer100,
+    }),
+  };
+}
 
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "corpus-import", limit: 6, windowMs: 60 * 60_000 });
@@ -55,6 +97,10 @@ export async function POST(request: Request) {
       }
       if (lines.length < 4) continue; // too thin to rate meaningfully
       const transcript = anonymiseTranscript(lines);
+      const rounds = (turns ?? [])
+        .filter((t) => t.user_message)
+        .map((t) => ({ round: t.round_number, user: t.user_message as string, opponent: t.ai_message }));
+      const strata = deriveStrataFromRounds(rounds) ?? {};
       const { error } = await service.from("corpus_items").insert({
         transcript,
         topic: topic?.category ?? null,
@@ -74,6 +120,7 @@ export async function POST(request: Request) {
         topic_id: debate.topic_id,
         topic_title: topic?.title ?? "",
         topic_prompt: topic?.prompt ?? "",
+        ...strata,
       });
       if (error) errors.push(`solo ${debate.id}: ${error.message}`);
       else imported += 1;
@@ -96,6 +143,17 @@ export async function POST(request: Request) {
       }
       if (lines.length < 4) continue;
       const transcript = anonymiseTranscript(lines);
+      // PvP alternates players per round; treat player A as the round's
+      // "user" and player B as its opponent for stratification purposes.
+      const byRound = new Map<number, { user: string; opponent: string }>();
+      for (const t of turns ?? []) {
+        const entry = byRound.get(t.round_number) ?? { user: "", opponent: "" };
+        if (t.player_id === match.player_a) entry.user = t.message;
+        else entry.opponent = t.message;
+        byRound.set(t.round_number, entry);
+      }
+      const rounds = [...byRound.entries()].map(([round, r]) => ({ round, ...r }));
+      const strata = deriveStrataFromRounds(rounds) ?? {};
       // Contributor of record is player A; both are excluded from rating it.
       const { error } = await service.from("corpus_items").insert({
         transcript,
@@ -114,6 +172,7 @@ export async function POST(request: Request) {
         topic_id: match.topic_id,
         topic_title: topic?.title ?? "",
         topic_prompt: topic?.prompt ?? "",
+        ...strata,
       });
       if (error) errors.push(`pvp ${match.id}: ${error.message}`);
       else imported += 1;

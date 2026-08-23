@@ -160,6 +160,12 @@ Live-model note: run the real OpenRouter/Anthropic judge twice per fixture with 
 - **Rebuttal-quality scoring** (beyond coverage) — target coverage × evidence-backing × engagement with the opponent's strongest material (impacts/counterclaims) × substance.
 - **Steelman-quality scoring** — steelman markers ("even if", "granting", "concede") plus recorded concessions, minus strawman/ad-hominem penalties.
 
+## Live judge benchmarks (gated deployment)
+
+`npm run benchmark:judges` runs the invariance/bias suite against **real model APIs** (`scripts/judge-benchmark.mjs`, dependency-free so Node actually executes it — the previous `.ts`-importing script silently no-op'd). For each configured provider/model it judges the labelled fixtures base + 9 invariance transforms + political/ideological audit probes, then measures: position-mirror stability, per-transform stability, false-citation influence, ideological asymmetry, fixture-label agreement, ECE, latency and token spend.
+
+Results merge into `docs/judge-leaderboard.md` (one row per model) with raw JSON at `docs/latest-judge-benchmark.json`. Deployment gates live in `config/judge-gates.json`; `--enforce` exits non-zero on breach, and `.github/workflows/judge-benchmark.yml` runs the suite weekly plus on demand. Current live findings are in the leaderboard file — including gate results that models must pass before judging real matches.
+
 ## AI providers
 
 **NVIDIA (build.nvidia.com) is the primary transport** when `NVIDIA_API_KEY` is set — direct Nemotron access (default Ultra, failing over to Super) without the shared free-pool saturation. Without an NVIDIA key the same module uses the **OpenRouter free tier** (GLM 5.2 → Nemotron Ultra → Super). Both transports share retry/backoff with Retry-After handling, reasoning-token control, and schema-validated outputs; per-model failover is configured via `NVIDIA_FALLBACK_MODELS` / `OPENROUTER_FALLBACK_MODELS`.
@@ -176,6 +182,15 @@ The evaluation pipeline (six-dimension rubric, inter-rater reliability → compa
 - `POST /api/corpus/adjudicate` *(admin)* — settles disputed items by rater majority or explicit override.
 
 Set `CORPUS_ADMIN_EMAILS` to enable admin endpoints (closed when unset). Until this corpus is populated and humans agree with each other, the evidence registry's status stands: scoring evidence remains synthetic-only.
+
+### Flagship campaign — 1,000 debates × 3 blind ratings
+
+The corpus is the product's flagship claim, stratified at import time by **deterministic** signals (no model judgement): debate difficulty (`dynamics_tier`: close / decisive / weak-vs-weak from observable score gaps), evidence density (evidence nodes per claim), writing style (formal / hedged / plain / intense via `styleFeatures`), plus length, subject, and ability band. Migration `009_population_strata.sql` adds those columns and indexes.
+
+- Raters work at **`/rate`**; admins run the campaign from **`/corpus-admin`**.
+- `POST /api/corpus/system-comparison` now also stores citation-integrity flags per judged graph and supports `"swapCheck": true` — a mirrored-transcript re-judgement that records position-swap stability per item.
+- **`GET /api/corpus/metrics`** and the public **`/metrics`** page publish the headline table live: human consensus agreement, judge-vs-consensus agreement, close-debate accuracy, position-swap stability, calibration error (ECE over system-verdict confidence), and citation-flag rate on judged graphs.
+- Honesty gates are built in: every metric is `null` until its minimum sample exists (e.g. judge rows need ≥30 judged debates, close-debate ≥20), and consensus requires genuine multi-rater agreement. Dashes on `/metrics` mean *not yet measurable*, never a placeholder number.
 
 Raters use **`/rate`** in the app: blind transcript, six-dimension 1–5 scoring per side, winner + confidence + rationale. Admins run the campaign from **`/corpus-admin`**: population progress vs the 500-item target (with named strata needing recruitment), per-dimension ICC, the adjudication queue (transcript + anonymised rater verdicts; accept-majority or override), and a one-click system comparison. Once items are `agreementReady`, `POST /api/corpus/system-comparison` judges them with the live ensemble and reports winner agreement against human consensus. That number (plus ≥70% agreement on a large corpus) is what eventually un-gates ranked play; until then it stays synthetic-only in the evidence registry.
 

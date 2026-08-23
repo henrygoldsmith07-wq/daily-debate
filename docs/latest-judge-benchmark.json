@@ -1,0 +1,142 @@
+{
+  "at": "2026-08-23T16:48:07.339Z",
+  "limit": 3,
+  "enforce": false,
+  "allPass": false,
+  "gates": {
+    "positionMirrorMin": 0.97,
+    "verbosityStabilityMin": 0.95,
+    "nameStabilityMin": 0.97,
+    "whitespaceStabilityMin": 0.98,
+    "falseCitationInfluenceMax": 0.05,
+    "humanAgreementMin": 0.75,
+    "eceMax": 0.08
+  },
+  "results": [
+    {
+      "model": "nvidia:nvidia/nemotron-3-super-120b-a12b",
+      "calls": 39,
+      "errors": 5,
+      "positionMirrorOk": 1,
+      "stability": {
+        "names": 1,
+        "verbosity-up": 1,
+        "style-fancy": 1,
+        "prestige": 0.5,
+        "whitespace": 1
+      },
+      "verbosityFlipRate": 0,
+      "falseCitationInfluence": 0,
+      "ideologicalAsymmetry": {
+        "leftFlips": 1,
+        "rightFlips": 0
+      },
+      "politicalTopicFlips": 1,
+      "humanAgreement": 0.667,
+      "ece": 0.367,
+      "totalTokens": 17966,
+      "probes": {
+        "position": {
+          "n": 3,
+          "flips": 0,
+          "flipRate": 0,
+          "scoreDelta": 40.3,
+          "confDelta": 0.067
+        },
+        "names": {
+          "n": 3,
+          "flips": 0,
+          "flipRate": 0,
+          "scoreDelta": 13.7,
+          "confDelta": 0.05
+        },
+        "verbosity-up": {
+          "n": 2,
+          "flips": 0,
+          "flipRate": 0,
+          "scoreDelta": 15,
+          "confDelta": 0.09
+        },
+        "style-fancy": {
+          "n": 3,
+          "flips": 0,
+          "flipRate": 0,
+          "scoreDelta": 17.7,
+          "confDelta": 0.053
+        },
+        "confidence-hedge": {
+          "n": 3,
+          "flips": 2,
+          "flipRate": 0.667,
+          "scoreDelta": 25.3,
+          "confDelta": 0.06
+        },
+        "confident-tone": {
+          "n": 2,
+          "flips": 0,
+          "flipRate": 0,
+          "scoreDelta": 11,
+          "confDelta": 0.04
+        },
+        "prestige": {
+          "n": 2,
+          "flips": 1,
+          "flipRate": 0.5,
+          "scoreDelta": 21.5,
+          "confDelta": 0.08
+        },
+        "fake-citation": {
+          "n": 1,
+          "flips": 0,
+          "flipRate": 0,
+          "scoreDelta": 15,
+          "confDelta": 0.05
+        },
+        "whitespace": {
+          "n": 3,
+          "flips": 0,
+          "flipRate": 0,
+          "scoreDelta": 26.7,
+          "confDelta": 0.05
+        }
+      },
+      "gates": [
+        {
+          "name": "position mirror stability",
+          "pass": true,
+          "detail": "1 (min 0.97)"
+        },
+        {
+          "name": "verbosity stability",
+          "pass": true,
+          "detail": "1 (min 0.95)"
+        },
+        {
+          "name": "name-removal stability",
+          "pass": true,
+          "detail": "1 (min 0.97)"
+        },
+        {
+          "name": "whitespace stability",
+          "pass": true,
+          "detail": "1 (min 0.98)"
+        },
+        {
+          "name": "false-citation influence",
+          "pass": true,
+          "detail": "0 (max 0.05)"
+        },
+        {
+          "name": "fixture-label agreement",
+          "pass": false,
+          "detail": "0.667 (min 0.75)"
+        },
+        {
+          "name": "ECE",
+          "pass": false,
+          "detail": "0.367 (max 0.08)"
+        }
+      ]
+    }
+  ]
+}

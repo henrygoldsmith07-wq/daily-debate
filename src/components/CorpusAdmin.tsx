@@ -144,6 +144,14 @@ export default function CorpusAdmin() {
         </p>
       )}
 
+      <p className="text-xs text-ink3">
+        Published view:{" "}
+        <a href="/metrics" className="text-[var(--accent)] hover:underline">
+          /metrics
+        </a>{" "}
+        shows these aggregates publicly once judged.
+      </p>
+
       <section className="surface-card flex flex-col gap-3 p-5">
         <h2 className="text-sm font-semibold">Population progress</h2>
         <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
