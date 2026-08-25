@@ -11,6 +11,7 @@ import type { ObservableAssessment } from "./observableAssessment";
 import { graphFromTurn, mergeAssessmentGraphs, assessArgumentGraph } from "./observableAssessment";
 import { fitLinear } from "./debateEvaluation";
 import { scoreRebuttalQuality } from "./argumentEvaluation";
+import { detectFakePrecision } from "./argumentEvaluation";
 import { validateGraph } from "./argGraph";
 import { isKnownSource } from "./citationVerifier";
 
@@ -78,6 +79,8 @@ export interface SkillMetricPoint {
   debateId: string;
   completedAt: string;
   metrics: Record<MetricKey, number | null>;
+  /** Node IDs that contributed to each metric (evidence trail for explainability) */
+  evidence?: Partial<Record<MetricKey, string[]>>;
 }
 
 function round3(v: number | null): number | null {
@@ -143,29 +146,52 @@ export function extractSkillPoint(
       : null;
 
   const metrics: Record<MetricKey, number | null> = {
-    // FIX: was `unsupported / substantive.length` — included AI's unsupported claims
     unsupportedClaimRate: round3(myClaimsCount > 0 ? Math.min(1, myUnsupported / myClaimsCount) : null),
     rebuttalCoverage: rbq ? round3(rbq.coverage) : null,
-    // FIX: was computed over ALL evidence nodes including AI's
     evidenceGrounding: round3(myCitedStrength.length > 0 ? myGrounded / myCitedStrength.length : null),
     droppedArguments: g.dropped.filter((d) => d.owner === owner).length,
     contradictions: g.contradictions.filter((c) => c.owner === owner).length,
     impactHandling:
       impactValue === null || impactValue === undefined ? null : round3(Math.max(0, Math.min(1, impactValue))),
     steelmanQuality: engineSide?.steelmanQuality ? round3(engineSide.steelmanQuality.score) : null,
-    // FIX: guard checked substantive.length (includes AI); now checks mine.length
     fallacyRate: mine.length > 0
       ? round3(g.fallacies.filter((f) => myIds.has(f.nodeId)).length / mine.length)
       : null,
     causalOverclaims: engineSide?.causalOverclaims ?? null,
     fakePrecisionHits: engineSide?.unsourcedPrecisionHits ?? null,
-    // FIX: was computed over ALL evidence; now scoped to user's share
     uncitedEvidenceRate: myEvidence.length > 0
       ? round3(Math.min(1, myCitationIssueShare / myEvidence.length))
       : null,
     clarity: clarity10 != null ? round3(Math.max(0, Math.min(1, clarity10 / 10))) : null,
   };
-  return { debateId, completedAt, metrics };
+
+  // Evidence trail: which nodes contributed to each metric (explainability).
+  const fallacyNodeIds = g.fallacies.filter((f) => myIds.has(f.nodeId)).map((f) => f.nodeId);
+  const droppedIds = g.dropped.filter((d) => d.owner === owner).map((_: unknown, i: number) => `dropped-${i}`);
+  const contradictionIds = g.contradictions.filter((c) => c.owner === owner).map((_: unknown, i: number) => `contradiction-${i}`);
+  const overclaimNodes = engineSide && (engineSide.causalOverclaims ?? 0) > 0
+    ? mine.map((n) => n.id)
+    : [];
+  const precisionNodes = engineSide && (engineSide.unsourcedPrecisionHits ?? 0) > 0
+    ? mine.map((n) => n.id)
+    : [];
+
+  const evidence = {
+    unsupportedClaimRate: g.evidenceStats.unsupportedClaimIds.filter((id: string) => myIds.has(id)),
+    rebuttalCoverage: rbq ? g.nodes.filter((n) => n.kind === "rebuttal" && n.owner === owner).map((n) => n.id) : [],
+    evidenceGrounding: myCitedStrength.map((n) => n.id),
+    droppedArguments: droppedIds,
+    contradictions: contradictionIds,
+    impactHandling: assessment.impactComparison ? ["impact-comparison"] : [],
+    steelmanQuality: engineSide?.steelmanQuality ? ["engine-steelman"] : [],
+    fallacyRate: fallacyNodeIds,
+    causalOverclaims: overclaimNodes,
+    fakePrecisionHits: precisionNodes,
+    uncitedEvidenceRate: myCitedStrength.filter((n) => !(n.citations ?? []).some((c) => isKnownSource(c.sourceName))).map((n) => n.id),
+    clarity: clarity10 != null ? ["turn-display-scores"] : [],
+  };
+
+  return { debateId, completedAt, metrics, evidence };
 }
 
 export interface MetricTrajectory {
