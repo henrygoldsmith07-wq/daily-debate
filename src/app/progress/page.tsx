@@ -2,8 +2,11 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { METRIC_KEYS, METRIC_LABELS } from "@/lib/skillLedger";
+import { computeSkillProfile } from "@/lib/skillProfile";
+import type { SkillMetricPoint } from "@/lib/skillLedger";
 import AppHeader from "@/components/AppHeader";
 import CoachToday from "@/components/CoachToday";
+import SkillProfileBars from "@/components/SkillProfileBars";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +71,17 @@ export default async function ProgressPage() {
             </p>
           )}
         </div>
+
+        {/* Argument Skill Profile — the persistent 7-bar view */}
+        <section className="surface-card p-5">
+          <div className="flex items-baseline justify-between mb-4">
+            <h2 className="text-sm font-semibold">Argument skill profile</h2>
+            <span className="tabular text-xs text-ink3">
+              {ledger.debates} debate{ledger.debates === 1 ? "" : "s"}
+            </span>
+          </div>
+          <SkillProfileBars profile={computeSkillProfile(ledger.points)} />
+        </section>
 
         {ledger.improvements.length > 0 && (
           <section className="flex flex-col gap-2">
