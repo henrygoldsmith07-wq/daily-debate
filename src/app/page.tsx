@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getTodayTopic } from "@/lib/dailyTopic";
 import AppHeader from "@/components/AppHeader";
+import GuestArena from "@/components/GuestArena";
 import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { METRIC_LABELS } from "@/lib/skillLedger";
@@ -13,6 +14,10 @@ export default async function DashboardPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  if (!user) {
+    return <GuestArena />;
+  }
 
   // getTodayTopic never throws — it falls back to a curated motion when
   // nothing is pre-stored, so the dashboard always has content.

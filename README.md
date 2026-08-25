@@ -37,6 +37,10 @@ Next.js (App Router) + Supabase (auth, Postgres, Realtime) + OpenRouter (primary
   AI's messages are read aloud with `speechSynthesis`. Both are Chrome-family
   only; the composer falls back to typing where unsupported.
 - **Gamification** — points per turn (legacy 5-bucket sum) **plus improvement bonuses** for behaviours that indicate skill growth: complete debate +50, improve weakest skill +20, ground a claim +15, answer every rebuttal +20, beat benchmark +30, unfamiliar topic +10. Dashboard leads with coaching signals (weakness, recent improvement, skill rating), not vanity metrics. Global leaderboard included.
+- **Guest practice loop** — new players can try a three-round, source-aware
+  practice debate without an account, see a skill-oriented result, and then
+  save progress when they are ready. This keeps the first session useful even
+  before Supabase and model credentials are configured.
 - **UX polish** — Ctrl/⌘+Enter to send, auto-scroll in the debate room,
   color-coded score badges, copyable result summary, mobile-friendly header,
   clearer empty states and loading indicators.
@@ -49,6 +53,10 @@ Next.js (App Router) + Supabase (auth, Postgres, Realtime) + OpenRouter (primary
 2. Copy `.env.example` to `.env.local` and fill in your Supabase project URL,
    anon key, service role key, and an `OPENROUTER_API_KEY`.
 3. `npm install && npm run dev`.
+
+Authenticated users get the full daily-topic experience. Signed-out users get
+a local guest practice loop first, so the product can be evaluated before
+starting a debate account.
 
 ## Deploying to Vercel
 
