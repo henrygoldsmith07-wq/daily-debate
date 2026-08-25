@@ -121,3 +121,79 @@ describe("trajectory + improvement detection", () => {
     expect(t.improved).toBeNull();
   });
 });
+
+
+
+// ADVERSARIAL INVARIANCE: non-relational metrics must not depend on AI quality.
+// Relational metrics (rebuttalCoverage, droppedArguments) inherently vary with
+// the opponent and are excluded from this invariance guarantee.
+
+describe("adversarial invariance (non-relational metrics)", () => {
+  const uN: ArgGraph["nodes"] = [
+    { id: "uc1", kind: "claim", owner: "a", text: "Solar costs fell.", round: 1 },
+    { id: "uc2", kind: "claim", owner: "a", text: "Storage is viable.", round: 2 },
+    { id: "uc3", kind: "claim", owner: "a", text: "Policy should adapt.", round: 3 },
+    { id: "ue1", kind: "evidence", owner: "a", text: "NREL data.", round: 1,
+      evidenceStrength: "cited",
+      citations: [{ sourceName: "NREL", homepage: "https://www.nrel.gov" }] },
+    { id: "ur1", kind: "rebuttal", owner: "a", text: "Rebutting.", round: 2,
+      targets: ["ac1"] },
+  ];
+  const uE: ArgGraph["edges"] = [
+    { from: "ue1", to: "uc1", relation: "supports" },
+    { from: "ur1", to: "ac1", relation: "rebuts" },
+  ];
+  const badAI: ArgGraph["nodes"] = [
+    { id: "ac1", kind: "counterclaim", owner: "b", text: "Bad.", round: 1 },
+    { id: "ac2", kind: "claim", owner: "b", text: "Bad 2.", round: 2 },
+    { id: "ac3", kind: "claim", owner: "b", text: "Bad 3.", round: 3 },
+  ];
+  const goodAI: ArgGraph["nodes"] = [
+    { id: "xc1", kind: "counterclaim", owner: "b", text: "Strong counter.", round: 1 },
+    { id: "xe1", kind: "evidence", owner: "b", text: "Pew data.", round: 1,
+      evidenceStrength: "strong",
+      citations: [{ sourceName: "Pew Research Center" }] },
+  ];
+  const goodE: ArgGraph["edges"] = [{ from: "xe1", to: "xc1", relation: "supports" }];
+
+  function build(aiNodes: ArgGraph["nodes"], aiEdges?: ArgGraph["edges"]): ArgGraph {
+    return {
+      ...emptyGraph(),
+      nodes: [...uN, ...aiNodes],
+      edges: [...uE, ...(aiEdges ?? [])],
+      dropped: [], contradictions: [], concessions: [], fallacies: [],
+      evidenceStats: {
+        total: 1, byOwner: { a: 1, b: 0, ai: 0 },
+        byStrength: { anecdotal: 0, general: 0, cited: 1, strong: 0 },
+        unsupportedClaimIds: ["uc2", "uc3"],
+      },
+      impactComparison: null,
+    };
+  }
+  function extract(g: ArgGraph) {
+    return extractSkillPoint("d1", "2026-01-01T00:00:00Z", assess(g), "a");
+  }
+
+  it("unsupportedClaimRate reflects only user claims (2/3 = 0.667)", () => {
+    const bad = extract(build(badAI));
+    const good = extract(build(goodAI, goodE));
+    // Before fix: bad-AI gave ~5/8=0.625 because graph-wide count included AI
+    expect(bad.metrics.unsupportedClaimRate)
+      .toBe(good.metrics.unsupportedClaimRate);
+    expect(bad.metrics.unsupportedClaimRate).toBeCloseTo(0.667, 2);
+  });
+
+  it("evidenceGrounding reflects only user evidence (NREL = grounded)", () => {
+    const bad = extract(build(badAI));
+    const good = extract(build(goodAI, goodE));
+    expect(bad.metrics.evidenceGrounding)
+      .toBe(good.metrics.evidenceGrounding);
+    expect(bad.metrics.evidenceGrounding).toBe(1); // 0-1 scale, NREL allowlisted
+  });
+
+  it("fallacyRate reflects only user fallacies", () => {
+    const bad = extract(build(badAI));
+    const good = extract(build(goodAI, goodE));
+    expect(bad.metrics.fallacyRate).toBe(good.metrics.fallacyRate);
+  });
+});

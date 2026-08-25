@@ -97,25 +97,45 @@ export function extractSkillPoint(
   clarity10?: number | null,
 ): SkillMetricPoint {
   const g: ArgGraph = assessment.graph;
+
+  // ── Side-local selection ────────────────────────────────────────────────
+  // Every metric MUST be computed from nodes owned by the user. Mixing in
+  // opponent nodes contaminates the profile (a terrible AI opponent would
+  // make a good debater look worse).
+
   const substantive = g.nodes.filter((n) => n.kind === "claim" || n.kind === "counterclaim" || n.kind === "impact");
   const mine = substantive.filter((n) => n.owner === owner);
   const myIds = new Set(mine.map((n) => n.id));
+  const myClaims = mine.filter((n) => n.kind === "claim" || n.kind === "counterclaim");
+  const myEvidence = g.nodes.filter((n) => n.kind === "evidence" && n.owner === owner);
 
-  const unsupported = g.evidenceStats.unsupportedClaimIds.length;
-  const claimsMade = substantive.length;
+  // Unsupported claims: intersect the graph's unsupported list with MY claim IDs
+  const unsupportedSet = new Set(g.evidenceStats.unsupportedClaimIds);
+  const myUnsupported = [...myIds].filter((id) => unsupportedSet.has(id)).length;
+  const myClaimsCount = myClaims.length;
+
+  // Rebuttal quality: already side-local via scoreRebuttalQuality(g, owner) ✓
   const rbq = scoreRebuttalQuality(g, owner);
+
+  // Evidence grounding: filter cited/strong nodes to MY evidence only
+  const myCitedStrength = myEvidence.filter(
+    (n) => n.evidenceStrength === "cited" || n.evidenceStrength === "strong"
+  );
+  const myGrounded = myCitedStrength.filter(
+    (n) => (n.citations ?? []).some((c) => isKnownSource(c.sourceName))
+  ).length;
+
+  // Citation issues: validateGraph returns whole-graph strings; scope to user's nodes.
   const issues = validateGraph(g);
   const citationIssues = issues.filter((i) => /no citation/i.test(i)).length;
-  // Grounding = share of cited/strong evidence nodes whose citations name a
-  // real, allowlisted institution (MyBlog does not ground a claim).
-  const citedStrength = g.nodes.filter(
-    (n) => n.kind === "evidence" && (n.evidenceStrength === "cited" || n.evidenceStrength === "strong"),
-  );
-  const grounded = citedStrength.filter((n) => (n.citations ?? []).some((c) => isKnownSource(c.sourceName))).length;
+  // Approximate per-side scoping: if there are N total evidence nodes and M are mine,
+  // attribute proportionally (exact attribution needs per-node issue tracking).
+  const totalEvidence = g.nodes.filter((n) => n.kind === "evidence").length || 1;
+  const myCitationIssueShare = Math.min(citationIssues, Math.round(citationIssues * (myEvidence.length / totalEvidence)));
 
-  // Engine reports are keyed a/b; solo debates run the AI as side B ("ai"),
-  // so the user's engine column is always "a" here.
-  const engineSide = assessment.engine?.a;
+  // Engine reports keyed by side; user's column depends on debate format.
+  // Solo debates: user = "a", AI = "ai"/"b". PvP: user could be either side.
+  const engineSide = assessment.engine?.[owner as "a" | "b"] ?? assessment.engine?.a;
 
   const impactValue =
     assessment.impactComparison && typeof assessment.impactComparison.value === "object"
@@ -123,20 +143,26 @@ export function extractSkillPoint(
       : null;
 
   const metrics: Record<MetricKey, number | null> = {
-    unsupportedClaimRate: round3(claimsMade > 0 ? Math.min(1, unsupported / claimsMade) : null),
+    // FIX: was `unsupported / substantive.length` — included AI's unsupported claims
+    unsupportedClaimRate: round3(myClaimsCount > 0 ? Math.min(1, myUnsupported / myClaimsCount) : null),
     rebuttalCoverage: rbq ? round3(rbq.coverage) : null,
-    evidenceGrounding: round3(citedStrength.length ? grounded / citedStrength.length : null),
+    // FIX: was computed over ALL evidence nodes including AI's
+    evidenceGrounding: round3(myCitedStrength.length > 0 ? myGrounded / myCitedStrength.length : null),
     droppedArguments: g.dropped.filter((d) => d.owner === owner).length,
     contradictions: g.contradictions.filter((c) => c.owner === owner).length,
     impactHandling:
       impactValue === null || impactValue === undefined ? null : round3(Math.max(0, Math.min(1, impactValue))),
     steelmanQuality: engineSide?.steelmanQuality ? round3(engineSide.steelmanQuality.score) : null,
-    fallacyRate: round3(
-      substantive.length ? g.fallacies.filter((f) => myIds.has(f.nodeId)).length / Math.max(1, mine.length) : null,
-    ),
+    // FIX: guard checked substantive.length (includes AI); now checks mine.length
+    fallacyRate: mine.length > 0
+      ? round3(g.fallacies.filter((f) => myIds.has(f.nodeId)).length / mine.length)
+      : null,
     causalOverclaims: engineSide?.causalOverclaims ?? null,
     fakePrecisionHits: engineSide?.unsourcedPrecisionHits ?? null,
-    uncitedEvidenceRate: round3(citedStrength.length ? Math.min(1, citationIssues / citedStrength.length) : null),
+    // FIX: was computed over ALL evidence; now scoped to user's share
+    uncitedEvidenceRate: myEvidence.length > 0
+      ? round3(Math.min(1, myCitationIssueShare / myEvidence.length))
+      : null,
     clarity: clarity10 != null ? round3(Math.max(0, Math.min(1, clarity10 / 10))) : null,
   };
   return { debateId, completedAt, metrics };
