@@ -11,8 +11,11 @@ import { useSpeechSynthesis } from "./useSpeechSynthesis";
 import { MIN_ROUNDS, MAX_ROUNDS, type DebateSummary, type InputMode, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
 import type { ArgGraph } from "@/lib/argGraph";
 
+interface RewardEventView { kind: string; xp: number; label: string; }
 interface DebateSummaryPayload {
   totalScore: number;
+  bonusXP: number;
+  rewardEvents: RewardEventView[];
   summary: DebateSummary;
 }
 
@@ -120,15 +123,36 @@ export default function DebateRoom({
   }
 
   if (result) {
+    // Coaching insight: lead with the most meaningful behavioural signal.
+    const rewards = result.rewardEvents?.filter((e) => e.kind !== "complete-debate") ?? [];
+    const topReward = rewards[0];
+    const bonusXP = result.bonusXP ?? 0;
+
     return (
       <div className="flex flex-col gap-5">
         <div className="surface-card flex flex-col gap-4 p-6">
-          <div className="flex items-start justify-between gap-3">
-            <h2 className="text-xl font-semibold">Debate complete — {result.totalScore} pts</h2>
-            <button type="button" onClick={copyResult} className="btn btn-ghost shrink-0 px-3 py-1 text-xs">
-              {copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}
-            </button>
+          {/* Coaching headline */}
+          {topReward ? (
+            <div>
+              <p className="text-xs uppercase tracking-wide text-[var(--accent)]">Best improvement</p>
+              <p className="mt-1 text-lg font-semibold">{topReward.label}</p>
+              {rewards.length > 1 && (
+                <ul className="mt-2 list-inside list-disc text-xs text-ink3">
+                  {rewards.slice(1).map((r) => (
+                    <li key={r.kind}>{r.label} (+{r.xp} XP)</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
+
+          {/* Score demoted to secondary */}
+          <div className="flex items-baseline gap-3">
+            <span className="tabular text-2xl font-bold">{result.totalScore}</span>
+            <span className="text-sm text-ink3">pts</span>
+            {bonusXP > 0 && <span className="tabular text-sm text-[var(--accent)]">+{bonusXP} bonus</span>}
           </div>
+
           <p className="text-sm text-ink3">{result.summary.overallFeedback}</p>
           {result.summary.strengths.length > 0 && (
             <div>
@@ -151,6 +175,9 @@ export default function DebateRoom({
             </div>
           )}
           <div className="flex flex-wrap gap-3 pt-2">
+            <button type="button" onClick={copyResult} className="btn btn-ghost px-3 py-1 text-xs">
+              {copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}
+            </button>
             <Link href="/" className="btn btn-primary px-4 py-2 text-sm">
               Back to today
             </Link>

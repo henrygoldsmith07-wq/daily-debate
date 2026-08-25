@@ -281,23 +281,45 @@ export default function PvpRoom({
       ) : (
         <div className="flex flex-col gap-4">
           <div className="surface-card flex flex-col gap-3 p-6">
-            <h2 className="text-lg font-semibold">
-              {match.winner_id === null
-                ? verdict?.isTie
-                  ? "Too close to call"
-                  : "Tie!"
-                : match.winner_id === currentUserId
-                  ? "You won! 🏆"
-                  : "Your opponent won this one."}
-            </h2>
+            {/* Coaching headline: what you did well, then the result */}
+            {verdict?.observableAssessment && (() => {
+              const feats = verdict.observableAssessment.features;
+              const side = isPlayerA ? "a" : "b";
+              const myFeatures = feats[side as keyof typeof feats];
+              const rbCoverage = myFeatures?.rebuttalCoverage;
+              const rbValue = rbCoverage && typeof rbCoverage === "object" && "value" in rbCoverage ? (rbCoverage as { value: number }).value : null;
+              const claims = myFeatures?.claimsDirectlySupported;
+              const claimValue = claims && typeof claims === "object" && "value" in claims ? (claims as { value: number }).value : null;
+              return (
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-[var(--accent)]">Your performance</p>
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {rbValue !== null && (
+                      <li>You addressed {Math.round(rbValue * 100)}% of opposing claims</li>
+                    )}
+                    {claimValue != null && claimValue > 0 && (
+                      <li>{claimValue} claim{claimValue === 1 ? "" : "s"} directly supported with evidence</li>
+                    )}
+                  </ul>
+                </div>
+              );
+            })()}
+            <div className="flex items-baseline gap-3">
+              <h2 className="text-lg font-semibold">
+                {match.winner_id === null
+                  ? verdict?.isTie ? "Too close to call" : "Tie"
+                  : match.winner_id === currentUserId ? "You won" : "Opponent won"}
+              </h2>
+              {verdict && verdict.scoreStatus !== "insufficient_evidence" && (
+                <span className="tabular text-sm text-ink3">
+                  {verdict.playerAScore}–{verdict.playerBScore}
+                </span>
+              )}
+            </div>
             {!verdict && <p className="text-sm text-ink3">Awaiting judge verdict…</p>}
             <div className="flex gap-3 pt-2">
-              <Link href="/pvp" className="btn btn-primary px-4 py-2 text-sm">
-                Find another match
-              </Link>
-              <Link href="/leaderboard" className="btn btn-ghost px-4 py-2 text-sm">
-                Leaderboard
-              </Link>
+              <Link href="/pvp" className="btn btn-primary px-4 py-2 text-sm">Find another match</Link>
+              <Link href="/leaderboard" className="btn btn-ghost px-4 py-2 text-sm">Leaderboard</Link>
             </div>
           </div>
           {verdict && <VerdictExplainPanel verdict={verdict} playerAName={playerAName} playerBName={playerBName} />}
