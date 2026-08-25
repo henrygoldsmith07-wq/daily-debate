@@ -29,6 +29,10 @@ export default defineConfig({
       PORT: String(PORT),
       NEXT_PUBLIC_SUPABASE_URL: process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321",
       NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.E2E_SUPABASE_ANON_KEY ?? "e2e-placeholder-anon-key",
+      // Service role key needed by server routes that use createServiceClient()
+      // (daily topic fallback persistence, points awarding, evidence retrieval).
+      // Only set when ephemeral Supabase is running; omitted for failure-state tests.
+      ...(process.env.SUPABASE_SERVICE_ROLE_KEY ? { SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY } : {}),
     },
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
