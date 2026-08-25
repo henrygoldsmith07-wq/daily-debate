@@ -10,24 +10,17 @@ export const metadata = {
   description: "Published evaluation metrics for Daily Debate's human-rated debate corpus.",
 };
 
-function pct(value: number | null, digits = 0): string {
-  return value === null ? "—" : `${value.toFixed(digits)}%`;
+function fmt(g: { estimate: number | null; ciLower: number | null; ciUpper: number | null; n: number; state: string }): string {
+  if (g.state === "insufficient" || g.estimate === null) return "—";
+  return `${g.estimate}%`;
 }
 
-function Row({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 border-t border-[var(--rule)] py-3 first:border-0">
-      <div>
-        <p className="text-sm font-medium">{label}</p>
-        {sub && <p className="text-xs text-ink3">{sub}</p>}
-      </div>
-      <p className="tabular text-lg font-semibold">{value}</p>
-    </div>
-  );
+function ciStr(g: { estimate: number | null; ciLower: number | null; ciUpper: number | null; n: number }): string {
+  if (g.ciLower === null || g.ciUpper === null) return `n=${g.n}`;
+  return `${g.estimate}% CI [${g.ciLower}–${g.ciUpper}] · n=${g.n}`;
 }
 
 export default async function MetricsPage() {
-  // Aggregates only — no transcripts or identities leave the database.
   const service = createServiceClient();
   const [{ data: items }, { data: ratings }] = await Promise.all([
     service.from("corpus_items").select("id, side_mapping"),
@@ -36,7 +29,6 @@ export default async function MetricsPage() {
   const m = computeCorpusMetrics((items ?? []) as MetricItem[], (ratings ?? []) as unknown as MetricRating[]);
 
   const targetPct = Math.min(100, Math.round((m.corpus.items / 1000) * 100));
-  const judgedEnough = m.judgeVsConsensus.judged >= 30;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -46,78 +38,47 @@ export default async function MetricsPage() {
           <p className="text-xs uppercase tracking-wide text-ink3">Evaluation</p>
           <h1 className="text-2xl font-semibold tracking-tight">Corpus metrics</h1>
           <p className="mt-2 text-sm text-ink3">
-            Published numbers for Daily Debate&apos;s human-rated debate corpus. Every metric is computed live from
-            rated debates; a dash means that measurement does not yet have enough data to be claimed.
+            Every metric carries an evidence state (insufficient / early / reportable). Dashes mean not enough data.
           </p>
         </div>
 
-        {/* Campaign progress */}
         <section className="surface-card flex flex-col gap-3 p-5">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold">Campaign progress</h2>
-            <p className="tabular text-xs text-ink3">
-              {m.corpus.items} / 1000 debates · {m.corpus.ratings} human judgements · {m.corpus.raters} raters
-            </p>
-          </div>
-          <div
-            className="h-2 w-full overflow-hidden rounded-full bg-surface-2"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={1000}
-            aria-valuenow={m.corpus.items}
-          >
+          <h2 className="text-sm font-semibold">Campaign progress</h2>
+          <p className="tabular text-xs text-ink3">
+            {m.corpus.items} / 1000 debates · {m.corpus.ratings} judgements · {m.corpus.raters} raters
+          </p>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
             <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${targetPct}%` }} />
           </div>
-          <p className="tabular text-xs text-ink3">
-            ≥2 ratings: {m.corpus.itemsWithTwoPlusRatings} · ≥3 ratings: {m.corpus.itemsWithThreePlusRatings} · target:
-            3+ per debate
-          </p>
         </section>
 
-        {/* The published table */}
         <section className="surface-card p-5">
           <h2 className="text-sm font-semibold">Judge quality</h2>
           <div className="mt-2">
-            <Row
-              label="Human consensus agreement"
-              sub={`${m.humanConsensusUnanimousPct === null ? "—" : `${m.corpus.itemsWithTwoPlusRatings} multi-rated debates`}: unanimous winner share (majority view: ${pct(m.humanConsensusMajorityPct, 1)})`}
-              value={pct(m.humanConsensusUnanimousPct, 1)}
-            />
-            <Row
-              label="Judge vs consensus agreement"
-              sub={judgedEnough ? `${m.judgeVsConsensus.judged} judged debates` : "shown once ≥30 debates are judged"}
-              value={judgedEnough ? pct(m.judgeVsConsensus.pct, 0) : "—"}
-            />
-            <Row
-              label="Close-debate accuracy"
-              sub={`judge accuracy on debates humans scored within ${0.75} Likert points (${m.closeDebateAccuracy.n} so far)`}
-              value={m.closeDebateAccuracy.n >= 20 ? pct(m.closeDebateAccuracy.pct) : "—"}
-            />
-            <Row
-              label="Position-swap stability"
-              sub={`mirrored-transcript re-judgements (${m.positionSwapStability.n} probed)`}
-              value={m.positionSwapStability.n >= 20 ? pct(m.positionSwapStability.pct) : "—"}
-            />
-            <Row
-              label="Calibration error (ECE)"
-              sub="system-verdict confidence vs correctness, 10 bins"
-              value={m.calibrationError === null ? "—" : m.calibrationError.toFixed(2)}
-            />
-            <Row
-              label="Citation-flag rate on judged graphs"
-              sub={`${m.unsupportedSourceFlagRate.flagged} flagged of ${m.unsupportedSourceFlagRate.citedNodes} cited evidence nodes`}
-              value={pct(m.unsupportedSourceFlagRate.pct, 1)}
-            />
+            {[
+              { label: "Human consensus (unanimous)", metric: m.humanConsensusUnanimous },
+              { label: "Judge vs consensus agreement", metric: m.judgeVsConsensus },
+              { label: "Close-debate accuracy", metric: m.closeDebateAccuracy },
+              { label: "Position-swap stability", metric: m.positionSwapStability },
+              { label: "Citation-flag rate", metric: m.citationFlagRate },
+            ].map((row) => (
+              <div key={row.label} className="border-t border-[var(--rule)] py-3 first:border-0">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-sm font-medium">{row.label}</p>
+                  <span className={`tabular text-lg font-semibold ${row.metric.state === "reportable" ? "" : row.metric.state === "early" ? "opacity-60" : "opacity-30"}`}>
+                    {fmt(row.metric)}
+                  </span>
+                </div>
+                <p className="text-xs text-ink3">{ciStr(row.metric)} · {row.metric.state}</p>
+              </div>
+            ))}
+            <div className="border-t border-[var(--rule)] py-3">
+              <div className="flex items-baseline justify-between">
+                <p className="text-sm font-medium">Calibration error (ECE)</p>
+                <span className="tabular text-lg font-semibold">{m.calibrationError === null ? "—" : m.calibrationError.toFixed(2)}</span>
+              </div>
+            </div>
           </div>
-          <p className="mt-4 text-xs leading-relaxed text-ink3">
-            These are corpus metrics, not marketing claims: they update as real blind ratings arrive and every number is
-            reproducible from the stored ratings. Judge-side rows require an admin comparison run over agreement-ready
-            items. Help populate the corpus at{" "}
-            <Link href="/rate" className="text-[var(--accent)] hover:underline">
-              /rate
-            </Link>
-            .
-          </p>
         </section>
       </main>
     </div>

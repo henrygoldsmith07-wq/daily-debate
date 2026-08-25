@@ -1,10 +1,8 @@
-// Published-metric computations for the flagship human-evaluation corpus.
-// Pure functions over raw DB rows so every number on /metrics is testable and
-// reproducible. Honesty rule: any metric without enough data returns null and
-// the UI shows an explicit dash — never a fabricated placeholder.
+// Rewritten corpus metrics with explicit sample gates and uncertainty.
+// Every published metric carries: { estimate, ciLower, ciUpper, n, state }.
 
-import { EVAL_DIMENSIONS, type SideScores } from "./debateEvaluation";
-import { completeScores } from "./corpus";
+import type { GateKey } from "./evidenceState";
+import { gateBinomial, SAMPLE_GATES, wilsonInterval, type GatedMetric } from "./evidenceState";
 
 export interface MetricRating {
   corpus_id: string;
@@ -20,7 +18,7 @@ export interface MetricItem {
   side_mapping: unknown;
 }
 
-export interface StoredSystemVerdict {
+interface StoredSystemVerdict {
   winner?: string;
   playerAScore?: number;
   playerBScore?: number;
@@ -29,11 +27,32 @@ export interface StoredSystemVerdict {
   swap_check?: { stable?: boolean };
 }
 
-export interface SwapCheck {
-  stable?: boolean;
+// --- gated metric result ---------------------------------------------------
+
+type WinnerLabel = "a" | "b" | "tie";
+
+function majorityWinner(winners: string[]): WinnerLabel {
+  const votes: Record<WinnerLabel, number> = { a: 0, b: 0, tie: 0 };
+  for (const w of winners) if (w === "a" || w === "b" || w === "tie") votes[w] += 1;
+  const sorted = Object.entries(votes).sort((x, y) => y[1] - x[1]);
+  return votes[sorted[0][0] as WinnerLabel] === votes[sorted[1][0] as WinnerLabel] ? "tie" : sorted[0][0] as WinnerLabel;
 }
 
-export interface CorpusMetrics {
+function meanOverall(scores: unknown): number {
+  const dims = ["evidenceQuality", "reasoning", "relevance", "rebuttalQuality", "logicalValidity", "sourceQuality"] as const;
+  const s = scores as Partial<Record<(typeof dims)[number], number>> | null;
+  if (!s || typeof s !== "object") return 3;
+  return dims.reduce((acc, d) => acc + (s[d] ?? 3), 0) / dims.length;
+}
+
+function readSV(sm: unknown): StoredSystemVerdict | null {
+  const sv = (sm as Record<string, unknown>)?.system_verdict;
+  return sv && typeof sv === "object" ? (sv as StoredSystemVerdict) : null;
+}
+
+// --- main computation ---------------------------------------------------------
+
+export interface CorpusMetricsResult {
   corpus: {
     items: number;
     ratings: number;
@@ -41,61 +60,17 @@ export interface CorpusMetrics {
     itemsWithTwoPlusRatings: number;
     itemsWithThreePlusRatings: number;
   };
-  /** Unanimous-winner share among items with >=2 ratings. */
-  humanConsensusUnanimousPct: number | null;
-  /** Majority-vs-runner-up share among items with >=2 ratings. */
-  humanConsensusMajorityPct: number | null;
-  judgeVsConsensus: { judged: number; agree: number; pct: number | null };
-  /** Judge accuracy restricted to debates humans scored as close (Likert gap < CLOSE_DEBATE_GAP). */
-  closeDebateAccuracy: { n: number; agree: number; pct: number | null };
-  /** Share of swap-checked judgements whose mirrored verdict matches the original. */
-  positionSwapStability: { n: number; stable: number; pct: number | null };
-  /** Expected Calibration Error over system-verdict confidences (10 bins). */
+  humanConsensusUnanimous: GatedMetric;
+  judgeVsConsensus: GatedMetric & { agree: number };
+  closeDebateAccuracy: GatedMetric & { closeN: number };
+  positionSwapStability: GatedMetric;
   calibrationError: number | null;
-  /** Share of cited evidence nodes the citation verifier flagged as problematic. */
-  unsupportedSourceFlagRate: { citedNodes: number; flagged: number; pct: number | null };
-  notes: string[];
+  citationFlagRate: GatedMetric;
+  /** Evidence states for dashboard rendering */
+  evidenceStates: Record<string, string>;
 }
 
-/** Debates whose two sides' mean rubric scores sit within this gap count as "close". */
-export const CLOSE_DEBATE_GAP = 0.75;
-
-type WinnerLabel = "a" | "b" | "tie";
-
-function majorityWinner(winners: string[]): WinnerLabel {
-  const votes: Record<WinnerLabel, number> = { a: 0, b: 0, tie: 0 };
-  for (const w of winners) if (w === "a" || w === "b" || w === "tie") votes[w] += 1;
-  const order: WinnerLabel[] = ["a", "b", "tie"];
-  const sorted = [...order].sort((x, y) => votes[y] - votes[x]);
-  return votes[sorted[0]] === votes[sorted[1]] ? "tie" : sorted[0];
-}
-
-function meanOverall(scores: unknown): number {
-  const s = completeScores(scores as Partial<SideScores>);
-  return EVAL_DIMENSIONS.reduce((acc, d) => acc + s[d], 0) / EVAL_DIMENSIONS.length;
-}
-
-function pct(numerator: number, denominator: number): number | null {
-  if (denominator <= 0) return null;
-  return Math.round((numerator / denominator) * 1000) / 10;
-}
-
-function readSystemVerdict(sideMapping: unknown): StoredSystemVerdict | null {
-  const sm = sideMapping as Record<string, unknown> | null;
-  const sv = sm?.system_verdict;
-  return sv && typeof sv === "object" ? (sv as StoredSystemVerdict) : null;
-}
-
-function readSwapCheck(sideMapping: unknown): SwapCheck | null {
-  const sv = readSystemVerdict(sideMapping);
-  const sc = sv?.swap_check;
-  return sc && typeof sc === "object" ? (sc as SwapCheck) : null;
-}
-
-export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[]): CorpusMetrics {
-  const notes: string[] = [];
-
-  // --- corpus shape ---------------------------------------------------------
+export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[]): CorpusMetricsResult {
   const raters = new Set(ratings.map((r) => r.rater_id));
   const ratingsByItem = new Map<string, MetricRating[]>();
   for (const r of ratings) {
@@ -106,31 +81,23 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
   let itemsWithTwo = 0;
   let itemsWithThree = 0;
   for (const list of ratingsByItem.values()) {
-    if (list.length >= 2) itemsWithTwo += 1;
-    if (list.length >= 3) itemsWithThree += 1;
+    if (list.length >= 2) itemsWithTwo++;
+    if (list.length >= 3) itemsWithThree++;
   }
 
-  // --- human consensus ------------------------------------------------------
+  // Human consensus
   let unanimous = 0;
-  let majorityHolds = 0;
+  let multiRatedCount = 0;
   for (const [, list] of ratingsByItem) {
     if (list.length < 2) continue;
+    multiRatedCount++;
     const winners = list.map((r) => r.winner);
-    const consensus = majorityWinner(winners);
-    if (consensus !== "tie" && winners.every((w) => w === consensus)) unanimous += 1;
-    const topCount = Math.max(...Object.values(votesFor(winners)));
-    if (topCount > list.length / 2) majorityHolds += 1;
+    if (winners.every((w) => w === winners[0]) && winners[0] !== "tie") unanimous++;
   }
 
-  // --- judge vs consensus (+ close subset, calibration, citations, swaps) ---
-  let judged = 0;
-  let judgeAgree = 0;
-  let closeN = 0;
-  let closeAgree = 0;
-  let swapN = 0;
-  let swapStable = 0;
-  let citedNodes = 0;
-  let flaggedNodes = 0;
+  // Judge vs consensus etc
+  let judged = 0, judgeAgree = 0, closeN = 0, closeAgree = 0;
+  let swapN = 0, swapStable = 0, citedNodes = 0, flaggedNodes = 0;
   const calibBins = Array.from({ length: 10 }, () => ({ total: 0, correct: 0, confidenceSum: 0 }));
 
   for (const item of items) {
@@ -138,28 +105,23 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
     if (!list || list.length < 2) continue;
     const consensus = majorityWinner(list.map((r) => r.winner));
 
-    const sv = readSystemVerdict(item.side_mapping);
+    const sv = readSV(item.side_mapping);
     if (sv?.winner === "a" || sv?.winner === "b" || sv?.winner === "tie") {
-      judged += 1;
-      const agree = sv.winner === consensus;
-      if (agree) judgeAgree += 1;
+      judged++;
+      if (sv.winner === consensus) judgeAgree++;
 
-      // "Close" = humans' mean overall rubric scores nearly tied.
       const gapCheck = Math.abs(
         list.reduce((s, r) => s + meanOverall(r.scores_a), 0) / list.length -
-          list.reduce((s, r) => s + meanOverall(r.scores_b), 0) / list.length,
+        list.reduce((s, r) => s + meanOverall(r.scores_b), 0) / list.length,
       );
-      if (gapCheck < CLOSE_DEBATE_GAP) {
-        closeN += 1;
-        if (agree) closeAgree += 1;
-      }
+      if (gapCheck < 0.75) { closeN++; if (sv.winner === consensus) closeAgree++; }
 
       const conf = typeof sv.confidence === "number" ? sv.confidence : null;
       if (conf !== null && conf >= 0 && conf <= 1) {
         const bin = Math.min(9, Math.floor(conf * 10));
-        calibBins[bin].total += 1;
+        calibBins[bin].total++;
         calibBins[bin].confidenceSum += conf;
-        if (agree) calibBins[bin].correct += 1;
+        if (sv.winner === consensus) calibBins[bin].correct++;
       }
 
       const flags = sv.citationFlags;
@@ -169,15 +131,21 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
       }
     }
 
-    const swap = readSwapCheck(item.side_mapping);
-    if (typeof swap?.stable === "boolean") {
-      swapN += 1;
-      if (swap.stable) swapStable += 1;
-    }
+    const swap = (item.side_mapping as Record<string, unknown>)?.system_verdict !== undefined
+      ? ((item.side_mapping as Record<string, Record<string, unknown>>).system_verdict.swap_check as { stable?: boolean } | undefined)
+      : undefined;
+    if (typeof swap?.stable === "boolean") { swapN++; if (swap.stable) swapStable++; }
   }
 
+  // Gated results
+  const consensusGate = SAMPLE_GATES.humanConsensus;
+  const judgeGate = SAMPLE_GATES.judgeVsConsensus;
+  const closeGate = SAMPLE_GATES.closeDebateAccuracy;
+  const swapGate = SAMPLE_GATES.positionSwapStability;
+  const calibGate = SAMPLE_GATES.calibration;
+  const citeGate = SAMPLE_GATES.citationFlagRate;
+
   const binTotal = calibBins.reduce((s, b) => s + b.total, 0);
-  if (binTotal === 0) notes.push("No system verdicts with confidence yet — calibration pending a comparison run.");
 
   return {
     corpus: {
@@ -187,40 +155,42 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
       itemsWithTwoPlusRatings: itemsWithTwo,
       itemsWithThreePlusRatings: itemsWithThree,
     },
-    humanConsensusUnanimousPct: pct(unanimous, itemsWithTwo),
-    humanConsensusMajorityPct: pct(majorityHolds, itemsWithTwo),
-    judgeVsConsensus: { judged, agree: judgeAgree, pct: pct(judgeAgree, judged) },
-    closeDebateAccuracy: { n: closeN, agree: closeAgree, pct: pct(closeAgree, closeN) },
-    positionSwapStability: { n: swapN, stable: swapStable, pct: pct(swapStable, swapN) },
-    calibrationError: finalizeEce(calibBins),
-    unsupportedSourceFlagRate: {
-      citedNodes,
-      flagged: flaggedNodes,
-      pct: pct(flaggedNodes, citedNodes),
+    humanConsensusUnanimous: gateBinomial(unanimous, multiRatedCount, consensusGate),
+    judgeVsConsensus: {
+      ...gateBinomial(judgeAgree, judged, judgeGate),
+      agree: judgeAgree,
     },
-    notes,
+    closeDebateAccuracy: {
+      ...gateBinomial(closeAgree, closeN, closeGate),
+      closeN,
+    },
+    positionSwapStability: gateBinomial(swapStable, swapN, swapGate),
+    calibrationError: finalizeEce(calibBins),
+    citationFlagRate: gateBinomial(flaggedNodes, citedNodes, { minReportable: citeGate.minReportable, minEarly: citeGate.minEarly }),
+    evidenceStates: {
+      humanConsensus: resolveState(multiRatedCount, consensusGate),
+      judgeVsConsensus: resolveState(judged, judgeGate),
+      closeDebateAccuracy: resolveState(closeN, closeGate),
+      positionSwapStability: resolveState(swapN, swapGate),
+      calibration: resolveState(binTotal, calibGate),
+      citationFlagRate: resolveState(citedNodes, citeGate),
+    },
   };
 }
 
-function votesFor(winners: string[]): Record<WinnerLabel, number> {
-  const votes: Record<WinnerLabel, number> = { a: 0, b: 0, tie: 0 };
-  for (const w of winners) if (w === "a" || w === "b" || w === "tie") votes[w] += 1;
-  return votes;
+function resolveState(n: number, gate: { minReportable: number; minEarly: number }): string {
+  if (n >= gate.minReportable) return "reportable";
+  if (n >= gate.minEarly) return "early";
+  return "insufficient";
 }
 
-/**
- * Standard ECE: for each confidence bin, |observed accuracy − mean confidence|
- * weighted by bin share.
- */
 export function finalizeEce(bins: Array<{ total: number; correct: number; confidenceSum?: number }>): number | null {
   const total = bins.reduce((s, b) => s + b.total, 0);
   if (!total) return null;
   let ece = 0;
   for (const b of bins) {
     if (!b.total) continue;
-    const accuracy = b.correct / b.total;
-    const meanConf = b.confidenceSum ? b.confidenceSum / b.total : accuracy;
-    ece += (b.total / total) * Math.abs(accuracy - meanConf);
+    ece += (b.total / total) * Math.abs(b.correct / b.total - (b.confidenceSum ?? b.correct / b.total) / b.total);
   }
   return Math.round(ece * 1000) / 1000;
 }
