@@ -36,8 +36,7 @@ Next.js (App Router) + Supabase (auth, Postgres, Realtime) + OpenRouter (primary
   (`SpeechRecognition`) to dictate your response as text before sending; the
   AI's messages are read aloud with `speechSynthesis`. Both are Chrome-family
   only; the composer falls back to typing where unsupported.
-- **Gamification** — points per round, levels, and daily streaks, plus a
-  global leaderboard.
+- **Gamification** — points per turn (legacy 5-bucket sum) **plus improvement bonuses** for behaviours that indicate skill growth: complete debate +50, improve weakest skill +20, ground a claim +15, answer every rebuttal +20, beat benchmark +30, unfamiliar topic +10. Dashboard leads with coaching signals (weakness, recent improvement, skill rating), not vanity metrics. Global leaderboard included.
 - **UX polish** — Ctrl/⌘+Enter to send, auto-scroll in the debate room,
   color-coded score badges, copyable result summary, mobile-friendly header,
   clearer empty states and loading indicators.
@@ -160,11 +159,34 @@ Live-model note: run the real OpenRouter/Anthropic judge twice per fixture with 
 - **Rebuttal-quality scoring** (beyond coverage) — target coverage × evidence-backing × engagement with the opponent's strongest material (impacts/counterclaims) × substance.
 - **Steelman-quality scoring** — steelman markers ("even if", "granting", "concede") plus recorded concessions, minus strawman/ad-hominem penalties.
 
+## Longitudinal skill ledger
+
+`/progress` turns scored debates into measurable improvement. For each completed debate the stored observable assessment is re-merged and reduced to a metric vector — unsupported-claim rate, rebuttal coverage, evidence grounding (allowlist-verified), dropped arguments, contradictions, impact handling, steelmanning, fallacy frequency, causal overclaims, fake-precision figures, uncited-evidence rate, clarity — then trajectories are computed per metric: first-vs-last window deltas, least-squares slope per debate, and an `improved` flag with a noise floor. A fixed deterministic benchmark opponent provides a reference vector every user is compared against, and recurring weaknesses map to targeted drills (`weaknessTracker`). Improvement claims stay observational until 10 debates; causal claims wait for the rated corpus.
+
+## Adaptive coach
+
+`/progress` now leads with an **Argument Skill Profile** — seven dimensions (Evidence, Rebuttal, Logic, Clarity, Impact, Steelmanning, Structure) scored 0–100 from the same deterministic pipeline that grades debates, rendered as bars. Below it sits **Today's training focus**: the lowest dimension adjusted by movement (improving ones are deprioritised), served as a 2–5 minute drill from a rotating library.
+
+Drills are **measurable end-to-end**: `drill_assignments` (migration 010) records before-score → drill → scored attempt → skill movement from subsequent debates (`movementAround`). Dimensions whose recent drills produce negative movement are excluded from recommendations until their skill moves again — the coach stops prescribing what doesn't work for you. Attempt scoring uses the judge's own detectors (contrastive moves, real-institution citations, weighing language, fallacy checks) so practice and performance share one rubric.
+
 ## Live judge benchmarks (gated deployment)
 
 `npm run benchmark:judges` runs the invariance/bias suite against **real model APIs** (`scripts/judge-benchmark.mjs`, dependency-free so Node actually executes it — the previous `.ts`-importing script silently no-op'd). For each configured provider/model it judges the labelled fixtures base + 9 invariance transforms + political/ideological audit probes, then measures: position-mirror stability, per-transform stability, false-citation influence, ideological asymmetry, fixture-label agreement, ECE, latency and token spend.
 
 Results merge into `docs/judge-leaderboard.md` (one row per model) with raw JSON at `docs/latest-judge-benchmark.json`. Deployment gates live in `config/judge-gates.json`; `--enforce` exits non-zero on breach, and `.github/workflows/judge-benchmark.yml` runs the suite weekly plus on demand. Current live findings are in the leaderboard file — including gate results that models must pass before judging real matches.
+
+## Debate modes & speech analysis
+
+Four debate modes change the training stimulus:
+
+| Mode | Time | Purpose | Voice |
+|---|---|---|---|
+| **Text** | untimed | Analytical argument construction with citations | optional |
+| **Speech** | ~60s soft / 180s hard | Actual debating practice for pace and filler analysis | expected |
+| **Rapid Rebuttal** | 45s soft / 60s hard | Immediacy and concision — answer an argument fast | expected |
+| **Prepared Speech** | 180s soft / 300s hard | Extended structured case with signposting | expected |
+
+`src/lib/speechAnalysis.ts` measures seven debating-relevant vocal characteristics from transcript metadata: **pace** (words/minute, ideal 120–170), **filler density** (um/uh/like per 100 words), **pause patterns**, **structural signposting** (first/furthermore/therefore density), **contrastive moves** (however/even if/granting = rebuttal engagement), **argument repetition** (Jaccard vs prior turn), and **rebuttal immediacy** (seconds between opponent's turn and user starting). `scoreSpeechQuality()` composites these into a 0–100 score. Deliberately does NOT score accent, pitch, tone, or vocal characteristics irrelevant to debating quality.
 
 ## AI providers
 

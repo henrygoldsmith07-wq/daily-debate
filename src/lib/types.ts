@@ -124,6 +124,17 @@ export interface PvpVerdict {
   isTie?: boolean; // true when the judge genuinely can't separate the two sides
   tieReason?: string;
   judges?: VerdictJudgeDetail[]; // per-judge verdicts (empty for single-judge fallback-less runs)
+  /** Version fingerprint: provider/model/prompt/engine/schema/temp/ensemble */
+  fingerprint?: {
+    provider: string;
+    model: string;
+    revision?: string | null;
+    promptVersion: number;
+    scoringEngineVersion: number;
+    graphSchemaVersion: number;
+    temperature: number;
+    ensemble: string[];
+  };
 }
 // Alias: the judge modules export PvpJudgeResult; app code uses PvpVerdict. Keep both names.
 export type PvpJudgeResult = PvpVerdict;

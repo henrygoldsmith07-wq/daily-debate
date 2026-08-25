@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import MessageComposer from "./MessageComposer";
+import MessageComposer, { type ComposerSubmitData } from "./MessageComposer";
 import ScoreBadges from "./ScoreBadges";
 import RoundProgress from "./RoundProgress";
 import ThinkingIndicator from "./ThinkingIndicator";
@@ -53,21 +53,23 @@ export default function DebateRoom({
     }
   }, [turns, sending]);
 
-  async function submitTurn(message: string, inputMode: InputMode) {
+  const [debateMode, setDebateMode] = useState("text");
+
+  async function submitTurn(data: ComposerSubmitData) {
     setSending(true);
     setError(null);
     try {
       const res = await fetch(`/api/solo/${debate.id}/turn`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, inputMode }),
+        body: JSON.stringify({ message: data.message, inputMode: data.inputMode }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to submit response.");
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || "Failed to submit response.");
 
-      setTurns((prev) => [...prev.slice(0, -1), data.completedTurn, data.nextTurn]);
-      setRoundCount(data.roundCount);
-      if (ttsSupported) speak(data.nextTurn.ai_message);
+      setTurns((prev) => [...prev.slice(0, -1), resData.completedTurn, resData.nextTurn]);
+      setRoundCount(resData.roundCount);
+      if (ttsSupported) speak(resData.nextTurn.ai_message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit response.");
     } finally {
@@ -237,7 +239,27 @@ export default function DebateRoom({
       )}
 
       {status === "active" && !pending?.user_message && roundCount < MAX_ROUNDS && (
-        <MessageComposer onSubmit={submitTurn} disabled={sending} />
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2 flex-wrap" role="group" aria-label="Debate mode">
+            {[
+              { id: "text", label: "📝 Text" },
+              { id: "speech", label: "🎙️ Speech" },
+              { id: "rapid-rebuttal", label: "⚡ Rapid (60s)" },
+              { id: "prepared-speech", label: "📋 Speech (5min)" },
+            ].map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setDebateMode(m.id)}
+                aria-pressed={debateMode === m.id}
+                className={`btn px-3 py-1.5 text-xs ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <MessageComposer onSubmit={submitTurn} disabled={sending} modeId={debateMode} />
+        </div>
       )}
 
       {status === "active" && !pending?.user_message && roundCount >= MAX_ROUNDS && (

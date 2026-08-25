@@ -6,7 +6,35 @@ import Link from "next/link";
 import { isKnownSource } from "@/lib/citationVerifier";
 import type { DailyTopic, DebateSide } from "@/lib/types";
 
-export default function TopicCard({ topic, activeDebateId }: { topic: DailyTopic; activeDebateId: string | null }) {
+export interface EvidenceChecksView {
+  supportsClaim?: boolean;
+  relevant?: boolean;
+  current?: boolean | null;
+  primary?: boolean;
+  matchScore?: number;
+}
+
+export interface EvidenceCardView {
+  id?: string;
+  claim: string;
+  source_name: string;
+  source_type: string;
+  url: string;
+  title?: string | null;
+  passage: string;
+  published_date?: string | null;
+  checks?: EvidenceChecksView;
+}
+
+export default function TopicCard({
+  topic,
+  activeDebateId,
+  evidenceCards = [],
+}: {
+  topic: DailyTopic;
+  activeDebateId: string | null;
+  evidenceCards?: EvidenceCardView[];
+}) {
   const router = useRouter();
   const [side, setSide] = useState<DebateSide>("for");
   const [starting, setStarting] = useState(false);
@@ -39,6 +67,71 @@ export default function TopicCard({ topic, activeDebateId }: { topic: DailyTopic
         <p className="mt-3 text-base leading-relaxed">{topic.prompt}</p>
       </div>
 
+      {evidenceCards.length > 0 ? (
+        <div>
+          <p className="mb-2 text-xs uppercase tracking-wide text-ink3">
+            Retrieved evidence — verified passages
+          </p>
+          <ul className="flex flex-col gap-3">
+            {evidenceCards.map((card) => {
+              const c = card.checks ?? {};
+              const chips: Array<{ ok: boolean | null | undefined; label: string }> = [
+                { ok: c.supportsClaim, label: c.supportsClaim ? "supports claim" : "weak support" },
+                { ok: c.current ?? null, label: c.current === null || c.current === undefined ? "date unknown" : c.current ? "current" : "dated" },
+                { ok: c.primary, label: c.primary ? "primary" : "secondary" },
+                { ok: c.relevant, label: c.relevant ? "relevant" : "tangential" },
+              ];
+              return (
+                <li key={card.url} className="rounded-xl border border-[var(--rule)] bg-surface-2 p-4">
+                  <p className="text-sm font-medium">{card.claim}</p>
+                  <dl className="mt-2 flex flex-col gap-1 text-xs">
+                    <div className="flex gap-2">
+                      <dt className="w-20 shrink-0 uppercase tracking-wide text-ink3">Source</dt>
+                      <dd className="font-medium">
+                        {card.source_name}
+                        <span className="text-ink3"> · {card.source_type}</span>
+                      </dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="w-20 shrink-0 uppercase tracking-wide text-ink3">Passage</dt>
+                      <dd className="italic leading-relaxed">“{card.passage}”</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="w-20 shrink-0 uppercase tracking-wide text-ink3">Published</dt>
+                      <dd className="tabular">{card.published_date ?? "unknown"}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {chips.map((chip) => (
+                      <span
+                        key={chip.label}
+                        className={`rounded-full px-2 py-0.5 text-xs ${
+                          chip.ok === true
+                            ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                            : chip.ok === false
+                              ? "bg-surface-2 text-amber-600"
+                              : "bg-surface-2 text-ink3"
+                        }`}
+                      >
+                        {chip.ok === false ? "⚠ " : chip.ok === true ? "✓ " : ""}
+                        {chip.label}
+                      </span>
+                    ))}
+                    <a
+                      href={card.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="ml-auto text-xs font-medium text-[var(--accent)] hover:underline"
+                    >
+                      [Open source]
+                    </a>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : (
       <div>
         <p className="mb-2 text-xs uppercase tracking-wide text-ink3">Credible sources to consider</p>
         <ul className="flex flex-col gap-2">
@@ -67,7 +160,8 @@ export default function TopicCard({ topic, activeDebateId }: { topic: DailyTopic
             );
           })}
         </ul>
-      </div>
+        </div>
+      )}
 
       {activeDebateId ? (
         <Link href={`/debate/${activeDebateId}`} className="btn btn-primary px-4 py-2 text-center text-sm">

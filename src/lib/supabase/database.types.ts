@@ -69,6 +69,7 @@ export type PvpMatchRow = {
   turn_started_at: string | null;
   winner_id: string | null;
   judge_verdict: unknown;
+  judge_fingerprint: unknown;
   created_at: string;
   completed_at: string | null;
 };
@@ -156,6 +157,36 @@ export type CorpusRatingRow = {
   created_at: string;
 };
 
+export type DrillAssignmentRow = {
+  id: string;
+  user_id: string;
+  dimension: string;
+  minutes: number;
+  title: string;
+  prompt: string;
+  assigned_date: string;
+  before_score: number | null;
+  attempt_text: string | null;
+  attempt_score: number | null;
+  movement: number | null;
+  status: string;
+  created_at: string;
+};
+
+export type TopicEvidenceRow = {
+  id: string;
+  topic_id: string;
+  claim: string;
+  source_name: string;
+  source_type: string;
+  url: string;
+  title: string | null;
+  passage: string;
+  published_date: string | null;
+  checks: unknown;
+  created_at: string;
+};
+
 type TableDef<Row> = { Row: Row; Insert: Partial<Row>; Update: Partial<Row>; Relationships: [] };
 
 export type Database = {
@@ -177,6 +208,8 @@ export type Database = {
       reports: TableDef<ReportRow>;
       corpus_items: TableDef<CorpusItemRow>;
       corpus_ratings: TableDef<CorpusRatingRow>;
+      drill_assignments: TableDef<DrillAssignmentRow>;
+      topic_evidence: TableDef<TopicEvidenceRow>;
     };
     Views: Record<string, never>;
     Functions: {

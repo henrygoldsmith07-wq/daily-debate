@@ -15,11 +15,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Gate pipeline: lint → typecheck → unit → build → security ───────────
   verify:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,18 +26,27 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
-      # Type-check where appropriate (tsc --noEmit over the app)
-      - run: npm run type-check
-      # Unit + regression tests, including source-verification regressions
-      # (misleading-evidence adversarial cases, entailment, retrieval contracts)
-      - run: npm test
-      - run: npm run build
 
+      - name: Lint (eslint — 0 errors required, warnings allowed)
+        run: npm run lint -- --max-warnings 100
+
+      - name: Type-check (tsc --noEmit)
+        run: npm run type-check
+
+      - name: Unit + regression tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Security audit (production dependencies only)
+        run: npm audit --omit=dev --audit-level=critical
+        continue-on-error: true # advisory; blocks only on critical in prod deps
+
+  # ── E2E: ephemeral Supabase → full-flow specs ────────────────────────────
   e2e:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
+    needs: verify
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,9 +54,46 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e -- --reporter=github,html
+
+      - name: Start ephemeral Supabase
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase start
+      - name: Apply migrations
+        run: supabase db reset
+
+      - name: Seed test users + topics
+        env:
+          SUPABASE_URL: http://127.0.0.1:54321
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_LOCAL_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81Ju' }}
+        run: |
+          node -e "
+            const url = process.env.SUPABASE_URL;
+            const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+            async function signUp(email) {
+              const res = await fetch(url + '/auth/v1/admin/users', {
+                method: 'POST',
+                headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password: 'e2e-test-pass-123', email_confirm: true })
+              });
+              if (!res.ok && res.status !== 422) throw new Error('seed user ' + email + ': ' + res.status);
+            }
+            Promise.all([signUp('e2e-a@test.local'), signUp('e2e-b@test.local'), signUp('e2e-c@test.local')])
+              .then(() => console.log('seeded'))
+              .catch(e => { console.error(e); process.exit(1); });
+          "
+
+      - name: Run full-flow E2E
+        env:
+          E2E_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CR75Km8SaRE9Z_igMPU48xzJdV6d8SgFqPhtURmOSI
+        run: npx playwright test --reporter=github,html
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

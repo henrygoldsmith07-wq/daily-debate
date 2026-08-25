@@ -6,6 +6,7 @@ import { summarizeSoloDebate as anthropicSummarize } from "@/lib/anthropic";
 import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidSummary } from "@/lib/aiSchema";
 import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
+import { computeCoachRewards, totalBonusXP } from "@/lib/coachRewards";
 import { MIN_ROUNDS } from "@/lib/types";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
@@ -93,6 +94,46 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     : null;
   if (finalAssessment) summary = { ...summary, argGraph: finalAssessment.graph, assessment: finalAssessment };
 
+  // Coach rewards: bonus XP for improvement behaviours, not just participation.
+  const { data: priorDebates } = await supabase
+    .from("solo_debates")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("status", "completed")
+    .neq("id", debateId)
+    .order("completed_at", { ascending: false })
+    .limit(5);
+  let priorAssessments: ObservableAssessment[] = [];
+  if (priorDebates?.length) {
+    const { data: priorTurns } = await supabase
+      .from("solo_debate_turns")
+      .select("debate_id, assessment")
+      .in("debate_id", priorDebates.map((d) => d.id))
+      .not("assessment", "is", null)
+      .order("round_number", { ascending: true })
+      .limit(30);
+    const byDebate = new Map<string, ObservableAssessment>();
+    for (const t of (priorTurns ?? []) as Array<{ debate_id: string; assessment: unknown }>) {
+      const a = t.assessment as ObservableAssessment;
+      if (a?.graph) byDebate.set(t.debate_id, a);
+    }
+    priorAssessments = [...byDebate.values()];
+  }
+  const { data: topicCategory } = await supabase
+    .from("daily_topics").select("category").eq("id", debate.topic_id).single();
+  const { data: pastTopics } = await supabase
+    .from("solo_debates")
+    .select("topic_id!inner(daily_topics(category))")
+    .eq("user_id", user.id).eq("status", "completed").neq("id", debateId);
+  const previouslyDebatedCategories = (pastTopics ?? [])
+    .map((pt: { topic_id: { daily_topics: { category?: string } } }) => pt.topic_id?.daily_topics?.category ?? "")
+    .filter(Boolean);
+  const currentCategory = topicCategory?.category ?? "";
+  const rewardEvents = finalAssessment
+    ? computeCoachRewards({ assessment: finalAssessment, priorAssessments, previouslyDebatedCategories, currentCategory })
+    : [];
+  const bonusXP = totalBonusXP(rewardEvents);
+
   // Award points atomically when possible (007_profile_points_atomic.sql);
   // streak fields are idempotent per day so their read-modify-write is safe.
   const { data: profile } = await supabase.from("profiles").select("total_points, last_activity_date, current_streak, longest_streak").eq("id", user.id).single();
@@ -104,7 +145,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     try {
       const { data: newTotal } = await supabase.rpc("increment_total_points", {
         p_user_id: user.id,
-        p_points: totalScore,
+        p_points: totalScore + bonusXP,
         p_points_per_level: POINTS_PER_LEVEL,
       });
       awarded = typeof newTotal === "number";
@@ -113,7 +154,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     }
 
     if (!awarded) {
-      const newTotalPoints = profile.total_points + totalScore;
+      const newTotalPoints = profile.total_points + totalScore + bonusXP;
       await supabase.from("profiles").update({ total_points: newTotalPoints, level: levelForPoints(newTotalPoints) }).eq("id", user.id);
     }
     await supabase
@@ -126,6 +167,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       .eq("id", user.id);
   }
 
-  return NextResponse.json({ totalScore, summary, assessment: finalAssessment });
+  return NextResponse.json({ totalScore, bonusXP, rewardEvents, summary, assessment: finalAssessment });
 }
 

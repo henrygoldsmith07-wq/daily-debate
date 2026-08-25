@@ -1,11 +1,11 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
+import { getTodayTopic } from "@/lib/dailyTopic";
 import AppHeader from "@/components/AppHeader";
-import TopicCard from "@/components/TopicCard";
-import { pointsIntoLevel, POINTS_PER_LEVEL } from "@/lib/gamification";
+import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
+import { buildLedgerForUser } from "@/lib/skillLedgerServer";
+import { METRIC_LABELS } from "@/lib/skillLedger";
 
-// Generates today's topic via the AI provider chain (NVIDIA primary) on
-// first request each day — not something that can be prerendered at build time.
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
@@ -14,29 +14,11 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  let topic: Awaited<ReturnType<typeof getOrCreateTodayTopic>> | null = null;
-  try {
-    topic = await getOrCreateTodayTopic();
-  } catch (error) {
-    console.error("Failed to load daily topic:", error);
-  }
+  // getTodayTopic never throws — it falls back to a curated motion when
+  // nothing is pre-stored, so the dashboard always has content.
+  const topic = await getTodayTopic();
 
-  if (!topic) {
-    return (
-      <div className="flex min-h-screen flex-col">
-        <AppHeader />
-        <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-4 py-10 text-center sm:px-6">
-          <h1 className="text-2xl font-semibold tracking-tight">Today&apos;s topic isn&apos;t ready</h1>
-          <p className="text-sm text-ink3">
-            We couldn&apos;t generate today&apos;s debate topic. Please refresh in a moment — if it keeps failing, the
-            topic service may be temporarily down.
-          </p>
-        </main>
-      </div>
-    );
-  }
-
-  const [{ data: activeDebate }, { data: profile }] = await Promise.all([
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, ledger] = await Promise.all([
     user
       ? supabase
           .from("solo_debates")
@@ -51,46 +33,76 @@ export default async function DashboardPage() {
     user
       ? supabase.from("profiles").select("total_points, level, current_streak").eq("id", user.id).single()
       : Promise.resolve({ data: null }),
+    supabase
+      .from("topic_evidence")
+      .select("*")
+      .eq("topic_id", topic.id)
+      .order("created_at", { ascending: true })
+      .limit(4),
+    user ? buildLedgerForUser(user.id) : Promise.resolve(null),
   ]);
 
-  const intoLevel = profile ? pointsIntoLevel(profile.total_points) : 0;
-  const levelPct = Math.round((intoLevel / POINTS_PER_LEVEL) * 100);
+  // Coaching signals
+  const improving = ledger?.improvements ?? [];
+  const regressions = ledger?.regressions ?? [];
+  const weaknessKey = regressions[0] ?? Object.entries(ledger?.trajectories ?? {})
+    .filter(([, t]) => t.last !== null && t.improved === false)
+    .sort(([, a], [, b]) => (a.goodnessDelta ?? 0) - (b.goodnessDelta ?? 0))[0]?.[0];
+  const improvementKey = improving[0];
+  const skillRating = ledger?.points.length
+    ? Math.round(
+        Object.values(ledger.trajectories)
+          .map(t => t.last ?? 50)
+          .reduce((s, v) => s + v, 0) / METRIC_KEYS_COUNT * 100
+      )
+    : null;
 
   return (
     <div className="flex min-h-screen flex-col">
       <AppHeader />
       <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
         <div>
-          <p className="text-xs uppercase tracking-wide text-ink3">Today&apos;s topic</p>
+          <p className="text-xs uppercase tracking-wide text-ink3">Today&apos;s debate</p>
           <h1 className="text-2xl font-semibold tracking-tight">{topic.title}</h1>
         </div>
-        {profile && (
-          <div className="surface-card flex items-center gap-4 px-4 py-3">
-            <div className="flex flex-1 flex-col gap-1.5">
-              <div className="flex items-center justify-between text-xs text-ink3">
-                <span className="font-medium text-[var(--foreground)]">Level {profile.level}</span>
-                <span className="tabular">
-                  {intoLevel}/{POINTS_PER_LEVEL} pts to Level {profile.level + 1}
-                </span>
+
+        {/* Coaching signals — the hero content */}
+        {(weaknessKey || improvementKey || skillRating !== null) && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {weaknessKey && (
+              <div className="surface-card px-4 py-3 text-center">
+                <p className="text-xs uppercase tracking-wide text-[var(--bad)]">Current weakness</p>
+                <p className="mt-1 text-sm font-medium">{METRIC_LABELS[weaknessKey as keyof typeof METRIC_LABELS]}</p>
               </div>
-              <div
-                className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={POINTS_PER_LEVEL}
-                aria-valuenow={intoLevel}
-                aria-label={`Level ${profile.level} progress`}
-              >
-                <div className="h-full rounded-full bg-[var(--accent)] transition-all" style={{ width: `${levelPct}%` }} />
+            )}
+            {improvementKey && (
+              <div className="surface-card px-4 py-3 text-center">
+                <p className="text-xs uppercase tracking-wide text-[var(--accent)]">Recent improvement</p>
+                <p className="mt-1 text-sm font-medium">{METRIC_LABELS[improvementKey as keyof typeof METRIC_LABELS]}</p>
               </div>
-            </div>
-            <p className="tabular shrink-0 text-sm text-ink3" title="Daily streak">
-              🔥 {profile.current_streak}
-            </p>
+            )}
+            {skillRating !== null && (
+              <div className="surface-card px-4 py-3 text-center">
+                <p className="text-xs uppercase tracking-wide text-ink3">Skill rating</p>
+                <p className="tabular mt-1 text-lg font-bold">{skillRating}</p>
+              </div>
+            )}
           </div>
         )}
-        <TopicCard topic={topic} activeDebateId={activeDebate?.id ?? null} />
+
+        {/* Level + streak — secondary, compact */}
+        {profile && (
+          <div className="flex items-center justify-between px-4 py-2 rounded-lg bg-surface-2 text-xs text-ink3">
+            <span>Level {profile.level} · {profile.total_points} pts</span>
+            <span>🔥 {profile.current_streak}-day streak</span>
+            <Link href="/progress" className="font-medium text-[var(--accent)] hover:underline">Skill profile →</Link>
+          </div>
+        )}
+
+        <TopicCard topic={topic} activeDebateId={activeDebate?.id ?? null} evidenceCards={(evidenceRows ?? []) as unknown as EvidenceCardView[]} />
       </main>
     </div>
   );
 }
+
+const METRIC_KEYS_COUNT = 11;

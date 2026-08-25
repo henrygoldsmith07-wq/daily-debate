@@ -187,6 +187,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       transcript,
     });
     verdict = verdictFromEnsemble(ensemble);
+
+    // Persist the judge fingerprint alongside the verdict so model drift is
+    // attributable when agreement drops in future benchmark runs.
+    if (verdict.fingerprint) {
+      await service.from("pvp_matches").update({
+        judge_fingerprint: verdict.fingerprint,
+      }).eq("id", matchId).eq("status", "active");
+    }
   } catch (error) {
     console.error("Failed to judge PvP match:", error);
     verdict = {

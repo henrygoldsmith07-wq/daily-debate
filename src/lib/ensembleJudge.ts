@@ -5,11 +5,13 @@
 
 import type { PvpJudgeResult, PvpVerdict } from "./types";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
+import { makeEnsembleFingerprint, type JudgeFingerprint } from "./judgeVersioning";
 
 export type JudgeId = "openrouter" | "anthropic" | "nvidia";
 export interface JudgedVerdict extends PvpJudgeResult {
   judgeId: JudgeId;
   latencyMs?: number;
+  fingerprint?: JudgeFingerprint;
 }
 
 export interface EnsembleResult {
@@ -196,15 +198,27 @@ export async function liveEnsembleJudge(params: {
     (async (): Promise<JudgedVerdict> => {
       // Primary chat transport: NVIDIA when its key is set, else OpenRouter.
       const primary = await import("./openrouter");
+      const { makeFingerprint } = await import("./judgeVersioning");
       const t0 = Date.now();
       const r = await withTimeout(primary.judgePvpMatch(params), JUDGE_TIMEOUT_MS, primary.activeProviderLabel());
-      return { ...r, judgeId: primary.activeProviderLabel(), latencyMs: Date.now() - t0 };
+      return {
+        ...r,
+        judgeId: primary.activeProviderLabel(),
+        latencyMs: Date.now() - t0,
+        fingerprint: makeFingerprint(primary.activeProviderLabel(), process.env.NVIDIA_MODEL || process.env.OPENROUTER_MODEL || "default"),
+      };
     })(),
     (async (): Promise<JudgedVerdict> => {
       const anthropic = await import("./anthropic");
+      const { makeFingerprint } = await import("./judgeVersioning");
       const t0 = Date.now();
       const r = await withTimeout(anthropic.judgePvpMatch(params), JUDGE_TIMEOUT_MS, "anthropic");
-      return { ...r, judgeId: "anthropic" as const, latencyMs: Date.now() - t0 };
+      return {
+        ...r,
+        judgeId: "anthropic" as const,
+        latencyMs: Date.now() - t0,
+        fingerprint: makeFingerprint("anthropic", process.env.ANTHROPIC_MODEL || "claude-sonnet-5"),
+      };
     })(),
   ]);
   const ok = settled.filter((r): r is PromiseFulfilledResult<JudgedVerdict> => r.status === "fulfilled").map((r) => r.value);
@@ -247,6 +261,14 @@ export function verdictFromEnsemble(e: EnsembleResult): PvpVerdict {
     })),
     scoreStatus: e.scoreStatus,
     observableAssessment: e.observableAssessment,
+    fingerprint: e.judges.length
+      ? (() => {
+          const fps = e.judges
+            .filter((j) => j.fingerprint)
+            .map((j) => j.fingerprint!) as JudgeFingerprint[];
+          return fps.length ? makeEnsembleFingerprint(fps) : undefined;
+        })()
+      : undefined,
   };
 }
 

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import MessageComposer from "./MessageComposer";
+import MessageComposer, { type ComposerSubmitData } from "./MessageComposer";
 import { VerdictExplainPanel } from "./ArgGraphView";
 import type { InputMode, PvpMatch, PvpTurn, PvpVerdict } from "@/lib/types";
 import { TURN_ABANDON_MINUTES } from "@/lib/types";
@@ -159,20 +159,20 @@ export default function PvpRoom({
   const myTurn = match.status === "active" && match.current_turn_player === currentUserId;
   const nameFor = (playerId: string) => (playerId === match.player_a ? playerAName : playerBName);
 
-  async function submitTurn(message: string, inputMode: InputMode) {
+  async function submitTurn(submitData: ComposerSubmitData) {
     setSending(true);
     setError(null);
     try {
       const res = await fetch(`/api/pvp/${match.id}/turn`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, inputMode }),
+        body: JSON.stringify({ message: submitData.message, inputMode: submitData.inputMode }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to submit response.");
-      setTurns((prev) => (prev.some((t) => t.id === data.turn.id) ? prev : [...prev, data.turn]));
-      if (data.matchComplete) {
-        setMatch((prev) => ({ ...prev, status: "completed", judge_verdict: data.verdict }));
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || "Failed to submit response.");
+      setTurns((prev) => (prev.some((t) => t.id === resData.turn.id) ? prev : [...prev, resData.turn]));
+      if (resData.matchComplete) {
+        setMatch((prev) => ({ ...prev, status: "completed", judge_verdict: resData.verdict }));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit response.");

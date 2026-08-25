@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
+import { getTodayTopic } from "@/lib/dailyTopic";
 
 export async function GET(request: Request) {
   // First request of the day triggers a paid model call; keep that path
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const topic = await getOrCreateTodayTopic();
+    const topic = await getTodayTopic();
     return NextResponse.json({ topic });
   } catch (error) {
     console.error("Failed to load daily topic:", error);

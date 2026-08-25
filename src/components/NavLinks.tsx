@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/pvp", label: "PvP" },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/history", label: "History" },
+  { href: "/progress", label: "Progress" },
   { href: "/rate", label: "Rate" },
   { href: "/benchmark", label: "Benchmark" },
 ];
