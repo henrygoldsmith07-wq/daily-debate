@@ -81,7 +81,7 @@ function GuestHome({ onStart }: { onStart: (side: "for" | "against") => void }) 
 
       <main className="mx-auto flex max-w-7xl flex-col gap-10 px-4 py-8 sm:px-8 sm:py-12 lg:gap-14">
         <section className="grid items-center gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:gap-14">
-          <div className="app-enter">
+          <div className="app-enter order-last lg:order-last">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink3">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--success)]" />
               Your daily 3-minute rep
@@ -105,7 +105,7 @@ function GuestHome({ onStart }: { onStart: (side: "for" | "against") => void }) 
             </div>
           </div>
 
-          <div className="home-hero surface-card app-enter p-5 sm:p-6" style={{ animationDelay: "80ms" }}>
+          <div className="home-hero surface-card app-enter order-first p-5 sm:p-6 lg:order-first" style={{ animationDelay: "80ms" }}>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--speak)]">Today&apos;s challenge</p>
@@ -115,6 +115,10 @@ function GuestHome({ onStart }: { onStart: (side: "for" | "against") => void }) 
             </div>
             <h2 className="mt-7 text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">{MOTION}</h2>
             <p className="mt-3 text-sm leading-6 text-ink2">You will get a real opposing case, a clear round goal, and a coach note after every response.</p>
+            <div className="mt-5 rounded-lg border border-[var(--speak)]/20 bg-[var(--review-soft)] px-3 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--speak)]">Today&apos;s coaching focus</p>
+              <p className="mt-1 text-sm font-semibold text-ink">Use evidence for major claims.</p>
+            </div>
             <div className="mt-6 grid grid-cols-2 gap-2" role="group" aria-label="Choose a side">
               {(["for", "against"] as const).map((option) => (
                 <button
