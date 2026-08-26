@@ -64,6 +64,9 @@ export default async function ProgressPage() {
             Every metric below is recomputed deterministically from your stored argument graphs — the same pipeline that
             scores your debates. {ledger.debates} completed debate{ledger.debates === 1 ? "" : "s"} analysed.
           </p>
+          <Link href="/dna" className="mt-3 inline-flex text-xs font-medium text-[var(--accent)] underline underline-offset-4">
+            See the Argument DNA view →
+          </Link>
           {!enoughForClaims && (
             <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs text-ink3">
               Trajectories appear after a few more debates — improvement claims are held until{" "}

@@ -37,6 +37,7 @@ Next.js (App Router) + Supabase (auth, Postgres, Realtime) + OpenRouter (primary
   AI's messages are read aloud with `speechSynthesis`. Both are Chrome-family
   only; the composer falls back to typing where unsupported.
 - **Gamification** — points per turn (legacy 5-bucket sum) **plus improvement bonuses** for behaviours that indicate skill growth: complete debate +50, improve weakest skill +20, ground a claim +15, answer every rebuttal +20, beat benchmark +30, unfamiliar topic +10. Dashboard leads with coaching signals (weakness, recent improvement, skill rating), not vanity metrics. Global leaderboard included.
+- **Argument DNA** — `/dna` turns every completed solo or PvP graph into a persistent reasoning profile: evidence-backed pattern cards, a monthly movement timeline, and a first-vs-latest argument graph comparison. Older debates without a structured assessment stay visible in history but are excluded from pattern claims.
 - **Guest practice loop** — new players can try a three-round, source-aware
   practice debate without an account, see a skill-oriented result, and then
   save progress when they are ready. This keeps the first session useful even
@@ -176,6 +177,10 @@ Live-model note: run the real OpenRouter/Anthropic judge twice per fixture with 
 `/progress` now leads with an **Argument Skill Profile** — seven dimensions (Evidence, Rebuttal, Logic, Clarity, Impact, Steelmanning, Structure) scored 0–100 from the same deterministic pipeline that grades debates, rendered as bars. Below it sits **Today's training focus**: the lowest dimension adjusted by movement (improving ones are deprioritised), served as a 2–5 minute drill from a rotating library.
 
 Drills are **measurable end-to-end**: `drill_assignments` (migration 010) records before-score → drill → scored attempt → skill movement from subsequent debates (`movementAround`). Dimensions whose recent drills produce negative movement are excluded from recommendations until their skill moves again — the coach stops prescribing what doesn't work for you. Attempt scoring uses the judge's own detectors (contrastive moves, real-institution citations, weighing language, fallacy checks) so practice and performance share one rubric.
+
+## Argument DNA
+
+`/dna` is the product-facing long view of the ledger. `src/lib/argumentDnaServer.ts` replays stored observable assessments for a user's completed solo debates and judged PvP matches, then `src/lib/argumentDna.ts` reduces them into month buckets, graph counts, profile movement, and cautious pattern copy. The page deliberately distinguishes **tracked debates** from **graph-scored debates** and uses the same deterministic metrics as `/progress`, so statements such as “your causal bridge is often unstated” include their observable basis and do not present a one-off as a diagnosis.
 
 ## Live judge benchmarks (gated deployment)
 

@@ -100,7 +100,7 @@ export default async function DashboardPage() {
           <div className="flex items-center justify-between px-4 py-2 rounded-lg bg-surface-2 text-xs text-ink3">
             <span>Level {profile.level} · {profile.total_points} pts</span>
             <span>🔥 {profile.current_streak}-day streak</span>
-            <Link href="/progress" className="font-medium text-[var(--accent)] hover:underline">Skill profile →</Link>
+            <Link href="/dna" className="font-medium text-[var(--accent)] hover:underline">Argument DNA →</Link>
           </div>
         )}
 
