@@ -66,10 +66,12 @@ The Vercel project must point its **Root Directory** at the repository root
 (this is a standalone repo, not the monorepo it was split out of) with the
 framework preset left on **Next.js**.
 
-Every route runs through `middleware.ts`, which builds a Supabase client on each
-request. If the Supabase variables are absent the middleware throws and *every*
-path returns 500 — including `/login` — so set these in **Settings → Environment
-Variables** for Production, Preview, and Development before the first deploy:
+Requests run through the Next.js 16 proxy in `src/proxy.ts`. If the public
+Supabase variables are absent or auth refresh fails, `/` remains available in
+guest mode, `/login` explains that sign-in is unavailable, and protected pages
+redirect there instead of crashing the routing layer. Set these in **Settings →
+Environment Variables** for Production, Preview, and Development, then redeploy,
+to enable accounts and server-backed debates:
 
 | Variable | Required | Notes |
 | --- | --- | --- |

@@ -1,4 +1,6 @@
+import Link from "next/link";
 import AuthForm from "./AuthForm";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
 
 export default function LoginPage() {
   return (
@@ -9,7 +11,21 @@ export default function LoginPage() {
           Argue with an AI, get scored on how sharp your thinking is, then take on other players.
         </p>
       </div>
-      <AuthForm />
+      {isSupabaseConfigured() ? (
+        <AuthForm />
+      ) : (
+        <div className="panel max-w-sm space-y-4 p-6 text-center">
+          <div>
+            <h2 className="font-semibold">Sign-in is temporarily unavailable</h2>
+            <p className="mt-2 text-sm text-ink3">
+              Daily Debate is still available in guest mode while account services are restored.
+            </p>
+          </div>
+          <Link href="/" className="btn btn-primary inline-flex px-4 py-2 text-sm">
+            Try a guest debate
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

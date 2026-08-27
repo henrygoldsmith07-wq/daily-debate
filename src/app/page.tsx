@@ -8,6 +8,7 @@ import SkillProfileBars from "@/components/SkillProfileBars";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { computeSkillProfile } from "@/lib/skillProfile";
 import { METRIC_LABELS, type MetricKey } from "@/lib/skillLedger";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,10 @@ function formatShortDate(value: string | null | undefined): string {
 }
 
 export default async function DashboardPage() {
+  if (!isSupabaseConfigured()) {
+    return <GuestArena />;
+  }
+
   const supabase = await createClient();
   const {
     data: { user },

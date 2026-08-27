@@ -20,6 +20,13 @@ function required(name: string, value: string | undefined): string {
   return value;
 }
 
+export function isSupabaseConfigured(): boolean {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() &&
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim(),
+  );
+}
+
 export function supabaseUrl() {
   return required("NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL);
 }
