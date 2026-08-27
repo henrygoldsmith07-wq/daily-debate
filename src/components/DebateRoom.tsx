@@ -6,6 +6,7 @@ import MessageComposer, { type ComposerSubmitData } from "./MessageComposer";
 import ScoreBadges from "./ScoreBadges";
 import RoundProgress from "./RoundProgress";
 import ThinkingIndicator from "./ThinkingIndicator";
+import ArgumentRepair from "./ArgumentRepair";
 import { ArgGraphInline, TrackingGrid } from "./ArgGraphView";
 import { useSpeechSynthesis } from "./useSpeechSynthesis";
 import { MIN_ROUNDS, MAX_ROUNDS, type DebateSummary, type InputMode, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
@@ -188,6 +189,7 @@ export default function DebateRoom({
         </div>
         {result.summary.argGraph ? (
           <div className="flex flex-col gap-4">
+            <ArgumentRepair graph={result.summary.argGraph} />
             <ArgGraphInline graph={result.summary.argGraph} playerAName="You" playerBName="AI opponent" />
             <TrackingGrid graph={result.summary.argGraph} />
           </div>
@@ -208,6 +210,7 @@ export default function DebateRoom({
           </div>
           {completedResult.argGraph && (
             <>
+              <ArgumentRepair graph={completedResult.argGraph} />
               <ArgGraphInline graph={completedResult.argGraph} playerAName="You" playerBName="AI opponent" />
               <TrackingGrid graph={completedResult.argGraph} />
             </>

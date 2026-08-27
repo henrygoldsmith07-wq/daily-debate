@@ -399,3 +399,10 @@
   .home-coaching-focus strong { text-align: left; }
   .home-secondary-grid { grid-template-columns: 1fr; }
 }
+
+/* Post-debate repair loop — the product's practice-after-the-score USP. */
+.repair-panel { border: 1px solid color-mix(in srgb, var(--speak) 26%, var(--line)); background: linear-gradient(145deg, var(--surface), color-mix(in srgb, var(--speak-soft) 34%, var(--surface))); }
+.repair-overline { margin: 0; color: var(--speak); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+.repair-target { padding: 0.8rem 0.9rem; border-left: 3px solid var(--review); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--surface-2); }
+.repair-target-label { margin: 0; color: var(--ink-3); font-size: 0.65rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
+.repair-result { padding: 0.85rem 0.95rem; border: 1px solid color-mix(in srgb, var(--speak) 25%, var(--line)); border-radius: var(--radius-sm); background: var(--speak-soft); }

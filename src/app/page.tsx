@@ -163,6 +163,7 @@ export default async function DashboardPage() {
               <span className="home-coaching-label">Focus</span>
               <br />
               {coachingFocus}
+              <p className="mt-2 text-xs text-ink3">Finish the debate to unlock a one-minute repair for this kind of move.</p>
             </div>
             <Link href="/dna" className="home-secondary-action">See Argument DNA →</Link>
           </article>

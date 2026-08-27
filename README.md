@@ -38,6 +38,7 @@ Next.js (App Router) + Supabase (auth, Postgres, Realtime) + OpenRouter (primary
   only; the composer falls back to typing where unsupported.
 - **Gamification** — points per turn (legacy 5-bucket sum) **plus improvement bonuses** for behaviours that indicate skill growth: complete debate +50, improve weakest skill +20, ground a claim +15, answer every rebuttal +20, beat benchmark +30, unfamiliar topic +10. Dashboard leads with coaching signals (weakness, recent improvement, skill rating), not vanity metrics. Global leaderboard included.
 - **Argument DNA** — `/dna` turns every completed solo or PvP graph into a persistent reasoning profile: evidence-backed pattern cards, a monthly movement timeline, and a first-vs-latest argument graph comparison. Older debates without a structured assessment stay visible in history but are excluded from pattern claims.
+- **Weak-link repair** — after a scored solo debate, the app picks one observable miss from the user's graph (such as an unsupported claim or an unanswered opposing move), asks for a rewrite, and returns an explainable practice signal. The original debate score never changes; the next move is immediately actionable.
 - **Guest practice loop** — new players can try a three-round, source-aware
   practice debate without an account, see a skill-oriented result, and then
   save progress when they are ready. This keeps the first session useful even

@@ -28,6 +28,7 @@ const ROUNDS = [
 const MODES = [
   { icon: "◉", tone: "speak", label: "Daily motion", detail: "A fresh, source-backed prompt every day." },
   { icon: "↗", tone: "review", label: "Rapid rebuttal", detail: "Train the exact weakness your last round found." },
+  { icon: "✎", tone: "build", label: "Weak-link repair", detail: "Rewrite one graph-backed miss while the debate is still fresh." },
   { icon: "✦", tone: "build", label: "Free spar", detail: "Pick a side, bring a source, test your thinking." },
 ];
 
@@ -87,10 +88,10 @@ function GuestHome({ onStart }: { onStart: (side: "for" | "against") => void }) 
               Your daily 3-minute rep
             </div>
             <h1 className="max-w-2xl text-4xl font-semibold tracking-tight sm:text-6xl">
-              Win the point.<br /><span className="text-[var(--speak)]">Keep the skill.</span>
+              Win the point.<br /><span className="text-[var(--speak)]">Repair the move.</span>
             </h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-ink2 sm:text-lg">
-              A focused debate gym for making sharper claims, finding real evidence, and handling the argument you would rather avoid. Start free, no account required.
+              A focused debate gym for making sharper claims, finding real evidence, and fixing the exact weak link your last argument exposed. Start free, no account required.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <button type="button" onClick={() => onStart(side)} className="btn btn-primary px-5 py-3 text-sm">
@@ -155,7 +156,7 @@ function GuestHome({ onStart }: { onStart: (side: "for" | "against") => void }) 
             </div>
             <span className="text-xs text-ink3">Built for consistency, not hot takes.</span>
           </div>
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {MODES.map((mode) => (
               <button key={mode.label} type="button" onClick={() => onStart("for")} className={`home-mode-card home-mode-card-${mode.tone}`}>
                 <span className="home-mode-icon text-lg" aria-hidden="true">{mode.icon}</span>
