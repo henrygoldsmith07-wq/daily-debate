@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { isSuspiciousLength, repeatScore } from "@/lib/moderation";
@@ -51,10 +51,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   if (limited) return limited;
 
   const { matchId } = await params;
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -73,7 +73,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     return NextResponse.json({ error: `Message blocked: ${moderation.flags.map((f) => f.note).join(" ")}`, moderation: moderation.flags }, { status: 400 });
   }
 
-  const { data: match, error: matchError } = await supabase
+  const { data: match, error: matchError } = await db
     .from("pvp_matches")
     .select("*")
     .eq("id", matchId)
@@ -103,7 +103,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   }
 
   // Idempotency / duplicate event: if same round+player already has this exact message, return existing without re-scoring
-  const { data: existingTurns } = await supabase.from("pvp_turns").select("*").eq("match_id", matchId).order("created_at", { ascending: true });
+  const { data: existingTurns } = await db.from("pvp_turns").select("*").eq("match_id", matchId).order("created_at", { ascending: true });
   const isDuplicate = existingTurns?.some((t) => t.player_id === user.id && t.round_number === match.current_round && t.message === message);
   if (idempotencyKey && isDuplicate) {
     const dup = existingTurns!.find((t) => t.player_id === user.id && t.round_number === match.current_round && t.message === message);
@@ -124,7 +124,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     }
   }
 
-  const { data: turn, error: turnError } = await supabase
+  const { data: turn, error: turnError } = await db
     .from("pvp_turns")
     .insert({ match_id: matchId, player_id: user.id, round_number: match.current_round, message, input_mode: inputMode })
     .select("*")
@@ -147,7 +147,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
   if (!matchComplete) {
     // Use optimistic concurrency: only advance if still on expected round (prevents simultaneous submission race)
-    const { error: advError } = await supabase
+    const { error: advError } = await db
       .from("pvp_matches")
       .update({ current_round: nextRound, current_turn_player: nextTurnPlayer, turn_started_at: new Date().toISOString() })
       .eq("id", matchId)

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { TURN_ABANDON_MINUTES, type PvpVerdict } from "@/lib/types";
 
@@ -13,14 +13,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   if (limited) return limited;
 
   const { matchId } = await params;
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const supabaseService = createServiceClient();
-  const { data: match } = await supabaseService.from("pvp_matches").select("*").eq("id", matchId).single();
+  const dbService = createServiceClient();
+  const { data: match } = await dbService.from("pvp_matches").select("*").eq("id", matchId).single();
   if (!match || (match.player_a !== user.id && match.player_b !== user.id)) {
     return NextResponse.json({ error: "Match not found." }, { status: 404 });
   }
@@ -53,7 +53,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   };
 
   // Concurrency guard: only the first claim completes the match.
-  const { data: updated } = await supabaseService
+  const { data: updated } = await dbService
     .from("pvp_matches")
     .update({
       status: "completed",

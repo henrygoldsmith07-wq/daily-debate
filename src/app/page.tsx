@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import { getTodayTopic } from "@/lib/dailyTopic";
 import AppHeader from "@/components/AppHeader";
 import GuestArena from "@/components/GuestArena";
@@ -8,7 +8,7 @@ import SkillProfileBars from "@/components/SkillProfileBars";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { computeSkillProfile } from "@/lib/skillProfile";
 import { METRIC_LABELS, type MetricKey } from "@/lib/skillLedger";
-import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { isDatabaseConfigured } from "@/lib/backend/env";
 
 export const dynamic = "force-dynamic";
 
@@ -41,14 +41,14 @@ function formatShortDate(value: string | null | undefined): string {
 }
 
 export default async function DashboardPage() {
-  if (!isSupabaseConfigured()) {
+  if (!isDatabaseConfigured()) {
     return <GuestArena />;
   }
 
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
 
   if (!user) {
     return <GuestArena />;
@@ -60,7 +60,7 @@ export default async function DashboardPage() {
 
   const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger] =
     await Promise.all([
-      supabase
+      db
         .from("solo_debates")
         .select("*")
         .eq("user_id", user.id)
@@ -69,14 +69,14 @@ export default async function DashboardPage() {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase.from("profiles").select("total_points, level, current_streak").eq("id", user.id).single(),
-      supabase
+      db.from("profiles").select("total_points, level, current_streak").eq("id", user.id).single(),
+      db
         .from("topic_evidence")
         .select("*")
         .eq("topic_id", topic.id)
         .order("created_at", { ascending: true })
         .limit(4),
-      supabase
+      db
         .from("solo_debates")
         .select("id, topic_id, side, total_score, round_count, created_at, completed_at")
         .eq("user_id", user.id)
@@ -89,7 +89,7 @@ export default async function DashboardPage() {
 
   let previousDebateTitle: string | null = null;
   if (previousDebate?.topic_id) {
-    const { data: previousTopic } = await supabase
+    const { data: previousTopic } = await db
       .from("daily_topics")
       .select("title")
       .eq("id", previousDebate.topic_id)

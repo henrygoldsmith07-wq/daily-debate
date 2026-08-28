@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { MIN_RATERS_PER_ITEM, validateRating } from "@/lib/corpus";
 
@@ -12,10 +12,10 @@ export async function GET(request: Request) {
   const limited = await checkRateLimit(request, { name: "corpus-rate", limit: 60, windowMs: 60_000 });
   if (limited) return limited;
 
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const service = createServiceClient();
@@ -66,10 +66,10 @@ export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "corpus-rate-post", limit: 30, windowMs: 60_000 });
   if (limited) return limited;
 
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => null);

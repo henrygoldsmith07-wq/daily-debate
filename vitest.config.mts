@@ -8,6 +8,9 @@ export default defineConfig({
     environment: "node",
   },
   resolve: {
-    alias: { "@": path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./src") },
+    alias: {
+      "@": path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./src"),
+      "server-only": path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./tests/server-only.ts"),
+    },
   },
 });

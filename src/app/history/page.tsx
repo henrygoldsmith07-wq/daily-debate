@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import AppHeader from "@/components/AppHeader";
 import type { PvpVerdict } from "@/lib/types";
 
@@ -11,10 +11,10 @@ function formatDate(iso: string | null): string {
 }
 
 export default async function HistoryPage() {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
 
   if (!user) {
     return (
@@ -28,13 +28,13 @@ export default async function HistoryPage() {
   }
 
   const [soloRes, pvpRes] = await Promise.all([
-    supabase
+    db
       .from("solo_debates")
       .select("id, status, side, round_count, total_score, created_at, completed_at, topic_id")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(50),
-    supabase
+    db
       .from("pvp_matches")
       .select("id, status, player_a, player_b, winner_id, judge_verdict, completed_at, topic_id")
       .or(`player_a.eq.${user.id},player_b.eq.${user.id}`)
@@ -47,7 +47,7 @@ export default async function HistoryPage() {
   const topicIds = [...new Set([...soloDebates, ...pvpMatches].map((row) => row.topic_id))];
   const topicTitles = new Map<string, string>();
   if (topicIds.length) {
-    const { data: topics } = await supabase.from("daily_topics").select("id, title").in("id", topicIds);
+    const { data: topics } = await db.from("daily_topics").select("id, title").in("id", topicIds);
     for (const t of topics ?? []) topicTitles.set(t.id, t.title);
   }
 

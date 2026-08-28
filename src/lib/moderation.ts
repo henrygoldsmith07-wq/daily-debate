@@ -77,7 +77,7 @@ export function scoringUntouchedByModeration(): boolean {
 }
 
 // Anti-cheat: copy-paste reuse detection (same text twice) + absurd length + pace
-// Real abuse (multiple accounts, voting rings) lives in Supabase functions; these catch the cheap tricks.
+// Real abuse (multiple accounts, voting rings) lives in Postgres functions; these catch the cheap tricks.
 export function repeatScore(texts: string[]): number {
   if (texts.length < 2) return 0;
   const last = texts[texts.length-1]; const prev = texts[texts.length-2];

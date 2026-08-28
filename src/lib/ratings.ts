@@ -1,5 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "./supabase/database.types";
+import type { BackendClient } from "./backend/server";
 import type { TurnScores } from "./types";
 
 export interface FactorRatings extends TurnScores {
@@ -15,10 +14,10 @@ const FACTORS: (keyof TurnScores)[] = ["depth", "evidence", "logic", "rebuttal",
 const RECENT_DEBATE_WINDOW = 10;
 
 export async function getFactorRatings(
-  supabase: SupabaseClient<Database>,
+  db: BackendClient,
   userId: string,
 ): Promise<FactorRatings | null> {
-  const { data: debates } = await supabase
+  const { data: debates } = await db
     .from("solo_debates")
     .select("id")
     .eq("user_id", userId)
@@ -27,7 +26,7 @@ export async function getFactorRatings(
   const debateIds = (debates ?? []).map((d) => d.id);
   if (debateIds.length === 0) return null;
 
-  const { data: turns } = await supabase
+  const { data: turns } = await db
     .from("solo_debate_turns")
     .select("scores")
     .in("debate_id", debateIds)

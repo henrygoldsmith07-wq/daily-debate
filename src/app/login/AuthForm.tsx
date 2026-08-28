@@ -67,7 +67,8 @@ export default function AuthForm() {
             name="password"
             type="password"
             required
-            minLength={6}
+            minLength={8}
+            maxLength={128}
             autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
             className="rounded border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
           />

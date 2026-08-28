@@ -2,14 +2,14 @@ import { test, expect } from "@playwright/test";
 
 // E2E flows for Daily Debate.
 //
-// CI runs without Supabase credentials: the middleware redirects every
+// CI runs without Postgres credentials: the middleware redirects every
 // unauthenticated page to /login, so the default suite asserts the *failure
 // states* (auth gates, error pages, no-crash guarantees). Authenticated
 // full-flow tests (solo 5-round debate, PvP room, source submission, judging)
-// require a seeded Supabase project — set E2E_SUPABASE_URL + E2E_SUPABASE_ANON_KEY
+// require a seeded Postgres database — set E2E_DATABASE_URL
 // (and run migrations) to enable them; they are skipped otherwise.
 
-const HAS_E2E_BACKEND = !!(process.env.E2E_SUPABASE_URL && process.env.E2E_SUPABASE_ANON_KEY);
+const HAS_E2E_BACKEND = !!(process.env.E2E_DATABASE_URL);
 
 test.describe("solo debate", () => {
   test("unauthenticated dashboard redirects to login (auth gate)", async ({ page }) => {
@@ -53,7 +53,7 @@ test.describe("solo debate", () => {
   });
 
   test("authenticated solo full flow", async ({ page }) => {
-    test.skip(!HAS_E2E_BACKEND, "Requires E2E_SUPABASE_URL/E2E_SUPABASE_ANON_KEY with a seeded project");
+    test.skip(!HAS_E2E_BACKEND, "Requires E2E_DATABASE_URL with a seeded database");
     // With a backend: sign in via the login form, start a solo debate,
     // play five rounds, and finish.
     await page.goto("/login");

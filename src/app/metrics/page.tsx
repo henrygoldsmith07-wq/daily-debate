@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/backend/server";
 import { computeCorpusMetrics, type MetricItem, type MetricRating } from "@/lib/corpusMetrics";
 import AppHeader from "@/components/AppHeader";
 

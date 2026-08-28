@@ -5,10 +5,10 @@ import { test, expect, type Page } from "@playwright/test";
 // Tests the complete PvP lifecycle with two independent browser sessions:
 //   matchmaking → alternate turns → judging → same result shown to both
 //
-// Requires ephemeral Supabase + AI interception (same pattern as solo flow).
+// Requires ephemeral Postgres + AI interception (same pattern as solo flow).
 
 const HAS_BACKEND = !!(
-  process.env.E2E_SUPABASE_URL && process.env.E2E_SUPABASE_ANON_KEY
+  process.env.E2E_DATABASE_URL
 );
 
 function mockAI(context: import("@playwright/test").BrowserContext) {
@@ -58,7 +58,7 @@ async function sendTurn(page: Page, text: string): Promise<boolean> {
 }
 
 test.describe("two-browser pvp full-flow", () => {
-  test.skip(!HAS_BACKEND, "Requires ephemeral Supabase");
+  test.skip(!HAS_BACKEND, "Requires ephemeral Postgres");
 
   test("queue → match → alternate turns → judge → same result shown to both", async ({ browser }) => {
     const ctxA = await browser.newContext();

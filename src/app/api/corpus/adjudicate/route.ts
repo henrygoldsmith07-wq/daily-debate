@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { isCorpusAdmin } from "@/lib/corpus";
 import { consensusLabel } from "@/lib/corpusAdjudication";
 import type { RaterVerdict, WinnerLabel } from "@/lib/humanCorpus";
@@ -9,10 +9,10 @@ import type { RaterVerdict, WinnerLabel } from "@/lib/humanCorpus";
 // reference verdict so it can join the agreement-ready set.
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

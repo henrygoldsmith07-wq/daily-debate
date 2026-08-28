@@ -1,6 +1,4 @@
-// Hand-written to match supabase/migrations/*.sql. If the
-// schema changes, regenerate with `supabase gen types typescript` instead of
-// hand-editing where possible.
+// Hand-written to match database/migrations/*.sql.
 
 export type ProfileRow = {
   id: string;
@@ -49,12 +47,7 @@ export type SoloDebateTurnRow = {
   created_at: string;
 };
 
-export type PvpQueueRow = {
-  id: string;
-  user_id: string;
-  topic_id: string;
-  joined_at: string;
-};
+export type PvpQueueRow = { id: string; user_id: string; topic_id: string; joined_at: string };
 
 export type PvpMatchRow = {
   id: string;
@@ -84,11 +77,7 @@ export type PvpTurnRow = {
   created_at: string;
 };
 
-export type RateLimitRow = {
-  key: string;
-  count: number;
-  reset_at: string;
-};
+export type RateLimitRow = { key: string; count: number; reset_at: string };
 
 export type BenchmarkCorpusRow = {
   id: string;
@@ -142,6 +131,10 @@ export type CorpusItemRow = {
   topic_title: string;
   topic_prompt: string;
   status: string;
+  dynamics_tier: string | null;
+  evidence_density: string | null;
+  style_bucket: string | null;
+  split: string;
   created_at: string;
 };
 
@@ -187,43 +180,24 @@ export type TopicEvidenceRow = {
   created_at: string;
 };
 
-type TableDef<Row> = { Row: Row; Insert: Partial<Row>; Update: Partial<Row>; Relationships: [] };
+type TableDef<Row> = { Row: Row; Insert: Partial<Row>; Update: Partial<Row> };
 
 export type Database = {
-  __InternalSupabase: {
-    PostgrestVersion: "14.5";
-  };
-  public: {
-    Tables: {
-      profiles: TableDef<ProfileRow>;
-      daily_topics: TableDef<DailyTopicRow>;
-      solo_debates: TableDef<SoloDebateRow>;
-      solo_debate_turns: TableDef<SoloDebateTurnRow>;
-      pvp_queue: TableDef<PvpQueueRow>;
-      pvp_matches: TableDef<PvpMatchRow>;
-      pvp_turns: TableDef<PvpTurnRow>;
-      rate_limits: TableDef<RateLimitRow>;
-      benchmark_corpus: TableDef<BenchmarkCorpusRow>;
-      match_appeals: TableDef<MatchAppealRow>;
-      reports: TableDef<ReportRow>;
-      corpus_items: TableDef<CorpusItemRow>;
-      corpus_ratings: TableDef<CorpusRatingRow>;
-      drill_assignments: TableDef<DrillAssignmentRow>;
-      topic_evidence: TableDef<TopicEvidenceRow>;
-    };
-    Views: Record<string, never>;
-    Functions: {
-      increment_rate_limit: {
-        Args: { p_key: string; p_window_ms: number };
-        Returns: { new_count: number; new_reset_at: string }[];
-      };
-      increment_total_points: {
-        Args: { p_user_id: string; p_points: number; p_points_per_level: number };
-        Returns: number;
-      };
-    };
-    Enums: Record<string, never>;
-    CompositeTypes: Record<string, never>;
+  Tables: {
+    profiles: TableDef<ProfileRow>;
+    daily_topics: TableDef<DailyTopicRow>;
+    solo_debates: TableDef<SoloDebateRow>;
+    solo_debate_turns: TableDef<SoloDebateTurnRow>;
+    pvp_queue: TableDef<PvpQueueRow>;
+    pvp_matches: TableDef<PvpMatchRow>;
+    pvp_turns: TableDef<PvpTurnRow>;
+    rate_limits: TableDef<RateLimitRow>;
+    benchmark_corpus: TableDef<BenchmarkCorpusRow>;
+    match_appeals: TableDef<MatchAppealRow>;
+    reports: TableDef<ReportRow>;
+    corpus_items: TableDef<CorpusItemRow>;
+    corpus_ratings: TableDef<CorpusRatingRow>;
+    drill_assignments: TableDef<DrillAssignmentRow>;
+    topic_evidence: TableDef<TopicEvidenceRow>;
   };
 };
-

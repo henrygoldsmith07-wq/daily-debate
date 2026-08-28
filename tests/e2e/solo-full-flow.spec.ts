@@ -3,7 +3,7 @@ import { HAS_BACKEND, signIn } from "./helpers";
 
 // ── Full-flow solo debate E2E ────────────────────────────────────────────────
 //
-// Requires ephemeral Supabase running locally (migrations applied). AI judge
+// Requires ephemeral Postgres running locally (migrations applied). AI judge
 // calls are intercepted at the network layer so the suite is deterministic,
 // free, and offline-capable.
 //
@@ -12,7 +12,7 @@ import { HAS_BACKEND, signIn } from "./helpers";
 //   → score stored → graph produced → points awarded once → history replay
 
 test.describe("solo full-flow", () => {
-  test.skip(!HAS_BACKEND, "Requires ephemeral Supabase");
+  test.skip(!HAS_BACKEND, "Requires ephemeral Postgres");
 
   // Intercept AI provider calls so the debate engine gets deterministic
   // responses without spending tokens or needing API keys.

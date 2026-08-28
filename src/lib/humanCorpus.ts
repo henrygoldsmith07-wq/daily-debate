@@ -4,7 +4,7 @@
 // it as a human-validity result until provenance is recorded and audited.
 // Designed to scale to thousands: every LabeledDebate carries multiple independent rater
 // verdicts and the helpers compute Fleiss/Cohen/Krippendorff + judge-vs-human correlation
-// and calibration (ECE/Brier). The Supabase table `benchmark_corpus` mirrors this shape
+// and calibration (ECE/Brier). The Postgres table `benchmark_corpus` mirrors this shape
 // so the offline corpus and the live DB stay in sync (see migrations 003 and 005).
 
 export type WinnerLabel = "a" | "b" | "tie";

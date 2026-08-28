@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import MessageComposer, { type ComposerSubmitData } from "./MessageComposer";
 import { VerdictExplainPanel } from "./ArgGraphView";
 import type { InputMode, PvpMatch, PvpTurn, PvpVerdict } from "@/lib/types";
@@ -82,13 +81,17 @@ export default function PvpRoom({
     async function reconcile() {
       try {
         const res = await fetch(`/api/pvp/${initialMatch.id}`, { cache: "no-store" });
-        if (!res.ok) return;
+        if (!res.ok) {
+          setReconnecting(true);
+          return;
+        }
         const data = await res.json();
         if (cancelled) return;
         setMatch(data.match);
         setTurns(data.turns);
+        setReconnecting(false);
       } catch {
-        // Network blip — realtime or the next reconcile will catch up.
+        if (!cancelled) setReconnecting(true);
       }
     }
 
@@ -97,61 +100,14 @@ export default function PvpRoom({
     }
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
+    const poll = setInterval(() => void reconcile(), 3000);
     return () => {
       cancelled = true;
+      clearInterval(poll);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
   }, [initialMatch.id]);
-
-  useEffect(() => {
-    const supabase = createClient();
-    let poll: ReturnType<typeof setInterval> | null = null;
-    const channel = supabase
-      .channel(`pvp-match-${match.id}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "pvp_turns", filter: `match_id=eq.${match.id}` },
-        (payload) => {
-          setTurns((prev) => (prev.some((t) => t.id === payload.new.id) ? prev : [...prev, payload.new as PvpTurn]));
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "pvp_matches", filter: `id=eq.${match.id}` },
-        (payload) => setMatch(payload.new as PvpMatch),
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          setReconnecting(false);
-          if (poll) {
-            clearInterval(poll);
-            poll = null;
-          }
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          // Realtime dropped — fall back to snapshot polling until it returns.
-          setReconnecting(true);
-          if (!poll) {
-            poll = setInterval(async () => {
-              try {
-                const res = await fetch(`/api/pvp/${match.id}`, { cache: "no-store" });
-                if (!res.ok) return;
-                const data = await res.json();
-                setMatch(data.match);
-                setTurns(data.turns);
-              } catch {
-                // keep polling
-              }
-            }, 3000);
-          }
-        }
-      });
-
-    return () => {
-      if (poll) clearInterval(poll);
-      supabase.removeChannel(channel);
-    };
-  }, [match.id]);
 
   const verdict = match.judge_verdict;
   const isPlayerA = currentUserId === match.player_a;

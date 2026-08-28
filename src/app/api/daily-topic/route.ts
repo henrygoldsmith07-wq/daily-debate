@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { getTodayTopic } from "@/lib/dailyTopic";
 
@@ -9,10 +9,10 @@ export async function GET(request: Request) {
   const limited = await checkRateLimit(request, { name: "daily-topic", limit: 30, windowMs: 60_000 });
   if (limited) return limited;
 
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {

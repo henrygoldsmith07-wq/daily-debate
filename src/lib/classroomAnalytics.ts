@@ -3,10 +3,10 @@
 // vectors, which aggregate into a class profile that surfaces common problems.
 //
 // Pipeline: student debates → observableAssessment → this module → teacher UI.
-// Pure functions only; persistence lives in routes + Supabase.
+// Pure functions only; persistence lives in routes + Postgres.
 //
 // This module deliberately uses loose typing (`any`) because it processes
-// JSON blobs stored in Supabase whose shape varies across schema versions.
+// JSON blobs stored in Postgres whose shape varies across schema versions.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { METRIC_KEYS, type MetricKey } from "./skillLedger";

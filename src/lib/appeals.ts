@@ -1,5 +1,5 @@
 // Appeal / report workflow: after a judged match, either player can appeal.
-// Pure state machine — persistence lives in Supabase (`match_appeals` table).
+// Pure state machine — persistence lives in Postgres (`match_appeals` table).
 
 export type AppealReason = "scoring_error" | "missed_evidence" | "bias" | "abuse" | "other";
 export type AppealStatus = "open" | "under_review" | "upheld" | "denied" | "withdrawn";

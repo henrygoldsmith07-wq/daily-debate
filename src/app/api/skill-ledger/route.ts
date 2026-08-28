@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 
 // The signed-in user's own skill ledger: per-metric trajectories across
@@ -7,10 +7,10 @@ import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 // deterministic benchmark-opponent comparison.
 
 export async function GET() {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const ledger = await buildLedgerForUser(user.id);

@@ -13,6 +13,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { neon } from "@neondatabase/serverless";
 
 function loadEnvLocal() {
   const p = path.join(process.cwd(), ".env.local");
@@ -26,68 +27,57 @@ loadEnvLocal();
 
 const log = (...a) => process.stderr.write(a.join(" ") + "\n");
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const databaseUrl = process.env.DATABASE_URL?.trim();
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error("[generate-topics] Missing SUPABASE credentials — cannot run.");
+if (!databaseUrl) {
+  console.error("[generate-topics] DATABASE_URL is required.");
   process.exit(1);
 }
 
-// --- Supabase REST helpers (no SDK needed) ---
-
-async function sb(path, opts = {}) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...opts,
-    headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: opts.prefer || "representation",
-      ...opts.headers,
-    },
-  });
-  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text().catch(() => "")}`);
-  return res.json();
-}
+const sql = neon(databaseUrl);
 
 async function getRecentTitles(limit = 14) {
-  const rows = await sb(`daily_topics?select=title&order=topic_date.desc&limit=${limit}`);
+  const rows = await sql.query(
+    "SELECT title FROM daily_topics ORDER BY topic_date DESC LIMIT $1",
+    [limit],
+  );
   return rows.map((r) => r.title);
 }
 
 async function upsertTopic(targetDate, topic) {
-  return sb(`daily_topics?on_conflict=topic_date`, {
-    method: "POST",
-    prefer: "resolution=merge-duplicates,return=representation",
-    body: JSON.stringify({
-      topic_date: targetDate,
-      title: topic.title,
-      prompt: topic.prompt,
-      category: topic.category,
-      sources: topic.sources || [],
-    }),
-  });
+  return sql.query(
+    `INSERT INTO daily_topics (topic_date, title, prompt, category, sources)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (topic_date) DO UPDATE SET
+       title = EXCLUDED.title,
+       prompt = EXCLUDED.prompt,
+       category = EXCLUDED.category,
+       sources = EXCLUDED.sources
+     RETURNING id`,
+    [targetDate, topic.title, topic.prompt, topic.category, topic.sources || []],
+  );
 }
 
 async function storeEvidenceCards(topicId, cards) {
   if (!cards.length) return;
-  await sb("topic_evidence", {
-    method: "POST",
-    body: JSON.stringify(
-      cards.map((c) => ({
-        topic_id: topicId,
-        claim: c.claim,
-        source_name: c.sourceName,
-        source_type: c.sourceType,
-        url: c.url,
-        title: c.title ?? null,
-        passage: c.passage,
-        published_date: c.publishedDate,
-        checks: c.checks,
-      }))
-    ),
-  });
+  for (const card of cards) {
+    await sql.query(
+      `INSERT INTO topic_evidence
+       (topic_id, claim, source_name, source_type, url, title, passage, published_date, checks)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        topicId,
+        card.claim,
+        card.sourceName,
+        card.sourceType,
+        card.url,
+        card.title ?? null,
+        card.passage,
+        card.publishedDate,
+        card.checks,
+      ],
+    );
+  }
 }
 
 async function retrieveEvidence(title, prompt) {
@@ -187,7 +177,7 @@ function pickFallback(dateIso, recentTitles) {
     for (const w of cw) if (words.has(w)) overlap++;
     if (overlap <= 1) return { title, prompt, category };
   }
-  const [title, prompt, category] = FALLBACKS[startOfDay];
+  const [title, prompt, category] = FALLBACKS[dayIdx];
   return { title, prompt, category };
 }
 

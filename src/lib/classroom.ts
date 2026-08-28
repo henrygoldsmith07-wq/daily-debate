@@ -1,5 +1,5 @@
 // Classroom & team debates + teacher-assigned motions.
-// Pure domain state machines — persistence lives in Supabase. These cover the
+// Pure domain state machines — persistence lives in Postgres. These cover the
 // roadmap's "team debates / classroom debates / teacher-assigned motions"
 // items: a teacher creates a motion, assigns it to a team or class, teams
 // accept and run a 2v2 debate, and the dashboard aggregates per-student

@@ -1,17 +1,17 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import { signOut } from "@/app/login/actions";
 import { pointsIntoLevel, POINTS_PER_LEVEL } from "@/lib/gamification";
 import NavLinks from "./NavLinks";
 
 export default async function AppHeader() {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return null;
 
-  const { data: profile } = await supabase
+  const { data: profile } = await db
     .from("profiles")
     .select("total_points, level, current_streak")
     .eq("id", user.id)

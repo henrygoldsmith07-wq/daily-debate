@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import AppHeader from "@/components/AppHeader";
 import ArgumentDnaView from "@/components/ArgumentDnaView";
 import { buildArgumentDnaForUser } from "@/lib/argumentDnaServer";
@@ -11,10 +11,10 @@ export const metadata = {
 };
 
 export default async function ArgumentDnaPage() {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
 
   if (!user) {
     return (

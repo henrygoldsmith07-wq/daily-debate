@@ -2,7 +2,7 @@
 // their stored per-turn observable assessments, merges each debate into one
 // deterministic assessment, and feeds the pure skill-ledger math.
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import {
   buildSkillLedger,
   extractSkillPoint,
@@ -20,8 +20,8 @@ export async function buildLedgerForUser(
   userId: string,
   opts: { includeBaseline?: boolean } = {},
 ): Promise<LedgerWithSeries> {
-  const supabase = await createClient();
-  const { data: debates } = await supabase
+  const db = await createClient();
+  const { data: debates } = await db
     .from("solo_debates")
     .select("id, completed_at")
     .eq("user_id", userId)
@@ -34,13 +34,13 @@ export async function buildLedgerForUser(
 
   for (const d of completed) {
     const [{ data: turns }, { data: scoreRows }] = await Promise.all([
-      supabase
+      db
         .from("solo_debate_turns")
         .select("assessment")
         .eq("debate_id", d.id)
         .not("assessment", "is", null)
         .order("round_number"),
-      supabase.from("solo_debate_turns").select("scores").eq("debate_id", d.id).not("scores", "is", null),
+      db.from("solo_debate_turns").select("scores").eq("debate_id", d.id).not("scores", "is", null),
     ]);
     const assessments = ((turns ?? []) as Array<{ assessment: unknown }>)
       .map((t) => t.assessment as ObservableAssessment)

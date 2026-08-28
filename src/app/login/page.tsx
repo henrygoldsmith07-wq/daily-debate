@@ -1,6 +1,8 @@
 import Link from "next/link";
 import AuthForm from "./AuthForm";
-import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { isDatabaseConfigured } from "@/lib/backend/env";
+
+export const dynamic = "force-dynamic";
 
 export default function LoginPage() {
   return (
@@ -11,7 +13,7 @@ export default function LoginPage() {
           Argue with an AI, get scored on how sharp your thinking is, then take on other players.
         </p>
       </div>
-      {isSupabaseConfigured() ? (
+      {isDatabaseConfigured() ? (
         <AuthForm />
       ) : (
         <div className="panel max-w-sm space-y-4 p-6 text-center">

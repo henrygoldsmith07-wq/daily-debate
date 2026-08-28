@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { isCorpusAdmin, completeScores, populationProgress } from "@/lib/corpus";
 import { iccTwoWay, EVAL_DIMENSIONS, type SideScores } from "@/lib/debateEvaluation";
 import { cohenKappa } from "@/lib/humanCorpus";
@@ -20,10 +20,10 @@ interface RatingRow {
 }
 
 export async function GET() {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

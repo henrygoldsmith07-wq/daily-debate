@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import { isCorpusAdmin } from "@/lib/corpus";
 import AppHeader from "@/components/AppHeader";
 import CorpusAdmin from "@/components/CorpusAdmin";
@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Corpus admin" };
 
 export default async function CorpusAdminPage() {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
 
   if (!user || !isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
     return (

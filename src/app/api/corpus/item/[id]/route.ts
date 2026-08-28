@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { isCorpusAdmin } from "@/lib/corpus";
 
 // Admin-only review of one corpus item for adjudication: full transcript plus
@@ -8,10 +8,10 @@ import { isCorpusAdmin } from "@/lib/corpus";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

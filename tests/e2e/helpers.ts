@@ -5,7 +5,7 @@
 import type { Page } from "@playwright/test";
 
 export const HAS_BACKEND = !!(
-  process.env.E2E_SUPABASE_URL && process.env.E2E_SUPABASE_ANON_KEY
+  process.env.E2E_DATABASE_URL
 );
 
 export function testEmail(suffix?: string): string {

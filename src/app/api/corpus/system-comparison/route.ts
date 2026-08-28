@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { aggregateSystemComparison, isCorpusAdmin, type ComparisonPair } from "@/lib/corpus";
 import { consensusLabel } from "@/lib/corpusAdjudication";
@@ -28,10 +28,10 @@ export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "corpus-syscomp", limit: 4, windowMs: 15 * 60_000 });
   if (limited) return limited;
 
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

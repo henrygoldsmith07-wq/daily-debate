@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { createServiceClient } from "./supabase/server";
+import { isDatabaseConfigured } from "./backend/env";
+import { createServiceClient } from "./backend/server";
 
-// Distributed fixed-window limiter. State lives in Supabase (rate_limits
-// table from 002_rate_limits.sql) so every serverless instance shares
-// counters. On missing table / local dev without Supabase creds, it falls
-// back to the previous process-local Map so tests and `next dev` still work.
+// Distributed fixed-window limiter. State lives in the app-owned Postgres
+// rate_limits table so every serverless instance shares counters. Without a
+// configured database it falls back to a process-local Map for guest mode and
+// unit tests.
 
 export interface RateLimitResult {
   ok: boolean;
@@ -18,7 +19,7 @@ export interface RateLimitOptions {
   windowMs: number;
 }
 
-// ---- Fallback (process-local) used when Supabase is unavailable -----------
+// ---- Fallback (process-local) used when Postgres is unavailable -----------
 
 interface Bucket {
   count: number;
@@ -44,7 +45,7 @@ function localRateLimit(key: string, limit: number, windowMs: number): RateLimit
   return { ok: true, remaining: limit - existing.count, retryAfterSeconds: 0 };
 }
 export function __localRateLimitForTests(key: string, limit: number, windowMs: number) {
-  // Exposed for unit tests without needing Supabase.
+  // Exposed for unit tests without needing Postgres.
   return localRateLimit(key, limit, windowMs);
 }
 export function __clearBucketsForTests() {
@@ -61,58 +62,24 @@ export function getClientIp(request: Request): string {
 
 async function dbRateLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult | null> {
   // Returns null on unavailability so caller can fall back to local.
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
+  if (!isDatabaseConfigured()) return null;
 
-  const supabase = createServiceClient();
+  const db = createServiceClient();
   const now = Date.now();
 
-  // Preferred path: one atomic round-trip (006_rate_limit_atomic.sql). The
-  // read-then-write fallback below undercounts when two serverless instances
-  // read the same row concurrently.
-  try {
-    const { data: rows, error: rpcError } = await supabase.rpc("increment_rate_limit", { p_key: key, p_window_ms: windowMs });
-    const row = Array.isArray(rows) ? rows[0] : null;
-    if (!rpcError && row) {
-      const count = Number(row.new_count);
-      const resetMs = new Date(row.new_reset_at).getTime();
-      if (count > limit) {
-        return { ok: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil((resetMs - now) / 1000)) };
-      }
-      return { ok: true, remaining: limit - count, retryAfterSeconds: 0 };
-    }
-  } catch {
-    // RPC not deployed yet — fall through to the legacy read-then-write path.
-  }
+  const { data: rows, error } = await db.rpc("increment_rate_limit", {
+    p_key: key,
+    p_window_ms: windowMs,
+  });
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (error || !row) return null;
 
-  const windowEnd = new Date(now + windowMs).toISOString();
-
-  // Read existing window
-  const { data: existing, error: readError } = await supabase
-    .from("rate_limits")
-    .select("count, reset_at")
-    .eq("key", key)
-    .maybeSingle();
-
-  if (readError) return null; // table missing? fall back
-
-  if (!existing || new Date(existing.reset_at).getTime() <= now) {
-    // New window
-    const { error: upsertError } = await supabase.from("rate_limits").upsert({ key, count: 1, reset_at: windowEnd }, { onConflict: "key" });
-    if (upsertError) return null;
-    return { ok: true, remaining: limit - 1, retryAfterSeconds: 0 };
-  }
-
-  const count = existing.count as number;
-  const resetMs = new Date(existing.reset_at as string).getTime();
-  if (count >= limit) {
+  const count = Number(row.new_count);
+  const resetMs = new Date(row.new_reset_at).getTime();
+  if (count > limit) {
     return { ok: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil((resetMs - now) / 1000)) };
   }
-
-  const { error: incError } = await supabase.from("rate_limits").update({ count: count + 1 }).eq("key", key);
-  if (incError) return null;
-  return { ok: true, remaining: limit - (count + 1), retryAfterSeconds: 0 };
+  return { ok: true, remaining: limit - count, retryAfterSeconds: 0 };
 }
 
 // Keep sync signature used previously for convenience: callers already `await` the outer handler,

@@ -52,7 +52,7 @@ export default function BenchmarkPage() {
           <p className="mt-1 text-sm text-ink3">
             The repository contains {HUMAN_CORPUS.length} labelled fixture debates. Their rater-shaped records are not independently proven human
             annotations in this checkout, so they are useful for regression tests but do not establish judge validity. The pipeline scales to thousands
-            (Supabase table <code className="text-xs">benchmark_corpus</code>) once provenance is recorded.
+            (Postgres table <code className="text-xs">benchmark_corpus</code>) once provenance is recorded.
           </p>
           <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
             <div className="rounded-xl border border-[var(--rule)] bg-surface-2 p-3">

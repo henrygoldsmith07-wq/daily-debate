@@ -1,8 +1,18 @@
-import { type NextRequest } from "next/server";
-import { updateSession } from "./lib/supabase/middleware";
+import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE } from "./lib/backend/session";
 
-export async function proxy(request: NextRequest) {
-  return updateSession(request);
+export function proxy(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  const isPublicRoute = pathname === "/" || pathname.startsWith("/login");
+  const isApiRoute = pathname.startsWith("/api");
+  if (isPublicRoute || isApiRoute || request.cookies.has(SESSION_COOKIE)) {
+    return NextResponse.next();
+  }
+
+  const url = request.nextUrl.clone();
+  url.pathname = "/login";
+  url.searchParams.set("reason", "sign-in-required");
+  return NextResponse.redirect(url);
 }
 
 export const config = {

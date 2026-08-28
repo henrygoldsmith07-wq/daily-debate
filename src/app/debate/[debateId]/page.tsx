@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import AppHeader from "@/components/AppHeader";
 import DebateRoom from "@/components/DebateRoom";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
@@ -8,13 +8,13 @@ import type { SoloDebate, SoloDebateTurn } from "@/lib/types";
 
 export default async function DebatePage({ params }: { params: Promise<{ debateId: string }> }) {
   const { debateId } = await params;
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) notFound();
 
-  const { data: debate } = await supabase
+  const { data: debate } = await db
     .from("solo_debates")
     .select("*")
     .eq("id", debateId)
@@ -22,10 +22,10 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
     .single();
   if (!debate) notFound();
 
-  const { data: topic } = await supabase.from("daily_topics").select("*").eq("id", debate.topic_id).single();
+  const { data: topic } = await db.from("daily_topics").select("*").eq("id", debate.topic_id).single();
   if (!topic) notFound();
 
-  const { data: turns } = await supabase
+  const { data: turns } = await db
     .from("solo_debate_turns")
     .select("*")
     .eq("debate_id", debateId)

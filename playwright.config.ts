@@ -20,19 +20,13 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   // The production build must exist before `next start`, so build here.
-  // Placeholder Supabase env keeps the edge middleware's client construction
-  // happy; every auth check then resolves to "signed out", which is the
-  // failure-state surface this suite asserts.
+  // Without E2E_DATABASE_URL the app starts in guest mode, which is the
+  // failure-state surface covered by the credential-free specs.
   webServer: {
     command: `npm run build && npm run start -- --port ${PORT} --hostname 127.0.0.1`,
     env: {
       PORT: String(PORT),
-      NEXT_PUBLIC_SUPABASE_URL: process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321",
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.E2E_SUPABASE_ANON_KEY ?? "e2e-placeholder-anon-key",
-      // Service role key needed by server routes that use createServiceClient()
-      // (daily topic fallback persistence, points awarding, evidence retrieval).
-      // Only set when ephemeral Supabase is running; omitted for failure-state tests.
-      ...(process.env.SUPABASE_SERVICE_ROLE_KEY ? { SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY } : {}),
+      ...(process.env.E2E_DATABASE_URL ? { DATABASE_URL: process.env.E2E_DATABASE_URL } : {}),
     },
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,

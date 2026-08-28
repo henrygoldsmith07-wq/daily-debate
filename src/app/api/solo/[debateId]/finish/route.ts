@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { summarizeSoloDebate } from "@/lib/openrouter";
 import { summarizeSoloDebate as anthropicSummarize } from "@/lib/anthropic";
@@ -16,13 +16,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (limited) return limited;
 
   const { debateId } = await params;
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: debate, error: debateError } = await supabase
+  const { data: debate, error: debateError } = await db
     .from("solo_debates")
     .select("*")
     .eq("id", debateId)
@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
   if (debate.status === "completed") return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
 
-  const { data: turns, error: turnsError } = await supabase
+  const { data: turns, error: turnsError } = await db
     .from("solo_debate_turns")
     .select("*")
     .eq("debate_id", debateId)
@@ -51,7 +51,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   // Claim completion atomically before any model call or point award. Two
   // concurrent finishes must not both summarize (double cost) or both award
   // profile points (double credit).
-  const { data: completedDebate, error: completeError } = await supabase
+  const { data: completedDebate, error: completeError } = await db
     .from("solo_debates")
     .update({ status: "completed", total_score: totalScore, completed_at: new Date().toISOString() })
     .eq("id", debateId)
@@ -65,7 +65,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
   }
 
-  const { data: topic } = await supabase.from("daily_topics").select("title").eq("id", debate.topic_id).single();
+  const { data: topic } = await db.from("daily_topics").select("title").eq("id", debate.topic_id).single();
 
   const transcript = answered
     .map((turn) => `AI: ${turn.ai_message}\nUser: ${turn.user_message}`)
@@ -95,7 +95,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (finalAssessment) summary = { ...summary, argGraph: finalAssessment.graph, assessment: finalAssessment };
 
   // Coach rewards: bonus XP for improvement behaviours, not just participation.
-  const { data: priorDebates } = await supabase
+  const { data: priorDebates } = await db
     .from("solo_debates")
     .select("id")
     .eq("user_id", user.id)
@@ -105,7 +105,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     .limit(5);
   let priorAssessments: ObservableAssessment[] = [];
   if (priorDebates?.length) {
-    const { data: priorTurns } = await supabase
+    const { data: priorTurns } = await db
       .from("solo_debate_turns")
       .select("debate_id, assessment")
       .in("debate_id", priorDebates.map((d) => d.id))
@@ -119,15 +119,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     }
     priorAssessments = [...byDebate.values()];
   }
-  const { data: topicCategory } = await supabase
+  const { data: topicCategory } = await db
     .from("daily_topics").select("category").eq("id", debate.topic_id).single();
-  const { data: pastTopics } = await supabase
+  const { data: pastDebates } = await db
     .from("solo_debates")
-    .select("topic_id!inner(daily_topics(category))")
+    .select("topic_id")
     .eq("user_id", user.id).eq("status", "completed").neq("id", debateId);
-  const previouslyDebatedCategories = (pastTopics ?? [])
-    .map((pt: { topic_id: { daily_topics: { category?: string } } }) => pt.topic_id?.daily_topics?.category ?? "")
-    .filter(Boolean);
+  const priorTopicIds = [...new Set((pastDebates ?? []).map((row) => row.topic_id))];
+  const { data: pastTopics } = priorTopicIds.length
+    ? await db.from("daily_topics").select("category").in("id", priorTopicIds)
+    : { data: [] };
+  const previouslyDebatedCategories = (pastTopics ?? []).map((topic) => topic.category ?? "").filter(Boolean);
   const currentCategory = topicCategory?.category ?? "";
   const rewardEvents = finalAssessment
     ? computeCoachRewards({ assessment: finalAssessment, priorAssessments, previouslyDebatedCategories, currentCategory })
@@ -136,14 +138,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
   // Award points atomically when possible (007_profile_points_atomic.sql);
   // streak fields are idempotent per day so their read-modify-write is safe.
-  const { data: profile } = await supabase.from("profiles").select("total_points, last_activity_date, current_streak, longest_streak").eq("id", user.id).single();
+  const { data: profile } = await db.from("profiles").select("total_points, last_activity_date, current_streak, longest_streak").eq("id", user.id).single();
   if (profile) {
     const today = new Date().toISOString().slice(0, 10);
     const streak = updateStreak(today, profile.last_activity_date, profile.current_streak, profile.longest_streak);
 
     let awarded = false;
     try {
-      const { data: newTotal } = await supabase.rpc("increment_total_points", {
+      const { data: newTotal } = await db.rpc("increment_total_points", {
         p_user_id: user.id,
         p_points: totalScore + bonusXP,
         p_points_per_level: POINTS_PER_LEVEL,
@@ -155,9 +157,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
     if (!awarded) {
       const newTotalPoints = profile.total_points + totalScore + bonusXP;
-      await supabase.from("profiles").update({ total_points: newTotalPoints, level: levelForPoints(newTotalPoints) }).eq("id", user.id);
+      await db.from("profiles").update({ total_points: newTotalPoints, level: levelForPoints(newTotalPoints) }).eq("id", user.id);
     }
-    await supabase
+    await db
       .from("profiles")
       .update({
         current_streak: streak.current_streak,

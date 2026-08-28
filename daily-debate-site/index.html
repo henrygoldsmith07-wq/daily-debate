@@ -112,13 +112,13 @@
   <section class="stats" aria-label="Stats">
     <div class="stat"><b>5+</b><span>rounds</span></div>
     <div class="stat"><b>Graph</b><span>judging</span></div>
-    <div class="stat"><b>Live</b><span>Realtime PvP</span></div>
+    <div class="stat"><b>Live</b><span>Synced PvP</span></div>
     <div class="stat"><b>Voice</b><span>in + out</span></div>
   </section>
   <section class="grid" id="features" style="margin-top:8px">
     <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a4 4 0 0 1 4 4v2H8V7a4 4 0 0 1 4-4Z"/><path d="M5 11h14v7a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-7Z"/></svg>Daily topic</h3><p>One debatable proposition a day, grounded with 3–5 real institutions to go research yourself.</p></div>
     <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Solo vs AI</h3><p>Pick a side, trade rounds, scored 0–10 on depth/evidence/logic/rebuttal/clarity with feedback.</p></div>
-    <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>PvP queue</h3><p>FIFO matchmaking, alternating turns, Realtime updates, neutral AI judge declares winner or tie.</p></div>
+    <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>PvP queue</h3><p>FIFO matchmaking, alternating turns, synchronized updates, neutral AI judge declares winner or tie.</p></div>
     <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 4v8l-7 4-7-4V7z"/><path d="M12 12v8"/></svg>Argument graph</h3><p>Tracks unsupported claims, dropped arguments, contradictions, concessions, rebuttals, evidence strength, fallacies and impact.</p></div>
     <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-6 3 4 3-8"/></svg>Why you won</h3><p>Verdict returns rationale + decidingFactor + per-side breakdown, not just a score.</p></div>
     <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M8 8h8M7 12h10M9 16h6"/></svg>Voice</h3><p>Web Speech dictation in, speechSynthesis out — Chrome-family, with typing fallback.</p></div>
@@ -126,14 +126,14 @@
   <section class="privacy" style="margin-top:28px">
     <h2>Judged, not vibed</h2>
     <p>Every finished debate produces a graph the UI can render — unsupported claims, dropped lines, fallacies and impact — plus a one-sentence deciding factor.</p>
-    <div><span class="pill">Next.js + Supabase</span><span class="pill">Anthropic</span><span class="pill">Realtime</span><span class="pill">Vitest</span></div>
+    <div><span class="pill">Next.js + Postgres</span><span class="pill">Anthropic</span><span class="pill">Polling</span><span class="pill">Vitest</span></div>
     <a class="cta" href="https://github.com/henrygoldsmith07-wq/Claude-Code/tree/main/apps/daily-debate">Open Daily Debate</a>
   </section>
   <section class="faq" id="faq">
     <h2>FAQ</h2>
     <details><summary>Is it elo-paired?</summary><p>Not yet — FIFO today; Elo/skill pairing is the next PvP milestone.</p></details>
     <details><summary>How does judging stay fair?</summary><p>Structured graph + breakdown; evidence/fallacy tagging is model-judged with rule heuristics planned.</p></details>
-    <details><summary>What about spam?</summary><p>Supabase-backed rate limits (shared across serverless) with in-memory fallback for tests.</p></details>
+    <details><summary>What about spam?</summary><p>Postgres-backed rate limits shared across serverless instances, with an in-memory fallback for tests.</p></details>
   </section>
   <footer><a href="https://le-studio-site-henrygoldsmith07-9188s-projects.vercel.app/">Le Studio family</a> · Daily Debate · <a href="https://github.com/henrygoldsmith07-wq/Claude-Code/tree/main/apps/daily-debate">Open app</a> · <a href="https://github.com/henrygoldsmith07-wq/Claude-Code">Source</a></footer>
 </div>

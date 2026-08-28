@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { METRIC_KEYS, METRIC_LABELS } from "@/lib/skillLedger";
 import { computeSkillProfile } from "@/lib/skillProfile";
@@ -34,10 +34,10 @@ function fmt(v: number | null | undefined, pctLike: boolean): string {
 const PCT_LIKE = new Set(["unsupportedClaimRate", "rebuttalCoverage", "evidenceGrounding", "impactHandling", "steelmanQuality", "fallacyRate", "uncitedEvidenceRate", "clarity"]);
 
 export default async function ProgressPage() {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
 
   if (!user) {
     return (

@@ -1,30 +1,30 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import { getFactorRatings } from "@/lib/ratings";
 import AppHeader from "@/components/AppHeader";
 import RatingBreakdown from "@/components/RatingBreakdown";
 
 export default async function LeaderboardPage() {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
 
-  const { data: profiles } = await supabase
+  const { data: profiles } = await db
     .from("profiles")
     .select("id, username, total_points, level, current_streak")
     .order("total_points", { ascending: false })
     .limit(50);
 
-  const ratings = user ? await getFactorRatings(supabase, user.id) : null;
+  const ratings = user ? await getFactorRatings(db, user.id) : null;
   const list = profiles ?? [];
 
   // Absolute rank for the signed-in player, even when they sit outside the
   // top 50 shown in the table.
   let yourRank: number | null = null;
   if (user) {
-    const { data: mine } = await supabase.from("profiles").select("total_points").eq("id", user.id).single();
+    const { data: mine } = await db.from("profiles").select("total_points").eq("id", user.id).single();
     if (mine) {
-      const { count } = await supabase
+      const { count } = await db
         .from("profiles")
         .select("id", { count: "exact", head: true })
         .gt("total_points", mine.total_points);

@@ -11,7 +11,7 @@
 // never an AI call. The dashboard can therefore never fail due to provider
 // unavailability.
 
-import { createServiceClient } from "./supabase/server";
+import { createServiceClient } from "./backend/server";
 import { pickFallbackExcluding } from "./topicFallbacks";
 import type { DailyTopic } from "./types";
 
@@ -24,10 +24,10 @@ function todayIso(): string {
  * call; falls back to a curated motion when nothing is stored.
  */
 export async function getTodayTopic(): Promise<DailyTopic> {
-  const supabase = createServiceClient();
+  const db = createServiceClient();
   const date = todayIso();
 
-  const { data: existing } = await supabase
+  const { data: existing } = await db
     .from("daily_topics")
     .select("*")
     .eq("topic_date", date)
@@ -37,7 +37,7 @@ export async function getTodayTopic(): Promise<DailyTopic> {
 
   // No pre-stored topic — serve a curated fallback and persist it so all
   // users see the same one today (not just the first visitor).
-  const { data: recent } = await supabase
+  const { data: recent } = await db
     .from("daily_topics")
     .select("title")
     .order("topic_date", { ascending: false })
@@ -46,7 +46,7 @@ export async function getTodayTopic(): Promise<DailyTopic> {
 
   const fb = pickFallbackExcluding(date, recentTitles);
 
-  const { data: inserted } = await supabase
+  const { data: inserted } = await db
     .from("daily_topics")
     .insert({
       topic_date: date,
@@ -61,7 +61,7 @@ export async function getTodayTopic(): Promise<DailyTopic> {
   if (inserted) return inserted as unknown as DailyTopic;
 
   // Concurrent insert race: another instance already wrote it — read theirs.
-  const { data: concurrent } = await supabase
+  const { data: concurrent } = await db
     .from("daily_topics")
     .select("*")
     .eq("topic_date", date)
@@ -88,10 +88,10 @@ export async function storePreGeneratedTopic(
   targetDate: string,
   topic: { title: string; prompt: string; category: string; sources: Array<{ name: string; homepage: string; angle: string }> },
 ): Promise<{ ok: boolean; error?: string }> {
-  const supabase = createServiceClient();
+  const db = createServiceClient();
 
   // Upsert: overwrite any previous candidate for this date.
-  const { error } = await supabase
+  const { error } = await db
     .from("daily_topics")
     .upsert(
       {
@@ -108,7 +108,7 @@ export async function storePreGeneratedTopic(
 
   // Retrieve evidence cards for the stored topic (best-effort).
   try {
-    const { data: stored } = await supabase
+    const { data: stored } = await db
       .from("daily_topics")
       .select("id, title, prompt")
       .eq("topic_date", targetDate)
@@ -121,7 +121,7 @@ export async function storePreGeneratedTopic(
         { maxCards: 3 }
       );
       if (cards.length) {
-        await supabase.from("topic_evidence").insert(
+        await db.from("topic_evidence").insert(
           cards.map((c) => ({
             topic_id: stored.id,
             claim: c.claim,

@@ -2,15 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 
 export interface AuthState {
   error: string | null;
 }
 
 export async function signIn(_prevState: AuthState, formData: FormData): Promise<AuthState> {
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({
+  const db = await createClient();
+  const { error } = await db.auth.signInWithPassword({
     email: String(formData.get("email")),
     password: String(formData.get("password")),
   });
@@ -21,8 +21,8 @@ export async function signIn(_prevState: AuthState, formData: FormData): Promise
 }
 
 export async function signUp(_prevState: AuthState, formData: FormData): Promise<AuthState> {
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
+  const db = await createClient();
+  const { error } = await db.auth.signUp({
     email: String(formData.get("email")),
     password: String(formData.get("password")),
     options: { data: { display_name: String(formData.get("displayName") || "") } },
@@ -34,8 +34,8 @@ export async function signUp(_prevState: AuthState, formData: FormData): Promise
 }
 
 export async function signOut() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  const db = await createClient();
+  await db.auth.signOut();
   revalidatePath("/", "layout");
   redirect("/login");
 }

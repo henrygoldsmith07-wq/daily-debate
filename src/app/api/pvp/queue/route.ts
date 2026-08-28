@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
 import { PVP_ROUNDS, type DebateSide } from "@/lib/types";
@@ -12,10 +12,10 @@ export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "pvp-queue", limit: 20, windowMs: 60_000 });
   if (limited) return limited;
 
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const topic = await getOrCreateTodayTopic();
@@ -79,13 +79,13 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: match } = await supabase
+  const { data: match } = await db
     .from("pvp_matches")
     .select("*")
     .or(`player_a.eq.${user.id},player_b.eq.${user.id}`)
@@ -96,17 +96,17 @@ export async function GET() {
 
   if (match) return NextResponse.json({ match });
 
-  const { data: queueRow } = await supabase.from("pvp_queue").select("*").eq("user_id", user.id).maybeSingle();
+  const { data: queueRow } = await db.from("pvp_queue").select("*").eq("user_id", user.id).maybeSingle();
   return NextResponse.json({ waiting: Boolean(queueRow) });
 }
 
 export async function DELETE() {
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  await supabase.from("pvp_queue").delete().eq("user_id", user.id);
+  await db.from("pvp_queue").delete().eq("user_id", user.id);
   return NextResponse.json({ ok: true });
 }

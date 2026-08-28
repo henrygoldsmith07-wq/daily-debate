@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { debateTurn } from "@/lib/openrouter";
 import { debateTurn as anthropicTurn } from "@/lib/anthropic";
@@ -14,10 +14,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (limited) return limited;
 
   const { debateId } = await params;
-  const supabase = await createClient();
+  const db = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -34,7 +34,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: `Message blocked: ${mod.flags.map((f) => f.note).join(" ")}`, moderation: mod.flags }, { status: 400 });
   }
 
-  const { data: debate, error: debateError } = await supabase
+  const { data: debate, error: debateError } = await db
     .from("solo_debates")
     .select("*")
     .eq("id", debateId)
@@ -43,14 +43,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
   if (debate.status !== "active") return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
 
-  const { data: topic, error: topicError } = await supabase
+  const { data: topic, error: topicError } = await db
     .from("daily_topics")
     .select("*")
     .eq("id", debate.topic_id)
     .single();
   if (topicError || !topic) return NextResponse.json({ error: "Topic not found." }, { status: 404 });
 
-  const { data: turns, error: turnsError } = await supabase
+  const { data: turns, error: turnsError } = await db
     .from("solo_debate_turns")
     .select("*")
     .eq("debate_id", debateId)
@@ -123,7 +123,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   // Claim the turn atomically: only the first concurrent submit may write the
   // answer. A loser gets zero rows back and must not insert a duplicate
   // next-round turn.
-  const { data: claimed, error: updateError } = await supabase
+  const { data: claimed, error: updateError } = await db
     .from("solo_debate_turns")
     .update({
       user_message: message,
@@ -145,7 +145,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   }
 
   const nextRoundNumber = pendingTurn.round_number + 1;
-  const { data: nextTurn, error: nextTurnError } = await supabase
+  const { data: nextTurn, error: nextTurnError } = await db
     .from("solo_debate_turns")
     .insert({ debate_id: debateId, round_number: nextRoundNumber, ai_message: result.aiMessage })
     .select("*")
@@ -155,7 +155,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Failed to continue debate." }, { status: 500 });
   }
 
-  await supabase.from("solo_debates").update({ round_count: nextRoundNumber }).eq("id", debateId);
+  await db.from("solo_debates").update({ round_count: nextRoundNumber }).eq("id", debateId);
 
   return NextResponse.json({
     completedTurn: { ...pendingTurn, user_message: message, scores, turn_score: turnScore, feedback: result.feedback, assessment: observable.assessment },

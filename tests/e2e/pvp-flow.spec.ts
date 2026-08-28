@@ -2,13 +2,13 @@ import { test, expect } from "@playwright/test";
 
 // PvP / history / evaluation-surface E2E flows.
 //
-// CI runs without Supabase credentials; the middleware redirects every
+// CI runs without Postgres credentials; the middleware redirects every
 // unauthenticated page to /login, so the default suite asserts failure
 // states and no-crash guarantees. Authenticated flows (two-player match,
 // reconnect, history replay) require a seeded backend via
-// E2E_SUPABASE_URL + E2E_SUPABASE_ANON_KEY and are skipped otherwise.
+// E2E_DATABASE_URL and are skipped otherwise.
 
-const HAS_E2E_BACKEND = !!(process.env.E2E_SUPABASE_URL && process.env.E2E_SUPABASE_ANON_KEY);
+const HAS_E2E_BACKEND = !!(process.env.E2E_DATABASE_URL);
 
 async function signIn(page: import("@playwright/test").Page) {
   await page.goto("/login");
@@ -70,7 +70,7 @@ test.describe("pvp + history surfaces", () => {
   });
 
   test("authenticated two-player pvp flow: queue, alternate turns, verdict", async ({ browser }) => {
-    test.skip(!HAS_E2E_BACKEND, "Requires E2E_SUPABASE_URL/E2E_SUPABASE_ANON_KEY with a seeded project and two accounts");
+    test.skip(!HAS_E2E_BACKEND, "Requires E2E_DATABASE_URL with a seeded database and two accounts");
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();

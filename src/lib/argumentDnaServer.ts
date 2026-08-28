@@ -1,10 +1,10 @@
-// Supabase adapter for the longitudinal Argument DNA view.
+// Postgres adapter for the longitudinal Argument DNA view.
 //
 // The page intentionally reads the already-persisted debate assessments. No
 // new judge call is made when somebody opens their profile, so the view stays
 // cheap, repeatable, and explainable.
 
-import { createClient } from "./supabase/server";
+import { createClient } from "./backend/server";
 import { assessArgumentGraph, mergeAssessmentGraphs, type ObservableAssessment } from "./observableAssessment";
 import type { PvpVerdict } from "./types";
 import {
@@ -71,13 +71,13 @@ function maxRound(graph: ArgGraph | null, fallback: number): number {
 }
 
 async function soloSnapshots(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  db: Awaited<ReturnType<typeof createClient>>,
   rows: SoloRow[],
   topicTitles: Map<string, string>,
 ): Promise<DnaDebateSnapshot[]> {
   return Promise.all(
     rows.map(async (row) => {
-      const { data: turns } = await supabase
+      const { data: turns } = await db
         .from("solo_debate_turns")
         .select("assessment, scores, round_number")
         .eq("debate_id", row.id)
@@ -184,16 +184,16 @@ function pvpSnapshot(row: PvpRow, userId: string, topicTitles: Map<string, strin
 }
 
 export async function buildArgumentDnaForUser(userId: string): Promise<ArgumentDnaModel> {
-  const supabase = await createClient();
+  const db = await createClient();
   const [{ data: soloRows }, { data: pvpRows }] = await Promise.all([
-    supabase
+    db
       .from("solo_debates")
       .select("id, topic_id, total_score, round_count, status, completed_at, created_at")
       .eq("user_id", userId)
       .eq("status", "completed")
       .order("completed_at", { ascending: true })
       .limit(100),
-    supabase
+    db
       .from("pvp_matches")
       .select("id, topic_id, player_a, player_b, winner_id, judge_verdict, status, completed_at, created_at")
       .or(`player_a.eq.${userId},player_b.eq.${userId}`)
@@ -207,14 +207,13 @@ export async function buildArgumentDnaForUser(userId: string): Promise<ArgumentD
   const topicIds = [...new Set([...solo, ...pvp].map((row) => row.topic_id))];
   const topicTitles = new Map<string, string>();
   if (topicIds.length) {
-    const { data: topics } = await supabase.from("daily_topics").select("id, title").in("id", topicIds);
+    const { data: topics } = await db.from("daily_topics").select("id, title").in("id", topicIds);
     for (const topic of topics ?? []) topicTitles.set(topic.id, topic.title);
   }
 
   const [soloDna, pvpDna] = await Promise.all([
-    soloSnapshots(supabase, solo, topicTitles),
+    soloSnapshots(db, solo, topicTitles),
     Promise.resolve(pvp.map((row) => pvpSnapshot(row, userId, topicTitles))),
   ]);
   return buildArgumentDna([...soloDna, ...pvpDna]);
 }
-

@@ -8,7 +8,7 @@ streaks make it a game.
 
 ## Stack
 
-Next.js (App Router) + Supabase (auth, Postgres, Realtime) + OpenRouter (primary, default model `z-ai/glm-5.2:free` with automatic failover) / Anthropic (alternate judge backend).
+Next.js (App Router) + the repository-owned Postgres/auth backend + OpenRouter (primary, default model `z-ai/glm-5.2:free` with automatic failover) / Anthropic (alternate judge backend). The app talks to standard Postgres through the Neon serverless driver.
 
 > **On the free tier:** `z-ai/glm-5.2:free` is served by a single upstream provider whose shared pool is often saturated and returns 429 for long stretches. Requests retry with backoff and then fail over to the next model in `OPENROUTER_FALLBACK_MODELS`. Most of these models also bill reasoning tokens against `max_tokens` — GLM 5.2 spent 324 of 349 completion tokens thinking — so reasoning is disabled by default; endpoints that require it are retried without the flag.
 
@@ -42,19 +42,18 @@ Next.js (App Router) + Supabase (auth, Postgres, Realtime) + OpenRouter (primary
 - **Guest practice loop** — new players can try a three-round, source-aware
   practice debate without an account, see a skill-oriented result, and then
   save progress when they are ready. This keeps the first session useful even
-  before Supabase and model credentials are configured.
+  before database and model credentials are configured.
 - **UX polish** — Ctrl/⌘+Enter to send, auto-scroll in the debate room,
   color-coded score badges, copyable result summary, mobile-friendly header,
   clearer empty states and loading indicators.
 
 ## Setup
 
-1. Create a Supabase project and run the migrations in `supabase/migrations/`
-   (including 004 for stored observable assessments and 005 for benchmark
-   provenance).
-2. Copy `.env.example` to `.env.local` and fill in your Supabase project URL,
-   anon key, service role key, and an `OPENROUTER_API_KEY`.
-3. `npm install && npm run dev`.
+1. Create a standard Postgres database (a pooled Neon/Vercel Postgres URL is
+   recommended for serverless deployments).
+2. Run `npm install`, copy `.env.example` to `.env.local`, and set
+   `DATABASE_URL` plus at least one AI provider key.
+3. Run `npm run db:migrate && npm run dev`.
 
 Authenticated users get the full daily-topic experience. Signed-out users get
 a local guest practice loop first, so the product can be evaluated before
@@ -66,26 +65,25 @@ The Vercel project must point its **Root Directory** at the repository root
 (this is a standalone repo, not the monorepo it was split out of) with the
 framework preset left on **Next.js**.
 
-Requests run through the Next.js 16 proxy in `src/proxy.ts`. If the public
-Supabase variables are absent or auth refresh fails, `/` remains available in
-guest mode, `/login` explains that sign-in is unavailable, and protected pages
-redirect there instead of crashing the routing layer. Set these in **Settings →
-Environment Variables** for Production, Preview, and Development, then redeploy,
-to enable accounts and server-backed debates:
+Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only
+checks for the app's signed-in session cookie; it performs no database or
+third-party network work, so a backend outage cannot crash Vercel Routing
+Middleware. Without `DATABASE_URL`, `/` remains available in guest mode,
+`/login` explains that sign-in is unavailable, and protected pages redirect
+there. Set the variables in **Settings → Environment Variables** for Production,
+Preview, and Development, run the migration against that database, then redeploy:
 
 | Variable | Required | Notes |
 | --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | yes | Inlined at build time; changing it needs a redeploy, not just a restart. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Same build-time inlining. |
-| `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only. Never expose it with a `NEXT_PUBLIC_` prefix. |
+| `DATABASE_URL` | yes | Server-only pooled Postgres connection string. Never expose it with a `NEXT_PUBLIC_` prefix. |
 | `OPENROUTER_API_KEY` | yes | Primary judge; solo debates and daily topics fail without it. |
 | `OPENROUTER_MODEL` | optional | Defaults to `z-ai/glm-5.2:free`. |
 | `OPENROUTER_FALLBACK_MODELS` | optional | Comma-separated failover chain. Defaults to free Nemotron 3 Ultra then Super. Empty string pins to one model. |
 | `ANTHROPIC_API_KEY` | optional | Second judge in the ensemble when present. |
 | `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |
 
-A paused Supabase project produces the same symptoms as missing credentials, so
-confirm the project is active before debugging the deployment itself.
+After setting `DATABASE_URL`, run `npm run db:migrate` locally against the same
+database before deploying authenticated features.
 
 ## Argument graph & judging (why the winner won)
 
@@ -133,7 +131,7 @@ Until invariance is measured on the real judge, Elo/rank/social expansion stays 
 
 ## Rate limiting & testing
 
-- **Rate limiting** is now Supabase-backed (`supabase/migrations/002_rate_limits.sql`): `rate_limits(key, count, reset_at)` is shared across all serverless instances with a local in-memory fallback for tests/local dev without credentials. Migration `006_rate_limit_atomic.sql` adds an atomic `increment_rate_limit()` RPC so concurrent instances cannot undercount; the read-then-write path remains as a fallback when the RPC isn't deployed. 002 also ships `cleanup_rate_limits()` — schedule it via Supabase cron (or pg_cron) to prune expired windows. Before serious public use (PvP expansion) run all migrations. See `src/lib/rateLimit.ts` (`checkRateLimit` is async — callers `await` it).
+- **Rate limiting** is Postgres-backed: `rate_limits(key, count, reset_at)` is shared across all serverless instances and `increment_rate_limit()` updates it atomically. A local in-memory fallback keeps guest mode and unit tests usable when `DATABASE_URL` is absent. The consolidated migration also ships `cleanup_expired_backend_state()` for expired sessions and rate-limit windows. See `src/lib/rateLimit.ts`.
 - **Tests:** `npm test` (`vitest run`) / `npm run test:watch`. The assessment tests cover score composition, evidence references, insufficient evidence, side swaps, verbosity, source-count traps, and eloquent-nonsense vs concise-evidence cases.
 
 ## Trust, bias & benchmark suite (9.5)
@@ -147,7 +145,7 @@ New pure modules in `src/lib/` — all offline, all in `npm test` without creden
 - **Heuristic enrichers** (`argHeuristics.ts`) — `detectRepetition` (Jaccard ≥0.72, same owner), `rebuttalCoverage` / `rebuttalAddressesTargets`, `fallacyHints` (lexicon over text). Intended to complement the judge and make the graph auditable/editable (nodes filterable offline).
 - **Drills & weakness** (`drills.ts`) — `drillsFor` (ground a claim / close dropped / fix fallacy / weigh impact) and `weaknessProfile` + `topWeakness` across recent graphs for targeted practice and repeated personal weakness cards.
 - **Competitive** (`competitive.ts`) — `eloGate({ invarianceOk, humanAgreement })` (70% human threshold), Elo math (`kFactor`, `expectedScore`, `eloDelta`), and `pickOpponent` (FIFO while gate closed, Elo-bucketed within 150 when open). Tournaments/challenges stay gated.
-- **Moderation & anti-cheat** (`moderation.ts`) — `moderateMessage` (harassment/spam/caps/injection) + `isBlocked`, `repeatScore`, `isSuspiciousLength`. Real PvP abuse (multi-account, voting rings) lives in future Supabase functions; this catches cheap tricks.
+- **Moderation & anti-cheat** (`moderation.ts`) — `moderateMessage` (harassment/spam/caps/injection) + `isBlocked`, `repeatScore`, `isSuspiciousLength`. Real PvP abuse (multi-account, voting rings) needs additional backend controls; this catches cheap tricks.
 - **Transcripts & async** (`transcript.ts`) — `transcriptForReplay` (ordered), `isOverdue` (per-turn clock), `DEFAULT_ASYNC` (24h/turn, 7d total) scaffold for replayable + asynchronous debates.
 - **Retention** (`retention.ts`) — `dailyQuests`, `weeklyTarget`, `comebackCopy`, `onboardingChecklist` so retention does not rely purely on streaks.
 - **Speech fallbacks** — `useSpeechRecognition` already degrades to typing; now documented for Safari/Firefox, with dictation + paste as alternatives (Web Speech API is Chrome-family only).
@@ -236,7 +234,7 @@ Raters use **`/rate`** in the app: blind transcript, six-dimension 1–5 scoring
 
 - One turn per `(match, player, round)` enforced by a DB unique index (008), backing the API's concurrency guards.
 - Turn timestamps (`pvp_matches.turn_started_at`) power late-submission rejection (>30 min) and forfeit claims (`POST /api/pvp/[matchId]/forfeit`) so abandoned matches resolve without fabricating a judge score.
-- The room resyncs on focus/tab-visible and falls back to snapshot polling if Realtime drops; stress suites fuzz source verification + moderation (they caught and killed a ReDoS in link-spam detection).
+- The room polls authenticated snapshots and resyncs immediately on focus/tab-visible; stress suites fuzz source verification + moderation (they caught and killed a ReDoS in link-spam detection).
 
 ## Roadmap
 
