@@ -20,7 +20,9 @@ test.describe("solo debate", () => {
     if (url.includes("/login")) {
       await expect(page.locator("body")).toBeVisible();
     } else {
-      await expect(page.getByText(/Today's topic/i).first()).toBeVisible({ timeout: 15000 });
+      // Both the signed-in dashboard and the guest entry lead with the daily
+      // motion panel, so this anchor holds whichever one rendered.
+      await expect(page.getByText(/Today's motion/i).first()).toBeVisible({ timeout: 15000 });
     }
   });
 
