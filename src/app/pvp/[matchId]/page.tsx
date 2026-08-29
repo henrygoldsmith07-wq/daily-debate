@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/backend/server";
-import AppHeader from "@/components/AppHeader";
+import AppShell from "@/components/AppShell";
 import PvpRoom from "@/components/PvpRoom";
 import type { PvpMatch, PvpTurn } from "@/lib/types";
 
@@ -31,18 +31,15 @@ export default async function PvpMatchPage({ params }: { params: Promise<{ match
   ]);
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <AppHeader />
-      <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-8">
-        <PvpRoom
-          match={match as unknown as PvpMatch}
-          topic={topic}
-          initialTurns={(turns ?? []) as unknown as PvpTurn[]}
-          currentUserId={user.id}
-          playerAName={playerAProfile?.username ?? "Player A"}
-          playerBName={playerBProfile?.username ?? "Player B"}
-        />
-      </main>
-    </div>
+    <AppShell width="narrow">
+      <PvpRoom
+        match={match as unknown as PvpMatch}
+        topic={topic}
+        initialTurns={(turns ?? []) as unknown as PvpTurn[]}
+        currentUserId={user.id}
+        playerAName={playerAProfile?.username ?? "Player A"}
+        playerBName={playerBProfile?.username ?? "Player B"}
+      />
+    </AppShell>
   );
 }

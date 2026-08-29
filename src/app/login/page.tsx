@@ -16,7 +16,7 @@ export default function LoginPage() {
       {isDatabaseConfigured() ? (
         <AuthForm />
       ) : (
-        <div className="panel max-w-sm space-y-4 p-6 text-center">
+        <div className="surface-card max-w-sm space-y-4 p-6 text-center">
           <div>
             <h2 className="font-semibold">Sign-in is temporarily unavailable</h2>
             <p className="mt-2 text-sm text-ink3">

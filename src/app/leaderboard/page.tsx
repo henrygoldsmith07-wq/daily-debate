@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/backend/server";
 import { getFactorRatings } from "@/lib/ratings";
-import AppHeader from "@/components/AppHeader";
+import AppShell from "@/components/AppShell";
+import PageHeader from "@/components/PageHeader";
 import RatingBreakdown from "@/components/RatingBreakdown";
 
 export default async function LeaderboardPage() {
@@ -33,64 +34,59 @@ export default async function LeaderboardPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <AppHeader />
-      <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
-        <div className="flex items-baseline justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Leaderboard</h1>
-          {yourRank !== null && (
-            <p className="tabular text-sm text-ink3">
-              You&apos;re <span className="font-medium text-[var(--foreground)]">#{yourRank}</span>
-            </p>
-          )}
-        </div>
-        {ratings && <RatingBreakdown ratings={ratings} />}
-        <div className="surface-card overflow-hidden">
-          {list.length === 0 ? (
-            <p className="px-4 py-10 text-center text-sm text-ink3">
-              No players yet. Finish a debate to appear here.
-            </p>
-          ) : (
-            <table className="w-full text-sm">
-              <caption className="sr-only">Global leaderboard ranked by total points</caption>
-              <thead>
-                <tr className="border-b border-[var(--rule)] text-left text-xs uppercase tracking-wide text-ink3">
-                  <th scope="col" className="px-4 py-3">#</th>
-                  <th scope="col" className="px-4 py-3">Player</th>
-                  <th scope="col" className="px-4 py-3">Level</th>
-                  <th scope="col" className="px-4 py-3">Streak</th>
-                  <th scope="col" className="px-4 py-3 text-right">Points</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((profile, index) => {
-                  const isYou = profile.id === user?.id;
-                  const medal = ["🥇", "🥈", "🥉"][index];
-                  return (
-                    <tr
-                      key={profile.id}
-                      className={`tabular border-b border-[var(--rule)] last:border-0 ${
-                        isYou ? "bg-[var(--accent-soft)]" : ""
-                      }`}
-                    >
-                      <td className="px-4 py-3 text-ink3">{medal ?? index + 1}</td>
-                      <td className="px-4 py-3">
-                        {profile.username ?? "Anonymous"}
-                        {isYou && (
-                          <span className="ml-2 text-xs text-[var(--accent)]">you</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">{profile.level}</td>
-                      <td className="px-4 py-3">🔥 {profile.current_streak}</td>
-                      <td className="px-4 py-3 text-right font-medium">{profile.total_points}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </main>
-    </div>
+    <AppShell width="narrow">
+      <PageHeader
+        eyebrow="Rankings"
+        title="Leaderboard"
+        description="Ranked by total points earned across solo debates and PvP matches."
+        actions={yourRank !== null && <span className="pill tabular">You&apos;re #{yourRank}</span>}
+      />
+      {ratings && <RatingBreakdown ratings={ratings} />}
+      <div className="surface-card overflow-hidden">
+        {list.length === 0 ? (
+          <p className="px-4 py-10 text-center text-sm text-ink3">
+            No players yet. Finish a debate to appear here.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <caption className="sr-only">Global leaderboard ranked by total points</caption>
+            <thead>
+              <tr className="border-b border-[var(--rule)] text-left text-xs uppercase tracking-wide text-ink3">
+                <th scope="col" className="px-4 py-3">#</th>
+                <th scope="col" className="px-4 py-3">Player</th>
+                <th scope="col" className="px-4 py-3">Level</th>
+                <th scope="col" className="px-4 py-3">Streak</th>
+                <th scope="col" className="px-4 py-3 text-right">Points</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((profile, index) => {
+                const isYou = profile.id === user?.id;
+                const medal = ["🥇", "🥈", "🥉"][index];
+                return (
+                  <tr
+                    key={profile.id}
+                    className={`tabular border-b border-[var(--rule)] last:border-0 ${
+                      isYou ? "bg-[var(--accent-soft)]" : ""
+                    }`}
+                  >
+                    <td className="px-4 py-3 text-ink3">{medal ?? index + 1}</td>
+                    <td className="px-4 py-3">
+                      {profile.username ?? "Anonymous"}
+                      {isYou && (
+                        <span className="ml-2 text-xs text-[var(--accent)]">you</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">{profile.level}</td>
+                    <td className="px-4 py-3">🔥 {profile.current_streak}</td>
+                    <td className="px-4 py-3 text-right font-medium">{profile.total_points}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </AppShell>
   );
 }
