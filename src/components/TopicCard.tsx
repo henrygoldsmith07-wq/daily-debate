@@ -61,84 +61,83 @@ export default function TopicCard({
   }
 
   return (
-    <div className="home-motion-card surface-card flex flex-col gap-6 p-6 sm:p-8">
+    <section className="home-motion-card surface-card" aria-labelledby="today-motion">
       <div className="home-motion-heading">
         <div>
           <p className="home-motion-kicker">Today&apos;s motion</p>
-          <p className="mt-2 text-xs text-ink3">One focused rep · at least 5 rounds</p>
+          <p className="home-motion-meta">One focused rep · at least 5 rounds</p>
         </div>
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">
           {topic.category ?? "Daily debate"}
         </span>
       </div>
 
-      <div>
-        <h1 className="home-motion-title">{topic.title}</h1>
-        <p className="home-motion-prompt">{topic.prompt}</p>
-      </div>
-
-      <div className="home-coaching-focus">
-        <span className="home-coaching-label">Today&apos;s coaching focus</span>
-        <strong>{coachingFocus}</strong>
-      </div>
-
-      {activeDebateId ? (
-        <Link href={`/debate/${activeDebateId}`} className="home-start-button btn btn-primary px-4 py-3 text-center text-sm">
-          Continue your debate <span aria-hidden="true">→</span>
-        </Link>
-      ) : (
-        <div className="home-start-block">
-          <div className="home-side-label">Your side</div>
-          <div className="home-side-picker" role="group" aria-label="Choose side">
-            <button
-              type="button"
-              onClick={() => setSide("for")}
-              aria-pressed={side === "for"}
-              className={`home-side-option ${side === "for" ? "selected" : ""}`}
-            >
-              <span className="home-side-option-label">For</span>
-              <span>Make the case</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSide("against")}
-              aria-pressed={side === "against"}
-              className={`home-side-option ${side === "against" ? "selected" : ""}`}
-            >
-              <span className="home-side-option-label">Against</span>
-              <span>Push back</span>
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={startDebate}
-            disabled={starting}
-            className="home-start-button btn btn-primary px-4 py-3 text-sm disabled:opacity-40"
-          >
-            {starting ? (
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-transparent" />
-                Starting…
-              </span>
-            ) : (
-              <>Start debate <span aria-hidden="true">→</span></>
-            )}
-          </button>
-          <p className="home-start-note">You&apos;ll get one clear goal per round and a coach note after every response.</p>
-          {error && <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>}
+      <div className="home-motion-body">
+        <div>
+          <h2 id="today-motion" className="home-motion-title">{topic.title}</h2>
+          <p className="home-motion-prompt">{topic.prompt}</p>
         </div>
-      )}
 
-      <Link href="/pvp" className="text-center text-xs text-ink3 hover:text-[var(--foreground)]">
-        Or challenge another player on today&apos;s topic →
-      </Link>
+        <div className="home-coaching-focus">
+          <span className="home-coaching-label">Today&apos;s coaching focus</span>
+          <strong>{coachingFocus}</strong>
+        </div>
 
-      <details className="home-motion-details">
-        <summary className="home-motion-details-summary">
-          <span>{evidenceCards.length > 0 ? "Browse verified evidence" : "Browse credible sources"}</span>
-          <span aria-hidden="true">+</span>
-        </summary>
-        <div className="mt-4">
+        {activeDebateId ? (
+          <Link href={`/debate/${activeDebateId}`} className="home-start-button btn btn-primary px-4 py-3 text-center text-sm">
+            Continue your debate <span aria-hidden="true">→</span>
+          </Link>
+        ) : (
+          <div className="home-start-block">
+            <div className="home-side-label">Your side</div>
+            <div className="home-side-picker" role="group" aria-label="Choose side">
+              <button
+                type="button"
+                onClick={() => setSide("for")}
+                aria-pressed={side === "for"}
+                className={`home-side-option ${side === "for" ? "selected" : ""}`}
+              >
+                <span className="home-side-option-label">For</span>
+                <span>Make the case</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSide("against")}
+                aria-pressed={side === "against"}
+                className={`home-side-option ${side === "against" ? "selected" : ""}`}
+              >
+                <span className="home-side-option-label">Against</span>
+                <span>Push back</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={startDebate}
+              disabled={starting}
+              className="home-start-button btn btn-primary px-4 py-3 text-sm disabled:opacity-40"
+            >
+              {starting ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-transparent" />
+                  Starting…
+                </span>
+              ) : (
+                <>Start debate <span aria-hidden="true">→</span></>
+              )}
+            </button>
+            <p className="home-start-note">You&apos;ll get one clear goal per round and a coach note after every response.</p>
+            {error && <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>}
+          </div>
+        )}
+      </div>
+
+      <div className="home-motion-foot">
+        <details className="home-motion-details">
+          <summary className="home-motion-details-summary">
+            <span>{evidenceCards.length > 0 ? "Browse verified evidence" : "Browse credible sources"}</span>
+            <span className="home-motion-details-chevron" aria-hidden="true">+</span>
+          </summary>
+          <div className="mt-3">
           {evidenceCards.length > 0 ? (
             <div>
             <p className="mb-2 text-xs uppercase tracking-wide text-ink3">Retrieved evidence · verified passages</p>
@@ -189,8 +188,13 @@ export default function TopicCard({
             </ul>
             </div>
           )}
-        </div>
-      </details>
-    </div>
+          </div>
+        </details>
+
+        <Link href="/pvp" className="home-motion-foot-link">
+          Challenge another player →
+        </Link>
+      </div>
+    </section>
   );
 }

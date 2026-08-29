@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { createClient } from "@/lib/backend/server";
-import AppHeader from "@/components/AppHeader";
+import AppShell from "@/components/AppShell";
+import SignedOut from "@/components/SignedOut";
+import PageHeader from "@/components/PageHeader";
 import type { PvpVerdict } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -18,12 +20,12 @@ export default async function HistoryPage() {
 
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col">
-        <AppHeader />
-        <main id="main" className="mx-auto w-full max-w-2xl px-4 py-10 text-sm text-ink3">
-          Sign in to see your debate history.
-        </main>
-      </div>
+      <AppShell width="narrow">
+        <SignedOut
+          title="Sign in to see your debate history"
+          description="Your finished debates, scores and PvP results are kept with your account."
+        />
+      </AppShell>
     );
   }
 
@@ -52,87 +54,100 @@ export default async function HistoryPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <AppHeader />
-      <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Your debates</h1>
+    <AppShell width="narrow">
+      <PageHeader
+        eyebrow="Your record"
+        title="Your debates"
+        description="Every rep you have finished or left open, newest first."
+        actions={
+          <>
+            <span className="pill tabular">{soloDebates.length} solo</span>
+            <span className="pill tabular">{pvpMatches.length} PvP</span>
+          </>
+        }
+      />
 
-        <section className="flex flex-col gap-3">
-          <h2 className="text-xs uppercase tracking-wide text-ink3">Solo</h2>
-          {soloDebates.length === 0 ? (
-            <p className="text-sm text-ink3">No solo debates yet.</p>
-          ) : (
-            soloDebates.map((d) => (
+      <section className="flex flex-col gap-3">
+        <div className="section-heading">
+          <h2>Solo</h2>
+          <span className="section-heading-note">Against the AI opponent</span>
+        </div>
+        {soloDebates.length === 0 ? (
+          <p className="text-sm text-ink3">No solo debates yet.</p>
+        ) : (
+          soloDebates.map((d) => (
+            <Link
+              key={d.id}
+              href={`/debate/${d.id}`}
+              className="surface-card flex items-center justify-between gap-3 px-4 py-3 text-sm hover:border-[var(--accent)]"
+            >
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">{topicTitles.get(d.topic_id) ?? "Daily topic"}</span>
+                <span className="text-xs text-ink3">
+                  {formatDate(d.completed_at ?? d.created_at)} · arguing {d.side} · {d.round_count} rounds
+                </span>
+              </span>
+              <span className="shrink-0 text-right">
+                {d.status === "completed" ? (
+                  <span className="tabular font-medium">{d.total_score ?? 0} pts</span>
+                ) : (
+                  <span className="text-xs text-[var(--accent)]">resume →</span>
+                )}
+              </span>
+            </Link>
+          ))
+        )}
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <div className="section-heading">
+          <h2>Player vs player</h2>
+          <span className="section-heading-note">Judged head-to-head</span>
+        </div>
+        {pvpMatches.length === 0 ? (
+          <p className="text-sm text-ink3">No PvP matches yet.</p>
+        ) : (
+          pvpMatches.map((m) => {
+            const verdict = m.judge_verdict as PvpVerdict | null;
+            const outcome =
+              m.status !== "completed"
+                ? "in progress"
+                : !verdict || verdict.scoreStatus === "insufficient_evidence"
+                  ? "no confident verdict"
+                  : m.winner_id === null
+                    ? "too close to call"
+                    : m.winner_id === user.id
+                      ? "won"
+                      : "lost";
+            return (
               <Link
-                key={d.id}
-                href={`/debate/${d.id}`}
+                key={m.id}
+                href={`/pvp/${m.id}`}
                 className="surface-card flex items-center justify-between gap-3 px-4 py-3 text-sm hover:border-[var(--accent)]"
               >
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate font-medium">{topicTitles.get(d.topic_id) ?? "Daily topic"}</span>
-                  <span className="text-xs text-ink3">
-                    {formatDate(d.completed_at ?? d.created_at)} · arguing {d.side} · {d.round_count} rounds
-                  </span>
+                  <span className="truncate font-medium">{topicTitles.get(m.topic_id) ?? "Daily topic"}</span>
+                  <span className="text-xs text-ink3">{formatDate(m.completed_at)}</span>
                 </span>
                 <span className="shrink-0 text-right">
-                  {d.status === "completed" ? (
-                    <span className="tabular font-medium">{d.total_score ?? 0} pts</span>
-                  ) : (
-                    <span className="text-xs text-[var(--accent)]">resume →</span>
+                  <span
+                    className={`tabular font-medium ${
+                      outcome === "won" ? "text-[var(--accent)]" : outcome === "lost" ? "text-[var(--bad)]" : ""
+                    }`}
+                  >
+                    {outcome}
+                  </span>
+                  {verdict && verdict.scoreStatus !== "insufficient_evidence" && m.winner_id !== null && (
+                    <span className="block text-xs text-ink3 tabular">
+                      {verdict.playerAScore}–{verdict.playerBScore}
+                    </span>
                   )}
                 </span>
               </Link>
-            ))
-          )}
-        </section>
-
-        <section className="flex flex-col gap-3">
-          <h2 className="text-xs uppercase tracking-wide text-ink3">Player vs player</h2>
-          {pvpMatches.length === 0 ? (
-            <p className="text-sm text-ink3">No PvP matches yet.</p>
-          ) : (
-            pvpMatches.map((m) => {
-              const verdict = m.judge_verdict as PvpVerdict | null;
-              const outcome =
-                m.status !== "completed"
-                  ? "in progress"
-                  : !verdict || verdict.scoreStatus === "insufficient_evidence"
-                    ? "no confident verdict"
-                    : m.winner_id === null
-                      ? "too close to call"
-                      : m.winner_id === user.id
-                        ? "won"
-                        : "lost";
-              return (
-                <Link
-                  key={m.id}
-                  href={`/pvp/${m.id}`}
-                  className="surface-card flex items-center justify-between gap-3 px-4 py-3 text-sm hover:border-[var(--accent)]"
-                >
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate font-medium">{topicTitles.get(m.topic_id) ?? "Daily topic"}</span>
-                    <span className="text-xs text-ink3">{formatDate(m.completed_at)}</span>
-                  </span>
-                  <span className="shrink-0 text-right">
-                    <span
-                      className={`tabular font-medium ${
-                        outcome === "won" ? "text-[var(--accent)]" : outcome === "lost" ? "text-[var(--bad)]" : ""
-                      }`}
-                    >
-                      {outcome}
-                    </span>
-                    {verdict && verdict.scoreStatus !== "insufficient_evidence" && m.winner_id !== null && (
-                      <span className="block text-xs text-ink3 tabular">
-                        {verdict.playerAScore}–{verdict.playerBScore}
-                      </span>
-                    )}
-                  </span>
-                </Link>
-              );
-            })
-          )}
-        </section>
-      </main>
-    </div>
+            );
+          })
+        )}
+      </section>
+    </AppShell>
   );
 }

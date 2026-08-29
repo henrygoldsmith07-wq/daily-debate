@@ -1,0 +1,351 @@
+/* ============================================================================
+   Application shell — the frame every signed-in screen renders inside.
+
+   The product used to hang a marketing-style top bar above each page and let
+   every route pick its own width, padding and heading treatment. This file
+   replaces that with one persistent chrome: a sidebar on desktop, a compact
+   bar plus bottom tabs on mobile, and a single content column.
+
+   The rules live in Tailwind's `components` layer so page-level utility
+   classes still win — a screen that needs a two-column content area can say
+   `lg:grid lg:grid-cols-[1fr_280px]` on top of `.app-content` and have it
+   apply.
+   ========================================================================= */
+
+@layer components {
+  .app-shell {
+    display: flex;
+    min-height: 100dvh;
+    width: 100%;
+    background: var(--bg);
+  }
+
+  .app-main {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  /* ---- brand lockup, shared by the sidebar and the mobile bar ---- */
+  .app-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .app-brand-copy { display: flex; flex-direction: column; line-height: 1.15; }
+  .app-brand-name { font-size: 0.875rem; font-weight: 700; letter-spacing: -0.015em; }
+  .app-brand-tag {
+    color: var(--ink-3);
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  /* ---- desktop sidebar ---- */
+  .app-sidebar { display: none; }
+
+  @media (min-width: 1024px) {
+    .app-sidebar {
+      position: sticky;
+      top: 0;
+      display: flex;
+      width: 248px;
+      height: 100dvh;
+      flex-direction: column;
+      flex-shrink: 0;
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+    }
+  }
+
+  .app-sidebar-head {
+    display: flex;
+    align-items: center;
+    height: 56px;
+    padding: 0 1rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .app-sidebar-nav {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 1.25rem;
+    overflow-y: auto;
+    padding: 1rem 0.75rem;
+  }
+
+  .app-nav-group-label {
+    margin: 0 0 0.4rem 0.625rem;
+    color: var(--ink-3);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .app-nav-group ul,
+  .app-sheet-group ul {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .app-nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: var(--radius-sm);
+    color: var(--ink-2);
+    font-size: 0.82rem;
+    font-weight: 550;
+    text-decoration: none;
+    transition: background-color 0.14s ease, color 0.14s ease;
+  }
+  .app-nav-link:hover { background: var(--surface-2); color: var(--ink); }
+  .app-nav-link.active { background: var(--speak-soft); color: var(--speak); font-weight: 700; }
+
+  .app-nav-icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+  .app-sidebar-foot {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---- level / streak readout ---- */
+  .app-level {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.625rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+  }
+  .app-level-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+  }
+  .app-level-track {
+    height: 4px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--line);
+  }
+  .app-level-fill { height: 100%; border-radius: 999px; background: var(--speak); }
+  .app-level-meta { margin: 0; color: var(--ink-3); font-size: 0.62rem; }
+
+  /* ---- mobile top bar ---- */
+  .app-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    height: 52px;
+    padding: 0 1rem;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
+  @media (min-width: 1024px) {
+    .app-topbar:not(.app-topbar-guest) { display: none; }
+  }
+
+  /* ---- content column ---- */
+  .app-content {
+    display: flex;
+    width: 100%;
+    flex: 1;
+    flex-direction: column;
+    gap: 1.25rem;
+    margin: 0 auto;
+    padding: 1.25rem 1rem calc(4.75rem + env(safe-area-inset-bottom));
+  }
+
+  @media (min-width: 640px) {
+    .app-content { padding-left: 1.5rem; padding-right: 1.5rem; }
+  }
+
+  @media (min-width: 1024px) {
+    .app-content { gap: 1.5rem; padding: 2rem 2rem 3rem; }
+  }
+
+  /* Screens without the bottom tab bar (guest and signed-out) do not need the
+     space it would otherwise occupy. */
+  .app-shell-guest .app-content { padding-bottom: 2.5rem; }
+
+  /* ---- page heading ---- */
+  .page-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .page-header-copy { min-width: 0; }
+  .page-eyebrow {
+    margin: 0 0 0.3rem;
+    color: var(--ink-3);
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .page-title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+  }
+  .page-description {
+    max-width: 62ch;
+    margin: 0.5rem 0 0;
+    color: var(--ink-3);
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+  .page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  /* ---- mobile bottom tab bar ---- */
+  .app-tabbar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    display: grid;
+    grid-auto-columns: 1fr;
+    grid-auto-flow: column;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  @media (min-width: 1024px) {
+    .app-tabbar { display: none; }
+  }
+
+  .app-tab {
+    display: flex;
+    min-height: 56px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    border: 0;
+    background: transparent;
+    color: var(--ink-3);
+    cursor: pointer;
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: color 0.14s ease;
+  }
+  .app-tab.active { color: var(--speak); }
+  .app-tab-icon { width: 21px; height: 21px; }
+
+  /* ---- "More" sheet ---- */
+  .app-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  .app-sheet {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    display: flex;
+    max-height: 78dvh;
+    flex-direction: column;
+    border-top: 1px solid var(--line);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+  }
+  .app-sheet[hidden] { display: none; }
+  .app-sheet.open { animation: sheet-up 0.24s cubic-bezier(0.2, 0.9, 0.3, 1); }
+
+  .app-sheet-grabber {
+    width: 36px;
+    height: 4px;
+    margin: 0.55rem auto 0.15rem;
+    border-radius: 999px;
+    background: var(--line);
+  }
+
+  .app-sheet-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    overflow-y: auto;
+    padding: 0.75rem 0.9rem calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .app-sheet-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.65rem;
+    border-radius: var(--radius-sm);
+    color: var(--ink-2);
+    text-decoration: none;
+  }
+  .app-sheet-link:hover { background: var(--surface-2); }
+  .app-sheet-link.active { background: var(--speak-soft); color: var(--speak); }
+  .app-sheet-link span { display: flex; min-width: 0; flex-direction: column; }
+  .app-sheet-link strong { color: inherit; font-size: 0.85rem; font-weight: 650; }
+  .app-sheet-link.active strong { color: var(--speak); }
+  .app-sheet-link small { color: var(--ink-3); font-size: 0.7rem; line-height: 1.4; }
+
+  .app-sheet-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---- shared page furniture ---- */
+  .section-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.6rem;
+  }
+  .section-heading h2 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .section-heading-note { color: var(--ink-3); font-size: 0.72rem; }
+}

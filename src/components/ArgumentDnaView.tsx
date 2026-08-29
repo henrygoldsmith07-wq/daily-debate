@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import PageHeader from "./PageHeader";
 import { useMemo, useState } from "react";
 import SkillProfileBars from "./SkillProfileBars";
 import type {
@@ -191,22 +192,29 @@ export default function ArgumentDnaView({ model }: { model: ArgumentDnaModel }) 
 
   return (
     <div className="dna-page">
-      <section className="dna-hero">
-        <div className="dna-hero-copy">
-          <p className="dna-kicker">Persistent reasoning profile</p>
-          <h1>Your reasoning has a shape.</h1>
-          <p className="dna-hero-sub">Every debate adds another layer to the map — what holds, what gets dropped, and how your moves change when the pressure is on.</p>
-          <div className="dna-hero-actions">
-            <Link href="/" className="btn btn-primary">Start today&apos;s debate <span aria-hidden="true">→</span></Link>
-            <Link href="/progress" className="btn btn-ghost">Open full ledger</Link>
-          </div>
-        </div>
-        <div className="dna-score-orbit" aria-label={`${model.profile.overallScore ?? "No"} overall argument skill score`}>
-          <span className="dna-score-orbit-label">Argument skill</span>
-          <strong>{model.profile.overallScore ?? "—"}</strong>
-          <span className="dna-score-orbit-foot">{model.analysedDebates} graphed · {model.totalDebates} total</span>
-        </div>
-      </section>
+      <PageHeader
+        eyebrow="Persistent reasoning profile"
+        title="Argument DNA"
+        description="Every debate adds another layer to the map — what holds, what gets dropped, and how your moves change when the pressure is on."
+        actions={
+          <>
+            <div
+              className="dna-score-chip"
+              aria-label={`${model.profile.overallScore ?? "No"} overall argument skill score`}
+            >
+              <span>Argument skill</span>
+              <strong className="tabular">{model.profile.overallScore ?? "—"}</strong>
+              <small className="tabular">{model.analysedDebates} graphed</small>
+            </div>
+            <Link href="/" className="btn btn-primary px-3 py-1.5 text-xs">
+              Start today&apos;s debate <span aria-hidden="true">→</span>
+            </Link>
+            <Link href="/progress" className="btn btn-secondary px-3 py-1.5 text-xs">
+              Full ledger
+            </Link>
+          </>
+        }
+      />
 
       <section className="dna-stat-grid" aria-label="Argument DNA summary">
         <div className="dna-stat-card"><span>Debates tracked</span><strong>{model.totalDebates}</strong><small>solo + PvP</small></div>

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/backend/server";
-import AppHeader from "@/components/AppHeader";
+import AppShell from "@/components/AppShell";
 import DebateRoom from "@/components/DebateRoom";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
@@ -51,16 +51,13 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <AppHeader />
-      <main id="main" className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-8">
-        <DebateRoom
-          debate={debate as unknown as SoloDebate}
-          topic={topic}
-          initialTurns={(turns ?? []) as unknown as SoloDebateTurn[]}
-          completedResult={completedResult}
-        />
-      </main>
-    </div>
+    <AppShell width="narrow">
+      <DebateRoom
+        debate={debate as unknown as SoloDebate}
+        topic={topic}
+        initialTurns={(turns ?? []) as unknown as SoloDebateTurn[]}
+        completedResult={completedResult}
+      />
+    </AppShell>
   );
 }

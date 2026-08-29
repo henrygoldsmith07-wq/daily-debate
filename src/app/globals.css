@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./le-studio.css";
+@import "./app-shell.css";
 
 @custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
 
@@ -92,37 +93,9 @@
   --dna-attention-soft: var(--review-soft);
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
+  gap: 1.75rem;
 }
 
-.dna-hero {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 210px;
-  gap: 2rem;
-  overflow: hidden;
-  padding: 2rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-}
-
-.dna-hero::after {
-  content: "";
-  position: absolute;
-  width: 280px;
-  height: 280px;
-  right: -132px;
-  top: -152px;
-  border: 1px solid var(--dna-accent);
-  border-radius: 50%;
-  opacity: 0.16;
-  pointer-events: none;
-}
-
-.dna-hero-copy,
-.dna-score-orbit { position: relative; z-index: 1; }
 .dna-kicker,
 .dna-overline {
   margin: 0;
@@ -134,54 +107,20 @@
   text-transform: uppercase;
 }
 
-.dna-hero h1 {
-  max-width: 520px;
-  margin: 0.6rem 0 0.75rem;
-  font-size: clamp(2.1rem, 5vw, 4rem);
-  letter-spacing: -0.045em;
-  line-height: 0.98;
-}
-
-.dna-hero-sub {
-  max-width: 600px;
-  margin: 0;
-  color: var(--ink-2);
-  font-size: 1rem;
-  line-height: 1.6;
-}
-
-.dna-hero-actions {
+/* The overall score sits in the page header's action slot as a compact
+   readout — it used to be a decorative orbit under a display headline. */
+.dna-score-chip {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 1.4rem;
-}
-
-.dna-score-orbit {
-  display: flex;
-  min-height: 170px;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.35rem 0.7rem;
   border: 1px solid var(--line);
-  border-radius: 50%;
+  border-radius: 999px;
   background: var(--surface-2);
-  text-align: center;
 }
-
-.dna-score-orbit::before {
-  content: "";
-  position: absolute;
-  inset: 12px;
-  border: 1px dashed var(--dna-accent);
-  border-radius: 50%;
-  opacity: 0.36;
-}
-
-.dna-score-orbit > * { position: relative; z-index: 1; }
-.dna-score-orbit-label { color: var(--ink-3); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em; }
-.dna-score-orbit strong { margin: 0.2rem 0; font-size: 3rem; letter-spacing: -0.06em; line-height: 1; }
-.dna-score-orbit-foot { color: var(--ink-3); font-size: 0.68rem; }
+.dna-score-chip span { color: var(--ink-3); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.dna-score-chip strong { font-size: 1.05rem; letter-spacing: -0.03em; }
+.dna-score-chip small { color: var(--ink-3); font-size: 0.65rem; }
 
 .dna-stat-grid {
   display: grid;
@@ -207,7 +146,7 @@
 
 .dna-section { display: flex; flex-direction: column; gap: 1rem; }
 .dna-section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; }
-.dna-section-heading h2 { margin: 0.35rem 0 0; font-size: 1.3rem; letter-spacing: -0.025em; }
+.dna-section-heading h2 { margin: 0.35rem 0 0; font-size: 1.05rem; letter-spacing: -0.02em; }
 .dna-section-sub { max-width: 650px; margin: 0.5rem 0 0; color: var(--ink-3); font-size: 0.8rem; line-height: 1.5; }
 .dna-heading-note { color: var(--ink-3); font-size: 0.7rem; white-space: nowrap; }
 .dna-inline-link { color: var(--ink-2); font-size: 0.72rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
@@ -312,8 +251,6 @@
 .dna-footer-cta p:not(.dna-overline) { margin: 0; color: var(--ink-3); font-size: 0.75rem; }
 
 @media (max-width: 720px) {
-  .dna-hero { grid-template-columns: 1fr; gap: 1.4rem; padding: 1.25rem; }
-  .dna-score-orbit { width: 150px; min-height: 150px; justify-self: start; }
   .dna-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dna-insight-grid, .dna-profile-grid { grid-template-columns: 1fr; }
   .dna-section-heading { align-items: flex-start; flex-direction: column; }
@@ -329,9 +266,6 @@
 }
 
 @media (max-width: 420px) {
-  .dna-page { gap: 2rem; }
-  .dna-hero h1 { font-size: 2.35rem; }
-  .dna-hero-sub { font-size: 0.88rem; }
   .dna-stat-card { min-height: 92px; padding: 0.75rem; }
   .dna-stat-card strong { font-size: 1.25rem; }
   .dna-graph-card { padding: 0.75rem; }
@@ -340,62 +274,153 @@
   .dna-node-dot { width: 1.7rem; height: 1.7rem; font-size: 0.64rem; }
 }
 
-/* Signed-in dashboard: make the daily motion the first unmistakable action. */
+/* Signed-in dashboard: the daily motion is the primary panel of the Today
+   screen. It is a working card — header strip, motion, coaching focus, and the
+   start controls — not a landing-page hero, so the display type and the
+   decorative blob that used to sit behind it are gone. */
 .home-motion-card {
   position: relative;
   overflow: hidden;
-  border-top: 4px solid var(--speak);
-  box-shadow: var(--shadow-md);
+  padding: 0;
 }
-.home-motion-card::after {
-  position: absolute;
-  top: -8rem;
-  right: -7rem;
-  width: 18rem;
-  height: 18rem;
-  border-radius: 999px;
+.home-motion-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.home-motion-kicker {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.home-motion-meta { margin: 0; color: var(--ink-3); font-size: 0.68rem; }
+.home-motion-body { display: flex; flex-direction: column; gap: 1.1rem; padding: 1.25rem 1.1rem 1.35rem; }
+.home-motion-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.3rem, 2.6vw, 1.6rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.home-motion-prompt { max-width: 68ch; margin: 0.5rem 0 0; color: var(--ink-2); font-size: 0.85rem; line-height: 1.6; }
+.home-coaching-focus {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--speak) 22%, var(--line));
+  border-radius: var(--radius-sm);
   background: var(--speak-soft);
-  content: "";
-  opacity: 0.7;
-  pointer-events: none;
 }
-.home-motion-card > * { position: relative; z-index: 1; }
-.home-motion-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
-.home-motion-kicker { margin: 0; color: var(--speak); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
-.home-motion-title { max-width: 760px; margin: 0; color: var(--ink); font-size: clamp(2rem, 5vw, 3.8rem); font-weight: 650; letter-spacing: -0.045em; line-height: 1.03; }
-.home-motion-prompt { max-width: 680px; margin: 0.85rem 0 0; color: var(--ink-2); font-size: 0.92rem; line-height: 1.6; }
-.home-coaching-focus { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0.8rem 1rem; border: 1px solid color-mix(in srgb, var(--speak) 24%, var(--line)); border-radius: var(--radius-sm); background: var(--review-soft); }
-.home-coaching-label { color: var(--speak); font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-.home-coaching-focus strong { color: var(--ink); font-size: 0.82rem; font-weight: 650; text-align: right; }
-.home-start-block { display: flex; flex-direction: column; gap: 0.75rem; }
-.home-side-label { color: var(--ink-2); font-size: 0.72rem; font-weight: 750; }
-.home-side-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
-.home-side-option { display: flex; min-height: 62px; align-items: flex-start; justify-content: center; flex-direction: column; gap: 0.2rem; padding: 0.7rem 0.85rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink-2); cursor: pointer; font-size: 0.75rem; text-align: left; transition: border-color 140ms ease, background 140ms ease, transform 140ms ease; }
+.home-coaching-label { color: var(--speak); font-size: 0.62rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+.home-coaching-focus strong { color: var(--ink); font-size: 0.8rem; font-weight: 650; text-align: right; }
+.home-start-block { display: flex; flex-direction: column; gap: 0.7rem; }
+.home-side-label { color: var(--ink-2); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.home-side-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; }
+.home-side-option {
+  display: flex;
+  min-height: 58px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-3);
+  cursor: pointer;
+  font-size: 0.72rem;
+  text-align: left;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
 .home-side-option:hover { border-color: var(--ink-3); }
 .home-side-option:active { transform: scale(0.99); }
-.home-side-option.selected { border-color: var(--speak); background: var(--speak-soft); color: var(--ink); }
-.home-side-option-label { color: var(--ink); font-size: 0.87rem; font-weight: 800; }
+.home-side-option.selected { border-color: var(--speak); background: var(--speak-soft); color: var(--ink-2); }
+.home-side-option-label { color: var(--ink); font-size: 0.84rem; font-weight: 700; }
 .home-side-option.selected .home-side-option-label { color: var(--speak); }
-.home-start-button { width: 100%; min-height: 48px; font-size: 0.9rem; }
-.home-start-note { margin: 0; color: var(--ink-3); font-size: 0.7rem; line-height: 1.45; }
-.home-motion-details { padding-top: 1rem; border-top: 1px solid var(--line); }
-.home-motion-details-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; color: var(--ink-3); cursor: pointer; font-size: 0.7rem; font-weight: 700; list-style: none; }
+.home-start-button { width: 100%; min-height: 44px; font-size: 0.87rem; }
+.home-start-note { margin: 0; color: var(--ink-3); font-size: 0.68rem; line-height: 1.45; }
+.home-motion-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.7rem 1.1rem;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.home-motion-foot-link { color: var(--ink-2); font-size: 0.72rem; font-weight: 600; text-decoration: none; }
+.home-motion-foot-link:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.home-motion-details { min-width: 0; }
+.home-motion-details-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  list-style: none;
+}
 .home-motion-details-summary::-webkit-details-marker { display: none; }
-.home-motion-details-summary:hover { color: var(--ink-2); }
-.home-motion-details[open] .home-motion-details-summary > span:last-child { transform: rotate(45deg); }
+.home-motion-details-summary:hover { color: var(--ink); }
+.home-motion-details[open] .home-motion-details-chevron { transform: rotate(45deg); }
+/* Once open the evidence list needs the whole footer strip, not the narrow
+   column the summary occupies beside the PvP link. */
+.home-motion-details[open] { flex: 1 0 100%; }
+.home-motion-details-chevron { display: inline-block; transition: transform 140ms ease; }
+
+/* Secondary cards under the motion: an even grid of equal-weight panels. */
 .home-secondary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
-.home-secondary-card { display: flex; min-height: 180px; flex-direction: column; gap: 0.65rem; padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
-.home-secondary-card h2 { margin: 0; color: var(--ink); font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; }
+.home-secondary-card {
+  display: flex;
+  min-height: 172px;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.home-secondary-kicker { margin: 0; color: var(--ink-3); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+.home-secondary-card h3 { margin: 0; color: var(--ink); font-size: 0.92rem; font-weight: 700; letter-spacing: -0.01em; }
 .home-secondary-card p { margin: 0; color: var(--ink-3); font-size: 0.75rem; line-height: 1.5; }
-.home-secondary-card .home-secondary-action { margin-top: auto; color: var(--ink-2); font-size: 0.72rem; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
-.home-secondary-card .home-secondary-action:hover { color: var(--ink); }
+.home-secondary-card .home-secondary-action { margin-top: auto; color: var(--ink-2); font-size: 0.72rem; font-weight: 700; text-decoration: none; }
+.home-secondary-card .home-secondary-action:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .home-secondary-meta { color: var(--ink-3); font-size: 0.68rem; }
 .home-secondary-highlight { margin: auto 0 0; padding: 0.6rem 0.7rem; border-radius: var(--radius-sm); background: var(--surface-2); color: var(--ink-2); font-size: 0.75rem; line-height: 1.45; }
 .home-secondary-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; margin-top: auto; }
-.home-secondary-links a { padding: 0.65rem 0.7rem; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-2); font-size: 0.72rem; font-weight: 700; text-align: center; text-decoration: none; }
+.home-secondary-links a { padding: 0.6rem 0.7rem; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-2); font-size: 0.72rem; font-weight: 700; text-align: center; text-decoration: none; }
 .home-secondary-links a:hover { border-color: var(--ink-3); color: var(--ink); }
+
+/* Auth-gated screens share one empty state instead of a bare sentence. */
+.signed-out {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 1.75rem 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.signed-out-title { margin: 0; font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em; }
+.signed-out-copy { max-width: 58ch; margin: 0; color: var(--ink-3); font-size: 0.82rem; line-height: 1.6; }
+.signed-out-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+
 @media (max-width: 640px) {
-  .home-motion-heading, .home-coaching-focus { align-items: flex-start; flex-direction: column; }
+  .home-coaching-focus { align-items: flex-start; flex-direction: column; gap: 0.3rem; }
   .home-coaching-focus strong { text-align: left; }
   .home-secondary-grid { grid-template-columns: 1fr; }
 }
