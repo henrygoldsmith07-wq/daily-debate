@@ -27,6 +27,9 @@ export default defineConfig({
     env: {
       PORT: String(PORT),
       ...(process.env.E2E_DATABASE_URL ? { DATABASE_URL: process.env.E2E_DATABASE_URL } : {}),
+      // Auth.js refuses to mint a session without a secret. A fixed throwaway
+      // value keeps E2E runs reproducible; it never leaves this config.
+      AUTH_SECRET: process.env.AUTH_SECRET ?? "e2e-only-not-a-real-secret-000000000000",
     },
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,

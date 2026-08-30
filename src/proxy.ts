@@ -1,11 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE } from "./lib/backend/session";
+import { SECURE_SESSION_COOKIE, SESSION_COOKIE } from "./lib/backend/session";
 
 export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isPublicRoute = pathname === "/" || pathname.startsWith("/login");
   const isApiRoute = pathname.startsWith("/api");
-  if (isPublicRoute || isApiRoute || request.cookies.has(SESSION_COOKIE)) {
+  // Either cookie name means "signed in" — which one is set depends on
+  // whether this deployment is HTTPS. The proxy only gates navigation; every
+  // route still verifies the session properly server-side.
+  const hasSession =
+    request.cookies.has(SESSION_COOKIE) || request.cookies.has(SECURE_SESSION_COOKIE);
+  if (isPublicRoute || isApiRoute || hasSession) {
     return NextResponse.next();
   }
 
