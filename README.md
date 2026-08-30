@@ -81,9 +81,29 @@ Preview, and Development, run the migration against that database, then redeploy
 | `OPENROUTER_FALLBACK_MODELS` | optional | Comma-separated failover chain. Defaults to free Nemotron 3 Ultra then Super. Empty string pins to one model. |
 | `ANTHROPIC_API_KEY` | optional | Second judge in the ensemble when present. |
 | `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |
+| `AUTH_SECRET` | yes | Signs the Auth.js session cookie. Generate with `openssl rand -base64 32`. Every session is rejected without it. |
+| `AUTH_GOOGLE_ID` | optional | Google OAuth client id. Both Google vars must be set for the "Continue with Google" button to appear. |
+| `AUTH_GOOGLE_SECRET` | optional | Google OAuth client secret. |
 
 After setting `DATABASE_URL`, run `npm run db:migrate` locally against the same
 database before deploying authenticated features.
+
+### Sign-in
+
+Auth.js (NextAuth v5) with two ways in and one account behind them: **Google**,
+and **email + password** hashed with salted scrypt. The session is a signed,
+httpOnly `SameSite=Lax` JWT cookie capped at 30 days, and every request
+resolves its user id against a live `app_users` row.
+
+Google is optional — the button only appears when it is configured. To enable
+it, create an OAuth 2.0 Client ID (type: *Web application*) in the
+[Google Cloud console](https://console.cloud.google.com/apis/credentials) and
+add `http://localhost:3000/api/auth/callback/google` as an authorised redirect
+URI (in production, `https://<your-domain>/api/auth/callback/google`).
+
+Signing in with Google using the address of an existing password account
+**links** the two — same account, same debate history, either way in. An
+account created through Google has no password until one is set.
 
 ## Argument graph & judging (why the winner won)
 

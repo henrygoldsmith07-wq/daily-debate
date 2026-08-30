@@ -1,6 +1,7 @@
 import Link from "next/link";
 import AuthForm from "./AuthForm";
 import { isDatabaseConfigured } from "@/lib/backend/env";
+import { googleEnabled } from "@/lib/backend/auth-config";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export default function LoginPage() {
         </p>
       </div>
       {isDatabaseConfigured() ? (
-        <AuthForm />
+        <AuthForm googleEnabled={googleEnabled} />
       ) : (
         <div className="surface-card max-w-sm space-y-4 p-6 text-center">
           <div>
