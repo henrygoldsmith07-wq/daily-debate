@@ -5,6 +5,7 @@ import type { ArgGraph, ArgNode } from "@/lib/argGraph";
 import type { PvpVerdict } from "@/lib/types";
 import { applyGraphEdits } from "@/lib/graphEnrichers";
 import { validateGraph } from "@/lib/argGraph";
+import { burdenReport, type ClaimBurden } from "@/lib/burdenOfProof";
 
 const KIND_LABEL: Record<ArgNode["kind"], string> = {
   claim: "Claim",
@@ -73,10 +74,73 @@ export function VerdictExplainPanel({ verdict, playerAName, playerBName }: { ver
       {g ? (
         <>
           <ArgGraphInline graph={g} playerAName={playerAName} playerBName={playerBName} />
+          <BurdenPanel graph={g} playerAName={playerAName} playerBName={playerBName} />
           <TrackingGrid graph={g} />
         </>
       ) : (
         <p className="text-xs text-ink3 surface-card p-4">Structured breakdown will appear on newly judged matches. Older verdicts show only the rationale.</p>
+      )}
+    </div>
+  );
+}
+
+const BURDEN_LABEL: Record<ClaimBurden["level"], string> = {
+  heavy: "heavy burden",
+  moderate: "moderate burden",
+  light: "light burden",
+};
+
+const VERDICT_LABEL: Record<ClaimBurden["verdict"], string> = {
+  met: "met",
+  "partially-met": "partly met",
+  unmet: "not met",
+};
+
+/**
+ * Burden of proof, read from the claims themselves rather than from whether
+ * anyone said the words "you must prove". A universal or causal claim is held
+ * to more than a hedged one, and a demand for proof made from behind the
+ * speaker's own unsupported claim is named as the shift it is.
+ */
+function BurdenPanel({ graph, playerAName, playerBName }: { graph: ArgGraph; playerAName: string; playerBName: string }) {
+  const report = burdenReport(graph);
+  if (!report.summary) return null;
+  const name = (owner: string) => (owner === "a" ? playerAName : owner === "b" ? playerBName : "The opponent");
+  const unmet = report.claims.filter((c) => c.verdict !== "met").sort((a, b) => (a.verdict === "unmet" ? -1 : 1) - (b.verdict === "unmet" ? -1 : 1));
+
+  return (
+    <div className="surface-card p-5 flex flex-col gap-3">
+      <p className="text-xs uppercase tracking-wide text-ink3">Burden of proof</p>
+      <p className="text-sm leading-relaxed">{report.summary}</p>
+      <p className="text-xs text-ink3">
+        How much a claim has to prove is set by its own form — a claim about every case, or one asserting a
+        cause, or one saying what ought to be, has more to carry than a hedged one.
+      </p>
+
+      {unmet.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {unmet.slice(0, 5).map((claim) => (
+            <li key={claim.nodeId} className="rounded-xl border border-[var(--rule)] bg-surface-2 p-3 text-xs">
+              <p className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-medium">{name(claim.owner)}</span>
+                <span className="text-ink3">round {claim.round} · {BURDEN_LABEL[claim.level]} · {VERDICT_LABEL[claim.verdict]}</span>
+              </p>
+              <p className="mt-1">“{claim.text}”</p>
+              <p className="mt-1 text-ink3">{claim.explanation}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {report.improperShifts.length > 0 && (
+        <div className="rounded-xl border border-[var(--accent-soft)] bg-[var(--accent-soft)]/40 p-3">
+          <p className="text-sm font-medium">Burden shifted, not discharged</p>
+          <ul className="mt-1 flex flex-col gap-1 text-xs text-ink3">
+            {report.improperShifts.slice(0, 3).map((shift, i) => (
+              <li key={`${shift.round}-${i}`}>{name(shift.by)}: {shift.explanation}</li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

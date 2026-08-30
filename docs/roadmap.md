@@ -109,7 +109,13 @@ those links to tangential, and docks its score for decorative citations
 - Argument graph corrections.
 - Stronger fallacy validation *(extend — `fallacyHints` is lexicon-based)*.
 - Better dropped-argument detection.
-- Better burden-of-proof modelling.
+- Better burden-of-proof modelling — *shipped*: `burdenOfProof.ts` models the
+  burden from the claim's own logical form (universal / causal / normative /
+  existential / descriptive) rather than from whether anyone said "you must
+  prove", grades whether the support present is proportionate to that form, and
+  distinguishes a legitimate demand for proof from an **improper burden shift**
+  — demanding disproof of the speaker's own still-unsupported claim. Surfaced in
+  `VerdictExplainPanel` → `BurdenPanel`.
 - Better rebuttal matching *(extend — `rebuttalCoverage` /
   `rebuttalAddressesTargets`)*.
 
