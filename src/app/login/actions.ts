@@ -39,3 +39,20 @@ export async function signOut() {
   revalidatePath("/", "layout");
   redirect("/login");
 }
+
+export async function requestPasswordReset(_prevState: AuthState, formData: FormData): Promise<AuthState> {
+  const db = await createClient();
+  const { error } = await db.auth.requestPasswordReset(String(formData.get("email")));
+  if (error) return { error: error.message };
+  return { error: null };
+}
+
+export async function resetPassword(_prevState: AuthState, formData: FormData): Promise<AuthState> {
+  const db = await createClient();
+  const { error } = await db.auth.resetPassword({
+    token: String(formData.get("token")),
+    newPassword: String(formData.get("newPassword")),
+  });
+  if (error) return { error: error.message };
+  return { error: null };
+}

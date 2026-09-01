@@ -1,6 +1,6 @@
 import "server-only";
 
-import { AuthApi, type CookieStore } from "./auth";
+import { AuthApi, type CookieStore, type ResetTokenSender } from "./auth";
 import { tableQuery, type TableName } from "./query";
 import { queryRows } from "./sql";
 
@@ -9,8 +9,8 @@ type RpcArgs = Record<string, string | number>;
 export class BackendClient {
   readonly auth: AuthApi;
 
-  constructor(cookieStore: CookieStore | null = null) {
-    this.auth = new AuthApi(cookieStore);
+  constructor(cookieStore: CookieStore | null = null, resetTokenSender?: ResetTokenSender) {
+    this.auth = new AuthApi(cookieStore, resetTokenSender);
   }
 
   from<T extends TableName>(table: T) {

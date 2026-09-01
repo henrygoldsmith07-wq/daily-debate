@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import { signIn, signUp, type AuthState } from "./actions";
 
 const initialState: AuthState = { error: null };
@@ -73,6 +74,15 @@ export default function AuthForm() {
             className="rounded border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
           />
         </label>
+
+        {mode === "sign-in" && (
+          <Link
+            href="/login/forgot-password"
+            className="text-xs text-ink3 underline-offset-4 hover:underline"
+          >
+            Forgot password?
+          </Link>
+        )}
 
         {state.error && (
           <p role="alert" className="text-sm text-[var(--bad)]">

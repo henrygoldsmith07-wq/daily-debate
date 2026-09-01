@@ -7,8 +7,18 @@ import { SESSION_COOKIE, SESSION_TTL_SECONDS } from "./session";
 
 const scrypt = promisify(scryptCallback);
 
+/** Reset tokens are single-use and short-lived: long enough for an email round-trip. */
+export const PASSWORD_RESET_TTL_SECONDS = 60 * 30;
+
 export type AppUser = { id: string; email: string };
 export type AuthError = { message: string };
+
+/**
+ * Delivery sink for password-reset tokens. Production wires an email sender;
+ * dev mode (no sender configured) surfaces the token directly so the flow is
+ * testable without mail infrastructure.
+ */
+export type ResetTokenSender = (email: string, token: string) => void | Promise<void>;
 
 export type CookieStore = {
   get(name: string): { value: string } | undefined;
@@ -79,7 +89,10 @@ async function createSession(userId: string, cookieStore: CookieStore): Promise<
 }
 
 export class AuthApi {
-  constructor(private readonly cookieStore: CookieStore | null) {}
+  constructor(
+    private readonly cookieStore: CookieStore | null,
+    private readonly resetTokenSender?: ResetTokenSender,
+  ) {}
 
   async getUser(): Promise<{ data: { user: AppUser | null }; error: AuthError | null }> {
     const token = this.cookieStore?.get(SESSION_COOKIE)?.value;
@@ -153,6 +166,94 @@ export class AuthApi {
       return { data: { user }, error: null };
     } catch (error) {
       return { data: { user: null }, error: friendlyError(error) };
+    }
+  }
+
+  /**
+   * Request a password reset. Always reports success — whether or not the
+   * email exists — so the endpoint cannot be used to enumerate accounts.
+   * The raw token is only delivered via the configured sender (or returned
+   * to dev mode callers through the sendDevTokenToConsole default).
+   */
+  async requestPasswordReset(email: string): Promise<{ error: AuthError | null }> {
+    const normalized = normalizeEmail(email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      return { error: { message: "Enter a valid email address." } };
+    }
+    try {
+      const rows = await queryRows<{ id: string }>(
+        "SELECT id FROM app_users WHERE email = $1 LIMIT 1",
+        [normalized],
+      );
+      const user = rows[0];
+      if (user) {
+        // Invalidate any outstanding tokens for this account: only the
+        // newest link may be used.
+        await queryRows("DELETE FROM password_reset_tokens WHERE user_id = $1", [user.id]);
+        const token = randomBytes(32).toString("base64url");
+        await queryRows(
+          `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+           VALUES ($1, $2, now() + ($3 * interval '1 second'))`,
+          [user.id, tokenHash(token), PASSWORD_RESET_TTL_SECONDS],
+        );
+        if (this.resetTokenSender) {
+          await this.resetTokenSender(normalized, token);
+        } else {
+          // Dev mode: no mail infrastructure configured. Log the reset link
+          // material so the flow is completable locally.
+          console.info(
+            `[auth] password reset token for ${normalized} (dev mode, 30 min validity): ${token}`,
+          );
+        }
+      }
+      return { error: null };
+    } catch (error) {
+      return { error: friendlyError(error) };
+    }
+  }
+
+  /**
+   * Consume a reset token and set a new password. The token is marked used
+   * in the same statement that updates the password, so a token can never
+   * be applied twice — even under concurrent submission.
+   */
+  async resetPassword(input: {
+    token: string;
+    newPassword: string;
+  }): Promise<{ error: AuthError | null }> {
+    if (!input.token) return { error: { message: "Reset token is required." } };
+    if (input.newPassword.length < 8) {
+      return { error: { message: "Password must be at least 8 characters." } };
+    }
+    if (input.newPassword.length > 128) {
+      return { error: { message: "Password must be 128 characters or fewer." } };
+    }
+    try {
+      const hash = await passwordHash(input.newPassword);
+      const rows = await queryRows<{ id: string; email: string }>(
+        `WITH consumed AS (
+           UPDATE password_reset_tokens
+           SET used_at = now()
+           WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
+           RETURNING user_id
+         )
+         UPDATE app_users u
+         SET password_hash = $2
+         FROM consumed c
+         WHERE u.id = c.user_id
+         RETURNING u.id, u.email`,
+        [tokenHash(input.token), hash],
+      );
+      const user = rows[0];
+      if (!user) {
+        return { error: { message: "Reset link is invalid or has expired. Please request a new one." } };
+      }
+      // Any session created before the reset may belong to an attacker who
+      // knew the old password — revoke them all and force fresh sign-in.
+      await queryRows("DELETE FROM app_sessions WHERE user_id = $1", [user.id]);
+      return { error: null };
+    } catch (error) {
+      return { error: friendlyError(error) };
     }
   }
 
