@@ -152,7 +152,7 @@ describe("ensemble + uncertainty", () => {
     const one = ensembleVerdicts([a]);
     expect(two.winner).toBe("a");
     expect(two.isTie).toBe(false);
-    expect(two.scoreCI.hi).toBeGreaterThan(0);
+    expect(two.scoreGapEstimate.hi).toBeGreaterThan(0);
   });
 
   it("disagreeing judges => tie or low confidence", () => {

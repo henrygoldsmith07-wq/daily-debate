@@ -18,12 +18,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Check fixture pack stratification (no keys needed)
+        run: node scripts/judge-benchmark.mjs --pack-only
       - name: Run live judge benchmark (gated)
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: node scripts/judge-benchmark.mjs --limit 3 --concurrency 3 --enforce
+        run: node scripts/judge-benchmark.mjs --concurrency 3 --enforce
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4

@@ -2,6 +2,10 @@ import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // node-postgres must stay external: the dynamic import in
+  // src/lib/backend/sql.ts (TCP transport for non-Neon databases) resolves it
+  // from node_modules, and bundling CJS optional deps breaks on Vercel.
+  serverExternalPackages: ["pg"],
   async headers() {
     return [
       {

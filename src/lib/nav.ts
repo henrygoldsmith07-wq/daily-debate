@@ -16,7 +16,8 @@ export type NavIconName =
   | "leaderboard"
   | "rate"
   | "benchmark"
-  | "metrics";
+  | "metrics"
+  | "research";
 
 export interface NavItem {
   href: string;
@@ -88,26 +89,14 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    id: "evaluation",
-    label: "Evaluation",
+    id: "research",
+    label: "Research",
     items: [
       {
-        href: "/rate",
-        label: "Rate debates",
-        description: "Blind-rate debates for the human corpus",
-        icon: "rate",
-      },
-      {
-        href: "/benchmark",
-        label: "Judge benchmark",
-        description: "How the judges are validated",
-        icon: "benchmark",
-      },
-      {
-        href: "/metrics",
-        label: "Corpus metrics",
-        description: "Published evaluation numbers",
-        icon: "metrics",
+        href: "/research",
+        label: "Trust & research",
+        description: "Evidence classes, judge validation, corpus metrics, and rating debates",
+        icon: "research",
       },
     ],
   },

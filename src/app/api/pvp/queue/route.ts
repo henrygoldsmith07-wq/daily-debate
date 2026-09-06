@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
-import { PVP_ROUNDS, type DebateSide } from "@/lib/types";
+import { PVP_ROUNDS } from "@/lib/types";
 
-// Join the day's PvP matchmaking queue. If another waiting player is found on
-// the same topic, a match is created immediately and both players' queue
-// entries are cleared (best-effort; a rare race can double-match a player,
-// which is acceptable for this MVP matchmaker).
+// Join the day's PvP matchmaking queue. Match creation happens in a single
+// atomic SQL statement (claim_pvp_opponent_and_create_match): the oldest
+// queued, unmatched opponent is locked with FOR UPDATE SKIP LOCKED, the match
+// is inserted, and both queue rows are cleared. Partial unique indexes on
+// pvp_matches guarantee at most one active match per player, so the
+// double-match race the previous two-step implementation accepted can no
+// longer occur.
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "pvp-queue", limit: 20, windowMs: 60_000 });
   if (limited) return limited;
@@ -38,44 +41,43 @@ export async function POST(request: Request) {
     .maybeSingle();
   if (activeMatch) return NextResponse.json({ match: activeMatch, alreadyMatched: true });
 
-  const { data: opponentRow } = await service
-    .from("pvp_queue")
-    .select("*")
-    .eq("topic_id", topic.id)
-    .neq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (!opponentRow) {
-    // Upsert with unique user_id prevents rare race double-enqueue
-    await service.from("pvp_queue").upsert({ user_id: user.id, topic_id: topic.id, joined_at: new Date().toISOString() }, { onConflict: "user_id" });
-    return NextResponse.json({ waiting: true });
-  }
-
-  const playerASide: DebateSide = Math.random() < 0.5 ? "for" : "against";
-  const { data: match, error: matchError } = await service
-    .from("pvp_matches")
-    .insert({
-      topic_id: topic.id,
-      player_a: opponentRow.user_id,
-      player_b: user.id,
-      player_a_side: playerASide,
-      round_limit: PVP_ROUNDS,
-      current_turn_player: opponentRow.user_id,
-      turn_started_at: new Date().toISOString(),
-    })
-    .select("*")
-    .single();
-
-  await service.from("pvp_queue").delete().in("user_id", [opponentRow.user_id, user.id]);
-
-  if (matchError || !match) {
-    console.error("Failed to create PvP match:", matchError);
+  // Atomic claim: locks the oldest queued, unmatched opponent (SKIP LOCKED),
+  // inserts the match, and clears both queue rows in one statement. Empty
+  // result means nobody was waiting (or the joiner was matched concurrently).
+  const claim = await service.rpc("claim_pvp_match", {
+    p_joiner: user.id,
+    p_topic_id: topic.id,
+    p_round_limit: PVP_ROUNDS,
+  });
+  if (claim.error) {
+    console.error("Failed to claim PvP opponent:", claim.error);
     return NextResponse.json({ error: "Failed to create match." }, { status: 500 });
   }
 
-  return NextResponse.json({ match });
+  const rows = (claim.data ?? []) as Record<string, unknown>[];
+  if (rows.length > 0) return NextResponse.json({ match: rows[0] });
+
+  // Concurrency guard: the claim can come back empty because the joiner was
+  // matched in a parallel request after the activeMatch check above.
+  const { data: racedMatch } = await service
+    .from("pvp_matches")
+    .select("*")
+    .or(`player_a.eq.${user.id},player_b.eq.${user.id}`)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  if (racedMatch) return NextResponse.json({ match: racedMatch, alreadyMatched: true });
+
+  // Nobody waiting: enqueue (only succeeds while still unmatched).
+  const queued = await service.rpc("enqueue_pvp_if_unmatched", {
+    p_user: user.id,
+    p_topic_id: topic.id,
+  });
+  if (queued.error) {
+    console.error("Failed to enqueue for PvP:", queued.error);
+    return NextResponse.json({ error: "Failed to join queue." }, { status: 500 });
+  }
+  return NextResponse.json({ waiting: true });
 }
 
 export async function GET() {

@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { neon } from "@neondatabase/serverless";
+import { createExecutor } from "./lib/sql-executor.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDir = path.join(projectRoot, "database", "migrations");
@@ -96,21 +96,21 @@ if (process.argv.includes("--check")) {
 }
 
 if (!databaseUrl) throw new Error("DATABASE_URL is required to run migrations.");
-const sql = neon(databaseUrl);
+const sql = await createExecutor(databaseUrl);
 
-await sql.query(`CREATE TABLE IF NOT EXISTS app_migrations (
+await sql(`CREATE TABLE IF NOT EXISTS app_migrations (
   name text PRIMARY KEY,
   applied_at timestamptz NOT NULL DEFAULT now()
 )`);
 
 for (const name of files) {
-  const applied = await sql.query("SELECT 1 FROM app_migrations WHERE name = $1", [name]);
+  const applied = await sql("SELECT 1 FROM app_migrations WHERE name = $1", [name]);
   if (applied.length) {
     console.log(`skip ${name}`);
     continue;
   }
   const migration = await readFile(path.join(migrationsDir, name), "utf8");
-  for (const statement of splitStatements(migration)) await sql.query(statement);
-  await sql.query("INSERT INTO app_migrations (name) VALUES ($1)", [name]);
+  for (const statement of splitStatements(migration)) await sql(statement);
+  await sql("INSERT INTO app_migrations (name) VALUES ($1)", [name]);
   console.log(`applied ${name}`);
 }

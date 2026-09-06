@@ -104,10 +104,12 @@ export default function BenchmarkPage() {
       </section>
 
       <section className="surface-card p-5">
-        <h2 className="text-sm font-semibold">Ensemble & uncertainty</h2>
+        <h2 className="text-sm font-semibold">Ensemble &amp; uncertainty</h2>
         <p className="mt-1 text-sm text-ink3">
-          When both judges are configured, the live verdict is an ensemble: majority winner, averaged scores, tie threshold {5} points, and explicit confidence
-          (from gap + agreement) with a 95% CI over the gap and a posterior over winner. Tiny gaps are reported as ties — no false precision.
+          When both judges are configured, the live verdict is an ensemble: majority winner, averaged scores, tie threshold {5} points, and a provisional
+          agreement signal (from gap + judge votes) with a heuristic spread band over the score gap and the raw judge split. Tiny gaps are reported as ties —
+          no false precision. These per-debate numbers are explicitly not calibrated probabilities; calibrated judge quality is measured on the human-rated
+          corpus and published on the corpus metrics page.
         </p>
         <p className="mt-2 text-xs text-ink3">Single-judge fallback is unchanged; the public report shows per-judge latencies and whether the ensemble was used.</p>
       </section>

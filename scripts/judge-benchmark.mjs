@@ -4,13 +4,14 @@
 // benchmark script silently no-op'd because Node cannot import .ts).
 //
 //   node scripts/judge-benchmark.mjs [--limit N] [--concurrency N] [--enforce]
-//        [--out docs/judge-leaderboard.md]
+//        [--out docs/judge-leaderboard.md] [--pack-only]
 //
 // Gates live in config/judge-gates.json; --enforce exits non-zero on breach.
+// --pack-only validates fixture-pack stratification without calling providers.
 
 import fs from "node:fs";
 import path from "node:path";
-import { FIXTURES } from "./lib/judge-fixtures.mjs";
+import { FIXTURES, STRATA } from "./lib/judge-fixtures.mjs";
 import { PROBES, AUDIT_TRANSFORMS } from "./lib/judge-transforms.mjs";
 import { primaryChainJudge, anthropicJudge } from "./lib/judge-providers.mjs";
 
@@ -40,6 +41,31 @@ const OUT_MD = OUT_MD_ARG ? OUT_MD_ARG.split("=")[1] : null;
 const log = (...a) => process.stderr.write(a.join(" ") + "\n");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const mirror = (w) => (w === "a" ? "b" : w === "b" ? "a" : "tie");
+
+// Pack integrity: the fixture pack must stay balanced and multi-domain, or the
+// agreement/ECE gates degenerate into small-n noise. Runs before any provider
+// call so a broken pack fails even without keys (and in --pack-only mode).
+function assertPackIntegrity() {
+  const errs = [];
+  if (STRATA.size < 8) errs.push(`pack too small: ${STRATA.size} fixtures (need >= 8)`);
+  for (const [label, n] of Object.entries(STRATA.byExpectedWinner)) {
+    if (n < 2) errs.push(`expected-winner stratum "${label}" has only ${n} fixture(s) (need >= 2)`);
+  }
+  const domains = Object.keys(STRATA.byDomain).length;
+  if (domains < 5) errs.push(`only ${domains} domain(s) represented (need >= 5)`);
+  const difficulties = Object.keys(STRATA.byDifficulty).length;
+  if (difficulties < 2) errs.push(`only ${difficulties} difficulty class(es) represented (need >= 2)`);
+  for (const f of FIXTURES) {
+    if (!["a", "b", "tie"].includes(f.expectedWinner)) errs.push(`${f.id}: invalid expectedWinner "${f.expectedWinner}"`);
+    if (f.transcript.split("\n").length < 4) errs.push(`${f.id}: transcript shorter than 4 turns`);
+    if (!f.domain || !f.difficulty) errs.push(`${f.id}: missing domain/difficulty stratification`);
+  }
+  if (errs.length) {
+    process.stderr.write("[judge-benchmark] fixture-pack integrity failed:\n  - " + errs.join("\n  - ") + "\n");
+    process.exit(1);
+  }
+  log(`[judge-benchmark] pack: ${STRATA.size} fixtures, winners=${JSON.stringify(STRATA.byExpectedWinner)}, domains=${domains}, difficulties=${difficulties}`);
+}
 
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
@@ -213,6 +239,12 @@ function leaderboardMd(models, gates, at) {
 }
 
 async function main() {
+  assertPackIntegrity();
+  if (args.includes("--pack-only")) {
+    process.stdout.write(JSON.stringify({ packOnly: true, strata: STRATA }) + "\n");
+    return;
+  }
+
   const judges = [primaryChainJudge(), anthropicJudge()].filter(Boolean);
   if (!judges.length) {
     log("[judge-benchmark] skipped - no NVIDIA_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY set");
@@ -231,7 +263,7 @@ async function main() {
   const gated = results.map((m) => ({ ...m, gates: gateChecks(m, gates) }));
   const allPass = gated.every((m) => m.gates.every((c) => c.pass));
   const at = new Date().toISOString();
-  const payload = { at, limit: LIMIT, enforce: ENFORCE, allPass, gates, results: gated };
+  const payload = { at, limit: LIMIT, enforce: ENFORCE, strata: STRATA, allPass, gates, results: gated };
 
   process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
   const outPath = path.join(process.cwd(), "docs", "latest-judge-benchmark.json");
@@ -246,6 +278,7 @@ async function main() {
     "# Judge leaderboard (live benchmarks)",
     "",
     `Last generated ${at} by \`scripts/judge-benchmark.mjs\` over ${LIMIT} labelled fixture debates.`,
+    `Pack stratification: ${STRATA.size} fixtures, expected-winner ${JSON.stringify(STRATA.byExpectedWinner)}, ${Object.keys(STRATA.byDomain).length} domains, difficulty ${JSON.stringify(STRATA.byDifficulty)}.`,
     "Human agreement here is against fixture labels (small n) until the rated corpus supplies consensus.",
     "",
     "| Model | Position mirror | Verbosity stab. | Names stab. | Fake-cit. influence | Human agree | ECE | Tokens | Errors |",

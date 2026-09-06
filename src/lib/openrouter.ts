@@ -19,6 +19,8 @@
 
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
+import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
+import { recordAiCall } from "./aiTelemetry";
 
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
@@ -159,6 +161,8 @@ interface ChatOptions {
   schema: Record<string, unknown>;
   /** The graph judge needs far more room than a single debate turn. */
   maxTokens?: number;
+  /** Logical operation name for the AI telemetry ledger (e.g. "judge_pvp"). */
+  operation?: string;
 }
 
 type Attempt<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -221,9 +225,32 @@ async function tryModel<T>(
   let disableReasoning = true;
   let lastError = "";
 
+  interface OpenRouterUsage {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    cost?: number;
+  }
+
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const startedAt = Date.now();
     const response = await post(m, options, key, disableReasoning);
     const body: unknown = await response.json().catch(() => null);
+    const usage = (body as { usage?: OpenRouterUsage })?.usage;
+    const record = (outcome: "ok" | "error", error?: string) =>
+      recordAiCall({
+        at: new Date().toISOString(),
+        operation: options.operation,
+        provider: "openrouter",
+        model: m,
+        promptTokens: usage?.prompt_tokens,
+        completionTokens: usage?.completion_tokens,
+        totalTokens: usage?.total_tokens,
+        costUsd: usage?.cost,
+        latencyMs: Date.now() - startedAt,
+        outcome,
+        ...(error ? { error: error.slice(0, 200) } : {}),
+      });
 
     if (response.ok) {
       const choice = (
@@ -239,14 +266,19 @@ async function tryModel<T>(
           choice?.finish_reason === "length"
             ? `hit the ${options.maxTokens}-token limit before emitting any content`
             : `returned no content (finish_reason: ${choice?.finish_reason ?? "unknown"})`;
+        record("error", why);
         return { ok: false, error: `${m} ${why}` };
       }
 
       try {
-        return { ok: true, value: parseJson<T>(content) };
+        const value = parseJson<T>(content);
+        record("ok");
+        return { ok: true, value };
       } catch (error) {
         const truncated = choice?.finish_reason === "length" ? " — output was truncated at max_tokens" : "";
-        return { ok: false, error: `${(error as Error).message}${truncated}` };
+        const message = `${(error as Error).message}${truncated}`;
+        record("error", message);
+        return { ok: false, error: message };
       }
     }
 
@@ -254,6 +286,7 @@ async function tryModel<T>(
       (body as { error?: { metadata?: { raw?: string } } })?.error?.metadata?.raw ??
       (body as { error?: { message?: string } })?.error?.message ??
       `HTTP ${response.status}`;
+    record("error", lastError);
 
     // Endpoints where reasoning is mandatory reject the disable flag outright.
     if (response.status === 400 && disableReasoning && /reasoning/i.test(lastError)) {
@@ -275,11 +308,11 @@ async function tryModel<T>(
   return { ok: false, error: `${m}: ${lastError}` };
 }
 
-async function chatJson<T>({ instruction, schema, maxTokens = 2_000 }: ChatOptions): Promise<T> {
+async function chatJson<T>({ instruction, schema, maxTokens = 2_000, operation = "unknown" }: ChatOptions): Promise<T> {
   const key = apiKey();
   const deadline = Date.now() + RETRY_BUDGET_MS;
   const chain = modelChain();
-  const options = { instruction, schema, maxTokens };
+  const options = { instruction, schema, maxTokens, operation };
   const failures: string[] = [];
 
   for (const [index, m] of chain.entries()) {
@@ -339,6 +372,7 @@ export async function generateDailyTopic(recentTitles: string[]): Promise<Genera
 
   return chatJson<GeneratedTopic>({
     schema: TOPIC_SCHEMA,
+    operation: "generate_daily_topic",
     instruction: `Pick today's debate topic for a daily critical-thinking app used by the general public. It should be genuinely debatable (reasonable people disagree), civically or intellectually meaningful, and not needlessly inflammatory or a pure culture-war flashpoint. Draw from technology, science, ethics, economics, education, or public policy. ${avoid} Ground it with 3-5 real, well-known, credible institutions (never fabricate a specific article URL — only real root homepages) relevant to the topic.`,
   });
 }
@@ -381,8 +415,11 @@ export async function debateTurn(params: {
     .map((turn) => `${turn.role === "ai" ? "AI (opposing)" : "User"}: ${turn.text}`)
     .join("\n");
 
+  if (e2eMockAiEnabled()) return mockDebateTurn();
+
   return chatJson<DebateTurnResult>({
     schema: TURN_SCHEMA,
+    operation: "debate_turn",
     instruction: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\nTranscript so far:\n${transcript}\n\nUser's latest response: "${params.latestUserMessage}"\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
   });
 }
@@ -400,8 +437,10 @@ export async function debateOpening(params: {
   topicPrompt: string;
   aiSide: DebateSide;
 }): Promise<string> {
+  if (e2eMockAiEnabled()) return mockDebateOpening();
   const result = await chatJson<{ aiMessage: string }>({
     schema: OPENING_SCHEMA,
+    operation: "debate_opening",
     instruction: `Open a debate on "${params.topicTitle}" — ${params.topicPrompt}\nArgue the "${params.aiSide}" side in 2-4 sentences, stating a clear, specific opening claim (not a vague restatement of the prompt).`,
   });
   return result.aiMessage;
@@ -421,8 +460,10 @@ export async function summarizeSoloDebate(params: {
   topicTitle: string;
   transcript: string;
 }): Promise<DebateSummary> {
+  if (e2eMockAiEnabled()) return mockDebateSummary();
   return chatJson<DebateSummary>({
     schema: SUMMARY_SCHEMA,
+    operation: "summarize_solo",
     instruction: `Here is a full debate practice transcript on "${params.topicTitle}":\n\n${params.transcript}\n\nGive the user a short overall assessment of their critical-thinking performance, with specific strengths and areas to improve.`,
   });
 }
@@ -516,9 +557,12 @@ export async function judgePvpMatch(params: {
   playerASide: DebateSide;
   transcript: string;
 }): Promise<PvpJudgeResult> {
+  if (e2eMockAiEnabled()) return finalizePvpAssessment(mockPvpJudge(), { extractionSource: "llm" });
+
   const extracted = await chatJson<{ rationale?: string; argGraph?: import("./argGraph").ArgGraph }>({
     schema: JUDGE_SCHEMA,
     maxTokens: 6_000,
+    operation: "judge_pvp",
     instruction: `You are a neutral, rigorous debate analyst. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nPlayer A argued "${params.playerASide}"; Player B argued the opposite side.\n\nTranscript:\n${params.transcript}\n\nAnalyze the observable argument structure, not which side of the topic is "correct". Return a faithful argGraph with nodes (c1,e1,k1,r1,i1, text <=18 words), edges, dropped arguments, contradictions, concessions, fallacies, evidenceStats, and impactComparison. Every cited/strong evidence node MUST include a citation object with a named source; never invent arguments or citations not present in the transcript. Also return a short rationale citing specific graph moments. Numeric scores and winner are computed by the application from the graph and must not be estimated here.`,
   });
 

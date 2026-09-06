@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { ArgGraph, ArgNode } from "@/lib/argGraph";
 import type { PvpVerdict } from "@/lib/types";
 import { applyGraphEdits } from "@/lib/graphEnrichers";
-import { validateGraph } from "@/lib/argGraph";
+import { validateGraph, evidenceClassLabel } from "@/lib/argGraph";
 
 const KIND_LABEL: Record<ArgNode["kind"], string> = {
   claim: "Claim",
@@ -113,7 +113,7 @@ function ConfidencePanel({ verdict, playerAName, playerBName }: { verdict: PvpVe
   return (
     <div className="surface-card p-5 flex flex-col gap-3">
       <div className="flex items-baseline justify-between">
-        <p className="text-xs uppercase tracking-wide text-ink3">Judge confidence</p>
+        <p className="text-xs uppercase tracking-wide text-ink3">Agreement signal (provisional)</p>
         <p className="tabular text-xs text-ink3">{Math.round(confidence * 100)}%</p>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-ink/30 shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]">
@@ -122,14 +122,17 @@ function ConfidencePanel({ verdict, playerAName, playerBName }: { verdict: PvpVe
           style={{ width: `${Math.max(0, Math.min(100, confidence * 100))}%`, background: confidence >= 0.7 ? "var(--good)" : confidence >= 0.5 ? "var(--accent)" : "var(--bad)" }}
         />
       </div>
-      {verdict.scoreCI && (
+      <p className="text-xs text-ink3">
+        Provisional heuristic from the score gap and judge votes — not a calibrated probability.
+      </p>
+      {verdict.scoreGapEstimate && (
         <p className="text-xs text-ink3 tabular">
-          Score-gap 95% CI: {verdict.scoreCI.lo}–{verdict.scoreCI.hi} points
+          Provisional score-gap band: {verdict.scoreGapEstimate.lo}–{verdict.scoreGapEstimate.hi} points
         </p>
       )}
-      {multiJudge && verdict.winnerCI && (
+      {multiJudge && verdict.judgeSplit && (
         <p className="text-xs text-ink3 tabular">
-          Judge split — {playerAName}: {Math.round(verdict.winnerCI.a * 100)}% · {playerBName}: {Math.round(verdict.winnerCI.b * 100)}% · tie: {Math.round(verdict.winnerCI.tie * 100)}%
+          Judge split — {playerAName}: {Math.round(verdict.judgeSplit.a * 100)}% · {playerBName}: {Math.round(verdict.judgeSplit.b * 100)}% · tie: {Math.round(verdict.judgeSplit.tie * 100)}%
         </p>
       )}
       {multiJudge && (
@@ -209,7 +212,14 @@ export function ArgGraphInline({
                   {editable && editId !== n.id ? (
                     <button type="button" onClick={() => { setEditId(n.id); setEditText(n.text); }} className="shrink-0 text-xs text-ink3 underline">Edit</button>
                   ) : null}
-                  {n.evidenceStrength ? <span className="shrink-0 text-xs tabular text-ink3">[{n.evidenceStrength}]</span> : null}
+                  {n.evidenceStrength ? (
+                    <span
+                      className="shrink-0 text-xs tabular text-ink3"
+                      title={`${evidenceClassLabel(n.evidenceStrength).short}: ${evidenceClassLabel(n.evidenceStrength).description}`}
+                    >
+                      [{evidenceClassLabel(n.evidenceStrength).short}]
+                    </span>
+                  ) : null}
                   {n.kind === "evidence" && n.citations?.length ? (
                     <span className="shrink-0 text-xs tabular text-ink3" title={n.citations.map((c) => `${c.sourceName}${c.homepage ? ` — ${c.homepage}` : ""}${c.excerpt ? `: ${c.excerpt}` : ""}`).join(" | ")}>
                       ↳ {n.citations.map((c) => c.sourceName).join(", ")}
@@ -255,10 +265,10 @@ export function TrackingGrid({ graph }: { graph: ArgGraph }) {
       <TrackCard
         title="Evidence strength"
         items={[
-          `anecdotal ${graph.evidenceStats.byStrength.anecdotal}`,
-          `general ${graph.evidenceStats.byStrength.general}`,
-          `cited ${graph.evidenceStats.byStrength.cited}`,
-          `strong ${graph.evidenceStats.byStrength.strong}`,
+          `Anecdote ${graph.evidenceStats.byStrength.anecdotal}`,
+          `General claim ${graph.evidenceStats.byStrength.general}`,
+          `Cited ${graph.evidenceStats.byStrength.cited}`,
+          `Strong ${graph.evidenceStats.byStrength.strong}`,
         ]}
         empty="No evidence tagged."
       />
@@ -266,7 +276,7 @@ export function TrackingGrid({ graph }: { graph: ArgGraph }) {
         title="Source grounding"
         items={graph.nodes
           .filter((n) => n.kind === "evidence")
-          .map((n) => `${n.id} [${n.evidenceStrength ?? "—"}] ${n.text} — ${(n.citations?.length ?? 0) > 0 ? n.citations!.map((c) => `${c.sourceName}${c.homepage ? ` (${c.homepage})` : ""}`).join(", ") : "⚠ uncited"}`)}
+          .map((n) => `${n.id} [${n.evidenceStrength ? evidenceClassLabel(n.evidenceStrength).short : "—"}] ${n.text} — ${(n.citations?.length ?? 0) > 0 ? n.citations!.map((c) => `${c.sourceName}${c.homepage ? ` (${c.homepage})` : ""}`).join(", ") : "⚠ uncited"}`)}
         empty="No evidence to ground."
       />
       <TrackCard

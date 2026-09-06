@@ -33,7 +33,7 @@ export default async function MetricsPage() {
   return (
     <AppShell width="narrow">
       <PageHeader
-        eyebrow="Evaluation"
+        eyebrow="Trust & research"
         title="Corpus metrics"
         description="Every metric carries an evidence state (insufficient / early / reportable). Dashes mean not enough data."
       />

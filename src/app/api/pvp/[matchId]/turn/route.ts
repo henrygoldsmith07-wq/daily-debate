@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { isSuspiciousLength, repeatScore } from "@/lib/moderation";
+import { stampVerdict } from "@/lib/evaluationEnvelope";
 import { TURN_ABANDON_MINUTES, type InputMode, type PvpVerdict } from "@/lib/types";
 
 async function awardPoints(userId: string, points: number) {
@@ -175,7 +176,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     // Route every judged match through the ensemble harness: it runs OpenRouter
     // and Anthropic in parallel (whichever keys are present), falls back to a
     // single judge when only one key is set, and always yields uncertainty
-    // fields (confidence, score CI, winner posterior, "too close to call").
+    // fields (provisional agreement signal, score-gap band, judge split, "too close to call").
     if (!process.env.OPENROUTER_API_KEY && !process.env.ANTHROPIC_API_KEY) {
       throw new Error("No judge configured (set OPENROUTER_API_KEY or ANTHROPIC_API_KEY).");
     }
@@ -186,7 +187,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       playerASide: match.player_a_side as "for" | "against",
       transcript,
     });
-    verdict = verdictFromEnsemble(ensemble);
+    verdict = stampVerdict(verdictFromEnsemble(ensemble));
 
     // Persist the judge fingerprint alongside the verdict so model drift is
     // attributable when agreement drops in future benchmark runs.
@@ -197,7 +198,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     }
   } catch (error) {
     console.error("Failed to judge PvP match:", error);
-    verdict = {
+    verdict = stampVerdict({
       winner: "tie" as const,
       playerAScore: 0,
       playerBScore: 0,
@@ -205,7 +206,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       isTie: true,
       tieReason: "The judge could not complete — this result carries no confidence.",
       scoreStatus: "insufficient_evidence",
-    } as PvpVerdict;
+    } as PvpVerdict);
   }
 
   const winnerId = verdict.winner === "a" ? match.player_a : verdict.winner === "b" ? match.player_b : null;

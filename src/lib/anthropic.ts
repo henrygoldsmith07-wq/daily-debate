@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { ArgGraph } from "./argGraph";
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
+import { recordAiCall } from "./aiTelemetry";
 
 // Lazy import to avoid circular deps: types -> argGraph ok, but anthropic -> types is fine.
 // ArgGraph types are structural; runtime validation via argGraph.validateGraph.
@@ -12,6 +13,44 @@ function getClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not configured.");
   return new Anthropic({ apiKey: key });
+}
+
+/**
+ * messages.create with telemetry: records operation, model, token usage and
+ * latency to the AI ledger. The Anthropic API does not report cost, so costUsd
+ * stays absent for this provider.
+ */
+async function createWithTelemetry(
+  operation: string,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+): Promise<Anthropic.Message> {
+  const anthropic = getClient();
+  const startedAt = Date.now();
+  try {
+    const message = await anthropic.messages.create(params);
+    recordAiCall({
+      at: new Date().toISOString(),
+      operation,
+      provider: "anthropic",
+      model: message.model,
+      promptTokens: message.usage?.input_tokens,
+      completionTokens: message.usage?.output_tokens,
+      latencyMs: Date.now() - startedAt,
+      outcome: "ok",
+    });
+    return message;
+  } catch (error) {
+    recordAiCall({
+      at: new Date().toISOString(),
+      operation,
+      provider: "anthropic",
+      model: String(params.model),
+      latencyMs: Date.now() - startedAt,
+      outcome: "error",
+      error: String((error as Error)?.message ?? error).slice(0, 200),
+    });
+    throw error;
+  }
 }
 
 export interface GeneratedTopic {
@@ -55,10 +94,9 @@ const TOPIC_TOOL = {
 };
 
 export async function generateDailyTopic(recentTitles: string[]): Promise<GeneratedTopic> {
-  const anthropic = getClient();
   const avoid = recentTitles.length ? `Avoid repeating or closely resembling these recent topics: ${recentTitles.join("; ")}.` : "";
 
-  const message = await anthropic.messages.create({
+  const message = await createWithTelemetry("generate_daily_topic", {
     model: MODEL,
     max_tokens: 1024,
     tools: [TOPIC_TOOL],
@@ -106,12 +144,11 @@ export async function debateTurn(params: {
   history: { role: "ai" | "user"; text: string }[];
   latestUserMessage: string;
 }): Promise<DebateTurnResult> {
-  const anthropic = getClient();
   const aiSide: DebateSide = params.userSide === "for" ? "against" : "for";
 
   const transcript = params.history.map((turn) => `${turn.role === "ai" ? "AI (opposing)" : "User"}: ${turn.text}`).join("\n");
 
-  const message = await anthropic.messages.create({
+  const message = await createWithTelemetry("debate_turn", {
     model: MODEL,
     max_tokens: 1024,
     tools: [TURN_TOOL],
@@ -140,8 +177,7 @@ const OPENING_TOOL = {
 };
 
 export async function debateOpening(params: { topicTitle: string; topicPrompt: string; aiSide: DebateSide }): Promise<string> {
-  const anthropic = getClient();
-  const message = await anthropic.messages.create({
+  const message = await createWithTelemetry("debate_opening", {
     model: MODEL,
     max_tokens: 512,
     tools: [OPENING_TOOL],
@@ -173,8 +209,7 @@ const SUMMARY_TOOL = {
 };
 
 export async function summarizeSoloDebate(params: { topicTitle: string; transcript: string }): Promise<DebateSummary> {
-  const anthropic = getClient();
-  const message = await anthropic.messages.create({
+  const message = await createWithTelemetry("summarize_solo", {
     model: MODEL,
     max_tokens: 768,
     tools: [SUMMARY_TOOL],
@@ -362,7 +397,6 @@ const JUDGE_TOOL = {
 };
 
 export async function judgePvpMatch(params: { topicTitle: string; topicPrompt: string; playerASide: DebateSide; transcript: string }): Promise<PvpJudgeResult> {
-  const anthropic = getClient();
   const instructions = `You are a neutral, rigorous debate judge for a critical-thinking app.
 
 Topic: "${params.topicTitle}" — ${params.topicPrompt}
@@ -374,7 +408,7 @@ ${params.transcript}
 Analyze observable argument structure, not which side of the topic is "correct".
 Return a faithful argGraph with nodes (c1,e1,k1,r1,i1, text ≤18 words), edges, dropped arguments, contradictions, concessions, fallacies, evidenceStats, and impactComparison. Every cited/strong evidence node MUST include a citation object with a named source; never invent arguments or citations not present in the transcript. Also return a short rationale citing specific graph moments. Numeric scores and winner are computed by the application from the graph and must not be estimated here.`;
 
-  const message = await anthropic.messages.create({
+  const message = await createWithTelemetry("judge_pvp", {
     model: MODEL,
     max_tokens: 4096,
     tools: [JUDGE_TOOL],

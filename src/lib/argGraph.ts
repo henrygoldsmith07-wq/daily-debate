@@ -5,6 +5,35 @@
 export type ArgNodeKind = "claim" | "evidence" | "counterclaim" | "rebuttal" | "impact";
 export type Owner = "a" | "b" | "ai"; // ai = solo opponent
 export type EvidenceStrength = "anecdotal" | "general" | "cited" | "strong";
+
+/**
+ * Evidence classes carry an explicit human-readable label: the raw enum value
+ * ("anecdotal") is jargon, and users should be told what each class means for
+ * how much weight the claim can bear.
+ */
+export const EVIDENCE_CLASS_LABELS: Record<EvidenceStrength, { short: string; description: string }> = {
+  anecdotal: {
+    short: "Anecdote",
+    description: "Personal experience or a single story — not evidence of a broader pattern.",
+  },
+  general: {
+    short: "General claim",
+    description: "Widely stated with no specific source attached — treat as unverified.",
+  },
+  cited: {
+    short: "Cited",
+    description: "Backed by one named source. Check who published it and when.",
+  },
+  strong: {
+    short: "Strong",
+    description: "Multiple independent sources agree — the most reliable class.",
+  },
+};
+
+export function evidenceClassLabel(strength: EvidenceStrength): { short: string; description: string } {
+  return EVIDENCE_CLASS_LABELS[strength];
+}
+
 export type Fallacy =
   | "strawman"
   | "ad_hominem"

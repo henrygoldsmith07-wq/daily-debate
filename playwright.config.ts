@@ -26,7 +26,11 @@ export default defineConfig({
     command: `npm run build && npm run start -- --port ${PORT} --hostname 127.0.0.1`,
     env: {
       PORT: String(PORT),
+      // CI/local E2E: point the app at the ephemeral Postgres and switch the
+      // server-side AI entries to deterministic scripted responses (the
+      // browser-layer route mocks in the specs cannot see server-side calls).
       ...(process.env.E2E_DATABASE_URL ? { DATABASE_URL: process.env.E2E_DATABASE_URL } : {}),
+      ...(process.env.E2E_MOCK_AI ? { E2E_MOCK_AI: process.env.E2E_MOCK_AI } : {}),
     },
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,

@@ -119,6 +119,11 @@ export function measureDebateImprovement(
  * Check whether the improvement persisted across ≥2 subsequent measurement
  * windows AFTER the initial improvement was detected. This distinguishes a
  * one-off spike from genuine skill acquisition.
+ *
+ * Criterion: the MEAN of the most recent `retentionWindow` measurements must
+ * still beat the pre-drill baseline. (The previous check compared only the
+ * final point, so a single noisy high reading counted as "retained"; a plain
+ * post-drill mean would instead be inflated by the spike itself.)
  */
 export function checkRetention(
   timeline: DimensionTimelinePoint[],
@@ -128,16 +133,15 @@ export function checkRetention(
 ): boolean | null {
   const idx = timeline.findIndex((p) => p.completedAt >= assignedAtIso);
   if (idx === -1) return null;
-  const afterDrill = timeline.slice(idx + initialWindow); // skip the immediate-improvement window
-  if (afterDrill.length < retentionWindow) return null;
+  const postDrill = timeline.slice(idx);
+  // Need the initial-improvement window plus a full retention window.
+  if (postDrill.length < initialWindow + retentionWindow) return null;
   const preDrill = timeline.slice(Math.max(0, idx - initialWindow), idx);
   if (!preDrill.length) return null;
   const preVal = preDrill.reduce((s, p) => s + p.value, 0) / preDrill.length;
-  const retVal = afterDrill.length
-    ? afterDrill[afterDrill.length - 1].value // last value: is the skill still at improved level NOW?
-    : null;
-  if (retVal === null) return null;
-  return retVal > preVal; // still better than pre-drill baseline
+  const retention = postDrill.slice(-retentionWindow); // most recent measurements only
+  const retMean = retention.reduce((s, p) => s + p.value, 0) / retention.length;
+  return retMean > preVal; // still better than the pre-drill baseline NOW, across the whole window
 }
 
 // --- main loop computation ---------------------------------------------------

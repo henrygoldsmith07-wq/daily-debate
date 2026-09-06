@@ -2,9 +2,9 @@
 // Seeds deterministic users into a migrated test Postgres database.
 // Usage: DATABASE_URL=... node scripts/e2e-seed.mjs
 
-import { neon } from "@neondatabase/serverless";
 import { randomBytes, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
+import { createExecutor } from "./lib/sql-executor.mjs";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!databaseUrl) {
@@ -12,7 +12,7 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-const sql = neon(databaseUrl);
+const sql = await createExecutor(databaseUrl);
 const scrypt = promisify(scryptCallback);
 const password = process.env.E2E_TEST_PASSWORD ?? "e2e-test-pass-123";
 const users = ["e2e-a@test.local", "e2e-b@test.local", "e2e-c@test.local"];
@@ -24,14 +24,14 @@ async function passwordHash(value) {
 }
 
 async function seedUser(email) {
-  const existing = await sql.query("SELECT id FROM app_users WHERE email = $1", [email]);
+  const existing = await sql("SELECT id FROM app_users WHERE email = $1", [email]);
   if (existing.length) {
     console.log(`[seed] exists: ${email}`);
     return;
   }
 
   const hash = await passwordHash(password);
-  await sql.query(
+  await sql(
     `WITH new_user AS (
        INSERT INTO app_users (email, password_hash) VALUES ($1, $2)
        RETURNING id

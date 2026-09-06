@@ -118,9 +118,12 @@ export interface PvpVerdict {
   };
   decidingFactor?: string;
   // Judge uncertainty (populated by the ensemble judge; absent on older stored verdicts).
-  confidence?: number; // 0..1 — calibrated from score gap + inter-judge agreement
-  scoreCI?: { lo: number; hi: number }; // 95% CI over the score gap
-  winnerCI?: { a: number; b: number; tie: number }; // posterior over the winner from judge votes
+  // These are PROVISIONAL HEURISTICS over 1–2 judge scores — not inferential
+  // statistics. They are displayed as such and must never gate payouts or
+  // ranking on their own.
+  confidence?: number; // 0..1 — heuristic agreement estimate from score gap + judge votes; NOT calibrated
+  scoreGapEstimate?: { lo: number; hi: number }; // provisional band over the score gap (heuristic spread across judge scores)
+  judgeSplit?: { a: number; b: number; tie: number }; // raw judge vote share — not a posterior
   isTie?: boolean; // true when the judge genuinely can't separate the two sides
   tieReason?: string;
   judges?: VerdictJudgeDetail[]; // per-judge verdicts (empty for single-judge fallback-less runs)
@@ -135,7 +138,17 @@ export interface PvpVerdict {
     temperature: number;
     ensemble: string[];
   };
+  /** Evaluation envelope stamp (schema + policy version at evaluation time). Absent on pre-stamp rows. */
+  evaluation?: EvaluationStamp;
 }
+
+/** Stamped on every stored evaluation so results stay attributable when policy/schema change. */
+export interface EvaluationStamp {
+  schemaVersion: number;
+  policyVersion: number;
+  evaluatedAt: string;
+}
+
 // Alias: the judge modules export PvpJudgeResult; app code uses PvpVerdict. Keep both names.
 export type PvpJudgeResult = PvpVerdict;
 

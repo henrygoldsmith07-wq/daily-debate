@@ -1,7 +1,13 @@
-// Ensemble judges + confidence intervals / calibration.
-// Combines OpenRouter + Anthropic verdicts, adds explicit uncertainty, and avoids
-// pretending tiny score differences are meaningful. Used by the public benchmark
-// and by PvP when live keys are present; falls back to single-judge otherwise.
+// Ensemble judges + provisional uncertainty estimates.
+// Combines OpenRouter + Anthropic verdicts and avoids pretending tiny score
+// differences are meaningful. Used by the public benchmark and by PvP when
+// live keys are present; falls back to single-judge otherwise.
+//
+// Honesty note on uncertainty: with 1–2 judges there is no meaningful sample
+// from which to compute inferential statistics. The fields below are
+// PROVISIONAL HEURISTIC estimates (a spread band over judge score gaps and a
+// raw vote share) and are labelled as such in the UI. They must never be
+// presented as calibrated confidence intervals or posteriors.
 
 import type { PvpJudgeResult, PvpVerdict } from "./types";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
@@ -19,14 +25,14 @@ export interface EnsembleResult {
   playerAScore: number;
   playerBScore: number;
   scoreGap: number; // |A-B|
-  confidence: number; // 0..1 — calibrated via calibrationReport gap mapping
+  confidence: number; // 0..1 — PROVISIONAL heuristic from gap + judge votes, NOT calibrated
   isTie: boolean; // true when ensemble disagrees or gap < tieThreshold
   tieReason?: string;
   // Per-judge detail
   judges: JudgedVerdict[];
-  // Uncertainty
-  scoreCI: { lo: number; hi: number }; // 95% CI for scoreGap (normal approx over judge scores)
-  winnerCI: { a: number; b: number; tie: number }; // posterior over winner from judge votes
+  // Provisional uncertainty estimates (heuristic, not inferential)
+  scoreGapEstimate: { lo: number; hi: number }; // heuristic spread band over the score gap across judge scores
+  judgeSplit: { a: number; b: number; tie: number }; // raw vote share across judges — not a posterior
   // Which argGraph to show (prefer the majority winner's graph, or OpenRouter's if tie)
   argGraph?: PvpJudgeResult["argGraph"];
   rationale: string;
@@ -43,18 +49,21 @@ function winnerFromScores(a: number, b: number): "a" | "b" | "tie" {
   return a > b ? "a" : "b";
 }
 
-function ci95ForGap(scores: Array<{ a: number; b: number }>): { lo: number; hi: number } {
+// Provisional spread band over the gap given 1–2 judge scores. With n<2 this
+// is a fixed ±6 heuristic; it is NOT a confidence interval.
+function gapBand(scores: Array<{ a: number; b: number }>): { lo: number; hi: number } {
   if (!scores.length) return { lo: 0, hi: 0 };
   const gaps = scores.map((s) => Math.abs(s.a - s.b));
   const mean = gaps.reduce((x, y) => x + y, 0) / gaps.length;
   if (gaps.length === 1) return { lo: Math.max(0, mean - 6), hi: mean + 6 };
   const variance = gaps.reduce((acc, g) => acc + (g - mean) ** 2, 0) / (gaps.length - 1);
   const se = Math.sqrt(variance / gaps.length);
-  const margin = 1.96 * se;
+  const margin = Math.max(1.96 * se, 2);
   return { lo: Math.max(0, mean - margin), hi: mean + margin };
 }
 
-function winnerPosterior(judges: JudgedVerdict[]): { a: number; b: number; tie: number } {
+// Raw vote share across judges — displayed as "judge split", not a posterior.
+function judgeVoteShare(judges: JudgedVerdict[]): { a: number; b: number; tie: number } {
   const n = judges.length || 1;
   let a = 0, b = 0, t = 0;
   for (const j of judges) {
@@ -65,9 +74,10 @@ function winnerPosterior(judges: JudgedVerdict[]): { a: number; b: number; tie: 
   return { a: a / n, b: b / n, tie: t / n };
 }
 
-function confidenceFromGap(gap: number, agreement: number): number {
-  // Map gap (0..100) + inter-judge agreement (0..1) to confidence 0..1.
-  // Small gaps => low confidence even if judges agree; disagreement caps confidence.
+// Provisional agreement heuristic: maps gap (0..100) + inter-judge agreement
+// (0..1) to a 0..1 estimate. Not derived from calibration data — the numbers
+// are chosen so small gaps stay humble; treat as a UI signal only.
+function heuristicConfidence(gap: number, agreement: number): number {
   const gapC = Math.min(1, gap / 30); // gap=30 => 1.0
   return Math.max(0, Math.min(1, 0.35 + 0.5 * gapC + 0.15 * agreement)) ;
 }
@@ -91,8 +101,8 @@ export function ensembleVerdicts(judges: JudgedVerdict[]): EnsembleResult {
       isTie: true,
       tieReason: "Insufficient evidence: no judge returned a scoreable argument graph.",
       judges,
-      scoreCI: { lo: 0, hi: 0 },
-      winnerCI: { a: 0, b: 0, tie: 1 },
+      scoreGapEstimate: { lo: 0, hi: 0 },
+      judgeSplit: { a: 0, b: 0, tie: 1 },
       argGraph: first.argGraph,
       rationale: first.rationale,
       decidingFactor: "Insufficient evidence: no judge returned a scoreable argument graph.",
@@ -103,7 +113,7 @@ export function ensembleVerdicts(judges: JudgedVerdict[]): EnsembleResult {
   if (judges.length === 1) {
     const j = judges[0];
     const gap = Math.abs(j.playerAScore - j.playerBScore);
-    const conf = confidenceFromGap(gap, 1);
+    const conf = heuristicConfidence(gap, 1);
     const isTie = gap < TIE_THRESHOLD;
     return {
       winner: isTie ? "tie" : j.winner,
@@ -114,8 +124,8 @@ export function ensembleVerdicts(judges: JudgedVerdict[]): EnsembleResult {
       isTie,
       tieReason: isTie ? `Score gap ${gap} < tie threshold ${TIE_THRESHOLD}` : undefined,
       judges,
-      scoreCI: ci95ForGap([{ a: j.playerAScore, b: j.playerBScore }]),
-      winnerCI: { a: j.winner === "a" ? 1 : 0, b: j.winner === "b" ? 1 : 0, tie: j.winner === "tie" ? 1 : 0 },
+      scoreGapEstimate: gapBand([{ a: j.playerAScore, b: j.playerBScore }]),
+      judgeSplit: { a: j.winner === "a" ? 1 : 0, b: j.winner === "b" ? 1 : 0, tie: j.winner === "tie" ? 1 : 0 },
       argGraph: j.argGraph,
       rationale: j.rationale,
       decidingFactor: j.decidingFactor,
@@ -127,9 +137,9 @@ export function ensembleVerdicts(judges: JudgedVerdict[]): EnsembleResult {
   const avgA = Math.round(scoredJudges.reduce((s, j) => s + j.playerAScore, 0) / scoredJudges.length);
   const avgB = Math.round(scoredJudges.reduce((s, j) => s + j.playerBScore, 0) / scoredJudges.length);
   const gap = Math.abs(avgA - avgB);
-  const post = winnerPosterior(scoredJudges);
+  const post = judgeVoteShare(scoredJudges);
   const agree = Math.max(post.a, post.b, post.tie);
-  const conf = confidenceFromGap(gap, agree);
+  const conf = heuristicConfidence(gap, agree);
   // Winner by majority vote; if no majority and gap small, tie.
   let winner: "a" | "b" | "tie";
   let tieReason: string | undefined;
@@ -159,8 +169,8 @@ export function ensembleVerdicts(judges: JudgedVerdict[]): EnsembleResult {
     isTie: winner === "tie",
     tieReason,
     judges,
-    scoreCI: ci95ForGap(scoredJudges.map((j) => ({ a: j.playerAScore, b: j.playerBScore }))),
-    winnerCI: post,
+    scoreGapEstimate: gapBand(scoredJudges.map((j) => ({ a: j.playerAScore, b: j.playerBScore }))),
+    judgeSplit: post,
     argGraph: graph,
     rationale,
     decidingFactor: judges.find((j) => j.winner === winner)?.decidingFactor ?? judges[0].decidingFactor,
@@ -247,8 +257,8 @@ export function verdictFromEnsemble(e: EnsembleResult): PvpVerdict {
     argGraph: e.argGraph,
     breakdown: breakdownSource?.breakdown,
     confidence: e.confidence,
-    scoreCI: e.scoreCI,
-    winnerCI: e.winnerCI,
+    scoreGapEstimate: e.scoreGapEstimate,
+    judgeSplit: e.judgeSplit,
     isTie: e.isTie,
     tieReason: e.tieReason,
     judges: e.judges.map((j) => ({

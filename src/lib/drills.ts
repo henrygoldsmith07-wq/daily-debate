@@ -123,32 +123,40 @@ export function todaysFocus(skill: SkillProfile, history: DrillRecord[] = []): {
   return { focus: weakest[0], reason: reasons[weakest[0]] };
 }
 
-/** Score a drill attempt 0-100: length + keyword + structure heuristics (pure). */
+/**
+ * Score a drill attempt 0-100 on effort and structure (pure).
+ *
+ * Keyword-free by design: the previous version awarded focus bonuses for the
+ * mere presence of single words ("according to", "outweigh", "strongest"),
+ * which was trivially gamed by listing the words without making an argument.
+ * The rubric is now structural — length, sentence structure, development,
+ * specificity — plus deliverable checks that verify the artefact the drill
+ * actually asked for (a resolvable citation for evidence drills, brevity for
+ * clarity drills). A coherent 25-word answer with a link outscores a keyword
+ * stuffed blob.
+ */
 export function scoreDrillAttempt(drill: Drill, text: string): number {
   const t = text.trim();
   if (!t || t.length < 10) return 0;
   let score = 0;
-  // Length signal: 2-min drills expect 20-200 chars, 5-min longer
+  // Effort: length adequacy, scaled by drill duration
   const len = t.length;
   const minLen = drill.minutes && drill.minutes >= 4 ? 80 : 30;
   if (len >= minLen) score += 25;
   if (len >= minLen + 40) score += 10;
-  // Evidence drill wants a source
-  if (drill.focus === "evidence" && /according to|source|citation|study|data|report|http/i.test(t)) score += 30;
-  // Rebuttal wants targeting language
-  if (drill.focus === "rebuttal" && /you (?:argue|claim|say)|however|but|although|opponent/i.test(t)) score += 25;
-  // Logic wants no fallacy phrases (negation is simplistic but measurable)
-  if (drill.focus === "logic" && !/everyone knows|obviously|all (?:people|experts) agree/i.test(t)) score += 15;
-  // Impact wants weighing language
-  if (drill.focus === "impact" && /outweigh|matters more|more important|because|impact|consequence/i.test(t)) score += 30;
-  // Steelmanning wants acknowledgment phrase
-  if (drill.focus === "steelmanning" && /strongest|even if|admittedly|grant|best (?:version|argument)/i.test(t)) score += 30;
-  // Structure wants connectors
-  if (drill.focus === "structure" && /claim|evidence|rebuttal|impact|therefore|because/i.test(t)) score += 20;
-  // Clarity wants brevity
-  if (drill.focus === "clarity" && t.split(/\s+/).length <= 25) score += 20;
-  // Generic clarity bonus: not overly long single sentence
-  if (t.split(/[.!?]/).filter(s => s.trim().split(/\s+/).length > 30).length === 0) score += 10;
+  // Structure: more than one sentence means claim + support, not a fragment
+  const sentences = t.split(/[.!?]+/).map((s) => s.trim()).filter(Boolean);
+  if (sentences.length >= 2) score += 15;
+  // Development: enough words to actually develop the point
+  const words = t.split(/\s+/).length;
+  if (words >= 25) score += 10;
+  // Specificity: concrete numbers or a resolvable link, not pure assertion
+  if (/\d|https?:\/\/|www\./.test(t)) score += 15;
+  // Multi-sentence without run-ons (a 30+ word sentence fails a 2-minute drill's purpose)
+  if (sentences.length >= 2 && sentences.every((s) => s.split(/\s+/).length <= 30)) score += 10;
+  // Deliverable checks: verify the artefact requested, not magic words
+  if (drill.focus === "evidence" && /https?:\/\/|www\.|\(\s*source|\bper [A-Z]/.test(t)) score += 25;
+  if (drill.focus === "clarity" && words <= 25) score += 15;
   return Math.min(100, Math.round(score));
 }
 

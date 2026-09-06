@@ -71,7 +71,7 @@ async function dbRateLimit(key: string, limit: number, windowMs: number): Promis
     p_key: key,
     p_window_ms: windowMs,
   });
-  const row = Array.isArray(rows) ? rows[0] : null;
+  const row = Array.isArray(rows) ? (rows[0] as { new_count: number; new_reset_at: string } | undefined) : undefined;
   if (error || !row) return null;
 
   const count = Number(row.new_count);

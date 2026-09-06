@@ -41,21 +41,38 @@ jobs:
       - name: Security audit (critical production vulnerabilities block the build)
         run: npm audit --omit=dev --audit-level=critical
 
-  # ── E2E: Playwright over a production build ──────────────────────────────
-  # This job used to stand up an ephemeral Supabase stack, but the app moved
-  # to an owned Postgres backend and no `supabase/` project remains in the
-  # repo — `supabase start` had nothing to run, and the seed step was handed
-  # SUPABASE_* variables while scripts/e2e-seed.mjs reads DATABASE_URL, so it
-  # exited immediately. Without E2E_DATABASE_URL the app serves guest mode and
-  # the auth-gated specs skip themselves, which is the surface these
-  # credential-free runs are written to cover.
-  #
-  # Restoring the authenticated full-flow specs needs a Postgres instance the
-  # app can actually reach: src/lib/backend/sql.ts talks to Neon over HTTP, so
-  # a plain Postgres service container is not enough on its own.
+  # ── E2E: mandatory authenticated Playwright over a production build ──────
+  # The app's dual-transport SQL layer (src/lib/backend/sql.ts) talks plain
+  # TCP to a Postgres service container, so CI runs the FULL authenticated
+  # flow against an ephemeral database: migrate → seed → test. E2E_MOCK_AI=1
+  # switches the server-side AI entries to deterministic scripted responses
+  # (src/lib/aiE2eMock.ts) so the suite needs no API keys and never spends
+  # tokens. Guest-mode specs still run; authenticated specs cannot silently
+  # skip because E2E_DATABASE_URL is always set here.
   e2e:
     runs-on: ubuntu-latest
     needs: verify
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: daily_debate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      E2E_DATABASE_URL: postgres://postgres:postgres@localhost:5432/daily_debate_test
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/daily_debate_test
+      E2E_MOCK_AI: "1"
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -67,7 +84,15 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
 
-      - name: Run E2E (guest-mode surfaces; authenticated flows skip without a backend)
+      - name: Apply migrations and seed test users
+        run: |
+          node scripts/migrate.mjs
+          node scripts/e2e-seed.mjs
+
+      - name: Unit + DB invariant tests (migration 003 matchmaking runs for real)
+        run: npm test
+
+      - name: Run E2E (authenticated full-flow specs included)
         run: npx playwright test --reporter=github,html
 
       - uses: actions/upload-artifact@v4

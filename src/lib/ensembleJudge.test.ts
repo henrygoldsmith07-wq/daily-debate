@@ -20,13 +20,13 @@ describe("ensembleVerdicts — uncertainty", () => {
     expect(e.winner).toBe("a");
     expect(e.isTie).toBe(false);
     expect(e.confidence).toBeGreaterThan(0.5);
-    expect(e.scoreCI.lo).toBeLessThanOrEqual(e.scoreCI.hi);
+    expect(e.scoreGapEstimate.lo).toBeLessThanOrEqual(e.scoreGapEstimate.hi);
   });
 
   it("agreeing judges raise confidence; the majority winner holds", () => {
     const e = ensembleVerdicts([judge("openrouter", "a", 60, 40), judge("anthropic", "a", 58, 42)]);
     expect(e.winner).toBe("a");
-    expect(e.winnerCI.a).toBe(1);
+    expect(e.judgeSplit.a).toBe(1);
     expect(e.confidence).toBeGreaterThan(0.6);
   });
 
@@ -64,8 +64,8 @@ describe("verdictFromEnsemble — persists uncertainty onto the stored verdict",
     expect(v.playerAScore).toBe(60);
     expect(v.playerBScore).toBe(40);
     expect(v.confidence).toBe(e.confidence);
-    expect(v.scoreCI).toEqual(e.scoreCI);
-    expect(v.winnerCI).toEqual(e.winnerCI);
+    expect(v.scoreGapEstimate).toEqual(e.scoreGapEstimate);
+    expect(v.judgeSplit).toEqual(e.judgeSplit);
     expect(v.isTie).toBe(e.isTie);
     expect(v.tieReason).toBe(e.tieReason);
     expect(v.judges).toHaveLength(2);

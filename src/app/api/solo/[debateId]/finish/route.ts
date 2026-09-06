@@ -7,6 +7,7 @@ import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidSummary } from "@/lib/aiSchema";
 import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { computeCoachRewards, totalBonusXP } from "@/lib/coachRewards";
+import { buildEvaluationResult } from "@/lib/evaluationEnvelope";
 import { MIN_ROUNDS } from "@/lib/types";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
@@ -169,6 +170,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       .eq("id", user.id);
   }
 
-  return NextResponse.json({ totalScore, bonusXP, rewardEvents, summary, assessment: finalAssessment });
+  const evaluation = buildEvaluationResult({
+    scoreStatus: finalAssessment?.status ?? "insufficient_evidence",
+    summary,
+    observableAssessment: finalAssessment ?? undefined,
+  });
+  return NextResponse.json({ totalScore, bonusXP, rewardEvents, summary, assessment: finalAssessment, evaluation });
 }
 
