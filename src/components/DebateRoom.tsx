@@ -245,7 +245,7 @@ export default function DebateRoom({
           )}
 
           {/* Primary action: fix it now — straight to the repair exercise */}
-          {weakness && !view.repaired && <FixThisNowButton onClick={scrollToRepair} />}
+          {weakness && !view.repaired && <FixThisNowButton onClick={scrollToRepair} debateId={debate.id} />}
 
           {/* Repair status once recorded (replays land here) */}
           {view.repaired && (
@@ -268,7 +268,7 @@ export default function DebateRoom({
             <button
               type="button"
               onClick={() => {
-                trackEvent("full_analysis_opened", { format });
+                trackEvent("full_analysis_opened", { format, debateId: debate.id });
                 setShowFullAnalysis((v) => !v);
               }}
               aria-expanded={showFullAnalysis}

@@ -21,8 +21,11 @@ No thresholds were changed to make these pass. Ranked/competitive expansion rema
    workflow), or run locally with keys:
    `NVIDIA_API_KEY=… / OPENROUTER_API_KEY=… node scripts/judge-benchmark.mjs --concurrency 3 --enforce`
 2. `--enforce` exits non-zero on gate breach; a breach blocks trust claims.
-3. The run rewrites this file and `docs/latest-judge-benchmark.json`.
-4. Gates live in `config/judge-gates.json` — they must not be loosened to force a pass.
+3. The run rewrites this file and `docs/latest-judge-benchmark.json` **and
+   commits them back to main automatically** (workflow has `contents: write`),
+   so the checked-in validation record stays current without manual work.
+4. Gates live in `config/judge-gates.json` — they must not be loosened to force
+   a pass. Each table row carries its own PASS/FAIL gate status.
 
 ## Historical result (2026-08-23, n=3 fixtures — superseded by pending refresh)
 

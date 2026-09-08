@@ -146,7 +146,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Latest round already answered." }, { status: 409 });
   }
 
-  void recordProductEvent("round_completed", { format: debateFormat, side: debate.side, round: pendingTurn.round_number });
+  void recordProductEvent("round_completed", {
+    format: debateFormat,
+    side: debate.side,
+    round: pendingTurn.round_number,
+    debateId,
+  });
 
   // Final round: the debate is done — the client is told to finish. No round
   // N+1 turn is created, so nothing can dangle if the user walks away.

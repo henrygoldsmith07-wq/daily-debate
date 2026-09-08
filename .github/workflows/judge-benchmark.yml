@@ -3,12 +3,19 @@ name: judge-benchmark
 # Continuous judge validation: the invariance/bias suite runs against real
 # model APIs weekly (and on demand). A gate breach fails the run, so a judge
 # regression cannot ship unnoticed. Results land in docs/judge-leaderboard.md
-# (merged per model) and docs/latest-judge-benchmark.json.
+# (merged per model) and docs/latest-judge-benchmark.json, and are committed
+# back to main so the checked-in validation record stays current.
+#
+# Requires repository secrets: NVIDIA_API_KEY / OPENROUTER_API_KEY and/or
+# ANTHROPIC_API_KEY, plus the default GITHUB_TOKEN with contents:write.
 
 on:
   workflow_dispatch:
   schedule:
     - cron: "0 4 * * 1" # Mondays 04:00 UTC
+
+permissions:
+  contents: write
 
 jobs:
   benchmark:
@@ -20,12 +27,24 @@ jobs:
           node-version: 20
       - name: Check fixture pack stratification (no keys needed)
         run: node scripts/judge-benchmark.mjs --pack-only
-      - name: Run live judge benchmark (gated)
+      - name: Run live judge benchmark (full pack, gated)
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node scripts/judge-benchmark.mjs --concurrency 3 --enforce
+      - name: Commit refreshed validation record
+        if: always()
+        run: |
+          git config user.name "judge-benchmark-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs/judge-leaderboard.md docs/latest-judge-benchmark.json
+          if git diff --cached --quiet; then
+            echo "No changes to the validation record."
+          else
+            git commit -m "chore(judge): refresh live benchmark results [skip ci]"
+            git push
+          fi
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4

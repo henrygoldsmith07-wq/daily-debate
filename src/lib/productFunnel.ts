@@ -11,6 +11,8 @@ export interface FunnelEventRow {
   format: string | null;
   reason: string | null;
   created_at: string;
+  /** Bounded flow identifier (debate UUID); null on legacy/pre-migration rows. */
+  debate_id: string | null;
 }
 
 export interface FunnelRate {
@@ -19,6 +21,25 @@ export interface FunnelRate {
   /** null when the denominator is below the minimum sample threshold. */
   rate: number | null;
   sample: number;
+  note: string | null;
+}
+
+/**
+ * Session-level conversion: the same funnel steps counted per DEBATE rather
+ * than per user. A user who starts 10 sprints and completes 1 contributes 10%
+ * here, not 100%. Only events carrying a debate_id participate — legacy rows
+ * without one are excluded and the coverage is reported, not hidden.
+ */
+export interface SessionFunnel {
+  /** Debate sessions seen in the window (distinct debate_ids on funnel events). */
+  debates: number;
+  /** Share of funnel events that carry a session id (coverage honesty). */
+  coverage: number | null;
+  sprintCompletion: FunnelRate;
+  fullCompletion: FunnelRate;
+  repairStart: FunnelRate;
+  repairCompletion: FunnelRate;
+  fullAnalysisOpen: FunnelRate;
   note: string | null;
 }
 
@@ -61,6 +82,8 @@ export interface FunnelReport {
   };
   d1Return: ReturnRate;
   d7Return: ReturnRate;
+  /** Session-level (per-debate) completion for the same funnel steps. */
+  sessions: SessionFunnel;
 }
 
 export const FUNNEL_MIN_SAMPLE = 5;
@@ -145,6 +168,73 @@ export function returnRate(
 
 const DEBATE_STARTS = new Set(["sprint_started", "full_debate_started", "debate_started"]);
 
+/**
+ * Session-level (per-debate) funnel from events that carry a debate_id.
+ * A debate session counts as "completed" when its id appears on a
+ * debate_completed event, etc. Legacy rows without an id are excluded from
+ * the rates and reported as coverage, never silently mixed in.
+ */
+export function buildSessionFunnel(
+  rows: FunnelEventRow[],
+  opts: { minSample?: number } = {},
+): SessionFunnel {
+  const minSample = opts.minSample ?? FUNNEL_MIN_SAMPLE;
+  const sessionRows = rows.filter((r) => typeof r.debate_id === "string" && r.debate_id.length > 0);
+  const bySession = (name: string): Set<string> => {
+    const m = new Set<string>();
+    for (const r of sessionRows) {
+      if (r.name === name) m.add(r.debate_id!);
+    }
+    return m;
+  };
+
+  const startedSessions = new Map<string, string>(); // debate_id -> format
+  for (const r of sessionRows) {
+    if (r.name === "sprint_started" || r.name === "full_debate_started") {
+      startedSessions.set(r.debate_id!, r.format === "sprint" ? "sprint" : "full");
+    }
+  }
+  const completedSessions = new Set(bySession("debate_completed").keys());
+  const repairStartedSessions = new Set(bySession("repair_started").keys());
+  const repairCompletedSessions = new Set(bySession("repair_completed").keys());
+  const analysisOpenSessions = new Set(bySession("full_analysis_opened").keys());
+
+  const sprintIds = [...startedSessions.entries()].filter(([, f]) => f === "sprint").map(([id]) => id);
+  const fullIds = [...startedSessions.entries()].filter(([, f]) => f === "full").map(([id]) => id);
+
+  const debates = startedSessions.size;
+  const funnelEventCount = sessionRows.filter((r) =>
+    DEBATE_STARTS.has(r.name) ||
+    r.name === "debate_completed" ||
+    r.name === "repair_started" ||
+    r.name === "repair_completed" ||
+    r.name === "full_analysis_opened",
+  ).length;
+  const totalFunnelish = rows.filter((r) =>
+    DEBATE_STARTS.has(r.name) ||
+    r.name === "debate_completed" ||
+    r.name === "repair_started" ||
+    r.name === "repair_completed" ||
+    r.name === "full_analysis_opened",
+  ).length;
+  const coverage = totalFunnelish ? +(funnelEventCount / totalFunnelish).toFixed(3) : null;
+
+  const s = rate(sprintIds.filter((id) => completedSessions.has(id)).length, sprintIds.length, minSample);
+  const f = rate(fullIds.filter((id) => completedSessions.has(id)).length, fullIds.length, minSample);
+  const rs = rate([...completedSessions].filter((id) => repairStartedSessions.has(id)).length, completedSessions.size, minSample);
+  const rc = rate([...repairStartedSessions].filter((id) => repairCompletedSessions.has(id)).length, repairStartedSessions.size, minSample);
+  const ao = rate([...completedSessions].filter((id) => analysisOpenSessions.has(id)).length, completedSessions.size, minSample);
+
+  const note =
+    coverage === null
+      ? "no funnel events yet"
+      : coverage < 1
+        ? `${Math.round((1 - coverage) * 100)}% of funnel events predate session ids (migration 005) and are counted in user conversion only`
+        : null;
+
+  return { debates, coverage, sprintCompletion: s, fullCompletion: f, repairStart: rs, repairCompletion: rc, fullAnalysisOpen: ao, note };
+}
+
 /** Build the full funnel report from raw event rows. */
 export function buildFunnelReport(
   rows: FunnelEventRow[],
@@ -155,6 +245,7 @@ export function buildFunnelReport(
   const now = opts.now ?? new Date().toISOString();
   const cutoff = Date.parse(now) - windowDays * 86_400_000;
   const inWindow = rows.filter((r) => Date.parse(r.created_at) >= cutoff);
+  const sessions = buildSessionFunnel(inWindow, { minSample });
 
   const byName = (names: string[]) => inWindow.filter((r) => names.includes(r.name));
   const viewed = byName(["daily_viewed"]);
@@ -206,5 +297,6 @@ export function buildFunnelReport(
     },
     d1Return: returnRate(inWindow, 1, now, minSample),
     d7Return: returnRate(inWindow, 7, now, minSample),
+    sessions,
   };
 }

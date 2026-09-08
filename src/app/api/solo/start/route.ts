@@ -93,6 +93,7 @@ export async function POST(request: Request) {
     format,
     side,
     reason: sideReason,
+    debateId: debate.id,
   });
 
   const aiSide: DebateSide = side === "for" ? "against" : "for";

@@ -96,7 +96,7 @@ Funnel semantics: `repair_started` is the click on **Fix this now** (client-side
 Computed from `product_events` by `src/lib/productFunnel.ts` and served at `/api/analytics/funnel`:
 
 - Today → debate start rate;
-- Sprint vs Full completion (by format);
+- Sprint vs Full completion, in **both** units (see below);
 - repair start/completion rate;
 - D1/D7 return (with pending-user counts — users without a full window are never counted as churned);
 - full-analysis open rate;
@@ -104,6 +104,8 @@ Computed from `product_events` by `src/lib/productFunnel.ts` and served at `/api
 - friend-challenge creation/acceptance.
 
 Rates below a 5-user sample render as "not yet measurable" instead of small-n noise.
+
+**User vs session conversion.** User conversion counts each user once (a user who completes ≥1 sprint reads as 100%). Session conversion counts each debate separately via a bounded `debate_id` on the funnel events (migration 005 — a random UUID, no free text), so the same user reads as 10% if they completed 1 of 10 sprints. The report shows both, and states what share of funnel events carry a session id — legacy events without one are counted in user conversion only.
 
 ### Does repair work? (`src/lib/repairEffectiveness.ts`)
 
@@ -113,7 +115,8 @@ For each completed repair, the same weakness kind's presence is compared across 
 weakness detected → repair completed → next relevant debates → improved / unchanged / worse
 ```
 
-- Excludes the repaired debate itself; only debates that could actually express the weakness count.
+- Excludes the repaired debate itself; only debates that could actually express the weakness count, and weakness counts are **side-scoped** (an opponent's dropped arguments or fallacies never register as the user's weakness).
+- Repair kinds without a genuine deterministic detector — `clarity` today — are hard-classified **not currently measurable** and can never enter the comparison, not even by comparing 0% vs 0%.
 - No later debates → "not yet measurable"; no earlier debates → "insufficient baseline". Nothing is silently dropped.
 - A per-kind rate is only claimed with ≥5 repairs and ≥3 measurable — otherwise the report says "not yet claimable".
 - The output is labelled observational: an association with the repair, not proof of causation.

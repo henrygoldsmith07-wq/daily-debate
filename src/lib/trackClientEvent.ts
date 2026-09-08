@@ -14,7 +14,7 @@ export type ClientEventName =
 
 export function trackEvent(
   name: ClientEventName,
-  context: { format?: "sprint" | "full"; side?: string; reason?: string } = {},
+  context: { format?: "sprint" | "full"; side?: string; reason?: string; debateId?: string } = {},
 ): void {
   try {
     void fetch("/api/events", {

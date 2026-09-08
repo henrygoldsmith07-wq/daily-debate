@@ -138,14 +138,15 @@ export default function ArgumentRepair({
 }
 
 /** Compact CTA that scrolls to / focuses the repair exercise. */
-export function FixThisNowButton({ onClick }: { onClick: () => void }) {
+export function FixThisNowButton({ onClick, debateId }: { onClick: () => void; debateId?: string }) {
   return (
     <button
       type="button"
       onClick={() => {
         // Funnel: "repair started" is the click on this CTA; completion is
-        // recorded server-side when a rewrite is actually submitted.
-        trackEvent("repair_started", {});
+        // recorded server-side when a rewrite is actually submitted. Both
+        // carry the debate id for session-level measurement.
+        trackEvent("repair_started", { debateId });
         onClick();
       }}
       className="btn btn-primary px-6 py-3 text-sm uppercase tracking-wide"

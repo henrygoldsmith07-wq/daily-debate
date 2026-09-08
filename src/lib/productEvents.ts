@@ -30,6 +30,8 @@ export interface ProductEventContext {
   reason?: string | null;
   round?: number | null;
   repairScore?: number | null;
+  /** Bounded flow identifier (the debate row's UUID) for session-level funnels. */
+  debateId?: string | null;
 }
 
 export const PRODUCT_EVENT_NAMES: readonly ProductEventName[] = [
@@ -78,6 +80,7 @@ export async function recordProductEvent(
       reason: context.reason ?? null,
       round: context.round ?? null,
       repair_score: context.repairScore ?? null,
+      debate_id: context.debateId ?? null,
     });
   } catch {
     // Never let telemetry break a user flow.

@@ -4,7 +4,7 @@ import { buildFunnelReport, returnRate, type FunnelEventRow } from "./productFun
 const NOW = "2026-06-15T12:00:00Z";
 
 function row(user: string, name: string, at: string, extra: Partial<FunnelEventRow> = {}): FunnelEventRow {
-  return { user_id: user, name, format: null, reason: null, created_at: at, ...extra };
+  return { user_id: user, name, format: null, reason: null, debate_id: null, created_at: at, ...extra };
 }
 
 function event(users: string[], name: string, at: string, extra?: Partial<FunnelEventRow>): FunnelEventRow[] {
@@ -96,6 +96,94 @@ describe("buildFunnelReport", () => {
     ];
     const report = buildFunnelReport(rows, { now: NOW, windowDays: 90, minSample: 3 });
     expect(report.eventsAnalysed).toBe(9); // 5 + 4, old rows excluded
+  });
+});
+
+describe("session conversion (per-debate funnel)", () => {
+  function debateRows(
+    user: string,
+    debateId: string,
+    opts: { started?: boolean; startedName?: string; completed?: boolean; completedFormat?: string; repairStarted?: boolean; repairCompleted?: boolean; analysisOpened?: boolean; at?: string } = {},
+  ): FunnelEventRow[] {
+    const at = opts.at ?? "2026-06-14T09:00:00Z";
+    const isSprint = (opts.startedName ?? "sprint_started") === "sprint_started";
+    const rows: FunnelEventRow[] = [];
+    if (opts.started !== false) {
+      rows.push(row(user, opts.startedName ?? "sprint_started", at, { format: isSprint ? "sprint" : "full", debate_id: debateId }));
+    }
+    if (opts.completed) {
+      rows.push(row(user, "debate_completed", at, { format: opts.completedFormat ?? (isSprint ? "sprint" : "full"), debate_id: debateId }));
+    }
+    if (opts.repairStarted) rows.push(row(user, "repair_started", at, { debate_id: debateId }));
+    if (opts.repairCompleted) rows.push(row(user, "repair_completed", at, { debate_id: debateId }));
+    if (opts.analysisOpened) rows.push(row(user, "full_analysis_opened", at, { debate_id: debateId }));
+    return rows;
+  }
+
+  it("reports session completion separately from user conversion", () => {
+    // One user starts 10 sprints and completes only 1.
+    const rows: FunnelEventRow[] = [];
+    for (let i = 0; i < 10; i++) {
+      rows.push(...debateRows("u1", `d-${i}`, { completed: i === 0, at: `2026-06-${10 + i}T09:00:00Z` }));
+    }
+    const report = buildFunnelReport(rows, { now: NOW, minSample: 1 });
+    // User conversion: the user completed ≥1 sprint → 100% (a single user is
+    // the whole denominator, so this reads as full success — which is exactly
+    // why session conversion exists).
+    expect(report.sprintCompletion.rate).toBe(1);
+    // Session conversion: 1 of 10 debates completed → 10%.
+    expect(report.sessions.sprintCompletion.denominator).toBe(10);
+    expect(report.sessions.sprintCompletion.numerator).toBe(1);
+    expect(report.sessions.sprintCompletion.rate).toBe(0.1);
+    expect(report.sessions.debates).toBe(10);
+  });
+
+  it("separates sprint and full sessions by start format", () => {
+    const rows = [
+      ...debateRows("u1", "d-s1", { completed: true, at: "2026-06-10T09:00:00Z" }),
+      ...debateRows("u1", "d-s2", { completed: false, at: "2026-06-11T09:00:00Z" }),
+      ...debateRows("u1", "d-f1", { startedName: "full_debate_started", completed: true, completedFormat: "full", at: "2026-06-12T09:00:00Z" }),
+      ...debateRows("u1", "d-f2", { startedName: "full_debate_started", completed: false, at: "2026-06-13T09:00:00Z" }),
+    ];
+    const report = buildFunnelReport(rows, { now: NOW, minSample: 2 });
+    expect(report.sessions.sprintCompletion.rate).toBeCloseTo(0.5);
+    expect(report.sessions.fullCompletion.rate).toBeCloseTo(0.5);
+    expect(report.sessions.coverage).toBe(1);
+  });
+
+  it("measures repair and analysis steps per session", () => {
+    const rows = [
+      ...debateRows("u1", "d-1", { completed: true, repairStarted: true, repairCompleted: true, analysisOpened: true, at: "2026-06-10T09:00:00Z" }),
+      ...debateRows("u1", "d-2", { completed: true, repairStarted: true, repairCompleted: false, analysisOpened: false, at: "2026-06-11T09:00:00Z" }),
+      ...debateRows("u2", "d-3", { completed: true, repairStarted: false, repairCompleted: false, analysisOpened: false, at: "2026-06-12T09:00:00Z" }),
+    ];
+    const report = buildFunnelReport(rows, { now: NOW, minSample: 2 });
+    expect(report.sessions.repairStart.rate).toBeCloseTo(2 / 3);
+    expect(report.sessions.repairCompletion.rate).toBe(0.5);
+    expect(report.sessions.fullAnalysisOpen.rate).toBeCloseTo(1 / 3);
+  });
+
+  it("excludes legacy events without a session id and reports coverage", () => {
+    const rows = [
+      // Legacy row (pre-migration-005): no debate_id.
+      row("u1", "sprint_started", "2026-06-10T09:00:00Z", { format: "sprint" }),
+      row("u1", "debate_completed", "2026-06-10T09:30:00Z", { format: "sprint" }),
+      // Session-tagged rows.
+      ...debateRows("u2", "d-1", { completed: true, at: "2026-06-12T09:00:00Z" }),
+      ...debateRows("u2", "d-2", { completed: false, at: "2026-06-13T09:00:00Z" }),
+    ];
+    const report = buildFunnelReport(rows, { now: NOW, minSample: 2 });
+    expect(report.sessions.debates).toBe(2); // legacy rows excluded
+    expect(report.sessions.sprintCompletion.denominator).toBe(2);
+    expect(report.sessions.coverage).toBeLessThan(1);
+    expect(report.sessions.note).toMatch(/predate session ids/);
+  });
+
+  it("stays below the minimum sample threshold for sessions too", () => {
+    const rows = [...debateRows("u1", "d-1", { completed: false })];
+    const report = buildFunnelReport(rows, { now: NOW });
+    expect(report.sessions.sprintCompletion.rate).toBeNull();
+    expect(report.sessions.sprintCompletion.note).toMatch(/not yet measurable/);
   });
 });
 

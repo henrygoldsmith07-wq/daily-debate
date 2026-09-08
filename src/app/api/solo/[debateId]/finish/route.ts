@@ -203,7 +203,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     await db.from("solo_debates").update({ coaching: coachingUpdate }).eq("id", debateId);
   }
 
-  void recordProductEvent("debate_completed", { format, side: debate.side });
+  void recordProductEvent("debate_completed", { format, side: debate.side, debateId });
 
   const evaluation = buildEvaluationResult({
     scoreStatus: finalAssessment?.status ?? "insufficient_evidence",

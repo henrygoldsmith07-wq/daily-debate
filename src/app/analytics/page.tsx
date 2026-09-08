@@ -61,18 +61,33 @@ export default async function AnalyticsPage() {
 
       <section className="surface-card p-5" aria-labelledby="funnel-heading">
         <h2 id="funnel-heading" className="text-sm font-semibold">Training funnel</h2>
+        <p className="mt-1 text-xs text-ink3">
+          User conversion counts each user once; session conversion counts each debate separately (migration 005 events).
+        </p>
         <div className="mt-2">
-          <RateRow label="Today → debate started" {...{ ...funnel.startRate, note: funnel.startRate.note }} />
-          <RateRow label="Sprint completion (started → completed)" {...funnel.sprintCompletion} />
-          <RateRow label="Full debate completion (started → completed)" {...funnel.fullCompletion} />
-          <RateRow label="Repair started (completed debate → CTA)" {...funnel.repairStart} />
-          <RateRow label="Repair completed (CTA → submitted)" {...funnel.repairCompletion} />
-          <RateRow label="Full analysis opened (per completed debate)" {...funnel.fullAnalysisOpen} />
-          <RateRow label="Challenge me usage (of debate starts)" {...funnel.challengeMe} />
+          <RateRow label="Today → debate started (user)" {...funnel.startRate} />
+          <RateRow label="Sprint completion (user)" {...funnel.sprintCompletion} />
+          <RateRow label="Full debate completion (user)" {...funnel.fullCompletion} />
+          <RateRow label="Repair started (completed debate → CTA, user)" {...funnel.repairStart} />
+          <RateRow label="Repair completed (CTA → submitted, user)" {...funnel.repairCompletion} />
+          <RateRow label="Full analysis opened (user)" {...funnel.fullAnalysisOpen} />
+          <RateRow label="Challenge me usage (of debate starts, user)" {...funnel.challengeMe} />
           <RateRow label="Friend challenge acceptance" {...funnel.friendChallenges.acceptRate} />
         </div>
+
+        <h3 className="mt-5 text-xs font-semibold uppercase tracking-wide text-ink3">Session conversion (per debate)</h3>
+        <div className="mt-2">
+          <RateRow label="Sprint completion (per session)" {...funnel.sessions.sprintCompletion} />
+          <RateRow label="Full debate completion (per session)" {...funnel.sessions.fullCompletion} />
+          <RateRow label="Repair started (per session)" {...funnel.sessions.repairStart} />
+          <RateRow label="Repair completed (per session)" {...funnel.sessions.repairCompletion} />
+          <RateRow label="Full analysis opened (per session)" {...funnel.sessions.fullAnalysisOpen} />
+        </div>
+        {funnel.sessions.note && <p className="mt-2 text-xs text-ink3">{funnel.sessions.note}</p>}
+
         <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-ink3">
           <span>Daily viewed users: {funnel.dailyViewed}</span>
+          <span>Debate sessions seen: {funnel.sessions.debates}</span>
           <span>Friend challenges: {funnel.friendChallenges.createdEvents} created · {funnel.friendChallenges.acceptedEvents} accepted</span>
           <span>D1 return: {funnel.d1Return.returnedUsers}/{funnel.d1Return.eligibleUsers} eligible ({funnel.d1Return.pendingUsers} pending)</span>
           <span>D7 return: {funnel.d7Return.returnedUsers}/{funnel.d7Return.eligibleUsers} eligible ({funnel.d7Return.pendingUsers} pending)</span>

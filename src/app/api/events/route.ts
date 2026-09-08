@@ -23,6 +23,13 @@ export async function POST(request: Request) {
   if (body?.side === "for" || body?.side === "against") context.side = body.side;
   if (typeof body?.reason === "string") context.reason = body.reason.slice(0, 64);
   if (typeof body?.round === "number" && Number.isInteger(body.round)) context.round = body.round;
+  // Session identifier: bounded to UUID-shaped values only.
+  if (
+    typeof body?.debateId === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.debateId)
+  ) {
+    context.debateId = body.debateId;
+  }
 
   const { recordProductEvent } = await import("@/lib/productEvents");
   await recordProductEvent(eventName, context);

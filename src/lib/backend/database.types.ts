@@ -218,6 +218,7 @@ export type ProductEventRow = {
   reason: string | null;
   round: number | null;
   repair_score: number | null;
+  debate_id: string | null;
   created_at: string;
 };
 

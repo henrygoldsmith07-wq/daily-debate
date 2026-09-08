@@ -143,7 +143,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     console.error("Failed to link repair to drill assignment:", error);
   }
 
-  void recordProductEvent("repair_completed", { repairScore: result.score, reason: succeeded ? "succeeded" : "retry" });
+  void recordProductEvent("repair_completed", {
+    repairScore: result.score,
+    reason: succeeded ? "succeeded" : "retry",
+    debateId,
+  });
 
   return NextResponse.json({
     target,

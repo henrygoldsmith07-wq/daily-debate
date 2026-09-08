@@ -182,11 +182,27 @@ d("daily coach loop schema", () => {
   it("records product events with an allowlisted name only", async () => {
     const userId = userIds.get("coach-a@test.local")!;
 
-    const event = await pool.query<{ name: string }>(
-      `INSERT INTO product_events (user_id, name, format, side, round) VALUES ($1, 'sprint_started', 'sprint', 'for', 1) RETURNING name`,
-      [userId],
+    const debate = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format) VALUES ($1, $2, 'for', 'sprint') RETURNING id`,
+      [userId, await todayTopicId()],
+    );
+    const debateId = debate.rows[0].id;
+
+    const event = await pool.query<{ name: string; debate_id: string | null }>(
+      `INSERT INTO product_events (user_id, name, format, side, round, debate_id) VALUES ($1, 'sprint_started', 'sprint', 'for', 1, $2) RETURNING name, debate_id`,
+      [userId, debateId],
     );
     expect(event.rows[0].name).toBe("sprint_started");
+    // Session identifier round-trips for session-level funnel measurement.
+    expect(event.rows[0].debate_id).toBe(debateId);
+
+    // Legacy-shaped rows without a session id are still valid (migration 005
+    // adds the column nullable).
+    const legacy = await pool.query<{ debate_id: string | null }>(
+      `INSERT INTO product_events (user_id, name) VALUES ($1, 'progress_viewed') RETURNING debate_id`,
+      [userId],
+    );
+    expect(legacy.rows[0].debate_id).toBeNull();
 
     await expect(
       pool.query(`INSERT INTO product_events (user_id, name) VALUES ($1, 'every_keystroke')`, [userId]),
@@ -195,6 +211,8 @@ d("daily coach loop schema", () => {
     await expect(
       pool.query(`INSERT INTO product_events (user_id, name) VALUES ($1, 'sprint_started', 'best-of-99')`, [userId]),
     ).rejects.toThrow(/product_events_format_check|check constraint/i);
+
+    await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
   });
 
   it("keeps challenge invites unique by code and lifecycle-honest", async () => {

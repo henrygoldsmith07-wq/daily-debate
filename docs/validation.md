@@ -27,7 +27,8 @@ Sprints feed the skill ledger (3 rounds still contain observable behaviour) but 
 - Improvement claims stay observational until 10 debates; causal claims wait for the rated corpus (`minimumForClaims`).
 - Trend arrows on Progress are descriptive (improving / steady / slipping / not enough data), never predictive.
 - Repair effectiveness (`src/lib/repairEffectiveness.ts`) is presence-based comparison across a 30-day window with ≥5-repair/≥3-measurable thresholds before any rate is claimed — and even then it is labelled an association, not causation.
-- Product funnel rates (`src/lib/productFunnel.ts`) need a ≥5-user sample; D1/D7 return excludes users without a full window (pending, never churned).
+- Repair kinds without a deterministic detector (clarity) are **not currently measurable** by construction, and weakness detection is side-scoped: opponent failures never count against the user.
+- Product funnel rates (`src/lib/productFunnel.ts`) need a ≥5-user sample; D1/D7 return excludes users without a full window (pending, never churned). Completion is reported both per user and per debate session — a session-tagged event stream (migration 005) keeps the two from being conflated, and session coverage is printed rather than assumed.
 
 ## Benchmarks and gates
 

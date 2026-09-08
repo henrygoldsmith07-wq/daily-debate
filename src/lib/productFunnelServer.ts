@@ -8,7 +8,7 @@ import "server-only";
 import { createServiceClient } from "@/lib/backend/server";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
-import { snapshotFromGraph } from "@/lib/weaknessTracker";
+import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
 import type { FunnelEventRow } from "@/lib/productFunnel";
 import type { DebateWeaknessRow, RepairRow } from "@/lib/repairEffectiveness";
 
@@ -34,7 +34,7 @@ export async function loadFunnelData(): Promise<FunnelData> {
   const [{ data: eventRows }, { data: repairRows }] = await Promise.all([
     service
       .from("product_events")
-      .select("user_id, name, format, reason, round, repair_score, created_at")
+      .select("user_id, name, format, reason, round, repair_score, debate_id, created_at")
       .order("created_at", { ascending: false })
       .limit(MAX_EVENTS),
     service
@@ -49,6 +49,7 @@ export async function loadFunnelData(): Promise<FunnelData> {
     name: row.name,
     format: row.format,
     reason: row.reason,
+    debate_id: row.debate_id,
     created_at: row.created_at,
   }));
   const repairs: RepairRow[] = (repairRows ?? []).map((row) => ({
@@ -115,12 +116,13 @@ async function loadDebateWeaknesses(
       labelA: "You",
       labelB: "AI opponent",
     });
-    const snapshot = snapshotFromGraph(merged.graph, { graphId: debate.id, at: debate.completed_at ?? undefined });
+    // Side-scoped: only the user's own nodes can register as weaknesses.
+    const counts = countWeaknessesForSide(merged.graph, "a");
     out.push({
       debateId: debate.id,
       userId: debate.user_id,
       completedAt: debate.completed_at ?? new Date().toISOString(),
-      kinds: snapshot.counts as unknown as Record<string, number>,
+      kinds: counts,
     });
   }
   return out;
