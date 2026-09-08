@@ -6,11 +6,14 @@ import MessageComposer, { type ComposerSubmitData } from "./MessageComposer";
 import ScoreBadges from "./ScoreBadges";
 import RoundProgress from "./RoundProgress";
 import ThinkingIndicator from "./ThinkingIndicator";
-import ArgumentRepair from "./ArgumentRepair";
+import ArgumentRepair, { FixThisNowButton } from "./ArgumentRepair";
 import { ArgGraphInline, TrackingGrid } from "./ArgGraphView";
 import { useSpeechSynthesis } from "./useSpeechSynthesis";
 import { MIN_ROUNDS, MAX_ROUNDS, type DebateSummary, type InputMode, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
 import type { ArgGraph } from "@/lib/argGraph";
+import type { ResultSnapshot } from "@/lib/resultSnapshot";
+import { minRoundsFor } from "@/lib/sprint";
+import { trackEvent } from "@/lib/trackClientEvent";
 
 interface RewardEventView { kind: string; xp: number; label: string; }
 interface DebateSummaryPayload {
@@ -18,6 +21,9 @@ interface DebateSummaryPayload {
   bonusXP: number;
   rewardEvents: RewardEventView[];
   summary: DebateSummary;
+  format?: "sprint" | "full";
+  honesty?: { confidence: "standard" | "reduced"; note: string | null };
+  snapshot?: ResultSnapshot;
 }
 
 export default function DebateRoom({
@@ -39,15 +45,28 @@ export default function DebateRoom({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DebateSummaryPayload | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  const [repairFocus, setRepairFocus] = useState(false);
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
+  const repairRef = useRef<HTMLDivElement>(null);
 
+  const format = debate.format === "sprint" ? "sprint" : "full";
+  const minRounds = minRoundsFor(format);
   const aiSide = debate.side === "for" ? "against" : "for";
   const pending = turns[turns.length - 1];
   const answeredCount = turns.filter((t) => t.user_message).length;
-  const canFinish = answeredCount >= MIN_ROUNDS;
+  const canFinish = answeredCount >= minRounds;
   const runningTotal = turns.reduce((sum, t) => sum + (t.turn_score ?? 0), 0);
+  const sideReason =
+    (debate.coaching as { sideReason?: string | null } | null)?.sideReason ??
+    ((debate as unknown as { side_reason?: string | null }).side_reason ?? null);
+  // Sprint rounds are answered up to and including round 3 (the cap itself);
+  // full debates keep the legacy behaviour where round_count counts created
+  // turns and the composer hides at 12.
+  const composerVisible =
+    status === "active" && !pending?.user_message && (format === "sprint" ? roundCount <= 3 : roundCount < MAX_ROUNDS);
 
   useEffect(() => {
     // Follow new messages only while the reader is already near the bottom;
@@ -71,9 +90,16 @@ export default function DebateRoom({
       const resData = await res.json();
       if (!res.ok) throw new Error(resData.error || "Failed to submit response.");
 
-      setTurns((prev) => [...prev.slice(0, -1), resData.completedTurn, resData.nextTurn]);
+      // Final round: no next turn is created — the room switches to its
+      // "finish the debate" state instead of waiting for a reply that
+      // will never come.
+      setTurns((prev) =>
+        resData.nextTurn
+          ? [...prev.slice(0, -1), resData.completedTurn, resData.nextTurn]
+          : [...prev.slice(0, -1), resData.completedTurn],
+      );
       setRoundCount(resData.roundCount);
-      if (ttsSupported) speak(resData.nextTurn.ai_message);
+      if (resData.nextTurn && ttsSupported) speak(resData.nextTurn.ai_message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit response.");
     } finally {
@@ -123,77 +149,141 @@ export default function DebateRoom({
     );
   }
 
+  function scrollToRepair() {
+    setRepairFocus(true);
+    setShowFullAnalysis(true);
+    requestAnimationFrame(() => {
+      repairRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   if (result) {
-    // Coaching insight: lead with the most meaningful behavioural signal.
+    // ── Simplified result screen ─────────────────────────────────────────
+    // User action first → coaching second → explanation third → technical last.
+    const snapshot = result.snapshot;
+    const weakness = snapshot?.weakness ?? null;
+    const highlight = snapshot?.highlight ?? null;
+    const honesty = result.honesty;
     const rewards = result.rewardEvents?.filter((e) => e.kind !== "complete-debate") ?? [];
     const topReward = rewards[0];
     const bonusXP = result.bonusXP ?? 0;
 
     return (
       <div className="flex flex-col gap-5">
-        <div className="surface-card flex flex-col gap-4 p-6">
-          {/* Coaching headline */}
-          {topReward ? (
-            <div>
-              <p className="text-xs uppercase tracking-wide text-[var(--accent)]">Best improvement</p>
-              <p className="mt-1 text-lg font-semibold">{topReward.label}</p>
-              {rewards.length > 1 && (
-                <ul className="mt-2 list-inside list-disc text-xs text-ink3">
-                  {rewards.slice(1).map((r) => (
-                    <li key={r.kind}>{r.label} (+{r.xp} XP)</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ) : null}
+        <div className="surface-card flex flex-col gap-4 p-6" data-testid="result-card">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+            Debate complete{format === "sprint" ? " · Sprint" : ""}
+          </p>
 
-          {/* Score demoted to secondary */}
-          <div className="flex items-baseline gap-3">
-            <span className="tabular text-2xl font-bold">{result.totalScore}</span>
-            <span className="text-sm text-ink3">pts</span>
-            {bonusXP > 0 && <span className="tabular text-sm text-[var(--accent)]">+{bonusXP} bonus</span>}
+          {/* Today's focus outcome, when a goal was set */}
+          {snapshot?.goalOutcome?.detail && (
+            <div className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-sm text-ink2" data-testid="goal-outcome">
+              {snapshot.goalOutcome.demonstrated === true && <span className="mr-1 text-[var(--success)]">✓</span>}
+              {snapshot.goalOutcome.demonstrated === false && <span className="mr-1 text-amber-600">→</span>}
+              {snapshot.goalOutcome.detail}
+            </div>
+          )}
+
+          {/* One strength, grounded in the debate */}
+          {highlight && (
+            <div>
+              <p className="text-xs uppercase tracking-wide text-ink3">You did well</p>
+              <p className="mt-1 text-base font-semibold">{highlight.headline}</p>
+              <p className="mt-0.5 text-sm text-ink3">{highlight.evidence}</p>
+            </div>
+          )}
+
+          {/* One main weakness + why it matters */}
+          {weakness && (
+            <div className="rounded-lg border border-[var(--speak)]/30 bg-[var(--speak-soft)] p-4" data-testid="main-weakness">
+              <p className="text-xs uppercase tracking-wide text-[var(--speak)]">Main weakness</p>
+              <p className="mt-1 text-base font-semibold">{weakness.headline}</p>
+              <p className="mt-1 text-sm leading-6 text-ink2">{weakness.whyItMatters}</p>
+            </div>
+          )}
+
+          {/* Primary action: fix it now */}
+          {weakness && <FixThisNowButton onClick={scrollToRepair} />}
+
+          {/* Score & XP demoted to secondary */}
+          <div className="flex items-baseline gap-3 pt-1">
+            <span className="text-xs uppercase tracking-wide text-ink3">Score</span>
+            <span className="tabular text-xl font-bold">{result.totalScore}</span>
+            {bonusXP > 0 && <span className="tabular text-sm text-[var(--accent)]">+{bonusXP} XP</span>}
+            {topReward && <span className="text-xs text-ink3">· {topReward.label}</span>}
           </div>
+          {honesty?.note && <p className="text-xs leading-5 text-ink3">{honesty.note}</p>}
 
-          <p className="text-sm text-ink3">{result.summary.overallFeedback}</p>
-          {result.summary.strengths.length > 0 && (
-            <div>
-              <p className="text-xs uppercase tracking-wide text-ink3">Strengths</p>
-              <ul className="list-inside list-disc text-sm text-ink3">
-                {result.summary.strengths.map((s) => (
-                  <li key={s}>{s}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {result.summary.improvements.length > 0 && (
-            <div>
-              <p className="text-xs uppercase tracking-wide text-ink3">To improve</p>
-              <ul className="list-inside list-disc text-sm text-ink3">
-                {result.summary.improvements.map((s) => (
-                  <li key={s}>{s}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <div className="flex flex-wrap gap-3 pt-2">
-            <button type="button" onClick={copyResult} className="btn btn-ghost px-3 py-1 text-xs">
+          <div className="flex flex-wrap gap-3 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                trackEvent("full_analysis_opened", { format });
+                setShowFullAnalysis((v) => !v);
+              }}
+              aria-expanded={showFullAnalysis}
+              className="btn btn-ghost px-3 py-1.5 text-xs underline underline-offset-2"
+              data-testid="toggle-full-analysis"
+            >
+              {showFullAnalysis ? "Hide full analysis" : "View full analysis"}
+            </button>
+            <button type="button" onClick={copyResult} className="btn btn-ghost px-3 py-1.5 text-xs">
               {copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}
             </button>
-            <Link href="/" className="btn btn-primary px-4 py-2 text-sm">
+            <Link href="/" className="btn btn-ghost px-3 py-1.5 text-xs">
               Back to today
             </Link>
-            <Link href="/leaderboard" className="btn btn-ghost px-4 py-2 text-sm">
-              View leaderboard
-            </Link>
           </div>
+
+          {showFullAnalysis && (
+            <div className="flex flex-col gap-4 border-t border-[var(--rule)] pt-4" data-testid="full-analysis">
+              <p className="text-sm text-ink3">{result.summary.overallFeedback}</p>
+              {result.summary.strengths.length > 0 && (
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-ink3">Strengths</p>
+                  <ul className="list-inside list-disc text-sm text-ink3">
+                    {result.summary.strengths.map((s) => (
+                      <li key={s}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {result.summary.improvements.length > 0 && (
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-ink3">To improve</p>
+                  <ul className="list-inside list-disc text-sm text-ink3">
+                    {result.summary.improvements.map((s) => (
+                      <li key={s}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {result.summary.argGraph && (
+                <>
+                  <ArgGraphInline graph={result.summary.argGraph} playerAName="You" playerBName="AI opponent" />
+                  <TrackingGrid graph={result.summary.argGraph} />
+                </>
+              )}
+              <Link href="/leaderboard" className="btn btn-ghost self-start px-3 py-1 text-xs">
+                View leaderboard
+              </Link>
+            </div>
+          )}
         </div>
-        {result.summary.argGraph ? (
-          <div className="flex flex-col gap-4">
-            <ArgumentRepair graph={result.summary.argGraph} />
-            <ArgGraphInline graph={result.summary.argGraph} playerAName="You" playerBName="AI opponent" />
-            <TrackingGrid graph={result.summary.argGraph} />
+
+        {/* The repair exercise: deliberate practice on the exact flagged move */}
+        {result.summary.argGraph && weakness && (
+          <div ref={repairRef}>
+            <ArgumentRepair
+              graph={result.summary.argGraph}
+              debateId={debate.id}
+              presetTarget={weakness.repair}
+            />
+            {!repairFocus && (
+              <p className="mt-2 text-center text-xs text-ink3">Takes about a minute. It trains the exact move the graph flagged.</p>
+            )}
           </div>
-        ) : null}
+        )}
       </div>
     );
   }
@@ -210,7 +300,7 @@ export default function DebateRoom({
           </div>
           {completedResult.argGraph && (
             <>
-              <ArgumentRepair graph={completedResult.argGraph} />
+              <ArgumentRepair graph={completedResult.argGraph} debateId={debate.id} />
               <ArgGraphInline graph={completedResult.argGraph} playerAName="You" playerBName="AI opponent" />
               <TrackingGrid graph={completedResult.argGraph} />
             </>
@@ -227,9 +317,15 @@ export default function DebateRoom({
         </p>
         <RoundProgress answered={answeredCount} />
       </div>
+      {sideReason && (
+        <p className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink2" data-testid="challenge-reason">
+          <span className="font-semibold text-ink">Challenge selected: {debate.side === "for" ? "For" : "Against"}.</span>{" "}
+          {sideReason}
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <p className="tabular text-sm text-ink3">
-          Round {roundCount} {roundCount < MIN_ROUNDS && `· ${MIN_ROUNDS - roundCount + 1} to go`}
+          Round {roundCount} {roundCount < minRounds && `· ${minRounds - roundCount + 1} to go`}
           {runningTotal > 0 && ` · ${runningTotal} pts so far`}
         </p>
       </div>
@@ -268,7 +364,7 @@ export default function DebateRoom({
         </p>
       )}
 
-      {status === "active" && !pending?.user_message && roundCount < MAX_ROUNDS && (
+      {composerVisible && (
         <div className="flex flex-col gap-2">
           <div className="flex gap-2 flex-wrap" role="group" aria-label="Debate mode">
             {[
@@ -292,7 +388,7 @@ export default function DebateRoom({
         </div>
       )}
 
-      {status === "active" && !pending?.user_message && roundCount >= MAX_ROUNDS && (
+      {status === "active" && !pending?.user_message && !composerVisible && (
         <p className="text-center text-sm text-ink3">
           Round limit reached ({MAX_ROUNDS}). Finish the debate to get scored.
         </p>
@@ -304,6 +400,7 @@ export default function DebateRoom({
           onClick={finishDebate}
           disabled={finishing}
           className="btn chip-elevated px-4 py-2 text-sm text-[var(--accent)] disabled:opacity-40"
+          data-testid="finish-debate"
         >
           {finishing ? "Scoring your debate…" : "Finish & get scored"}
         </button>

@@ -8,9 +8,12 @@ import { isValidSummary } from "@/lib/aiSchema";
 import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { computeCoachRewards, totalBonusXP } from "@/lib/coachRewards";
 import { buildEvaluationResult } from "@/lib/evaluationEnvelope";
-import { MIN_ROUNDS } from "@/lib/types";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
+import { minRoundsFor, measurementHonestyFor } from "@/lib/sprint";
+import { buildResultSnapshot } from "@/lib/resultSnapshot";
+import { recordProductEvent } from "@/lib/productEvents";
+import type { CoachingRecord } from "@/lib/types";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   const limited = await checkRateLimit(request, { name: "solo-finish", limit: 10, windowMs: 60_000 });
@@ -32,6 +35,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
   if (debate.status === "completed") return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
 
+  const format = debate.format === "sprint" ? "sprint" : "full";
+  const minRounds = minRoundsFor(format);
+
   const { data: turns, error: turnsError } = await db
     .from("solo_debate_turns")
     .select("*")
@@ -40,9 +46,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (turnsError || !turns) return NextResponse.json({ error: "Failed to load turns." }, { status: 500 });
 
   const answered = turns.filter((turn) => turn.user_message);
-  if (answered.length < MIN_ROUNDS) {
+  if (answered.length < minRounds) {
     return NextResponse.json(
-      { error: `Complete at least ${MIN_ROUNDS} rounds before finishing.` },
+      { error: `Complete at least ${minRounds} rounds before finishing.` },
       { status: 400 },
     );
   }
@@ -170,11 +176,50 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       .eq("id", user.id);
   }
 
+  // ── Coaching loop: assess today's goal and persist the snapshot ─────────
+  const coaching = (debate.coaching ?? {}) as CoachingRecord;
+  const goalDimension = coaching.dimension ?? null;
+  const snapshot = buildResultSnapshot(finalAssessment, { format, summary });
+  let coachingUpdate: CoachingRecord = { ...coaching, snapshot: null, demonstrated: null };
+  if (goalDimension && finalAssessment?.features?.a) {
+    const responses = finalAssessment.features.a.argumentResponses?.value;
+    const myIds = new Set(finalAssessment.graph.nodes.filter((n) => n.owner === "a").map((n) => n.id));
+    const behaviourSnapshot = {
+      responsesAnswered: responses?.responded ?? 0,
+      responseOpportunities: responses?.opportunities ?? 0,
+      unsupportedClaims: finalAssessment.graph.evidenceStats.unsupportedClaimIds.filter((id) => myIds.has(id)).length,
+      majorClaims: finalAssessment.graph.nodes.filter((n) => n.owner === "a" && (n.kind === "claim" || n.kind === "counterclaim")).length,
+      droppedOwn: finalAssessment.features.a.droppedArguments?.value ?? 0,
+    };
+    let demonstrated: boolean | null = null;
+    if (goalDimension === "rebuttal" && behaviourSnapshot.responseOpportunities > 0) {
+      demonstrated = behaviourSnapshot.responsesAnswered >= behaviourSnapshot.responseOpportunities * 0.8;
+    } else if (goalDimension === "evidence" && behaviourSnapshot.majorClaims > 0) {
+      demonstrated = behaviourSnapshot.unsupportedClaims === 0;
+    } else if (goalDimension === "structure") {
+      demonstrated = behaviourSnapshot.droppedOwn === 0;
+    }
+    coachingUpdate = { ...coaching, snapshot: behaviourSnapshot, demonstrated };
+    await db.from("solo_debates").update({ coaching: coachingUpdate }).eq("id", debateId);
+  }
+
+  void recordProductEvent("debate_completed", { format, side: debate.side });
+
   const evaluation = buildEvaluationResult({
     scoreStatus: finalAssessment?.status ?? "insufficient_evidence",
     summary,
     observableAssessment: finalAssessment ?? undefined,
   });
-  return NextResponse.json({ totalScore, bonusXP, rewardEvents, summary, assessment: finalAssessment, evaluation });
+  return NextResponse.json({
+    totalScore,
+    bonusXP,
+    rewardEvents,
+    summary,
+    assessment: finalAssessment,
+    evaluation,
+    format,
+    honesty: measurementHonestyFor(format),
+    snapshot,
+    coaching: coachingUpdate,
+  });
 }
-

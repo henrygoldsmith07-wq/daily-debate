@@ -4,12 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PVP_ROUNDS } from "@/lib/types";
+import { trackEvent } from "@/lib/trackClientEvent";
 
 export default function PvpLobby() {
   const router = useRouter();
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
+  const [invite, setInvite] = useState<{ code: string; url: string; expiresAt: string } | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [creatingInvite, setCreatingInvite] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -37,6 +41,7 @@ export default function PvpLobby() {
   async function findOpponent() {
     setSearching(true);
     setError(null);
+    trackEvent("pvp_started", {});
     try {
       const res = await fetch("/api/pvp/queue", { method: "POST" });
       const data = await res.json();
@@ -81,6 +86,25 @@ export default function PvpLobby() {
     await fetch("/api/pvp/queue", { method: "DELETE" });
   }
 
+  async function createChallenge() {
+    setCreatingInvite(true);
+    setInviteError(null);
+    try {
+      const res = await fetch("/api/challenges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ side: Math.random() < 0.5 ? "for" : "against" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create the challenge.");
+      setInvite({ code: data.invite.code, url: data.url, expiresAt: data.invite.expires_at });
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : "Failed to create the challenge.");
+    } finally {
+      setCreatingInvite(false);
+    }
+  }
+
   return (
     <div className="surface-card flex flex-col items-center gap-4 p-8 text-center">
       {activeMatchId && !searching && (
@@ -107,6 +131,40 @@ export default function PvpLobby() {
         </>
       )}
       {error && <p className="text-sm text-[var(--bad)]">{error}</p>}
+
+      <div className="w-full border-t border-[var(--rule)] pt-5">
+        <p className="text-xs uppercase tracking-[0.14em] text-ink3">Challenge a friend</p>
+        <p className="mt-1 text-sm text-ink3">
+          Get a shareable link. Your friend accepts when they&apos;re ready — nobody has to be online at the same time.
+        </p>
+        {invite ? (
+          <div className="mt-3 rounded-lg border border-[var(--rule)] bg-surface-2 p-3 text-left text-sm" data-testid="challenge-invite">
+            <p className="font-medium">Share this link:</p>
+            <p className="mt-1 break-all font-mono text-xs text-[var(--accent)]">{invite.url}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(window.location.origin + invite.url).catch(() => {})}
+                className="btn btn-ghost px-3 py-1 text-xs"
+              >
+                Copy link
+              </button>
+              <span className="text-xs text-ink3">Expires {new Date(invite.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={createChallenge}
+            disabled={creatingInvite}
+            className="btn btn-secondary mt-3 px-4 py-2 text-sm disabled:opacity-40"
+            data-testid="create-challenge"
+          >
+            {creatingInvite ? "Creating…" : "Create a friend challenge"}
+          </button>
+        )}
+        {inviteError && <p className="mt-2 text-sm text-[var(--bad)]">{inviteError}</p>}
+      </div>
     </div>
   );
 }

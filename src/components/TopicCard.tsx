@@ -26,46 +26,60 @@ export interface EvidenceCardView {
   checks?: EvidenceChecksView;
 }
 
+type SideChoice = DebateSide | "challenge";
+
 export default function TopicCard({
   topic,
   activeDebateId,
   evidenceCards = [],
-  coachingFocus = "Use evidence for major claims.",
+  goalLine = "Use evidence for major claims.",
+  lastLine,
+  focusLabel = "Today's focus",
 }: {
   topic: DailyTopic;
   activeDebateId: string | null;
   evidenceCards?: EvidenceCardView[];
-  coachingFocus?: string;
+  /** Today's coaching goal headline (shown before the debate). */
+  goalLine?: string;
+  /** Evidence from the previous debate, when the goal is based on one. */
+  lastLine?: string | null;
+  focusLabel?: string;
 }) {
   const router = useRouter();
-  const [side, setSide] = useState<DebateSide>("for");
-  const [starting, setStarting] = useState(false);
+  const [side, setSide] = useState<SideChoice>("challenge");
+  const [starting, setStarting] = useState<null | "sprint" | "full">(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function startDebate() {
-    setStarting(true);
+  async function startDebate(format: "sprint" | "full") {
+    setStarting(format);
     setError(null);
     try {
       const res = await fetch("/api/solo/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicId: topic.id, side }),
+        body: JSON.stringify({ topicId: topic.id, side, format }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start debate.");
       router.push(`/debate/${data.debate.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start debate.");
-      setStarting(false);
+      setStarting(null);
     }
   }
+
+  const sideMeta: Record<SideChoice, { label: string; sub: string }> = {
+    for: { label: "For", sub: "Make the case" },
+    against: { label: "Against", sub: "Push back" },
+    challenge: { label: "Challenge me", sub: "Pick my side" },
+  };
 
   return (
     <section className="home-motion-card surface-card" aria-labelledby="today-motion">
       <div className="home-motion-heading">
         <div>
           <p className="home-motion-kicker">Today&apos;s motion</p>
-          <p className="home-motion-meta">One focused rep · at least 5 rounds</p>
+          <p className="home-motion-meta">One focused rep · about 4 minutes</p>
         </div>
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">
           {topic.category ?? "Daily debate"}
@@ -79,8 +93,9 @@ export default function TopicCard({
         </div>
 
         <div className="home-coaching-focus">
-          <span className="home-coaching-label">Today&apos;s coaching focus</span>
-          <strong>{coachingFocus}</strong>
+          <span className="home-coaching-label">{focusLabel}</span>
+          <strong>{goalLine}</strong>
+          {lastLine && <span className="home-coaching-lastline">{lastLine}</span>}
         </div>
 
         {activeDebateId ? (
@@ -91,41 +106,48 @@ export default function TopicCard({
           <div className="home-start-block">
             <div className="home-side-label">Your side</div>
             <div className="home-side-picker" role="group" aria-label="Choose side">
-              <button
-                type="button"
-                onClick={() => setSide("for")}
-                aria-pressed={side === "for"}
-                className={`home-side-option ${side === "for" ? "selected" : ""}`}
-              >
-                <span className="home-side-option-label">For</span>
-                <span>Make the case</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSide("against")}
-                aria-pressed={side === "against"}
-                className={`home-side-option ${side === "against" ? "selected" : ""}`}
-              >
-                <span className="home-side-option-label">Against</span>
-                <span>Push back</span>
-              </button>
+              {(["challenge", "for", "against"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setSide(option)}
+                  aria-pressed={side === option}
+                  className={`home-side-option ${side === option ? "selected" : ""}`}
+                >
+                  <span className="home-side-option-label">{sideMeta[option].label}</span>
+                  <span>{sideMeta[option].sub}</span>
+                </button>
+              ))}
             </div>
+
             <button
               type="button"
-              onClick={startDebate}
-              disabled={starting}
+              onClick={() => startDebate("sprint")}
+              disabled={starting !== null}
               className="home-start-button btn btn-primary px-4 py-3 text-sm disabled:opacity-40"
+              data-testid="start-sprint"
             >
-              {starting ? (
+              {starting === "sprint" ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-transparent" />
                   Starting…
                 </span>
               ) : (
-                <>Start debate <span aria-hidden="true">→</span></>
+                <>Daily Sprint · about 4 min <span aria-hidden="true">→</span></>
               )}
             </button>
-            <p className="home-start-note">You&apos;ll get one clear goal per round and a coach note after every response.</p>
+            <button
+              type="button"
+              onClick={() => startDebate("full")}
+              disabled={starting !== null}
+              className="btn btn-ghost px-4 py-2 text-sm text-ink3 disabled:opacity-40"
+              data-testid="start-full"
+            >
+              {starting === "full" ? "Starting…" : "Full debate · 5–12 rounds"}
+            </button>
+            <p className="home-start-note">
+              A Sprint gives one focused practice round with directional scoring; a full debate carries the complete analysis.
+            </p>
             {error && <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>}
           </div>
         )}

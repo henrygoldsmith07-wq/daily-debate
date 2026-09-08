@@ -11,18 +11,38 @@ depth rather than a new subsystem. The current labelled fixture corpus is not
 provenance-audited human data; it is a regression scaffold until moderated
 annotations are imported. Order within each group is not priority order.
 
-## Progress (2026-08-15)
+## Progress (2026-09-08)
 
-Shipped in the first implementation pass: rater-guidance/consensus-label
-scaffolding + adjudication helpers (`corpusAdjudication.ts`), source-date checking +
-original-source detection (`citationVerifier.ts`), political-topic / ideological
-asymmetry / writing-complexity / source-prestige bias audit (`judgeInvariance.ts`),
-team debates / classroom debates / teacher-assigned motions (`classroom.ts`), and
-judge uncertainty in the UI — every PvP verdict now stores confidence, a
-score-gap 95% CI, the winner posterior, per-judge agreement, and a "too close to
-call" result (`ensembleJudge.ts` → `verdictFromEnsemble` → `VerdictExplainPanel`).
-Still open: the 1,000+ debate data collection, live-model benchmark runs (need API
-keys), and better STT (needs a transcription service).
+**Product-loop pass (current).** The experience was restructured around one
+loop — debate → one weakness → immediate repair → deliberate retest → measured
+improvement:
+
+- Daily Sprint (3 rounds, ~4 min) with explicitly reduced measurement
+  confidence; Full Debate (5–12 rounds) unchanged.
+- Simplified result screen: one strength, one evidenced weakness,
+  **Fix this now**, score secondary, full analysis behind disclosure.
+- Weak-link repair is now server-scored and persisted (`repair_results`,
+  migration 004) and links into the drill/coaching system.
+- "Challenge me" side assignment with explainable, history-based heuristics
+  (`challengeMe.ts`).
+- Daily coaching goal: set before the debate, assessed after it, persisted on
+  the debate row; numeric only where the data supports precision.
+- Progress redesigned: seven skills with trend arrows, focus card, raw metrics
+  behind "How this was calculated".
+- Async friend-challenge foundation (`challenge_invites`, `/challenge/<code>`) —
+  experimental.
+- Privacy-conscious product analytics hooks (allowlisted events, migration 004).
+
+Shipped in earlier passes: rater-guidance/consensus-label scaffolding +
+adjudication helpers (`corpusAdjudication.ts`), source-date checking +
+original-source detection (`citationVerifier.ts`), political-topic /
+ideological asymmetry / writing-complexity / source-prestige bias audit
+(`judgeInvariance.ts`), team debates / classroom debates / teacher-assigned
+motions (`classroom.ts`), and judge uncertainty in the UI — every PvP verdict
+now stores confidence, a score-gap band, per-judge agreement, and a "too close
+to call" result (`ensembleJudge.ts`). Still open: the 1,000+ debate data
+collection, live-model benchmark runs (need API keys), and better STT (needs a
+transcription service).
 
 Second pass (§4 citation & evidence integrity): quote verification
 (`quoteVerification.ts`) — quoted spans in evidence are checked against the cited
@@ -38,9 +58,7 @@ Third pass (§4 citation & evidence integrity): claim-to-source matching
 against the best-matching cited excerpt and graded supported → weak → mismatched
 (no excerpt = unverifiable, not a violation). The graph evidence report now
 counts claims whose citations don't support them (`claimMismatchCount`), demotes
-those links to tangential, and docks its score for decorative citations
-(`evidenceVerification.ts` → `GraphEvidenceReport.claimMismatchCount` /
-`weakClaimSourceCount`).
+those links to tangential, and docks its score for decorative citations.
 
 ## Baseline already shipped
 

@@ -29,6 +29,8 @@ export type SoloDebateRow = {
   status: string;
   round_count: number;
   total_score: number | null;
+  format: string;
+  coaching: unknown;
   created_at: string;
   completed_at: string | null;
 };
@@ -180,6 +182,45 @@ export type TopicEvidenceRow = {
   created_at: string;
 };
 
+export type RepairResultRow = {
+  id: string;
+  user_id: string;
+  debate_id: string;
+  target_kind: string;
+  source_node_id: string | null;
+  source_text: string;
+  rewrite_text: string;
+  score: number;
+  succeeded: boolean;
+  signals: unknown;
+  created_at: string;
+};
+
+export type ChallengeInviteRow = {
+  id: string;
+  code: string;
+  challenger_id: string;
+  topic_id: string;
+  challenger_side: string;
+  status: string;
+  opponent_id: string | null;
+  match_id: string | null;
+  expires_at: string;
+  created_at: string;
+};
+
+export type ProductEventRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  format: string | null;
+  side: string | null;
+  reason: string | null;
+  round: number | null;
+  repair_score: number | null;
+  created_at: string;
+};
+
 type TableDef<Row> = { Row: Row; Insert: Partial<Row>; Update: Partial<Row> };
 
 export type Database = {
@@ -199,5 +240,8 @@ export type Database = {
     corpus_ratings: TableDef<CorpusRatingRow>;
     drill_assignments: TableDef<DrillAssignmentRow>;
     topic_evidence: TableDef<TopicEvidenceRow>;
+    repair_results: TableDef<RepairResultRow>;
+    challenge_invites: TableDef<ChallengeInviteRow>;
+    product_events: TableDef<ProductEventRow>;
   };
 };

@@ -1,77 +1,77 @@
 # Daily Debate
 
-A daily critical-thinking app: debate an AI opponent (by typing or speaking)
-across at least five rounds and get scored on depth, evidence, logic,
-rebuttal quality, and clarity — or challenge another player head-to-head on
-today's topic and let an AI judge declare the winner. Points, levels, and
-streaks make it a game.
+One focused debate. One clear weakness. One immediate repair. One measurable improvement over time.
+
+Daily Debate is a daily reasoning trainer: argue today's motion against an AI opponent (in a ~4-minute Sprint or a full 5–12-round debate), get one clear coaching insight grounded in the arguments you actually made, repair your weakest link immediately, and watch whether the fix sticks across debates.
 
 ## Stack
 
-Next.js (App Router) + the repository-owned Postgres/auth backend + OpenRouter (primary, default model `z-ai/glm-5.2:free` with automatic failover) / Anthropic (alternate judge backend). The app talks to standard Postgres through the Neon serverless driver.
+Next.js (App Router) + a repository-owned Postgres/auth backend + OpenRouter (primary, default model `z-ai/glm-5.2:free` with automatic failover) / Anthropic (alternate judge backend). The app talks to standard Postgres through the Neon serverless driver.
 
-> **On the free tier:** `z-ai/glm-5.2:free` is served by a single upstream provider whose shared pool is often saturated and returns 429 for long stretches. Requests retry with backoff and then fail over to the next model in `OPENROUTER_FALLBACK_MODELS`. Most of these models also bill reasoning tokens against `max_tokens` — GLM 5.2 spent 324 of 349 completion tokens thinking — so reasoning is disabled by default; endpoints that require it are retried without the flag.
+## The daily loop
 
-## Features
+The product is built around one loop:
 
-- **Daily topic** — a new debatable proposition is generated once per day
-  (`getOrCreateTodayTopic`), grounded with 3-5 real, well-known institutions
-  relevant to the topic (their homepage + what angle/data they're known for).
-  The model does not have live web access in this app, so these are named
-  credible sources to go research yourself, not live-fetched citations.
-- **Solo debate vs AI** — pick a side, then go back and forth with an AI
-  arguing the opposite side for a minimum of 5 rounds (capped at 12). Each
-  response is converted into an observable argument graph; the legacy five
-  display badges are projections of graph features, not model-authored 0-10
-  judgements. Finishing awards derived points, updates your level, and updates
-  your daily streak.
-- **Player vs player** — join the matchmaking queue for today's topic, get
-  randomly assigned a side, and take alternating turns. Once both players hit
-  the round limit, a model extracts the argument graph and deterministic rules
-  compute the score from claims, citations, relevance, rebuttal coverage,
-  responses, impacts, dropped arguments, contradictions, concessions, and
-  high-confidence fallacies. If the graph is not sufficient, the result is
-  explicitly `insufficient_evidence`, not a forced winner.
-- **Voice input/output** — the mic button uses the browser's Web Speech API
-  (`SpeechRecognition`) to dictate your response as text before sending; the
-  AI's messages are read aloud with `speechSynthesis`. Both are Chrome-family
-  only; the composer falls back to typing where unsupported.
-- **Gamification** — points per turn (legacy 5-bucket sum) **plus improvement bonuses** for behaviours that indicate skill growth: complete debate +50, improve weakest skill +20, ground a claim +15, answer every rebuttal +20, beat benchmark +30, unfamiliar topic +10. Dashboard leads with coaching signals (weakness, recent improvement, skill rating), not vanity metrics. Global leaderboard included.
-- **Argument DNA** — `/dna` turns every completed solo or PvP graph into a persistent reasoning profile: evidence-backed pattern cards, a monthly movement timeline, and a first-vs-latest argument graph comparison. Older debates without a structured assessment stay visible in history but are excluded from pattern claims.
-- **Weak-link repair** — after a scored solo debate, the app picks one observable miss from the user's graph (such as an unsupported claim or an unanswered opposing move), asks for a rewrite, and returns an explainable practice signal. The original debate score never changes; the next move is immediately actionable.
-- **Guest practice loop** — new players can try a three-round, source-aware
-  practice debate without an account, see a skill-oriented result, and then
-  save progress when they are ready. This keeps the first session useful even
-  before database and model credentials are configured.
-- **UX polish** — Ctrl/⌘+Enter to send, auto-scroll in the debate room,
-  color-coded score badges, copyable result summary, mobile-friendly header,
-  clearer empty states and loading indicators.
+1. **Debate** — a Daily Sprint (3 rounds, ~4 min) or a Full Debate (5–12 rounds).
+2. **One weakness** — the result screen leads with a single highest-priority weakness, evidenced from your argument graph, not a wall of analytics.
+3. **Repair now** — the **Fix this now** action opens a one-minute rewrite exercise on the exact flagged move. Scored server-side, remembered, and linked into coaching.
+4. **Remember** — the coaching goal, side history, and repair outcomes persist between sessions.
+5. **Test again** — the next debate carries the same focus; the result assesses whether you demonstrated the target behaviour.
+6. **Measure** — the Progress screen shows seven skill dimensions with simple trends; improvement claims stay observational until enough debates exist.
+
+## Feature status
+
+Honest labels for what is shipped, provisional, or gated:
+
+**Shipped**
+
+- Daily Sprint (3 rounds) and Full Debate (5–12 rounds) through the same argument/evaluation pipeline.
+- Simplified result screen: one strength, one weakness, one evidence line, **Fix this now**, score/XP secondary, full analysis behind progressive disclosure.
+- Weak-link repair: server-scored rewrite of the flagged move, persisted in `repair_results`, linked to the day's drill assignment.
+- "Challenge me" side assignment: explainable, history-based side choice (side balance → performance gap → alternation → random when no data). Lightweight by design — not presented as optimised.
+- Daily coaching goal: shown before the debate, assessed after it, numeric only when the data supports the precision.
+- Progress screen: seven skills (Evidence, Rebuttal, Logic, Clarity, Impact, Steelmanning, Structure) with score + trend, strongest/weakest, current focus; raw metrics behind "How this was calculated".
+- Measurement honesty: Sprint results carry an explicit reduced-confidence note; `insufficient_evidence`, uncertainty lists, and evaluation stamps are preserved everywhere.
+- PvP with atomic matchmaking, turn clocks, forfeits, judged verdicts with ensemble + fingerprints. Competitive trust claims stay conservative; the judge-validation gate is intact.
+- Async friend challenges: shareable `/challenge/<code>` link, persistent match state, expiry, turn state. (Foundation; UI marked experimental.)
+- Guest practice loop without an account.
+- Product analytics: allowlisted, bounded, no-free-text funnel events (`src/lib/productEvents.ts`).
+
+**Provisional (measured, not validated)**
+
+- Skill scores and trends: deterministic and reproducible, but not yet validated against external measures of debating ability.
+- Coach focus selection and drill-outcome movement.
+- Ensemble-judge confidence heuristics.
+
+**Gated / future**
+
+- Ranked play, Elo expansion, tournaments: stay behind `eloGate` (judge invariance + ≥70% human agreement on a real corpus).
+- Judge validation on live models: weekly benchmark runs (`npm run benchmark:judges`), gates in `config/judge-gates.json`.
+
+## Documentation
+
+| File | Contents |
+|---|---|
+| [docs/product.md](docs/product.md) | The daily loop, Sprint vs Full, coaching goal, repair, screen-by-screen hierarchy |
+| [docs/judging.md](docs/judging.md) | Argument graph, observable assessment, scoring policy, judge ensemble + invariance |
+| [docs/evidence.md](docs/evidence.md) | Source grounding, citation verification, quote + claim-to-source matching |
+| [docs/validation.md](docs/validation.md) | Measurement honesty, confidence labels, benchmarks, corpus, what stays provisional |
+| [docs/architecture.md](docs/architecture.md) | Pipeline, data model, reliability, security, testing |
+| [docs/roadmap.md](docs/roadmap.md) | Evaluation corpus, judge bias benchmarks, gated path to ranked play |
 
 ## Setup
 
-1. Create a standard Postgres database (a pooled Neon/Vercel Postgres URL is
-   recommended for serverless deployments).
-2. Run `npm install`, copy `.env.example` to `.env.local`, and set
-   `DATABASE_URL` plus at least one AI provider key.
+1. Create a standard Postgres database (a pooled Neon/Vercel Postgres URL is recommended for serverless deployments).
+2. Run `npm install`, copy `.env.example` to `.env.local`, and set `DATABASE_URL` plus at least one AI provider key.
 3. Run `npm run db:migrate && npm run dev`.
 
-Authenticated users get the full daily-topic experience. Signed-out users get
-a local guest practice loop first, so the product can be evaluated before
-starting a debate account.
+Authenticated users get the full daily-topic experience. Signed-out users get a local guest practice loop first, so the product can be evaluated before starting a debate account.
 
 ## Deploying to Vercel
 
-The Vercel project must point its **Root Directory** at the repository root
-(this is a standalone repo, not the monorepo it was split out of) with the
-framework preset left on **Next.js**.
+The Vercel project must point its **Root Directory** at the repository root (this is a standalone repo) with the framework preset left on **Next.js**.
 
-Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only
-checks for the app's signed-in session cookie; it performs no database or
-third-party network work, so a backend outage cannot crash Vercel Routing
-Middleware. Without `DATABASE_URL`, `/` remains available in guest mode,
-`/login` explains that sign-in is unavailable, and protected pages redirect
-there. Set the variables in **Settings → Environment Variables** for Production,
-Preview, and Development, run the migration against that database, then redeploy:
+Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only checks for the app's signed-in session cookie; it performs no database or third-party network work, so a backend outage cannot crash Vercel Routing Middleware. Without `DATABASE_URL`, `/` remains available in guest mode, `/login` explains that sign-in is unavailable, and protected pages redirect there. Set the variables in **Settings → Environment Variables** for Production, Preview, and Development, run the migration against that database, then redeploy:
 
 | Variable | Required | Notes |
 | --- | --- | --- |
@@ -82,161 +82,10 @@ Preview, and Development, run the migration against that database, then redeploy
 | `ANTHROPIC_API_KEY` | optional | Second judge in the ensemble when present. |
 | `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |
 
-After setting `DATABASE_URL`, run `npm run db:migrate` locally against the same
-database before deploying authenticated features.
+After setting `DATABASE_URL`, run `npm run db:migrate` locally against the same database before deploying authenticated features.
 
-## Argument graph & judging (why the winner won)
+## Tests
 
-Every finished debate now produces a structured **argument graph**: `claim → evidence → counterclaim → rebuttal → impact`.
-The model can extract graph nodes, but `src/lib/observableAssessment.ts` recomputes observable features and the score. The score has explicit weights, per-component evidence references, an extraction-confidence/uncertainty record, a five-point tie threshold, and an `insufficient_evidence` outcome. It does not use text length or source count as evidence quality; a claim receives at most the best relevant, grounded support link.
-
-The scored features are `claimsMade`, `claimsDirectlySupported`, `evidenceActuallyCited`, `evidenceRelevance`, `directRebuttals`, `rebuttalCoverage`, `droppedArguments`, `contradictions`, `unsupportedAssertions`, `concededPoints`, `argumentResponses`, `impactHandling`/`impactComparison`, and `confidentlyDetectableFallacies`. The existing graph remains the audit surface and UI explanation.
-
-### Source-grounded evidence
-
-Evidence nodes are **source-grounded**: `ArgNode.citations?: EvidenceCitation[]` (`{ sourceName, homepage?, excerpt? }`). Judging prompts in both `src/lib/openrouter.ts` and `src/lib/anthropic.ts` now require that every `cited`/`strong` evidence node carry ≥1 citation naming a **real institution or outlet** (root homepage only — never invent article URLs). `validateGraph()` enforces this: cited/strong evidence without citations is a validation error, shown in the UI as `⚠ no citation`. New helpers:
-
-- `groundedEvidenceRatio(graph)` — share of cited/strong evidence that is grounded
-- `claimCoverageWithGroundedEvidence(graph)` — share of claims backed by grounded evidence
-- `ArgGraphView` renders `↳ Pew, Lazard` per evidence node and a **Source grounding** panel; uncited cited/strong nodes get a `⚠ no citation` flag.
-
-### Quote verification
-
-Quoted spans in evidence are checked against the cited source's excerpt
-(`src/lib/quoteVerification.ts`): verbatim quotes verify, close-but-not-verbatim
-reads as paraphrase, partial overlap is flagged misquoted, and a quote absent
-from the source is flagged **fabricated**. `evidenceQualityScore` folds source
-tier + quote fidelity + date recency into one 0–1 score, and the graph evidence
-report (`graphEvidenceReport`) counts fabricated quotes and docks its score for
-them.
-
-### Claim-to-source matching
-
-A claim's content is checked against the best-matching cited excerpt
-(`claimSourceMatch` in `src/lib/quoteVerification.ts`) and graded
-**supported → weak → mismatched** — a claim that only repeats the source's name
-is weak, and a claim whose content appears nowhere in the cited source is a
-decorative citation. `graphEvidenceReport` counts mismatched claims
-(`claimMismatchCount`), demotes those links to tangential, and docks its score
-for them. No excerpt attached means **unverifiable**, not a violation.
-
-### Judge benchmarks (invariance + grounded coverage)
-
-`src/lib/benchmarks.test.ts` + `src/lib/benchmark.fixtures.ts` run on every `npm test` without network/DB:
-
-- **Grounded evidence benchmark** — synthetic grounded graphs pass validation; uncited cited-nodes are flagged; metrics computed.
-- **Judge invariance benchmark** — deterministic graph scoring verifies that swapping A/B ownership preserves every argument and inverts only the side label, while whitespace/verbosity changes do not buy points. Transcript fixtures still exercise the label-swap harness. Live-model invariance (run the real OpenRouter judge twice with shuffled framing and assert `winner` stability) belongs in a future `*.e2e.ts` suite — fixtures are reusable for it.
-
-Until invariance is measured on the real judge, Elo/rank/social expansion stays paused — the task brief's milestone.
-
-## Rate limiting & testing
-
-- **Rate limiting** is Postgres-backed: `rate_limits(key, count, reset_at)` is shared across all serverless instances and `increment_rate_limit()` updates it atomically. A local in-memory fallback keeps guest mode and unit tests usable when `DATABASE_URL` is absent. The consolidated migration also ships `cleanup_expired_backend_state()` for expired sessions and rate-limit windows. See `src/lib/rateLimit.ts`.
-- **Tests:** `npm test` (`vitest run`) / `npm run test:watch`. The assessment tests cover score composition, evidence references, insufficient evidence, side swaps, verbosity, source-count traps, and eloquent-nonsense vs concise-evidence cases.
-
-## Trust, bias & benchmark suite (9.5)
-
-New pure modules in `src/lib/` — all offline, all in `npm test` without credentials:
-
-- **Citation verification** (`citationVerifier.ts`) — allowlist of ~25 real institutions (Nature/Reuters/AP/Pew/NREL/Lazard/NIST…), `verifyCitation`/`verifyGraphCitations` flags `hallucination` / `unknown_source` / `bad_url` / `missing_homepage`, root-homepage-only rule, tiered `sourceQualityScore` (1=peer-reviewed → 3=unknown) and `graphSourceQuality`. Live homepage reachability is a future async check; offline allowlist catches fake-institution hallucination.
-- **User-attached evidence** (`evidence.ts`) — `UserEvidence { url, title?, excerpt? }`, `validateUserEvidence` (https + length) and `inferSourceFromUrl` (e.g. nature.com → Nature) so debaters can bring their own sources; future: surface to judge prompt + server-side fetch verify.
-- **Judge invariance** (`judgeInvariance.ts`) — transforms: `swapLabels` (position bias), `stripNames` (name/identity bias), `inflateVerbosity` (verbosity bias), `addConfidenceHedge` (confidence bias), `injectFakeSource` (hallucination probe), plus `checkLabelInvariance` mock. Real-model double: call the live judge twice over the same `TRANSCRIPTS` fixture with `swapLabels` and assert winner stability in a future `*.e2e.ts`.
-- **Labelled corpus** (`humanCorpus.ts`) — the repository fixture has rater-shaped records, but `auditCorpusLabels` marks it `unverified_fixture` because this checkout contains no independent provenance that proves human annotation. Agreement/calibration numbers are regression diagnostics, not human-validity claims, until moderated-annotation provenance is imported.
-- **Heuristic enrichers** (`argHeuristics.ts`) — `detectRepetition` (Jaccard ≥0.72, same owner), `rebuttalCoverage` / `rebuttalAddressesTargets`, `fallacyHints` (lexicon over text). Intended to complement the judge and make the graph auditable/editable (nodes filterable offline).
-- **Drills & weakness** (`drills.ts`) — `drillsFor` (ground a claim / close dropped / fix fallacy / weigh impact) and `weaknessProfile` + `topWeakness` across recent graphs for targeted practice and repeated personal weakness cards.
-- **Competitive** (`competitive.ts`) — `eloGate({ invarianceOk, humanAgreement })` (70% human threshold), Elo math (`kFactor`, `expectedScore`, `eloDelta`), and `pickOpponent` (FIFO while gate closed, Elo-bucketed within 150 when open). Tournaments/challenges stay gated.
-- **Moderation & anti-cheat** (`moderation.ts`) — `moderateMessage` (harassment/spam/caps/injection) + `isBlocked`, `repeatScore`, `isSuspiciousLength`. Real PvP abuse (multi-account, voting rings) needs additional backend controls; this catches cheap tricks.
-- **Transcripts & async** (`transcript.ts`) — `transcriptForReplay` (ordered), `isOverdue` (per-turn clock), `DEFAULT_ASYNC` (24h/turn, 7d total) scaffold for replayable + asynchronous debates.
-- **Retention** (`retention.ts`) — `dailyQuests`, `weeklyTarget`, `comebackCopy`, `onboardingChecklist` so retention does not rely purely on streaks.
-- **Speech fallbacks** — `useSpeechRecognition` already degrades to typing; now documented for Safari/Firefox, with dictation + paste as alternatives (Web Speech API is Chrome-family only).
-
-Tests: `src/lib/dailyDebate95.test.ts` (24 tests) covering all of the above.
-
-Live-model note: run the real OpenRouter/Anthropic judge twice per fixture with each transform and report `positionBias`, `nameBias`, `verbosityBias`, `confidenceBias`, `hallucinationRate` — keep fixtures in `benchmark.fixtures.ts` reusable and add a `scripts/judge-invariance-e2e.mjs` once an API key is provisioned.
-
-## Known limitations / TODO before wider PvP
-
-- **Elo/ranking stays gated by `eloGate`** (invariance + ≥70% human agreement) — matchmaking is FIFO until green. Tournament/challenge modes stay behind the same gate.
-- Live-model judge invariance e2e (real Gemini calls) still needs an API key — fixtures + `judgeInvariance` transforms are ready for it.
-- Article-level citation verification (fetch the URL and check the excerpt) is a future server action; the offline allowlist is the floor.
-
-## Argument-evaluation engine
-
-`src/lib/argumentEvaluation.ts` adds deterministic detectors on top of the observable graph, surfaced as `assessment.engine` on every scored debate:
-
-- **Causal overclaim detection** — certainty/causal language ("proves", "guarantees", "leads to") checked against the side's own evidence: unhedged causation over associational-only citations is flagged high-severity.
-- **Fake-precision detection** — decimal-exact figures ("exactly 3.42%") without a nearby attribution cue; bare "per" deliberately does not count as a source cue.
-- **Rebuttal-quality scoring** (beyond coverage) — target coverage × evidence-backing × engagement with the opponent's strongest material (impacts/counterclaims) × substance.
-- **Steelman-quality scoring** — steelman markers ("even if", "granting", "concede") plus recorded concessions, minus strawman/ad-hominem penalties.
-
-## Longitudinal skill ledger
-
-`/progress` turns scored debates into measurable improvement. For each completed debate the stored observable assessment is re-merged and reduced to a metric vector — unsupported-claim rate, rebuttal coverage, evidence grounding (allowlist-verified), dropped arguments, contradictions, impact handling, steelmanning, fallacy frequency, causal overclaims, fake-precision figures, uncited-evidence rate, clarity — then trajectories are computed per metric: first-vs-last window deltas, least-squares slope per debate, and an `improved` flag with a noise floor. A fixed deterministic benchmark opponent provides a reference vector every user is compared against, and recurring weaknesses map to targeted drills (`weaknessTracker`). Improvement claims stay observational until 10 debates; causal claims wait for the rated corpus.
-
-## Adaptive coach
-
-`/progress` now leads with an **Argument Skill Profile** — seven dimensions (Evidence, Rebuttal, Logic, Clarity, Impact, Steelmanning, Structure) scored 0–100 from the same deterministic pipeline that grades debates, rendered as bars. Below it sits **Today's training focus**: the lowest dimension adjusted by movement (improving ones are deprioritised), served as a 2–5 minute drill from a rotating library.
-
-Drills are **measurable end-to-end**: `drill_assignments` (migration 010) records before-score → drill → scored attempt → skill movement from subsequent debates (`movementAround`). Dimensions whose recent drills produce negative movement are excluded from recommendations until their skill moves again — the coach stops prescribing what doesn't work for you. Attempt scoring uses the judge's own detectors (contrastive moves, real-institution citations, weighing language, fallacy checks) so practice and performance share one rubric.
-
-## Argument DNA
-
-`/dna` is the product-facing long view of the ledger. `src/lib/argumentDnaServer.ts` replays stored observable assessments for a user's completed solo debates and judged PvP matches, then `src/lib/argumentDna.ts` reduces them into month buckets, graph counts, profile movement, and cautious pattern copy. The page deliberately distinguishes **tracked debates** from **graph-scored debates** and uses the same deterministic metrics as `/progress`, so statements such as “your causal bridge is often unstated” include their observable basis and do not present a one-off as a diagnosis.
-
-## Live judge benchmarks (gated deployment)
-
-`npm run benchmark:judges` runs the invariance/bias suite against **real model APIs** (`scripts/judge-benchmark.mjs`, dependency-free so Node actually executes it — the previous `.ts`-importing script silently no-op'd). For each configured provider/model it judges the labelled fixtures base + 9 invariance transforms + political/ideological audit probes, then measures: position-mirror stability, per-transform stability, false-citation influence, ideological asymmetry, fixture-label agreement, ECE, latency and token spend.
-
-Results merge into `docs/judge-leaderboard.md` (one row per model) with raw JSON at `docs/latest-judge-benchmark.json`. Deployment gates live in `config/judge-gates.json`; `--enforce` exits non-zero on breach, and `.github/workflows/judge-benchmark.yml` runs the suite weekly plus on demand. Current live findings are in the leaderboard file — including gate results that models must pass before judging real matches.
-
-## Debate modes & speech analysis
-
-Four debate modes change the training stimulus:
-
-| Mode | Time | Purpose | Voice |
-|---|---|---|---|
-| **Text** | untimed | Analytical argument construction with citations | optional |
-| **Speech** | ~60s soft / 180s hard | Actual debating practice for pace and filler analysis | expected |
-| **Rapid Rebuttal** | 45s soft / 60s hard | Immediacy and concision — answer an argument fast | expected |
-| **Prepared Speech** | 180s soft / 300s hard | Extended structured case with signposting | expected |
-
-`src/lib/speechAnalysis.ts` measures seven debating-relevant vocal characteristics from transcript metadata: **pace** (words/minute, ideal 120–170), **filler density** (um/uh/like per 100 words), **pause patterns**, **structural signposting** (first/furthermore/therefore density), **contrastive moves** (however/even if/granting = rebuttal engagement), **argument repetition** (Jaccard vs prior turn), and **rebuttal immediacy** (seconds between opponent's turn and user starting). `scoreSpeechQuality()` composites these into a 0–100 score. Deliberately does NOT score accent, pitch, tone, or vocal characteristics irrelevant to debating quality.
-
-## AI providers
-
-**NVIDIA (build.nvidia.com) is the primary transport** when `NVIDIA_API_KEY` is set — direct Nemotron access (default Ultra, failing over to Super) without the shared free-pool saturation. Without an NVIDIA key the same module uses the **OpenRouter free tier** (GLM 5.2 → Nemotron Ultra → Super). Both transports share retry/backoff with Retry-After handling, reasoning-token control, and schema-validated outputs; per-model failover is configured via `NVIDIA_FALLBACK_MODELS` / `OPENROUTER_FALLBACK_MODELS`.
-
-Solo flows additionally validate every response against `aiSchema.ts`; PvP judging runs the primary transport + Anthropic in parallel as an ensemble.
-
-## Human-evaluation corpus population pipeline
-
-The evaluation pipeline (six-dimension rubric, inter-rater reliability → comparison → calibration → bias) needs a real human-labelled corpus. Migration `008_corpus_pipeline.sql` plus `src/app/api/corpus/*` add the collection tooling:
-
-- `POST /api/corpus/import` *(admin)* — imports finished solo/PvP debates as anonymised items: sides become "Side A"/"Side B", contributor identity and AI/user mapping stay server-side (`corpus_items.contributor_id` / `side_mapping`, never exposed to raters). Stratified by length bucket, topic category, and ability band.
-- `GET/POST /api/corpus/rate` — blind rating: raters get the next open item they didn't author and haven't rated, submit six-dimension scores per side + winner + confidence; double-submission blocked by unique constraint; self-rating rejected.
-- `GET /api/corpus/reliability` *(admin)* — human-human reliability FIRST: per-dimension ICC across raters, pairwise winner Cohen's κ, strata coverage (length × ability × subject), and an `agreementReady` count. Also reports **population progress** against target: total/fully-rated items vs the 500-item goal, remaining-to-target, mean rater confidence, and `cellsNeedingCoverage` — every length bucket and ability band below 30 items is named explicitly, including zero-coverage cells. System-vs-human accuracy is only meaningful over agreement-ready items.
-- `POST /api/corpus/adjudicate` *(admin)* — settles disputed items by rater majority or explicit override.
-
-Set `CORPUS_ADMIN_EMAILS` to enable admin endpoints (closed when unset). Until this corpus is populated and humans agree with each other, the evidence registry's status stands: scoring evidence remains synthetic-only.
-
-### Flagship campaign — 1,000 debates × 3 blind ratings
-
-The corpus is the product's flagship claim, stratified at import time by **deterministic** signals (no model judgement): debate difficulty (`dynamics_tier`: close / decisive / weak-vs-weak from observable score gaps), evidence density (evidence nodes per claim), writing style (formal / hedged / plain / intense via `styleFeatures`), plus length, subject, and ability band. Migration `009_population_strata.sql` adds those columns and indexes.
-
-- Raters work at **`/rate`**; admins run the campaign from **`/corpus-admin`**.
-- `POST /api/corpus/system-comparison` now also stores citation-integrity flags per judged graph and supports `"swapCheck": true` — a mirrored-transcript re-judgement that records position-swap stability per item.
-- **`GET /api/corpus/metrics`** and the public **`/metrics`** page publish the headline table live: human consensus agreement, judge-vs-consensus agreement, close-debate accuracy, position-swap stability, calibration error (ECE over system-verdict confidence), and citation-flag rate on judged graphs.
-- Honesty gates are built in: every metric is `null` until its minimum sample exists (e.g. judge rows need ≥30 judged debates, close-debate ≥20), and consensus requires genuine multi-rater agreement. Dashes on `/metrics` mean *not yet measurable*, never a placeholder number.
-
-Raters use **`/rate`** in the app: blind transcript, six-dimension 1–5 scoring per side, winner + confidence + rationale. Admins run the campaign from **`/corpus-admin`**: population progress vs the 500-item target (with named strata needing recruitment), per-dimension ICC, the adjudication queue (transcript + anonymised rater verdicts; accept-majority or override), and a one-click system comparison. Once items are `agreementReady`, `POST /api/corpus/system-comparison` judges them with the live ensemble and reports winner agreement against human consensus. That number (plus ≥70% agreement on a large corpus) is what eventually un-gates ranked play; until then it stays synthetic-only in the evidence registry.
-
-## PvP reliability
-
-- One turn per `(match, player, round)` enforced by a DB unique index (008), backing the API's concurrency guards.
-- Turn timestamps (`pvp_matches.turn_started_at`) power late-submission rejection (>30 min) and forfeit claims (`POST /api/pvp/[matchId]/forfeit`) so abandoned matches resolve without fabricating a judge score.
-- The room polls authenticated snapshots and resyncs immediately on focus/tab-visible; stress suites fuzz source verification + moderation (they caught and killed a ReDoS in link-spam detection).
-
-## Roadmap
-
-- [`docs/roadmap.md`](docs/roadmap.md) — evaluation corpus, judge bias benchmarks, and the gated path to ranked/tournament/classroom play.
-
+- `npm test` — unit + regression suite (45+ files, fully offline).
+- `npm run test:e2e` — Playwright against an ephemeral Postgres with `E2E_MOCK_AI=1`; includes PvP, full-debate, and the Sprint → weakness → repair loop.
+- `npm run benchmark:judges` — live-model judge benchmark (weekly in CI).

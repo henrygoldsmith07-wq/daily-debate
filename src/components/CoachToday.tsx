@@ -44,7 +44,7 @@ function Bar({ label, score }: { label: string; score: number | null }) {
   );
 }
 
-export default function CoachToday() {
+export default function CoachToday({ showProfile = true }: { showProfile?: boolean }) {
   const [dims, setDims] = useState<Dim[]>([]);
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [focusReason, setFocusReason] = useState<string>("");
@@ -108,20 +108,22 @@ export default function CoachToday() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* ARGUMENT SKILL PROFILE */}
-      <section className="surface-card p-5">
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold">Argument skill profile</h2>
-          {debatesAnalysed !== null && (
-            <span className="tabular text-xs text-ink3">{debatesAnalysed} debates analysed</span>
-          )}
-        </div>
-        <div className="flex flex-col gap-1.5">
-          {dims.map((d) => (
-            <Bar key={d.key} label={d.label} score={d.score} />
-          ))}
-        </div>
-      </section>
+      {/* ARGUMENT SKILL PROFILE — hidden on Progress, which renders its own skill list */}
+      {showProfile && (
+        <section className="surface-card p-5">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold">Argument skill profile</h2>
+            {debatesAnalysed !== null && (
+              <span className="tabular text-xs text-ink3">{debatesAnalysed} debates analysed</span>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {dims.map((d) => (
+              <Bar key={d.key} label={d.label} score={d.score} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Today's training focus */}
       {assignment ? (

@@ -7,7 +7,9 @@ import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidDebateTurn } from "@/lib/aiSchema";
 import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
-import { MAX_ROUNDS, type InputMode } from "@/lib/types";
+import { type InputMode } from "@/lib/types";
+import { roundCapFor } from "@/lib/sprint";
+import { recordProductEvent } from "@/lib/productEvents";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   const limited = await checkRateLimit(request, { name: "solo-turn", limit: 20, windowMs: 60_000 });
@@ -63,12 +65,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (pendingTurn.user_message) {
     return NextResponse.json({ error: "Latest round already answered." }, { status: 409 });
   }
-  if (pendingTurn.round_number >= MAX_ROUNDS) {
-    return NextResponse.json(
-      { error: `Round limit reached (${MAX_ROUNDS}). Finish the debate to get scored.` },
-      { status: 409 },
-    );
-  }
+  const debateFormat = debate.format === "sprint" ? "sprint" : "full";
+  const roundCap = roundCapFor(debateFormat);
+  // The cap is the last round the user may ANSWER: a sprint's round 3 is
+  // playable, but it creates no round 4. Full debates keep the same semantics
+  // against their 12-round cap.
+  const isFinalRound = pendingTurn.round_number >= roundCap;
 
   // Anti-cheat: refuse a verbatim repeat of the user's previous response.
   const answered = turns.filter((t) => t.user_message);
@@ -144,6 +146,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Latest round already answered." }, { status: 409 });
   }
 
+  void recordProductEvent("round_completed", { format: debateFormat, side: debate.side, round: pendingTurn.round_number });
+
+  // Final round: the debate is done — the client is told to finish. No round
+  // N+1 turn is created, so nothing can dangle if the user walks away.
+  if (isFinalRound) {
+    await db.from("solo_debates").update({ round_count: pendingTurn.round_number }).eq("id", debateId);
+    return NextResponse.json({
+      completedTurn: { ...pendingTurn, user_message: message, scores, turn_score: turnScore, feedback: result.feedback, assessment: observable.assessment },
+      nextTurn: null,
+      roundCount: pendingTurn.round_number,
+      debateComplete: true,
+    });
+  }
+
   const nextRoundNumber = pendingTurn.round_number + 1;
   const { data: nextTurn, error: nextTurnError } = await db
     .from("solo_debate_turns")
@@ -161,6 +177,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     completedTurn: { ...pendingTurn, user_message: message, scores, turn_score: turnScore, feedback: result.feedback, assessment: observable.assessment },
     nextTurn,
     roundCount: nextRoundNumber,
+    debateComplete: false,
   });
 }
 

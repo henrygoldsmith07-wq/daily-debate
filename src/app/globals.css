@@ -323,9 +323,10 @@
 }
 .home-coaching-label { color: var(--speak); font-size: 0.62rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
 .home-coaching-focus strong { color: var(--ink); font-size: 0.8rem; font-weight: 650; text-align: right; }
+.home-coaching-lastline { display: block; margin-top: 0.25rem; color: var(--ink-3); font-size: 0.72rem; line-height: 1.5; }
 .home-start-block { display: flex; flex-direction: column; gap: 0.7rem; }
 .home-side-label { color: var(--ink-2); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
-.home-side-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; }
+.home-side-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.55rem; }
 .home-side-option {
   display: flex;
   min-height: 58px;

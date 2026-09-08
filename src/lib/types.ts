@@ -1,5 +1,6 @@
 import type { ArgGraph } from "./argGraph";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
+import type { DebateFormat } from "./sprint";
 
 export type DebateSide = "for" | "against";
 export type InputMode = "text" | "voice";
@@ -38,8 +39,30 @@ export interface SoloDebate {
   status: "active" | "completed";
   round_count: number;
   total_score: number | null;
+  /** "sprint" (3 rounds, reduced measurement confidence) or "full" (5–12). */
+  format: DebateFormat;
+  /** Coaching snapshot jsonb: goal dimension + observed behaviour from the debate. */
+  coaching: CoachingRecord | null;
   created_at: string;
   completed_at: string | null;
+}
+
+/** Persisted coaching loop record for one debate (solo_debates.coaching). */
+export interface CoachingRecord {
+  /** The dimension this debate was supposed to train (set at start). */
+  dimension?: string | null;
+  /** Explainable side assignment, when the user picked "Challenge me". */
+  sideReason?: string | null;
+  /** Observed behaviour from the finished debate (set at finish). */
+  snapshot?: {
+    responsesAnswered?: number;
+    responseOpportunities?: number;
+    unsupportedClaims?: number;
+    majorClaims?: number;
+    droppedOwn?: number;
+  } | null;
+  /** Whether the goal behaviour was demonstrated (null = not measurable). */
+  demonstrated?: boolean | null;
 }
 
 export interface SoloDebateTurn {

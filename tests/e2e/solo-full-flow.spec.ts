@@ -67,10 +67,10 @@ test.describe("solo full-flow", () => {
 
     // 2. Dashboard loads with today's topic
     await expect(page.getByText(/Today.*debate|Today.*topic/i).first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator(".topic-card").first()).toBeVisible();
+    await expect(page.locator(".home-motion-card").first()).toBeVisible();
 
-    // 3. Start solo debate
-    await page.getByRole("button", { name: /start solo debate/i }).click();
+    // 3. Start full solo debate
+    await page.getByTestId("start-full").click();
     await page.waitForURL(/\/debate\//, { timeout: 20_000 });
 
     // Wait for the opening argument to appear
@@ -101,6 +101,9 @@ test.describe("solo full-flow", () => {
     // 6. Score displayed
     await expect(page.getByText(/\d+ pts/i).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Debate complete|Replay/i).first()).toBeVisible({ timeout: 15_000 });
+
+    // 6b. The advanced analysis (graph + tracking grid) sits behind disclosure.
+    await page.getByTestId("toggle-full-analysis").click();
 
     // 7. Graph produced (ArgGraphInline renders nodes)
     await expect(page.getByText(/Claim|Evidence|Counterclaim/i).first()).toBeVisible({ timeout: 15_000 });

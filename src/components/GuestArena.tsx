@@ -39,7 +39,11 @@ function Brand() {
 }
 
 function GuestHome({ onStart }: { onStart: (side: "for" | "against") => void }) {
-  const [side, setSide] = useState<"for" | "against">("for");
+  const [side, setSide] = useState<"for" | "against" | "challenge">("challenge");
+
+  function resolveSide(): "for" | "against" {
+    return side === "challenge" ? (Math.random() < 0.5 ? "for" : "against") : side;
+  }
 
   return (
     <div className="app-shell app-shell-guest">
@@ -84,7 +88,7 @@ function GuestHome({ onStart }: { onStart: (side: "for" | "against") => void }) 
               <div className="home-start-block">
                 <div className="home-side-label">Your side</div>
                 <div className="home-side-picker" role="group" aria-label="Choose a side">
-                  {(["for", "against"] as const).map((option) => (
+                  {(["challenge", "for", "against"] as const).map((option) => (
                     <button
                       key={option}
                       type="button"
@@ -92,14 +96,16 @@ function GuestHome({ onStart }: { onStart: (side: "for" | "against") => void }) 
                       aria-pressed={side === option}
                       className={`home-side-option ${side === option ? "selected" : ""}`}
                     >
-                      <span className="home-side-option-label">{option === "for" ? "For" : "Against"}</span>
-                      <span>{option === "for" ? "Make the case" : "Push back"}</span>
+                      <span className="home-side-option-label">
+                        {option === "for" ? "For" : option === "against" ? "Against" : "Challenge me"}
+                      </span>
+                      <span>{option === "for" ? "Make the case" : option === "against" ? "Push back" : "Pick my side"}</span>
                     </button>
                   ))}
                 </div>
                 <button
                   type="button"
-                  onClick={() => onStart(side)}
+                  onClick={() => onStart(resolveSide())}
                   className="home-start-button btn btn-primary px-4 py-3 text-sm"
                 >
                   Start a free practice <span aria-hidden="true">→</span>

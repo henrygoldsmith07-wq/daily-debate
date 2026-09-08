@@ -1,0 +1,34 @@
+# Validation: what the numbers are allowed to claim
+
+Daily Debate distinguishes five kinds of statement. Every surface is expected to respect these boundaries.
+
+1. **Observable behaviour** — counts recomputed from the stored argument graph (claims, rebuttals, drops, contradictions, cited evidence). Fully determined, auditable.
+2. **Model-extracted structure** — the graph nodes themselves were extracted by a model. The assessment carries `extraction.source`, `confidence`, and `uncertainty` records, and `insufficient_evidence` is returned rather than scoring an empty structure.
+3. **Deterministic scores** — the 0–100 score and the seven skill dimensions are pure functions of the graph under a versioned policy (`SCORING_ENGINE_VERSION`, `evaluationEnvelope` stamps). Reproducible, not yet *validated*.
+4. **Provisional heuristic confidence** — ensemble-judge confidence, score-gap bands, and judge splits are heuristics over 1–2 judge scores. Never gated on, never described as calibrated.
+5. **Externally validated claims** — none yet. Human-agreement and calibration numbers require the rated benchmark corpus; until then, scoring evidence stays synthetic-only.
+
+## Session length and confidence
+
+- **Full debate (5–12 rounds)**: standard confidence; the generic extraction caveats apply.
+- **Daily Sprint (3 rounds)**: explicitly **reduced confidence** — the result screen prints *"Sprint read: a 3-round session is a small sample. Treat this as practice signal, not a measurement of your ability."* (`measurementHonestyFor` in `src/lib/sprint.ts`).
+
+Sprints feed the skill ledger (3 rounds still contain observable behaviour) but are noted as noisier in "How this was calculated".
+
+## Insufficiency and uncertainty
+
+- `insufficient_evidence` is a first-class outcome for debates and PvP verdicts; the legacy numeric fields are not a valid comparison in that state.
+- Uncertainty lists (extraction issues, validation warnings, missing structure) are stored and displayed in the full analysis.
+- "Too close to call" tie handling uses a 5-point threshold; PvP ties can be genuine, not forced.
+
+## Progress claims
+
+- Skill scores need ≥3 debates before the low-confidence flag lifts; trajectories need more.
+- Improvement claims stay observational until 10 debates; causal claims wait for the rated corpus (`minimumForClaims`).
+- Trend arrows on Progress are descriptive (improving / steady / slipping / not enough data), never predictive.
+
+## Benchmarks and gates
+
+- Deterministic invariance + grounded-evidence benchmarks run on every `npm test` (offline).
+- Live-model judge benchmarks run weekly with hard gates (`config/judge-gates.json`); breaches fail the run.
+- The corpus campaign (1,000 debates × 3 blind ratings) is the path to human-validity claims; `/metrics` shows dashes, never placeholders, until minimum samples exist.
