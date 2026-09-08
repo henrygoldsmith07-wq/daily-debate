@@ -79,7 +79,7 @@ export default function TopicCard({
       <div className="home-motion-heading">
         <div>
           <p className="home-motion-kicker">Today&apos;s motion</p>
-          <p className="home-motion-meta">One focused rep · about 4 minutes</p>
+          <p className="home-motion-meta">Three focused rounds · about 4 minutes</p>
         </div>
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">
           {topic.category ?? "Daily debate"}
@@ -133,7 +133,7 @@ export default function TopicCard({
                   Starting…
                 </span>
               ) : (
-                <>Daily Sprint · about 4 min <span aria-hidden="true">→</span></>
+                <>Daily Sprint · three rounds, ~4 min <span aria-hidden="true">→</span></>
               )}
             </button>
             <button
@@ -146,7 +146,7 @@ export default function TopicCard({
               {starting === "full" ? "Starting…" : "Full debate · 5–12 rounds"}
             </button>
             <p className="home-start-note">
-              A Sprint gives one focused practice round with directional scoring; a full debate carries the complete analysis.
+              Three focused rounds with directional feedback. Full Debate provides deeper analysis.
             </p>
             {error && <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>}
           </div>

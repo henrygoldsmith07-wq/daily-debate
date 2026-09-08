@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ArgGraph } from "@/lib/argGraph";
 import type { RepairTarget } from "@/lib/argumentRepair";
 import { pickRepairTarget, scoreRepair, type RepairScore } from "@/lib/argumentRepair";
+import { trackEvent } from "@/lib/trackClientEvent";
 
 interface RepairFeedback {
   score: number;
@@ -141,7 +142,12 @@ export function FixThisNowButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => {
+        // Funnel: "repair started" is the click on this CTA; completion is
+        // recorded server-side when a rewrite is actually submitted.
+        trackEvent("repair_started", {});
+        onClick();
+      }}
       className="btn btn-primary px-6 py-3 text-sm uppercase tracking-wide"
       data-testid="fix-this-now"
     >

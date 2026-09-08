@@ -40,6 +40,10 @@ export default async function CorpusAdminPage() {
             <Link href="/rate" className="text-[var(--accent)] hover:underline">
               /rate
             </Link>
+            . Internal product metrics live in the{" "}
+            <Link href="/analytics" className="text-[var(--accent)] hover:underline">
+              funnel report
+            </Link>
             .
           </>
         }

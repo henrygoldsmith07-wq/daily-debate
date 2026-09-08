@@ -54,9 +54,10 @@ test.describe("daily sprint repair loop", () => {
     // Full analysis is hidden behind progressive disclosure.
     await expect(page.getByTestId("full-analysis")).toBeHidden();
 
-    // 6. Fix this now → repair exercise.
+    // 6. Fix this now → repair exercise, WITHOUT expanding Full Analysis.
     await page.getByTestId("fix-this-now").click();
     await expect(page.getByTestId("repair-panel")).toBeVisible();
+    await expect(page.getByTestId("full-analysis")).toBeHidden();
 
     // 7. Submit a repair; feedback arrives with recorded persistence. The
     // rewrite covers every repair rubric (source, contrast, reasoning, weighing)
@@ -69,7 +70,7 @@ test.describe("daily sprint repair loop", () => {
     await page.getByTestId("submit-repair").click();
     await expect(page.getByTestId("repair-feedback")).toBeVisible({ timeout: 15_000 });
 
-    // 8. Advanced analysis can be opened on demand.
+    // 8. Advanced analysis opens only on explicit request.
     await page.getByTestId("toggle-full-analysis").click();
     await expect(page.getByTestId("full-analysis")).toBeVisible();
 
@@ -77,9 +78,13 @@ test.describe("daily sprint repair loop", () => {
     await page.goto("/");
     await expect(page.getByTestId("start-sprint")).toBeVisible({ timeout: 20_000 });
 
-    // 10. Replay shows the completed debate in history.
+    // 10. Replay uses the same hierarchy: repair already done → status shown,
+    // no Fix-this-now CTA, and the graph stays collapsed until asked for.
     await page.goto(debateUrl);
     await expect(page.getByText(/Replay/i).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("repair-status")).toBeVisible();
+    await expect(page.getByTestId("fix-this-now")).toBeHidden();
+    await expect(page.getByTestId("full-analysis")).toBeHidden();
   });
 
   test("sprint respects the 3-round cap server-side", async ({ page }) => {

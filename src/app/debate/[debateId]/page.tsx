@@ -4,6 +4,8 @@ import AppShell from "@/components/AppShell";
 import DebateRoom from "@/components/DebateRoom";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
+import { buildResultSnapshot } from "@/lib/resultSnapshot";
+import { measurementHonestyFor } from "@/lib/sprint";
 import type { SoloDebate, SoloDebateTurn } from "@/lib/types";
 
 export default async function DebatePage({ params }: { params: Promise<{ debateId: string }> }) {
@@ -31,9 +33,18 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
     .eq("debate_id", debateId)
     .order("round_number", { ascending: true });
 
-  // Replay: a finished debate is revisited often, so recompute the merged
-  // argument graph + assessment server-side instead of showing a bare transcript.
-  let completedResult: { totalScore: number; argGraph?: ObservableAssessment["graph"] } | null = null;
+  // Replay: a finished debate is revisited often, so rebuild the same
+  // result story server-side (one strength, one weakness, repair status)
+  // instead of dumping the graph and transcript on the user.
+  let completedResult:
+    | {
+        totalScore: number;
+        argGraph?: ObservableAssessment["graph"];
+        snapshot: ReturnType<typeof buildResultSnapshot> | null;
+        repaired: boolean;
+        honestyNote: string | null;
+      }
+    | null = null;
   if (debate.status === "completed") {
     const assessments = (turns ?? [])
       .map((t) => t.assessment as ObservableAssessment | null)
@@ -47,7 +58,23 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
           labelB: "AI opponent",
         })
       : null;
-    completedResult = { totalScore: debate.total_score ?? 0, argGraph: finalAssessment?.graph };
+    const snapshot = finalAssessment
+      ? buildResultSnapshot(finalAssessment, { format: debate.format === "sprint" ? "sprint" : "full" })
+      : null;
+    const { data: repair } = await db
+      .from("repair_results")
+      .select("id, created_at")
+      .eq("debate_id", debateId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    completedResult = {
+      totalScore: debate.total_score ?? 0,
+      argGraph: finalAssessment?.graph,
+      snapshot,
+      repaired: !!repair,
+      honestyNote: measurementHonestyFor(debate.format === "sprint" ? "sprint" : "full").note,
+    };
   }
 
   return (

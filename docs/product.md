@@ -28,6 +28,8 @@ Across every screen:
 | Pipeline | same argument/evaluation pipeline | same |
 | Result | one insight + one repair, **reduced measurement confidence** | complete analysis, standard confidence |
 
+Start-screen copy is explicit about the format: *"Three focused rounds with directional feedback. Full Debate provides deeper analysis."*
+
 Sprint results say so plainly: *"Sprint read: a 3-round session is a small sample. Treat this as practice signal, not a measurement of your ability."* Implementation: `src/lib/sprint.ts`.
 
 ## Result screen
@@ -37,10 +39,11 @@ Default view shows only:
 1. Goal outcome (✓ / →, with the observed count).
 2. **You did well** — one strength, grounded in the debate ("You directly responded to 3 of 3 opposing arguments.").
 3. **Main weakness** — one highest-priority miss ("2 important claims had no supporting evidence") plus why it matters in plain language.
-4. **FIX THIS NOW** — the primary action.
+4. **FIX THIS NOW** — the primary action. It scrolls **directly to the repair exercise**; Full Analysis is not expanded automatically.
 5. Score + XP, secondary.
+6. **View full analysis** — collapsed: model feedback lists, argument graph, tracking grid.
 
-Behind **View full analysis**: overall feedback, strengths/improvements lists, the argument graph, the tracking grid, leaderboard link. Implementation: `src/lib/resultSnapshot.ts` builds the story from the merged observable assessment; `DebateRoom.tsx` renders it.
+Replays of finished debates render the same hierarchy server-side (strength, weakness, repair status, score, collapsed analysis), so a revisit never dumps the graph back on the user.
 
 ## Weak-link repair
 
@@ -85,6 +88,35 @@ Goals are numeric only where previous behaviour justifies precision ("Answer at 
 ## Analytics
 
 Privacy-conscious funnel events (`src/lib/productEvents.ts`, migration 004): allowlisted names only, bounded context, no free text, no device identifiers, silent no-op for guests. Captured: `daily_viewed`, `debate_started`, `sprint_started`, `full_debate_started`, `round_completed`, `debate_completed`, `repair_started`, `repair_completed`, `full_analysis_opened`, `progress_viewed`, `pvp_started`, `challenge_me_selected`, `challenge_link_created`, `challenge_link_accepted`.
+
+Funnel semantics: `repair_started` is the click on **Fix this now** (client-side); `repair_completed` is a server-confirmed submission — so start/completion can be compared honestly.
+
+### Admin funnel report (`/analytics`, admin-gated)
+
+Computed from `product_events` by `src/lib/productFunnel.ts` and served at `/api/analytics/funnel`:
+
+- Today → debate start rate;
+- Sprint vs Full completion (by format);
+- repair start/completion rate;
+- D1/D7 return (with pending-user counts — users without a full window are never counted as churned);
+- full-analysis open rate;
+- Challenge Me usage, broken down by which rule fired;
+- friend-challenge creation/acceptance.
+
+Rates below a 5-user sample render as "not yet measurable" instead of small-n noise.
+
+### Does repair work? (`src/lib/repairEffectiveness.ts`)
+
+For each completed repair, the same weakness kind's presence is compared across the user's debates in the 30-day window before vs after the repair:
+
+```text
+weakness detected → repair completed → next relevant debates → improved / unchanged / worse
+```
+
+- Excludes the repaired debate itself; only debates that could actually express the weakness count.
+- No later debates → "not yet measurable"; no earlier debates → "insufficient baseline". Nothing is silently dropped.
+- A per-kind rate is only claimed with ≥5 repairs and ≥3 measurable — otherwise the report says "not yet claimable".
+- The output is labelled observational: an association with the repair, not proof of causation.
 
 ## Async friend challenges
 

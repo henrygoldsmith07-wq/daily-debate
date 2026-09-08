@@ -26,6 +26,8 @@ Sprints feed the skill ledger (3 rounds still contain observable behaviour) but 
 - Skill scores need ≥3 debates before the low-confidence flag lifts; trajectories need more.
 - Improvement claims stay observational until 10 debates; causal claims wait for the rated corpus (`minimumForClaims`).
 - Trend arrows on Progress are descriptive (improving / steady / slipping / not enough data), never predictive.
+- Repair effectiveness (`src/lib/repairEffectiveness.ts`) is presence-based comparison across a 30-day window with ≥5-repair/≥3-measurable thresholds before any rate is claimed — and even then it is labelled an association, not causation.
+- Product funnel rates (`src/lib/productFunnel.ts`) need a ≥5-user sample; D1/D7 return excludes users without a full window (pending, never churned).
 
 ## Benchmarks and gates
 

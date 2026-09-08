@@ -9,9 +9,9 @@ import ThinkingIndicator from "./ThinkingIndicator";
 import ArgumentRepair, { FixThisNowButton } from "./ArgumentRepair";
 import { ArgGraphInline, TrackingGrid } from "./ArgGraphView";
 import { useSpeechSynthesis } from "./useSpeechSynthesis";
-import { MIN_ROUNDS, MAX_ROUNDS, type DebateSummary, type InputMode, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
+import { MAX_ROUNDS, type DebateSummary, type InputMode, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
 import type { ArgGraph } from "@/lib/argGraph";
-import type { ResultSnapshot } from "@/lib/resultSnapshot";
+import type { ResultSnapshot, ResultWeakness } from "@/lib/resultSnapshot";
 import { minRoundsFor } from "@/lib/sprint";
 import { trackEvent } from "@/lib/trackClientEvent";
 
@@ -26,6 +26,19 @@ interface DebateSummaryPayload {
   snapshot?: ResultSnapshot;
 }
 
+/** The shared result/replay story: action first, coaching second, detail last. */
+interface ReplayView {
+  totalScore: number;
+  snapshot: ResultSnapshot | null;
+  argGraph: ArgGraph | null;
+  /** Whether a repair has already been recorded for this debate. */
+  repaired: boolean;
+  bonusXP?: number;
+  topRewardLabel?: string;
+  honestyNote?: string | null;
+  fresh?: boolean;
+}
+
 export default function DebateRoom({
   debate,
   topic,
@@ -35,7 +48,14 @@ export default function DebateRoom({
   debate: SoloDebate;
   topic: { title: string; prompt: string };
   initialTurns: SoloDebateTurn[];
-  completedResult?: { totalScore: number; argGraph?: ArgGraph } | null;
+  completedResult?: {
+    totalScore: number;
+    argGraph?: ArgGraph;
+    snapshot?: ResultSnapshot | null;
+    /** Whether a repair has already been recorded for this debate (server-side). */
+    repaired?: boolean;
+    honestyNote?: string | null;
+  } | null;
 }) {
   const [turns, setTurns] = useState(initialTurns);
   const [roundCount, setRoundCount] = useState(debate.round_count);
@@ -46,7 +66,6 @@ export default function DebateRoom({
   const [result, setResult] = useState<DebateSummaryPayload | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
-  const [repairFocus, setRepairFocus] = useState(false);
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
@@ -150,29 +169,52 @@ export default function DebateRoom({
   }
 
   function scrollToRepair() {
-    setRepairFocus(true);
-    setShowFullAnalysis(true);
+    // Direct route to the repair exercise — the graph stays folded. Full
+    // Analysis is only for users who explicitly ask for it.
     requestAnimationFrame(() => {
       repairRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }
 
-  if (result) {
-    // ── Simplified result screen ─────────────────────────────────────────
-    // User action first → coaching second → explanation third → technical last.
-    const snapshot = result.snapshot;
+  // ── Shared result/replay story ─────────────────────────────────────────
+  // Both the fresh result and a replay render the same hierarchy:
+  // strength → weakness → repair → score → collapsed advanced analysis.
+  const view: ReplayView | null = result
+    ? {
+        totalScore: result.totalScore,
+        snapshot: result.snapshot ?? null,
+        argGraph: result.summary.argGraph ?? null,
+        repaired: false,
+        bonusXP: result.bonusXP,
+        topRewardLabel: result.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.label,
+        honestyNote: result.honesty?.note ?? null,
+        fresh: true,
+      }
+    : debate.status === "completed" && completedResult
+      ? {
+          totalScore: completedResult.totalScore,
+          snapshot: completedResult.snapshot ?? null,
+          argGraph: completedResult.argGraph ?? null,
+          repaired: completedResult.repaired ?? false,
+          honestyNote: completedResult.honestyNote ?? null,
+        }
+      : null;
+
+  if (view) {
+    const snapshot = view.snapshot;
     const weakness = snapshot?.weakness ?? null;
     const highlight = snapshot?.highlight ?? null;
-    const honesty = result.honesty;
-    const rewards = result.rewardEvents?.filter((e) => e.kind !== "complete-debate") ?? [];
-    const topReward = rewards[0];
-    const bonusXP = result.bonusXP ?? 0;
+    const summary = result?.summary;
 
     return (
       <div className="flex flex-col gap-5">
         <div className="surface-card flex flex-col gap-4 p-6" data-testid="result-card">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
-            Debate complete{format === "sprint" ? " · Sprint" : ""}
+            {view.fresh ? (
+              <>Debate complete{format === "sprint" ? " · Sprint" : ""}</>
+            ) : (
+              <>Replay{format === "sprint" ? " · Sprint" : ""}</>
+            )}
           </p>
 
           {/* Today's focus outcome, when a goal was set */}
@@ -202,17 +244,25 @@ export default function DebateRoom({
             </div>
           )}
 
-          {/* Primary action: fix it now */}
-          {weakness && <FixThisNowButton onClick={scrollToRepair} />}
+          {/* Primary action: fix it now — straight to the repair exercise */}
+          {weakness && !view.repaired && <FixThisNowButton onClick={scrollToRepair} />}
+
+          {/* Repair status once recorded (replays land here) */}
+          {view.repaired && (
+            <div className="flex items-center gap-2 text-sm text-ink2" data-testid="repair-status">
+              <span className="text-[var(--success)]">✓</span>
+              Repair completed for this debate — your next debates test whether it stuck.
+            </div>
+          )}
 
           {/* Score & XP demoted to secondary */}
           <div className="flex items-baseline gap-3 pt-1">
             <span className="text-xs uppercase tracking-wide text-ink3">Score</span>
-            <span className="tabular text-xl font-bold">{result.totalScore}</span>
-            {bonusXP > 0 && <span className="tabular text-sm text-[var(--accent)]">+{bonusXP} XP</span>}
-            {topReward && <span className="text-xs text-ink3">· {topReward.label}</span>}
+            <span className="tabular text-xl font-bold">{view.totalScore}</span>
+            {(view.bonusXP ?? 0) > 0 && <span className="tabular text-sm text-[var(--accent)]">+{view.bonusXP} XP</span>}
+            {view.topRewardLabel && <span className="text-xs text-ink3">· {view.topRewardLabel}</span>}
           </div>
-          {honesty?.note && <p className="text-xs leading-5 text-ink3">{honesty.note}</p>}
+          {view.honestyNote && <p className="text-xs leading-5 text-ink3">{view.honestyNote}</p>}
 
           <div className="flex flex-wrap gap-3 pt-1">
             <button
@@ -227,41 +277,59 @@ export default function DebateRoom({
             >
               {showFullAnalysis ? "Hide full analysis" : "View full analysis"}
             </button>
-            <button type="button" onClick={copyResult} className="btn btn-ghost px-3 py-1.5 text-xs">
-              {copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}
-            </button>
-            <Link href="/" className="btn btn-ghost px-3 py-1.5 text-xs">
-              Back to today
-            </Link>
+            {view.fresh && (
+              <button type="button" onClick={copyResult} className="btn btn-ghost px-3 py-1.5 text-xs">
+                {copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}
+              </button>
+            )}
+            {!view.fresh && (
+              <Link href="/history" className="btn btn-ghost px-3 py-1.5 text-xs">
+                All debates
+              </Link>
+            )}
+            {view.fresh && (
+              <Link href="/" className="btn btn-ghost px-3 py-1.5 text-xs">
+                Back to today
+              </Link>
+            )}
           </div>
 
           {showFullAnalysis && (
             <div className="flex flex-col gap-4 border-t border-[var(--rule)] pt-4" data-testid="full-analysis">
-              <p className="text-sm text-ink3">{result.summary.overallFeedback}</p>
-              {result.summary.strengths.length > 0 && (
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-ink3">Strengths</p>
-                  <ul className="list-inside list-disc text-sm text-ink3">
-                    {result.summary.strengths.map((s) => (
-                      <li key={s}>{s}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {result.summary.improvements.length > 0 && (
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-ink3">To improve</p>
-                  <ul className="list-inside list-disc text-sm text-ink3">
-                    {result.summary.improvements.map((s) => (
-                      <li key={s}>{s}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {result.summary.argGraph && (
+              {summary ? (
                 <>
-                  <ArgGraphInline graph={result.summary.argGraph} playerAName="You" playerBName="AI opponent" />
-                  <TrackingGrid graph={result.summary.argGraph} />
+                  <p className="text-sm text-ink3">{summary.overallFeedback}</p>
+                  {summary.strengths.length > 0 && (
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-ink3">Strengths</p>
+                      <ul className="list-inside list-disc text-sm text-ink3">
+                        {summary.strengths.map((s) => (
+                          <li key={s}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {summary.improvements.length > 0 && (
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-ink3">To improve</p>
+                      <ul className="list-inside list-disc text-sm text-ink3">
+                        {summary.improvements.map((s) => (
+                          <li key={s}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-ink3">
+                  Detailed model feedback is only generated when a debate is finished. This replay shows the
+                  deterministic story above.
+                </p>
+              )}
+              {view.argGraph && (
+                <>
+                  <ArgGraphInline graph={view.argGraph} playerAName="You" playerBName="AI opponent" />
+                  <TrackingGrid graph={view.argGraph} />
                 </>
               )}
               <Link href="/leaderboard" className="btn btn-ghost self-start px-3 py-1 text-xs">
@@ -271,17 +339,12 @@ export default function DebateRoom({
           )}
         </div>
 
-        {/* The repair exercise: deliberate practice on the exact flagged move */}
-        {result.summary.argGraph && weakness && (
+        {/* The repair exercise: deliberate practice on the exact flagged move.
+            Rendered whenever a weakness exists and no repair is recorded yet —
+            Fix this now scrolls straight down to it. */}
+        {view.argGraph && weakness && !view.repaired && (
           <div ref={repairRef}>
-            <ArgumentRepair
-              graph={result.summary.argGraph}
-              debateId={debate.id}
-              presetTarget={weakness.repair}
-            />
-            {!repairFocus && (
-              <p className="mt-2 text-center text-xs text-ink3">Takes about a minute. It trains the exact move the graph flagged.</p>
-            )}
+            <ArgumentRepair graph={view.argGraph} debateId={debate.id} presetTarget={weakness.repair} />
           </div>
         )}
       </div>
@@ -290,23 +353,6 @@ export default function DebateRoom({
 
   return (
     <div className="flex flex-1 flex-col gap-4">
-      {debate.status === "completed" && !result && completedResult && (
-        <div className="surface-card flex flex-col gap-3 p-5">
-          <div className="flex items-start justify-between gap-3">
-            <h2 className="text-lg font-semibold">Replay — {completedResult.totalScore} pts</h2>
-            <Link href="/history" className="btn btn-ghost shrink-0 px-3 py-1 text-xs">
-              All debates
-            </Link>
-          </div>
-          {completedResult.argGraph && (
-            <>
-              <ArgumentRepair graph={completedResult.argGraph} debateId={debate.id} />
-              <ArgGraphInline graph={completedResult.argGraph} playerAName="You" playerBName="AI opponent" />
-              <TrackingGrid graph={completedResult.argGraph} />
-            </>
-          )}
-        </div>
-      )}
       <div>
         <p className="text-xs uppercase tracking-wide text-ink3">{topic.title}</p>
         <p className="text-sm text-ink3">{topic.prompt}</p>

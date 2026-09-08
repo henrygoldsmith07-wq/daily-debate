@@ -102,8 +102,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const target: RepairTarget | null = assessment ? pickRepairTarget(assessment.graph) : null;
   if (!target) return NextResponse.json({ error: "No repair target found for this debate." }, { status: 404 });
 
-  void recordProductEvent("repair_started", {});
-
   const result = scoreRepair(target, rewrite);
   const succeeded = result.score >= REPAIR_SUCCESS_THRESHOLD;
 
