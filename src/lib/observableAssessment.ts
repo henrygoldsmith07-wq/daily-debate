@@ -561,6 +561,10 @@ function buildSideFeatures(graph: ArgGraph, owner: Owner, opponent: Owner, extra
     evidenceRelevance: feature(round(evidenceRelevance), relevanceRefs.length ? relevanceRefs : ownEvidence.map((node) => nodeRef(node, "No claim link to assess relevance")), confidence),
     directRebuttals: feature(rebuttalRefs.filter((ref) => ref.kind === "node").length, rebuttalRefs, confidence),
     rebuttalCoverage: feature(round(rebuttalCoverage), responseRefs.length ? responseRefs : rebuttalOpportunities.map((node) => nodeRef(node, "No direct response recorded")), confidence, rebuttalOpportunities.length ? undefined : "insufficient_evidence"),
+    // SCOPING NOTE: droppedArguments counts this side's OWN arguments that the
+    // opponent ignored — a scoring input (credit via groundedDroppedArguments),
+    // NOT a weakness measure. A side's rebuttal failure is the opponent's
+    // unanswered arguments (see repairEffectiveness.countWeaknessesForSide).
     droppedArguments: feature(ownDropped.length, droppedRefs.length ? droppedRefs : ownSubstantive.map((node) => nodeRef(node, "No dropped argument observed")), confidence),
     contradictions: feature(allContradictions.length, contradictionRefs.length ? contradictionRefs : claimEvidence, confidence),
     unsupportedAssertions: feature(unsupportedAssertions.length, unsupportedAssertions.length ? unsupportedAssertions.map((node) => nodeRef(node, "No usable support edge")) : claimEvidence, confidence),

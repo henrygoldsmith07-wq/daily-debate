@@ -4,18 +4,26 @@
 // This module adds BONUS XP on top for behaviours that indicate actual skill
 // growth. The optimisation target shifts from "get points" to "become better".
 //
+// SIDE-SCOPING CONTRACT: every reward refers ONLY to the human user's own
+// behaviour. The rewarded side is always the solo user (owner "a"); the
+// opponent is whoever is not the user — "ai" in solo debates, "b" in PvP
+// shapes. Opponent performance must never grant or remove a user reward:
+// - a grounded OPPONENT claim grants nothing;
+// - an opponent ignoring the USER's claim grants nothing;
+// - a fallacy on an opponent node changes nothing;
+// - impact improvement means the USER made an impact move, not that the
+//   debate happens to contain an impact comparison.
+//
 // Pure — takes assessment data + context, returns earned reward events.
 
 import type { ObservableAssessment } from "./observableAssessment";
-import type { ArgGraph } from "./argGraph";
+import type { ArgGraph, ArgNode, FallacyTag, Owner } from "./argGraph";
 
 export type RewardEventKind =
   | "complete-debate"
   | "improve-weakest-skill"
   | "ground-a-claim"
   | "answer-every-rebuttal"
-  | "complete-drill"
-  | "beat-benchmark"
   | "unfamiliar-topic";
 
 export const REWARD_XP: Record<RewardEventKind, number> = {
@@ -23,8 +31,6 @@ export const REWARD_XP: Record<RewardEventKind, number> = {
   "improve-weakest-skill": 20,
   "ground-a-claim": 15,
   "answer-every-rebuttal": 20,
-  "complete-drill": 25,
-  "beat-benchmark": 30,
   "unfamiliar-topic": 10,
 };
 
@@ -33,8 +39,6 @@ export const REWARD_LABELS: Record<RewardEventKind, string> = {
   "improve-weakest-skill": "Improved your weakest skill",
   "ground-a-claim": "Properly grounded a claim",
   "answer-every-rebuttal": "Answered every major rebuttal",
-  "complete-drill": "Completed a targeted drill",
-  "beat-benchmark": "Beat previous benchmark",
   "unfamiliar-topic": "Debated an unfamiliar topic",
 };
 
@@ -59,19 +63,63 @@ export interface RewardContext {
   currentCategory: string;
 }
 
+// --- side-scoping helpers -----------------------------------------------------
+//
+// Centralised so no detector re-implements (and potentially inverts) the
+// owner convention. DroppedArgument.owner is the side whose argument went
+// unanswered, so a side's FAILURE is always entries owned by the OTHER side.
+
+/** The rewarded side in solo debates: the human user. */
+export const REWARDED_OWNER: Owner = "a";
+
+/** Nodes owned by a side (user behaviour lives here). */
+export function nodesOwnedBy(graph: ArgGraph, owner: Owner): ArgNode[] {
+  return graph.nodes.filter((n) => n.owner === owner);
+}
+
+/** Opponent moves a side could answer: claims/counterclaims NOT owned by it. */
+export function opponentMovesFor(graph: ArgGraph, owner: Owner): ArgNode[] {
+  return graph.nodes.filter(
+    (n) => n.owner !== owner && (n.kind === "claim" || n.kind === "counterclaim"),
+  );
+}
+
+/** Fallacy tags attached to a side's own nodes (opponent fallacies excluded). */
+export function fallaciesOwnedBy(graph: ArgGraph, owner: Owner): FallacyTag[] {
+  const ids = new Set(nodesOwnedBy(graph, owner).map((n) => n.id));
+  return graph.fallacies.filter((f) => ids.has(f.nodeId));
+}
+
+/** Unsupported claim ids belonging to a side's own claims. */
+export function unsupportedOwnedBy(graph: ArgGraph, owner: Owner): string[] {
+  const ids = new Set(nodesOwnedBy(graph, owner).map((n) => n.id));
+  return graph.evidenceStats.unsupportedClaimIds.filter((id) => ids.has(id));
+}
+
+/** Opponent arguments a side left unanswered (its rebuttal failure). */
+export function unansweredBy(graph: ArgGraph, owner: Owner) {
+  return graph.dropped.filter((d) => d.owner !== owner);
+}
+
 // --- individual checks --------------------------------------------------------
+// All checks below are user-scoped: they read the user's nodes, the user's
+// citations, and the user's rebuttal targets only.
 
 function hasGroundedClaim(graph: ArgGraph): boolean {
-  const claims = graph.nodes.filter((n) => n.kind === "claim");
+  const claims = nodesOwnedBy(graph, REWARDED_OWNER).filter((n) => n.kind === "claim");
   if (!claims.length) return false;
-  // At least one claim has a supported evidence link AND a real citation
+  // At least one of the USER's claims has a supported evidence link AND the
+  // supporting evidence is the user's own with a real citation.
   const supportedIds = new Set(
     graph.edges.filter((e) => e.relation === "supports").map((e) => e.to)
   );
   return claims.some((c) => {
     if (!supportedIds.has(c.id)) return false;
     const evidence = graph.nodes.find(
-      (n) => n.kind === "evidence" && graph.edges.some((e) => e.from === n.id && e.to === c.id)
+      (n) =>
+        n.kind === "evidence" &&
+        n.owner === REWARDED_OWNER &&
+        graph.edges.some((e) => e.from === n.id && e.to === c.id)
     );
     return evidence?.citations?.some((cit) => cit.sourceName.length > 2) ?? false;
   });
@@ -80,12 +128,13 @@ function hasGroundedClaim(graph: ArgGraph): boolean {
 function hasFullRebuttalCoverage(graph: ArgGraph): boolean {
   // Direct graph check — more robust than reading enriched features because
   // it doesn't depend on how enrichment computes the coverage ratio.
-  const opposing = graph.nodes.filter(
-    (n) => n.owner !== "a" && n.owner !== "ai" && (n.kind === "counterclaim" || n.kind === "claim")
-  );
+  // Opponent = anyone who is not the user: "ai" in solo, "b" in PvP shapes.
+  const opposing = opponentMovesFor(graph, REWARDED_OWNER);
   if (!opposing.length) return false;
   const targetedIds = new Set(
-    graph.nodes.filter((n) => n.kind === "rebuttal" && n.owner === "a").flatMap((r) => r.targets ?? [])
+    graph.nodes
+      .filter((n) => n.kind === "rebuttal" && n.owner === REWARDED_OWNER)
+      .flatMap((r) => r.targets ?? [])
   );
   return opposing.every((o) => targetedIds.has(o.id));
 }
@@ -101,16 +150,21 @@ function isUnfamiliarCategory(currentCategory: string, previousCategories: strin
 function weakestSkillImproved(current: ObservableAssessment, priors: ObservableAssessment[]): boolean {
   if (!priors.length) return false; // can't measure without baseline
 
-  const extractScores = (a: ObservableAssessment) => ({
-    unsupportedRate: a.graph.evidenceStats.unsupportedClaimIds.length /
-      Math.max(1, a.graph.nodes.filter((n) => n.kind === "claim").length),
-    // Opponent arguments the user left unanswered (DroppedArgument.owner is
-    // the side whose argument went unanswered — the user's own ignored
-    // arguments are the opponent's miss, not the user's).
-    droppedCount: a.graph.dropped.filter((d) => d.owner !== "a").length,
-    fallacyCount: a.graph.fallacies.length,
-    impactMissing: !a.graph.impactComparison ? 1 : 0,
-  });
+  const extractScores = (a: ObservableAssessment) => {
+    const myClaims = nodesOwnedBy(a.graph, REWARDED_OWNER).filter(
+      (n) => n.kind === "claim" || n.kind === "counterclaim",
+    );
+    const myUnsupported = unsupportedOwnedBy(a.graph, REWARDED_OWNER).length;
+    return {
+      unsupportedRate: myUnsupported / Math.max(1, myClaims.length),
+      // Opponent arguments the user left unanswered — never the user's own
+      // ignored arguments (those are the opponent's miss).
+      droppedCount: unansweredBy(a.graph, REWARDED_OWNER).length,
+      fallacyCount: fallaciesOwnedBy(a.graph, REWARDED_OWNER).length,
+      // User behaviour: did the user make an explicit impact move this time?
+      impactMissing: nodesOwnedBy(a.graph, REWARDED_OWNER).some((n) => n.kind === "impact") ? 0 : 1,
+    };
+  };
 
   const cur = extractScores(current);
   const priorMean = priors.reduce((acc, p) => {
