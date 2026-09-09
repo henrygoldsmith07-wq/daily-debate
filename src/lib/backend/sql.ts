@@ -22,6 +22,39 @@ interface SqlExecutor {
 
 let executor: SqlExecutor | null = null;
 
+/**
+ * Columns declared as bare `numeric` in the schema. node-postgres returns
+ * NUMERIC as a STRING (to preserve arbitrary precision), so without
+ * normalisation every consumer sees `"85"` where the types promise `85` —
+ * silently breaking sums, means, thresholds, and `typeof` filters
+ * (e.g. meanRaterConfidence was always null). All of these columns are
+ * scores/statistics where float64 precision is more than sufficient, so the
+ * database/client boundary converts them to JS numbers once, here, for both
+ * transports.
+ */
+export const NUMERIC_COLUMNS: ReadonlySet<string> = new Set([
+  "before_score",
+  "attempt_score",
+  "movement",
+  "confidence",
+  "position_mirror_stability",
+  "verbosity_stability",
+  "human_agreement",
+  "ece",
+  "false_citation_influence",
+]);
+
+/** Coerce numeric-typed string values to numbers. Pure — safe to reuse in tests. */
+export function normalizeNumerics<T extends Record<string, unknown>>(row: T): T {
+  for (const key of NUMERIC_COLUMNS) {
+    const value: unknown = (row as Record<string, unknown>)[key];
+    if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
+      (row as Record<string, unknown>)[key] = Number(value);
+    }
+  }
+  return row;
+}
+
 export function isNeonHttpUrl(url: string): boolean {
   if (/neon\.(tech|build|new|local)|neon\.databases?\./i.test(url)) return true;
   return process.env.DATABASE_DRIVER === "neon-http";
@@ -68,5 +101,5 @@ export async function queryRows<T>(
   params: unknown[] = [],
 ): Promise<T[]> {
   const exec = await getExecutor();
-  return (await exec.query(text, params)) as T[];
+  return ((await exec.query(text, params)).map((row) => normalizeNumerics(row)) as T[]);
 }

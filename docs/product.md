@@ -107,6 +107,8 @@ Rates below a 5-user sample render as "not yet measurable" instead of small-n no
 
 **User vs session conversion.** User conversion counts each user once (a user who completes ≥1 sprint reads as 100%). Session conversion counts each debate separately via a bounded `debate_id` on the funnel events (migration 005 — a random UUID, no free text), so the same user reads as 10% if they completed 1 of 10 sprints. The report shows both, and states what share of funnel events carry a session id — legacy events without one are counted in user conversion only.
 
+**Truthful truncation.** Every source table is fetched with a limit+1 probe (`takeBounded`): when a cap is hit, the report says so — records loaded, configured limit, and which metrics are affected (event caps distort every funnel rate; repair/debate caps bound the effectiveness measurement). Debates additionally use bounded-window loading: only debates inside some repair's ±30-day window are fetched, so graph work stays proportional to what is actually measured.
+
 ### Does repair work? (`src/lib/repairEffectiveness.ts`)
 
 For each completed repair, the same weakness kind's presence is compared across the user's debates in the 30-day window before vs after the repair:
@@ -116,6 +118,9 @@ weakness detected → repair completed → next relevant debates → improved / 
 ```
 
 - Excludes the repaired debate itself; only debates that could actually express the weakness count, and weakness counts are **side-scoped** (an opponent's dropped arguments or fallacies never register as the user's weakness).
+- **Opportunity gate**: debates that could not express the weakness are invisible to the measurement — evidence/structure/logic/impact repairs need user claims, rebuttal repairs need opponent moves. A clean debate with no opportunity is never counted as improvement.
+- **No double-counting**: after-windows stop at the next same-user same-kind repair, so repeated repairs never measure the same debates twice.
+- **Chronological first retest**: debates are sorted explicitly by completion time; "first retest" means the chronologically earliest eligible debate after the repair, never query order.
 - Repair kinds without a genuine deterministic detector — `clarity` today — are hard-classified **not currently measurable** and can never enter the comparison, not even by comparing 0% vs 0%.
 - No later debates → "not yet measurable"; no earlier debates → "insufficient baseline". Nothing is silently dropped.
 - A per-kind rate is only claimed with ≥5 repairs and ≥3 measurable — otherwise the report says "not yet claimable".

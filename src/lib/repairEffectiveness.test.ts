@@ -19,8 +19,14 @@ function repair(user: string, kind: string, at: string, debateId = "d-repair"): 
   return { user_id: user, debate_id: debateId, target_kind: kind, score: 80, succeeded: true, created_at: at };
 }
 
-function debate(user: string, at: string, kinds: Record<string, number>, debateId?: string): DebateWeaknessRow {
-  return { debateId: debateId ?? `d-${user}-${at}`, userId: user, completedAt: at, kinds };
+function debate(
+  user: string,
+  at: string,
+  kinds: Record<string, number>,
+  debateId?: string,
+  opps: { majorClaims: number; opponentMoves: number } = { majorClaims: 2, opponentMoves: 2 },
+): DebateWeaknessRow {
+  return { debateId: debateId ?? `d-${user}-${at}`, userId: user, completedAt: at, kinds, opps };
 }
 
 function daysBefore(iso: string, n: number): string {
@@ -251,6 +257,30 @@ describe("retest linkage (weakness → repair → first retest)", () => {
     expect(report.overall.retest.note).toBeNull();
   });
 
+  it("picks the chronologically earliest eligible debate as the first retest", () => {
+    const r = repair("u9", "evidence", "2026-06-10T12:00:00Z", "d-r");
+    const earlier = debate("u9", daysBefore(r.created_at, 2), { evidence: 1 });
+    const first = debate("u9", daysAfter(r.created_at, 1), { evidence: 1 }, "d-first");
+    const second = debate("u9", daysAfter(r.created_at, 5), {}, "d-second");
+    // Deliberately pass newest-first (the loader's query order) to prove the
+    // measurement does not depend on input ordering.
+    const detail = classifyRepair(r, [second, first, earlier]);
+    expect(detail.firstRetest?.debateId).toBe("d-first");
+    expect(detail.firstRetest?.weaknessPresent).toBe(true);
+  });
+
+  it("reports a clean earliest retest even when a later debate has the weakness", () => {
+    const r = repair("u9", "evidence", "2026-06-10T12:00:00Z", "d-r");
+    const earlier = debate("u9", daysBefore(r.created_at, 2), { evidence: 1 });
+    const first = debate("u9", daysAfter(r.created_at, 1), {}, "d-first");
+    const second = debate("u9", daysAfter(r.created_at, 5), { evidence: 3 }, "d-second");
+    const detail = classifyRepair(r, [second, first, earlier]);
+    expect(detail.firstRetest?.debateId).toBe("d-first");
+    expect(detail.firstRetest?.weaknessPresent).toBe(false);
+    // Window rates still consider every in-window debate.
+    expect(detail.afterRate).toBe(0.5);
+  });
+
   it("keeps the retest rate pending below the threshold", () => {
     const r = repair("u1", "evidence", "2026-06-08T12:00:00Z", "d-r");
     const debates = [
@@ -320,5 +350,81 @@ describe("buildRepairEffectiveness", () => {
     // into unchanged; it is explicitly not measurable.
     expect(report.overall.measurable).toBe(0);
     expect(report.overall.repairs).toBe(1);
+  });
+});
+
+describe("opportunity filter (no-opportunity debates are invisible)", () => {
+  it("ignores after-debates the user made no claims in (evidence repair)", () => {
+    const r = repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r");
+    const debates = [
+      debate("u1", daysBefore(r.created_at, 2), { evidence: 1 }, "d-before"),
+      // Clean debate WITH claims: genuine evidence of improvement.
+      debate("u1", daysAfter(r.created_at, 1), {}, "d-clean", { majorClaims: 3, opponentMoves: 2 }),
+      // Claim-free debate: cannot express the weakness, must not count.
+      debate("u1", daysAfter(r.created_at, 3), {}, "d-empty", { majorClaims: 0, opponentMoves: 5 }),
+    ];
+    const detail = classifyRepair(r, debates);
+    expect(detail.outcome).toBe("improved");
+    expect(detail.afterDebates).toBe(1);
+  });
+
+  it("reports not-yet-measurable when no later debate had opportunity", () => {
+    const r = repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r");
+    const debates = [
+      debate("u1", daysBefore(r.created_at, 2), { evidence: 1 }, "d-before"),
+      debate("u1", daysAfter(r.created_at, 1), {}, "d-empty", { majorClaims: 0, opponentMoves: 5 }),
+    ];
+    const detail = classifyRepair(r, debates);
+    expect(detail.outcome).toBe("not-yet-measurable");
+    expect(detail.afterDebates).toBe(0);
+  });
+
+  it("requires opponent moves for rebuttal repairs", () => {
+    const r = repair("u1", "rebuttal", "2026-06-10T12:00:00Z", "d-r");
+    const debates = [
+      debate("u1", daysBefore(r.created_at, 2), { dropped: 1 }, "d-before"),
+      // No opponent moves: cannot test rebuttal behaviour.
+      debate("u1", daysAfter(r.created_at, 1), {}, "d-quiet", { majorClaims: 2, opponentMoves: 0 }),
+    ];
+    const detail = classifyRepair(r, debates);
+    expect(detail.outcome).toBe("not-yet-measurable");
+  });
+});
+
+describe("no double-counting across repeated repairs", () => {
+  it("partitions after-windows at the next same-kind repair", () => {
+    const r1 = repair("u1", "evidence", "2026-06-01T12:00:00Z", "d-r1");
+    const r2 = repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r2");
+    // Shared debate AFTER r2's repair: must count for r2 only, not r1.
+    const shared = debate("u1", daysAfter(r2.created_at, 2), { evidence: 2 }, "d-shared");
+    const mid = debate("u1", daysAfter(r1.created_at, 2), {}, "d-mid");
+    const before = debate("u1", daysBefore(r1.created_at, 2), { evidence: 1 }, "d-before");
+    const debates = [shared, mid, before];
+
+    const d1 = classifyRepair(r1, debates, { afterCutoff: daysAfter(r2.created_at, 0) });
+    expect(d1.afterDebates).toBe(1); // d-mid only; d-shared belongs to r2
+    expect(d1.outcome).toBe("improved");
+
+    const d2 = classifyRepair(r2, debates);
+    expect(d2.afterDebates).toBe(1); // d-shared only
+    expect(d2.outcome).toBe("worse");
+  });
+
+  it("buildRepairEffectiveness partitions automatically per user and kind", () => {
+    const r1 = repair("u1", "evidence", "2026-06-01T12:00:00Z", "d-r1");
+    const r2 = repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r2");
+    // Different kind: does NOT clip the evidence window.
+    const r3 = repair("u1", "logic", "2026-06-05T12:00:00Z", "d-r3");
+    const debates = [
+      debate("u1", daysBefore(r1.created_at, 2), { evidence: 1 }, "d-before"),
+      debate("u1", daysAfter(r1.created_at, 2), {}, "d-mid"),
+      debate("u1", daysAfter(r2.created_at, 2), { evidence: 2 }, "d-shared"),
+    ];
+    const report = buildRepairEffectiveness([r1, r2, r3], debates, { now: NOW });
+    const evidence = report.perKind.find((k) => k.target_kind === "evidence")!;
+    // r1 measured on d-mid only (improved); r2 on d-shared only (worse).
+    expect(evidence.measurable).toBe(2);
+    expect(evidence.improved).toBe(1);
+    expect(evidence.worse).toBe(1);
   });
 });

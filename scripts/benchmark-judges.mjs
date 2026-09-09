@@ -7,9 +7,6 @@
 // Outputs JSON to stdout and a human summary to stderr.
 // Exit code 0 always (don't break CI when keys are missing — just report).
 
-import fs from "fs";
-import path from "path";
-
 const args = process.argv.slice(2);
 const nArg = args.find((a) => a.startsWith("--corpus"));
 const corpusN = nArg ? parseInt(nArg.split("=")[1] ?? "50", 10) : 30;

@@ -1,8 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { groundedEvidenceRatio, validateGraph, claimCoverageWithGroundedEvidence, emptyGraph } from "./argGraph";
 import type { ArgGraph, ArgNode } from "./argGraph";
-import { verifyCitation, verifyGraphCitations, graphSourceQuality } from "./citationVerifier";
-import { runAllProbesOffline, swapLabels, stripNames, inflateVerbosity, injectFakeCitation, sophisticateWording, BIAS_PROBES } from "./judgeInvariance";
+import { runAllProbesOffline, stripNames, inflateVerbosity, injectFakeCitation, sophisticateWording, BIAS_PROBES } from "./judgeInvariance";
 import { TRANSCRIPTS } from "./benchmark.fixtures";
 import {
   HUMAN_CORPUS,
@@ -144,7 +142,6 @@ describe("ensemble + uncertainty", () => {
     const a: PvpJudgeResult & { judgeId: "openrouter" } = { winner: "a", playerAScore: 80, playerBScore: 60, rationale: "A", judgeId: "openrouter" };
     const b: PvpJudgeResult & { judgeId: "anthropic" } = { winner: "a", playerAScore: 78, playerBScore: 62, rationale: "A", judgeId: "anthropic" };
     const two = ensembleVerdicts([a, b]);
-    const one = ensembleVerdicts([a]);
     expect(two.winner).toBe("a");
     expect(two.isTie).toBe(false);
     expect(two.scoreGapEstimate.hi).toBeGreaterThan(0);

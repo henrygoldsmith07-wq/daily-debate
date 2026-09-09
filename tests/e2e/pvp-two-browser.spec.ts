@@ -48,15 +48,6 @@ async function signIn(page: Page, email: string) {
   await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
 }
 
-async function sendTurn(page: Page, text: string): Promise<boolean> {
-  const composer = page.getByLabel("Your debate response");
-  if (!(await composer.isVisible().catch(() => false))) return false;
-  await composer.fill(text);
-  await page.getByRole("button", { name: /^send$/i }).click();
-  await page.waitForTimeout(2000);
-  return true;
-}
-
 test.describe("two-browser pvp full-flow", () => {
   test.skip(!HAS_BACKEND, "Requires ephemeral Postgres");
   // Two sign-ins + matchmaking polling + alternating turns + judging don't fit

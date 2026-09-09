@@ -28,9 +28,9 @@ export async function GET(request: Request) {
     ? Math.floor(windowDaysParam)
     : FUNNEL_DEFAULT_WINDOW_DAYS;
 
-  const { events, repairs, debateWeaknesses } = await loadFunnelData();
+  const { events, repairs, debateWeaknesses, completeness } = await loadFunnelData();
   const funnel = buildFunnelReport(events, { windowDays });
   const repairEffectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { windowDays });
 
-  return NextResponse.json({ funnel, repairEffectiveness });
+  return NextResponse.json({ funnel, repairEffectiveness, completeness });
 }

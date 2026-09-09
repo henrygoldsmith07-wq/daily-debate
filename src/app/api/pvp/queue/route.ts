@@ -68,7 +68,9 @@ export async function POST(request: Request) {
     .maybeSingle();
   if (racedMatch) return NextResponse.json({ match: racedMatch, alreadyMatched: true });
 
-  // Nobody waiting: enqueue (only succeeds while still unmatched).
+  // Nobody waiting: enqueue (only succeeds while still unmatched). `queued`
+  // is a real boolean; false only in the concurrent-match race, in which case
+  // the re-check below finds the match the parallel request created.
   const queued = await service.rpc("enqueue_pvp_if_unmatched", {
     p_user: user.id,
     p_topic_id: topic.id,
@@ -77,7 +79,7 @@ export async function POST(request: Request) {
     console.error("Failed to enqueue for PvP:", queued.error);
     return NextResponse.json({ error: "Failed to join queue." }, { status: 500 });
   }
-  return NextResponse.json({ waiting: true });
+  return NextResponse.json({ waiting: queued.data });
 }
 
 export async function GET() {

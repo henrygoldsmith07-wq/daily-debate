@@ -5,8 +5,7 @@
 import type { ArgGraph, ArgNode } from "./argGraph";
 import { graphSourceQuality, verifyGraphCitations, KNOWN_SOURCES } from "./citationVerifier";
 import { verifyEvidenceQuotes, claimSourceMatch } from "./quoteVerification";
-import { hostnameFor } from "./evidence";
-import { isPrivateHost, validateRetrievalUrl } from "./sourceRetrieval";
+import { validateRetrievalUrl } from "./sourceRetrieval";
 
 // ---------------------------------------------------------------------------
 // Fetch & freshness (live, best-effort)

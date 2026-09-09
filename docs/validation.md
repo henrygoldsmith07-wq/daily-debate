@@ -32,7 +32,13 @@ Sprints feed the skill ledger (3 rounds still contain observable behaviour) but 
 - Trend arrows on Progress are descriptive (improving / steady / slipping / not enough data), never predictive.
 - Repair effectiveness (`src/lib/repairEffectiveness.ts`) is presence-based comparison across a 30-day window with ≥5-repair/≥3-measurable thresholds before any rate is claimed — and even then it is labelled an association, not causation.
 - Repair kinds without a deterministic detector (clarity) are **not currently measurable** by construction, and weakness detection is side-scoped: opponent failures never count against the user.
+- Databases are sorted explicitly by completion time inside the measurement: "first retest" means the chronologically earliest eligible debate, never query order. All other analytics use order-independent aggregation (min/max/set membership).
 - Product funnel rates (`src/lib/productFunnel.ts`) need a ≥5-user sample; D1/D7 return excludes users without a full window (pending, never churned). Completion is reported both per user and per debate session — a session-tagged event stream (migration 005) keeps the two from being conflated, and session coverage is printed rather than assumed.
+- Hard report limits are probed, not hidden: every capped source (events, repairs, debate graphs) reports records loaded, the configured limit, and which metrics the cap can distort.
+
+## Data-type honesty
+
+PostgreSQL `numeric` columns (`before_score`, `attempt_score`, `movement`, rater `confidence`, judge-health gates) arrive as strings through node-postgres. The database/client boundary (`backend/sql.ts`) converts them to JS numbers once, for both transports — so sums, means, thresholds, and `typeof` filters downstream see real numbers. This ended a class of silent bugs (e.g. `meanRaterConfidence` was always null because string confidences failed the number filter).
 
 ## Benchmarks and gates
 

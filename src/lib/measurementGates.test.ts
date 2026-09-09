@@ -51,7 +51,6 @@ describe("corpus split policy (stratified)", () => {
 
   it("near-duplicate families never leak across splits", () => {
     const manifest = assignCorpusSplit(makeItems(60));
-    const idToSplit = new Map(manifest.assignments.map((a) => [a.itemId, a.split]));
     const famSplits = new Map<string, Set<string>>();
     for (const a of manifest.assignments) {
       const set = famSplits.get(a.familyKey) ?? new Set<string>();

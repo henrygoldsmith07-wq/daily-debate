@@ -42,7 +42,7 @@ describe("computeSkillProfile", () => {
   });
 
   it("removes low-confidence flag at or above minimum debates", () => {
-    const pts = Array.from({ length: MIN_PROFILE_DEBATES }, (_, i) =>
+    const pts = Array.from({ length: MIN_PROFILE_DEBATES }, () =>
       point({ rebuttalCoverage: 0.8 })
     );
     const p = computeSkillProfile(pts);

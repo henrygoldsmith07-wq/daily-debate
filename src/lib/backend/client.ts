@@ -41,11 +41,13 @@ export class BackendClient {
         return { data: rows, error: null };
       }
       if (name === "enqueue_pvp_if_unmatched") {
+        // The function always returns exactly one boolean row (migration 008):
+        // true when the caller is queued afterwards, false otherwise.
         const rows = await queryRows<{ queued: boolean }>(
           "SELECT enqueue_pvp_if_unmatched($1, $2) AS queued",
           [args.p_user, args.p_topic_id],
         );
-        return { data: rows.length > 0, error: null };
+        return { data: rows[0]?.queued === true, error: null };
       }
       const rows = await queryRows<{ value: number }>(
         "SELECT increment_total_points($1, $2, $3) AS value",

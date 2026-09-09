@@ -11,7 +11,6 @@ import type { ObservableAssessment } from "./observableAssessment";
 import { graphFromTurn, mergeAssessmentGraphs, assessArgumentGraph } from "./observableAssessment";
 import { fitLinear } from "./debateEvaluation";
 import { scoreRebuttalQuality } from "./argumentEvaluation";
-import { detectFakePrecision } from "./argumentEvaluation";
 import { validateGraph } from "./argGraph";
 import { isKnownSource } from "./citationVerifier";
 

@@ -40,6 +40,8 @@ export interface DebateWeaknessRow {
   userId: string;
   completedAt: string;
   kinds: Record<string, number>;
+  /** Opportunity volume; absent on legacy rows (treated as having opportunity). */
+  opps?: { majorClaims: number; opponentMoves: number };
 }
 
 export type RepairOutcome =
@@ -143,6 +145,32 @@ export function weaknessKindsFor(kind: string): string[] {
 }
 
 /**
+ * Opportunity volume per debate: a debate can only express a weakness the
+ * user (or opponent) gave it a chance to express. Evidence/structure/logic/
+ * impact weaknesses need the user to have made claims; rebuttal needs
+ * opponent moves to answer. Rows without `opps` (legacy) are treated as
+ * having opportunity so historical data still measures.
+ */
+export function debateOpportunities(graph: ArgGraph, owner: Owner): { majorClaims: number; opponentMoves: number } {
+  return {
+    majorClaims: graph.nodes.filter(
+      (n) => n.owner === owner && (n.kind === "claim" || n.kind === "counterclaim"),
+    ).length,
+    opponentMoves: graph.nodes.filter(
+      (n) => n.owner !== owner && (n.kind === "claim" || n.kind === "counterclaim"),
+    ).length,
+  };
+}
+
+function hasOpportunity(repairKind: string, debate: DebateWeaknessRow): boolean {
+  const opps = debate.opps;
+  if (!opps) return true; // legacy rows: assume opportunity (conservative = may measure)
+  if (repairKind === "rebuttal") return opps.opponentMoves > 0;
+  // evidence, structure, logic, impact: need user claims to evaluate.
+  return opps.majorClaims > 0;
+}
+
+/**
  * Side-scoped weakness counts from a merged argument graph. Only the owner's
  * own nodes can produce a weakness — the opponent's dropped arguments or
  * fallacies say nothing about the user. `clarity` is always 0 because no
@@ -193,11 +221,14 @@ function weaknessPresent(debate: DebateWeaknessRow, kinds: string[]): boolean {
  * debates in the window before vs after the repair (excluding the repaired
  * debate itself and any debate still awaiting scoring). Kinds without a
  * deterministic detector are "not currently measurable" by construction.
+ * Windows count only debates that had OPPORTUNITY to express the weakness
+ * (claims made / opponent moves present); a clean debate with no opportunity
+ * is not evidence of improvement.
  */
 export function classifyRepair(
   repair: RepairRow,
   debates: DebateWeaknessRow[],
-  opts: { windowDays?: number } = {},
+  opts: { windowDays?: number; afterCutoff?: string } = {},
 ): RepairOutcomeDetail {
   if (NOT_CURRENTLY_MEASURABLE_KINDS.has(repair.target_kind)) {
     return {
@@ -218,12 +249,24 @@ export function classifyRepair(
   const cutoffBefore = t - windowDays * 86_400_000;
   const cutoffAfter = t + windowDays * 86_400_000;
 
-  const mine = debates.filter((d) => d.userId === repair.user_id && d.debateId !== repair.debate_id);
-  const before = mine.filter(
+  // Sort EXPLICITLY by completion time (ascending): the loader returns newest
+  // first, and "first retest" must mean the chronologically earliest eligible
+  // debate after the repair — never whichever row the query happened to emit.
+  const mine = debates
+    .filter((d) => d.userId === repair.user_id && d.debateId !== repair.debate_id)
+    .sort((a, b) => dayMs(a.completedAt) - dayMs(b.completedAt));
+  // Opportunity gate: debates that could not express the weakness are
+  // invisible to the measurement (no false "improved" from empty debates).
+  const eligible = mine.filter((d) => hasOpportunity(repair.target_kind, d));
+  // afterCutoff partitions repeated repairs: each after-debate is measured by
+  // the most recent prior repair of the same kind, never double-counted.
+  const afterEnd =
+    opts.afterCutoff !== undefined ? Math.min(cutoffAfter, dayMs(opts.afterCutoff)) : cutoffAfter;
+  const before = eligible.filter(
     (d) => dayMs(d.completedAt) >= cutoffBefore && dayMs(d.completedAt) < t,
   );
-  const after = mine.filter(
-    (d) => dayMs(d.completedAt) > t && dayMs(d.completedAt) <= cutoffAfter,
+  const after = eligible.filter(
+    (d) => dayMs(d.completedAt) > t && dayMs(d.completedAt) <= afterEnd,
   );
 
   const beforeRate = before.length ? before.filter((d) => weaknessPresent(d, kinds)).length / before.length : null;
@@ -309,7 +352,9 @@ function retestStats(details: RepairOutcomeDetail[]): RetestStats {
 /**
  * Build the aggregate report. Repairs whose debates/kinds cannot be observed
  * are classified explicitly ("not-yet-measurable", "insufficient-baseline",
- * "not-currently-measurable"), never silently dropped.
+ * "not-currently-measurable"), never silently dropped. After-windows are
+ * partitioned at the next same-user same-kind repair so repeated repairs
+ * never double-count the same after-debates.
  */
 export function buildRepairEffectiveness(
   repairs: RepairRow[],
@@ -317,7 +362,23 @@ export function buildRepairEffectiveness(
   opts: { now?: string; windowDays?: number } = {},
 ): RepairEffectivenessReport {
   const now = opts.now ?? new Date().toISOString();
-  const details = repairs.map((r) => classifyRepair(r, debates, { windowDays: opts.windowDays }));
+  const byUserKind = new Map<string, RepairRow[]>();
+  for (const r of repairs) {
+    const key = `${r.user_id}|${r.target_kind}`;
+    const list = byUserKind.get(key) ?? [];
+    list.push(r);
+    byUserKind.set(key, list);
+  }
+  for (const list of byUserKind.values()) {
+    list.sort((a, b) => dayMs(a.created_at) - dayMs(b.created_at));
+  }
+  const nextCutoff = new Map<RepairRow, string | undefined>();
+  for (const list of byUserKind.values()) {
+    list.forEach((r, i) => nextCutoff.set(r, list[i + 1]?.created_at));
+  }
+  const details = repairs.map((r) =>
+    classifyRepair(r, debates, { windowDays: opts.windowDays, afterCutoff: nextCutoff.get(r) }),
+  );
 
   const kinds = [...new Set(repairs.map((r) => r.target_kind))];
   const perKind = kinds
@@ -333,6 +394,6 @@ export function buildRepairEffectiveness(
     perKind,
     overall,
     honestyNote:
-      "Observational only: this compares weakness presence in debates before vs after a repair. It is an association, not proof the repair caused the change — users who repair may also differ in other ways.",
+      "Observational only: this compares weakness presence in debates before vs after a repair. It is an association, not proof the repair caused the change — users who repair may also differ in other ways. After-windows stop at the next same-kind repair, so repeated repairs never double-count the same debates.",
   };
 }

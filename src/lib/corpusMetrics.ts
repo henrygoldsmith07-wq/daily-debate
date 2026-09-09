@@ -1,8 +1,7 @@
 // Rewritten corpus metrics with explicit sample gates and uncertainty.
 // Every published metric carries: { estimate, ciLower, ciUpper, n, state }.
 
-import type { GateKey } from "./evidenceState";
-import { gateBinomial, SAMPLE_GATES, wilsonInterval, type GatedMetric } from "./evidenceState";
+import { gateBinomial, SAMPLE_GATES, type GatedMetric } from "./evidenceState";
 
 export interface MetricRating {
   corpus_id: string;

@@ -52,7 +52,7 @@ describe("summariseAiOps", () => {
 
   it("excludes calls outside the window", () => {
     const rows = [
-      ...Array.from({ length: 6 }, (_, i) => row("judge_pvp", "2026-06-14T09:00:00Z")),
+      ...Array.from({ length: 6 }, () => row("judge_pvp", "2026-06-14T09:00:00Z")),
       row("judge_pvp", "2020-01-01T09:00:00Z", { ok: false }),
     ];
     const report = summariseAiOps(rows, { now: NOW, windowDays: 7 });

@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { normalizeNumerics } from "@/lib/backend/sql";
 
 /**
  * Integration tests for the daily coaching loop schema (migration 004):
@@ -56,16 +57,20 @@ async function ensureUser(email: string): Promise<string> {
 }
 
 async function todayTopicId(): Promise<string> {
+  // daily_topics is created by getOrCreateTodayTopic in the app; for the
+  // integration test insert-or-get a row directly. DO NOTHING (never UPDATE):
+  // the sibling db.test file touches the same topic_date row from a parallel
+  // worker, and concurrent upsert-updates on one row raise
+  // "tuple concurrently updated".
   const day = new Date().toISOString().slice(0, 10);
-  const existing = await pool.query<{ id: string }>("SELECT id FROM daily_topics WHERE topic_date = $1", [day]);
-  if (existing.rows.length) return existing.rows[0].id;
-  const inserted = await pool.query<{ id: string }>(
+  await pool.query(
     `INSERT INTO daily_topics (topic_date, title, prompt)
      VALUES ($1, 'Coach loop test topic', 'Used by dailyCoachLoop.db.test')
-     RETURNING id`,
+     ON CONFLICT (topic_date) DO NOTHING`,
     [day],
   );
-  return inserted.rows[0].id;
+  const existing = await pool.query<{ id: string }>("SELECT id FROM daily_topics WHERE topic_date = $1", [day]);
+  return existing.rows[0].id;
 }
 
 d("daily coach loop schema", () => {
@@ -152,6 +157,9 @@ d("daily coach loop schema", () => {
   it("links a completed repair to the open drill assignment (next coaching focus input)", async () => {
     const userId = userIds.get("coach-a@test.local")!;
     const today = new Date().toISOString().slice(0, 10);
+    // Guard the unique (user_id, assigned_date) constraint against leftovers
+    // from an interrupted run.
+    await pool.query("DELETE FROM drill_assignments WHERE user_id = $1", [userId]);
 
     const assignment = await pool.query<{ id: string; status: string }>(
       `INSERT INTO drill_assignments (user_id, dimension, minutes, title, prompt, assigned_date, status)
@@ -174,7 +182,11 @@ d("daily coach loop schema", () => {
       [assignment.rows[0].id],
     );
     expect(updated.rows[0].status).toBe("attempted");
-    expect(updated.rows[0].attempt_score).toBe(85);
+    // numeric columns arrive as strings from node-postgres; the app boundary
+    // (backend/sql.ts normalizeNumerics) converts them — assert through it.
+    const normalised = normalizeNumerics({ ...updated.rows[0] });
+    expect(typeof normalised.attempt_score).toBe("number");
+    expect(normalised.attempt_score).toBe(85);
 
     await pool.query("DELETE FROM drill_assignments WHERE id = $1", [assignment.rows[0].id]);
   });
@@ -185,7 +197,6 @@ d("daily coach loop schema", () => {
     // consumers that call .map() on the column (daily_topics.sources).
     // The fix JSON-encodes arrays/objects at the query-builder boundary; this
     // test verifies the stored shape end-to-end through node-postgres.
-    const userId = userIds.get("coach-a@test.local")!;
     const topicId = await todayTopicId();
 
     // Same binding path as the query builder: parameter passes through pg.
@@ -233,7 +244,7 @@ d("daily coach loop schema", () => {
     ).rejects.toThrow(/product_events_name_check|check constraint/i);
 
     await expect(
-      pool.query(`INSERT INTO product_events (user_id, name) VALUES ($1, 'sprint_started', 'best-of-99')`, [userId]),
+      pool.query(`INSERT INTO product_events (user_id, name, format) VALUES ($1, 'sprint_started', 'best-of-99')`, [userId]),
     ).rejects.toThrow(/product_events_format_check|check constraint/i);
 
     await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
@@ -243,6 +254,7 @@ d("daily coach loop schema", () => {
     const challengerId = userIds.get("coach-a@test.local")!;
     const opponentId = userIds.get("coach-b@test.local")!;
     const topicId = await todayTopicId();
+    await pool.query("DELETE FROM challenge_invites WHERE code = 'coach22x'");
 
     const invite = await pool.query<{ code: string }>(
       `INSERT INTO challenge_invites (code, challenger_id, topic_id, challenger_side, expires_at)
@@ -260,17 +272,19 @@ d("daily coach loop schema", () => {
       ),
     ).rejects.toThrow(/duplicate key|unique constraint/i);
 
-    // Lifecycle: open → accepted (atomically claimed once).
+    // Lifecycle: open → accepted (atomically claimed once). Both parameters
+    // are used ($1 selects nothing — covering the unused-parameter class of
+    // bug that previously made this statement fail type inference).
     const claim = await pool.query<{ id: string }>(
-      `UPDATE challenge_invites SET status = 'accepted', opponent_id = $2
+      `UPDATE challenge_invites SET status = 'accepted', opponent_id = $1
        WHERE code = 'coach22x' AND status = 'open' RETURNING id`,
-      [challengerId, opponentId],
+      [opponentId],
     );
     expect(claim.rows.length).toBe(1);
     const claimAgain = await pool.query<{ id: string }>(
-      `UPDATE challenge_invites SET status = 'accepted', opponent_id = $2
+      `UPDATE challenge_invites SET status = 'accepted', opponent_id = $1
        WHERE code = 'coach22x' AND status = 'open' RETURNING id`,
-      [challengerId, opponentId],
+      [opponentId],
     );
     expect(claimAgain.rows.length).toBe(0);
   });

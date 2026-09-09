@@ -86,6 +86,6 @@ After setting `DATABASE_URL`, run `npm run db:migrate` locally against the same 
 
 ## Tests
 
-- `npm test` — unit + regression suite (45+ files, fully offline).
+- `npm test` — unit + regression suite (fully offline; DB invariant tests also run when `TEST_DATABASE_URL` is set).
 - `npm run test:e2e` — Playwright against an ephemeral Postgres with `E2E_MOCK_AI=1`; includes PvP, full-debate, and the Sprint → weakness → repair loop.
 - `npm run benchmark:judges` — live-model judge benchmark (weekly in CI).

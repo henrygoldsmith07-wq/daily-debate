@@ -128,7 +128,6 @@ export function assignCorpusSplit(items: SplitInput[]): SplitManifest {
     let stratumAssigned = 0;
 
     for (const group of groups) {
-      const memberCount = group.members.length;
       let split: CorpusSplit;
 
       // Decide based on where we are relative to stratum targets

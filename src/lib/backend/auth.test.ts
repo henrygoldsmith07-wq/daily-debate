@@ -13,19 +13,10 @@ import { queryRows } from "./sql";
 import {
   AuthApi,
   PASSWORD_RESET_TTL_SECONDS,
-  type CookieStore,
   type ResetTokenSender,
 } from "./auth";
 
 const mockQueryRows = vi.mocked(queryRows);
-
-function fakeCookieStore(): CookieStore {
-  return {
-    get: vi.fn().mockReturnValue(undefined),
-    set: vi.fn(),
-    delete: vi.fn(),
-  };
-}
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");

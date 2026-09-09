@@ -7,7 +7,7 @@
 //   C. Evidence-grounding metric accuracy
 //   D. Coaching-target identification accuracy
 
-import { SAMPLE_GATES, gateBinomial, wilsonInterval, type GatedMetric } from "./evidenceState";
+import { SAMPLE_GATES, gateBinomial } from "./evidenceState";
 
 // --- types -------------------------------------------------------------------
 

@@ -52,7 +52,7 @@ export default async function AnalyticsPage() {
     );
   }
 
-  const { events, repairs, debateWeaknesses } = await loadFunnelData();
+  const { events, repairs, debateWeaknesses, completeness } = await loadFunnelData();
   const funnel = buildFunnelReport(events, {});
   const effectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, {});
 
@@ -93,7 +93,13 @@ export default async function AnalyticsPage() {
         <h2 id="funnel-heading" className="text-sm font-semibold">Training funnel</h2>
         <p className="mt-1 text-xs text-ink3">
           User conversion counts each user once; session conversion counts each debate separately (migration 005 events).
+          Data: {completeness.events.loaded} events · {completeness.repairs.loaded} repairs · {completeness.debates.loaded} debate graphs.
         </p>
+        {completeness.note && (
+          <p className="mt-1 text-xs text-amber-600" role="note">
+            Data truncated: {completeness.note}
+          </p>
+        )}
         <div className="mt-2">
           <RateRow label="Today → debate started (user)" {...funnel.startRate} />
           <RateRow label="Sprint completion (user)" {...funnel.sprintCompletion} />
@@ -212,7 +218,8 @@ export default async function AnalyticsPage() {
                 <th className="py-1 pr-3 font-semibold">Improved</th>
                 <th className="py-1 pr-3 font-semibold">Unchanged</th>
                 <th className="py-1 pr-3 font-semibold">Worse</th>
-                <th className="py-1 font-semibold">Improved rate</th>
+                <th className="py-1 pr-3 font-semibold">Improved rate</th>
+                <th className="py-1 font-semibold">Retest recurred</th>
               </tr>
             </thead>
             <tbody className="tabular">
@@ -224,7 +231,10 @@ export default async function AnalyticsPage() {
                   <td className="py-1.5 pr-3">{row.improved}</td>
                   <td className="py-1.5 pr-3">{row.unchanged}</td>
                   <td className="py-1.5 pr-3">{row.worse}</td>
-                  <td className="py-1.5">{row.improvedRate ?? "—"}</td>
+                  <td className="py-1.5 pr-3">{row.improvedRate ?? "—"}</td>
+                  <td className="py-1.5" title="Share of first retests where the same weakness recurred">
+                    {row.retest.firstRetestWeaknessRate ?? "—"}
+                  </td>
                 </tr>
               ))}
               <tr className="border-t-2 border-[var(--rule)] font-semibold">
@@ -234,14 +244,18 @@ export default async function AnalyticsPage() {
                 <td className="py-1.5 pr-3">{effectiveness.overall.improved}</td>
                 <td className="py-1.5 pr-3">{effectiveness.overall.unchanged}</td>
                 <td className="py-1.5 pr-3">{effectiveness.overall.worse}</td>
-                <td className="py-1.5">{effectiveness.overall.improvedRate ?? "—"}</td>
+                <td className="py-1.5 pr-3">{effectiveness.overall.improvedRate ?? "—"}</td>
+                <td className="py-1.5" title="Share of first retests where the same weakness recurred">
+                  {effectiveness.overall.retest.firstRetestWeaknessRate ?? "—"}
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
         <p className="mt-2 text-xs text-ink3">
           Dashes mean the kind summary needs at least 5 repairs with 3 measurable inside the window — the data exists
-          but no claim is made yet.
+          but no claim is made yet. “Retest recurred” reads the first later debate after each repair (≥3 retests
+          to report).
         </p>
       </section>
 

@@ -56,6 +56,6 @@ Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics
 ## Testing
 
 - **Unit**: `npm test` — all pure modules including sprint rules, coaching goal, challenge-me, repair targets, result snapshot, confidence differences, progress summary math.
-- **DB integration**: `*.db.test.ts` run when `TEST_DATABASE_URL` is set (CI provisions ephemeral Postgres): matchmaking invariants, migration 004 schema/constraints, repair persistence, invite lifecycle.
+- **DB integration**: `*.db.test.ts` run when `TEST_DATABASE_URL` is set (CI provisions ephemeral Postgres): matchmaking invariants and boolean enqueue results, migration 004–008 schema/constraints (coaching loop, session ids, AI log, enqueue boolean), jsonb array storage shape, repair persistence, invite lifecycle.
 - **E2E**: Playwright against a production build with `E2E_MOCK_AI=1` — PvP flows, full-debate flow, and the Sprint → weakness → repair loop.
 - **Benchmarks**: deterministic judge invariance on every test run; live-model weekly with gates.

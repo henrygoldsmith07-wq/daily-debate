@@ -2,10 +2,12 @@
 
 **Status: STALE — refresh pending.** The run below was generated 2026-08-23T16:48:07.339Z
 by `scripts/judge-benchmark.mjs` over only **3** labelled fixtures (the pre-expansion
-pack). The fixture pack has since expanded to **12 fixtures** across 11 domains and 3
-difficulty classes (validated by `node scripts/judge-benchmark.mjs --pack-only`), so the
-numbers below must be treated as historical, not current. A fresh live run over the full
-pack is required before any trust claim is updated.
+pack). The fixture pack has since expanded to **24 fixtures** (8 a / 8 b / 8 tie) across
+15 domains and 3 difficulty classes (validated by `node scripts/judge-benchmark.mjs
+--pack-only`, 2026-09-09), so the numbers below must be treated as historical, not
+current. A fresh live run over the full pack is required before any trust claim is
+updated. No provider keys exist in this checkout, so the run must happen via the
+`judge-benchmark` GitHub Actions workflow (secrets live there).
 
 **Last run result: `allPass: false` — the gates did NOT pass.** Failing checks were:
 

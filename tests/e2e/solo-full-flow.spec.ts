@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { HAS_BACKEND, signIn } from "./helpers";
+import { HAS_BACKEND } from "./helpers";
 
 // ── Full-flow solo debate E2E ────────────────────────────────────────────────
 //

@@ -1,8 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { gateBinomial, wilsonInterval, SAMPLE_GATES } from "./evidenceState";
 import { assignCorpusSplit, verifyManifest } from "./corpusSplit";
-import { evaluateRetirement } from "./judgeHealth";
-import type { JudgeHealthEntry } from "./judgeHealth";
 
 // ── REGRESSION TESTS 1–2: sample gates + uncertainty ────────────────────────
 

@@ -28,6 +28,8 @@ export async function GET(request: Request) {
 
   // Outcome-awareness: dimensions whose recent drills produced negative
   // movement stop being recommended until their skill moves again.
+  // `movement` arrives as a real number: numeric columns are normalised at
+  // the database/client boundary (backend/sql.ts).
   const { data: past } = await service
     .from("drill_assignments")
     .select("dimension, movement")
@@ -37,7 +39,9 @@ export async function GET(request: Request) {
     .limit(12);
   const outcomes: Record<string, number> = {};
   for (const row of past ?? []) {
-    if (outcomes[row.dimension] === undefined) outcomes[row.dimension] = Number(row.movement);
+    if (outcomes[row.dimension] === undefined && typeof row.movement === "number") {
+      outcomes[row.dimension] = row.movement;
+    }
   }
 
   const { dims, slopes } = buildCoachProfile(ledger.points);

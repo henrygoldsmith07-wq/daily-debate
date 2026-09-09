@@ -97,6 +97,50 @@ export interface FunnelReport {
 export const FUNNEL_MIN_SAMPLE = 5;
 export const FUNNEL_DEFAULT_WINDOW_DAYS = 90;
 
+/**
+ * Bounded fetch helper: request one row past the limit; `truncated` is true
+ * exactly when more data exists than was loaded. Reports must surface this —
+ * a precise-looking rate from silently incomplete data is dishonest.
+ */
+export function takeBounded<T>(rows: T[], limit: number): { rows: T[]; truncated: boolean } {
+  if (rows.length <= limit) return { rows, truncated: false };
+  return { rows: rows.slice(0, limit), truncated: true };
+}
+
+export interface SourceLoad {
+  loaded: number;
+  limit: number;
+  truncated: boolean;
+}
+
+export interface DataCompleteness {
+  events: SourceLoad;
+  repairs: SourceLoad;
+  debates: SourceLoad;
+  note: string | null;
+}
+
+/** Human note naming which metrics a truncated source can distort. */
+export function completenessNote(meta: DataCompleteness): string | null {
+  const bits: string[] = [];
+  if (meta.events.truncated) {
+    bits.push(
+      `event rows capped at ${meta.events.limit} — every funnel rate below may undercount; treat directions as provisional`,
+    );
+  }
+  if (meta.repairs.truncated) {
+    bits.push(
+      `repair rows capped at ${meta.repairs.limit} — repair effectiveness covers only the newest repairs`,
+    );
+  }
+  if (meta.debates.truncated) {
+    bits.push(
+      `debate graphs capped at ${meta.debates.limit} — weakness recurrence is measured on a subset`,
+    );
+  }
+  return bits.length ? bits.join(" ") : null;
+}
+
 function dayOf(iso: string): string {
   return iso.slice(0, 10);
 }

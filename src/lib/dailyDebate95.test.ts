@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { validateGraph, groundedEvidenceRatio } from "./argGraph";
+import { validateGraph } from "./argGraph";
 import { verifyCitation, verifyGraphCitations, isRootHomepage, sourceQualityScore, graphSourceQuality, isKnownSource } from "./citationVerifier";
 import { validateUserEvidence, inferSourceFromUrl } from "./evidence";
-import { swapLabels, stripNames, inflateVerbosity, injectFakeSource, checkLabelInvariance } from "./judgeInvariance";
+import { stripNames, inflateVerbosity, injectFakeSource, checkLabelInvariance } from "./judgeInvariance";
 import { TRANSCRIPTS } from "./benchmark.fixtures";
 import { HUMAN_CORPUS, agreementRate, judgeVsHumanAgreement, splitQuality } from "./humanCorpus";
 import { detectRepetition, rebuttalCoverage, fallacyHints } from "./argHeuristics";
@@ -60,7 +60,6 @@ describe("judge invariance: position / verbosity / confidence / name / hallucina
     expect(stripNames(t)).toContain("Side X");
   });
   it("verbosity inflation is detectable but should not win", () => {
-    const t = TRANSCRIPTS[0].transcript;
     const inflated = inflateVerbosity("Player B (round 1): hello.");
     expect(inflated.length).toBeGreaterThan("Player B (round 1): hello.".length);
     expect(inflated).toContain("unequivocally");

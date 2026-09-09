@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildFunnelReport,
   buildWeeklyCohorts,
+  completenessNote,
   completionTime,
   repairRetentionComparison,
   returnRate,
+  takeBounded,
   timeToFirstValue,
   type FunnelEventRow,
 } from "./productFunnel";
@@ -309,5 +311,39 @@ describe("deeper product validation metrics", () => {
     // for users first seen Jun 8 at 09:00 with today Jun 15 ? eligible).
     expect(thisWeek?.users).toBe(2);
     expect(thisWeek?.eligibleD1).toBe(0); // pending, not churned
+  });
+});
+
+describe("truthful truncation (takeBounded + completenessNote)", () => {
+  it("passes through short loads untouched", () => {
+    expect(takeBounded([1, 2], 5)).toEqual({ rows: [1, 2], truncated: false });
+    expect(takeBounded([1, 2, 3, 4, 5], 5)).toEqual({ rows: [1, 2, 3, 4, 5], truncated: false });
+  });
+
+  it("detects overflow at limit+1 and slices to the limit", () => {
+    const result = takeBounded([1, 2, 3, 4, 5, 6], 5);
+    expect(result.truncated).toBe(true);
+    expect(result.rows).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("names the affected metrics per truncated source", () => {
+    expect(
+      completenessNote({
+        events: { loaded: 5, limit: 5, truncated: false },
+        repairs: { loaded: 2, limit: 10, truncated: false },
+        debates: { loaded: 3, limit: 10, truncated: false },
+        note: null,
+      }),
+    ).toBeNull();
+
+    const note = completenessNote({
+      events: { loaded: 20000, limit: 20000, truncated: true },
+      repairs: { loaded: 2000, limit: 2000, truncated: true },
+      debates: { loaded: 120, limit: 120, truncated: true },
+      note: null,
+    })!;
+    expect(note).toMatch(/funnel rate/);
+    expect(note).toMatch(/repair effectiveness/);
+    expect(note).toMatch(/weakness recurrence/);
   });
 });

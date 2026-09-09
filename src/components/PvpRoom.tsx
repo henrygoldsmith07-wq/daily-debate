@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import MessageComposer, { type ComposerSubmitData } from "./MessageComposer";
 import { VerdictExplainPanel } from "./ArgGraphView";
-import type { InputMode, PvpMatch, PvpTurn, PvpVerdict } from "@/lib/types";
+import type { PvpMatch, PvpTurn, PvpVerdict } from "@/lib/types";
 import { TURN_ABANDON_MINUTES } from "@/lib/types";
 
 export default function PvpRoom({
