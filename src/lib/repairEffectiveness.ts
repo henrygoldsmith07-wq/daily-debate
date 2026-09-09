@@ -115,14 +115,19 @@ export const NOT_CURRENTLY_MEASURABLE_KINDS: ReadonlySet<string> = new Set(["cla
  * must have a side-scoped deterministic detector in `countWeaknessesForSide`;
  * kinds without one must be listed in NOT_CURRENTLY_MEASURABLE_KINDS.
  *
- * Audit (deterministic detector per kind):
+ * Audit (deterministic detector per kind — all read from the REPAIRED side's
+ * failures, never the opponent's):
  * - evidence   → unsupported-claim detector (unsupportedClaimIds ∩ own claims) ✓
- * - rebuttal   → dropped-argument detector (own claims the opponent never answered) ✓
+ * - rebuttal   → dropped-argument detector (OPPONENT's claims the user never
+ *                answered: graph.dropped entries owned by someone OTHER than
+ *                the user) ✓. An opponent ignoring the USER's argument is not
+ *                a user failure and never counts.
  * - logic      → fallacy detector (deterministic classification above the
  *                confidence threshold, tagged on own nodes) ✓
  * - impact     → own-impact detector (debate contains no impact node owned by
  *                the user) ✓
- * - structure  → dropped-argument + self-contradiction detectors (own nodes) ✓
+ * - structure  → dropped-argument + self-contradiction detectors (opponent
+ *                arguments unanswered + OWN contradictions) ✓
  * - clarity    → NO detector (subjective wording quality) — not measurable
  */
 export function weaknessKindsFor(kind: string): string[] {
@@ -172,10 +177,16 @@ function hasOpportunity(repairKind: string, debate: DebateWeaknessRow): boolean 
 
 /**
  * Side-scoped weakness counts from a merged argument graph. Only the owner's
- * own nodes can produce a weakness — the opponent's dropped arguments or
- * fallacies say nothing about the user. `clarity` is always 0 because no
- * deterministic clarity detector exists; clarity repairs are excluded from
- * effectiveness measurement via NOT_CURRENTLY_MEASURABLE_KINDS.
+ * own failures can produce a weakness:
+ * - evidence/logic/contradictions: the owner's own nodes;
+ * - dropped/rebuttal: the OPPONENT's arguments the owner never answered
+ *   (`DroppedArgument.owner` is the side whose argument went unanswered, so
+ *   the owner's weakness is entries owned by someone ELSE — an opponent
+ *   ignoring the owner's argument is not the owner's failure);
+ * - impact: the owner made no impact move at all.
+ * `clarity` is always 0 because no deterministic clarity detector exists;
+ * clarity repairs are excluded from effectiveness measurement via
+ * NOT_CURRENTLY_MEASURABLE_KINDS.
  */
 export function countWeaknessesForSide(graph: ArgGraph, owner: Owner): Record<string, number> {
   const ownIds = new Set(graph.nodes.filter((n) => n.owner === owner).map((n) => n.id));
@@ -183,23 +194,25 @@ export function countWeaknessesForSide(graph: ArgGraph, owner: Owner): Record<st
     (n) => n.owner === owner && (n.kind === "claim" || n.kind === "counterclaim"),
   );
   const unsupported = graph.evidenceStats.unsupportedClaimIds.filter((id) => ownIds.has(id)).length;
-  const dropped = graph.dropped.filter((d) => d.owner === owner).length;
+  // Opponent arguments the owner failed to answer (NOT own arguments the
+  // opponent ignored — those are the opponent's miss, not the owner's).
+  const unanswered = graph.dropped.filter((d) => d.owner !== owner).length;
   const contradictions = graph.contradictions.filter((c) => c.owner === owner).length;
   const ownImpacts = graph.nodes.filter((n) => n.owner === owner && n.kind === "impact").length;
 
   return {
     // Unsupported claims the user made (evidence weakness).
     evidence: unsupported,
-    // Rebuttal proxy: the opponent left user arguments unanswered.
-    rebuttal: dropped > 0 ? 1 : 0,
+    // Rebuttal failure: opponent arguments the user never answered.
+    rebuttal: unanswered > 0 ? 1 : 0,
     // Fallacies flagged on the user's own nodes.
     logic: graph.fallacies.filter((f) => ownIds.has(f.nodeId)).length,
     // No deterministic detector — kept at 0 and excluded upstream.
     clarity: 0,
     // Weakness present when the user made no explicit impact move at all.
     impact: ownImpacts === 0 ? 1 : 0,
-    // Structural failures on the user's own side.
-    dropped,
+    // Opponent arguments the user left unanswered (structure/rebuttal).
+    dropped: unanswered,
     // Concessions are tracked for completeness, not used by any repair kind.
     concession: graph.concessions.filter((c) => c.by === owner).length,
     contradiction: contradictions,

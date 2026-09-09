@@ -102,6 +102,7 @@ export default async function AnalyticsPage() {
         )}
         <div className="mt-2">
           <RateRow label="Today → debate started (user)" {...funnel.startRate} />
+          <RateRow label="Debate completion, all formats (user)" {...funnel.debateCompletion} />
           <RateRow label="Sprint completion (user)" {...funnel.sprintCompletion} />
           <RateRow label="Full debate completion (user)" {...funnel.fullCompletion} />
           <RateRow label="Repair started (completed debate → CTA, user)" {...funnel.repairStart} />
@@ -113,6 +114,7 @@ export default async function AnalyticsPage() {
 
         <h3 className="mt-5 text-xs font-semibold uppercase tracking-wide text-ink3">Session conversion (per debate)</h3>
         <div className="mt-2">
+          <RateRow label="Debate completion, all formats (per session)" {...funnel.sessions.debateCompletion} />
           <RateRow label="Sprint completion (per session)" {...funnel.sessions.sprintCompletion} />
           <RateRow label="Full debate completion (per session)" {...funnel.sessions.fullCompletion} />
           <RateRow label="Repair started (per session)" {...funnel.sessions.repairStart} />
@@ -127,6 +129,7 @@ export default async function AnalyticsPage() {
           <span>Friend challenges: {funnel.friendChallenges.createdEvents} created · {funnel.friendChallenges.acceptedEvents} accepted</span>
           <span>D1 return: {funnel.d1Return.returnedUsers}/{funnel.d1Return.eligibleUsers} eligible ({funnel.d1Return.pendingUsers} pending)</span>
           <span>D7 return: {funnel.d7Return.returnedUsers}/{funnel.d7Return.eligibleUsers} eligible ({funnel.d7Return.pendingUsers} pending)</span>
+          <span>D30 return: {funnel.d30Return.returnedUsers}/{funnel.d30Return.eligibleUsers} eligible ({funnel.d30Return.pendingUsers} pending)</span>
           <span>Time to first debate: {funnel.timeToFirstValue.medianHours ?? "—"}h median ({funnel.timeToFirstValue.users} users)</span>
           <span>Debate completion time: {funnel.completionTime.medianMinutes ?? "—"} min median ({funnel.completionTime.sessions} sessions)</span>
         </div>

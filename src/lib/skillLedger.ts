@@ -148,7 +148,10 @@ export function extractSkillPoint(
     unsupportedClaimRate: round3(myClaimsCount > 0 ? Math.min(1, myUnsupported / myClaimsCount) : null),
     rebuttalCoverage: rbq ? round3(rbq.coverage) : null,
     evidenceGrounding: round3(myCitedStrength.length > 0 ? myGrounded / myCitedStrength.length : null),
-    droppedArguments: g.dropped.filter((d) => d.owner === owner).length,
+    // Opponent arguments this side left unanswered. DroppedArgument.owner is
+    // the side whose argument went unanswered, so the side's own failure is
+    // entries owned by the OTHER side — never its own ignored arguments.
+    droppedArguments: g.dropped.filter((d) => d.owner !== owner).length,
     contradictions: g.contradictions.filter((c) => c.owner === owner).length,
     impactHandling:
       impactValue === null || impactValue === undefined ? null : round3(Math.max(0, Math.min(1, impactValue))),
@@ -166,7 +169,7 @@ export function extractSkillPoint(
 
   // Evidence trail: which nodes contributed to each metric (explainability).
   const fallacyNodeIds = g.fallacies.filter((f) => myIds.has(f.nodeId)).map((f) => f.nodeId);
-  const droppedIds = g.dropped.filter((d) => d.owner === owner).map((_: unknown, i: number) => `dropped-${i}`);
+  const droppedIds = g.dropped.filter((d) => d.owner !== owner).map((d) => d.nodeId);
   const contradictionIds = g.contradictions.filter((c) => c.owner === owner).map((_: unknown, i: number) => `contradiction-${i}`);
   const overclaimNodes = engineSide && (engineSide.causalOverclaims ?? 0) > 0
     ? mine.map((n) => n.id)

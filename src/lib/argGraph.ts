@@ -76,7 +76,13 @@ export interface ArgEdge {
 export interface DroppedArgument {
   nodeId: string;
   text: string;
-  owner: Owner; // the side whose argument was dropped by the opponent
+  /**
+   * The side whose argument went unanswered — i.e. the side that introduced
+   * it. The FAILURE belongs to the other side (the one that never answered).
+   * Readers must not treat `owner` as the side at fault: an entry owned by
+   * "a" means the opponent ignored "a", not that "a" failed.
+   */
+  owner: Owner;
   round: number;
 }
 

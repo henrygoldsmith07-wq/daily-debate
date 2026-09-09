@@ -37,6 +37,8 @@ export interface SessionFunnel {
   coverage: number | null;
   sprintCompletion: FunnelRate;
   fullCompletion: FunnelRate;
+  /** all started sessions → completed sessions (format-agnostic top line) */
+  debateCompletion: FunnelRate;
   repairStart: FunnelRate;
   repairCompletion: FunnelRate;
   fullAnalysisOpen: FunnelRate;
@@ -63,6 +65,8 @@ export interface FunnelReport {
   sprintCompletion: FunnelRate;
   /** full_debate_started → full debate_completed */
   fullCompletion: FunnelRate;
+  /** any debate_started → debate_completed (format-agnostic top line) */
+  debateCompletion: FunnelRate;
   /** debate_completed → repair_started (client CTA click) */
   repairStart: FunnelRate;
   /** repair_started → repair_completed (server-confirmed submission) */
@@ -82,6 +86,7 @@ export interface FunnelReport {
   };
   d1Return: ReturnRate;
   d7Return: ReturnRate;
+  d30Return: ReturnRate;
   /** Session-level (per-debate) completion for the same funnel steps. */
   sessions: SessionFunnel;
   /** Median hours from first view to first completed debate. */
@@ -481,6 +486,8 @@ export function buildSessionFunnel(
 
   const s = rate(sprintIds.filter((id) => completedSessions.has(id)).length, sprintIds.length, minSample);
   const f = rate(fullIds.filter((id) => completedSessions.has(id)).length, fullIds.length, minSample);
+  const allStartedIds = [...startedSessions.keys()];
+  const d = rate(allStartedIds.filter((id) => completedSessions.has(id)).length, allStartedIds.length, minSample);
   const rs = rate([...completedSessions].filter((id) => repairStartedSessions.has(id)).length, completedSessions.size, minSample);
   const rc = rate([...repairStartedSessions].filter((id) => repairCompletedSessions.has(id)).length, repairStartedSessions.size, minSample);
   const ao = rate([...completedSessions].filter((id) => analysisOpenSessions.has(id)).length, completedSessions.size, minSample);
@@ -492,7 +499,7 @@ export function buildSessionFunnel(
         ? `${Math.round((1 - coverage) * 100)}% of funnel events predate session ids (migration 005) and are counted in user conversion only`
         : null;
 
-  return { debates, coverage, sprintCompletion: s, fullCompletion: f, repairStart: rs, repairCompletion: rc, fullAnalysisOpen: ao, note };
+  return { debates, coverage, sprintCompletion: s, fullCompletion: f, debateCompletion: d, repairStart: rs, repairCompletion: rc, fullAnalysisOpen: ao, note };
 }
 
 /** Build the full funnel report from raw event rows. */
@@ -537,6 +544,7 @@ export function buildFunnelReport(
     startRate: rate(distinctUsers(started).size, distinctUsers(viewed).size, minSample),
     sprintCompletion: rate(distinctUsers(sprintCompleted).size, distinctUsers(sprints).size, minSample),
     fullCompletion: rate(distinctUsers(fullCompleted).size, distinctUsers(fulls).size, minSample),
+    debateCompletion: rate(distinctUsers(completed).size, distinctUsers(started).size, minSample),
     repairStart: rate(distinctUsers(repairStarted).size, distinctUsers(completed).size, minSample),
     repairCompletion: rate(distinctUsers(repairCompleted).size, distinctUsers(repairStarted).size, minSample),
     fullAnalysisOpen: rate(distinctUsers(analysisOpened).size, distinctUsers(completed).size, minSample),
@@ -551,12 +559,13 @@ export function buildFunnelReport(
       acceptedUsers: distinctUsers(challengeAccepted).size,
       acceptRate: rate(
         distinctUsers(challengeAccepted).size,
-        Math.max(distinctUsers(challengeCreated).size, 1),
+        distinctUsers(challengeCreated).size,
         minSample,
       ),
     },
     d1Return: returnRate(inWindow, 1, now, minSample),
     d7Return: returnRate(inWindow, 7, now, minSample),
+    d30Return: returnRate(inWindow, 30, now, minSample),
     sessions,
     timeToFirstValue: timeToFirstValue(inWindow, minSample),
     completionTime: completionTime(inWindow, minSample),

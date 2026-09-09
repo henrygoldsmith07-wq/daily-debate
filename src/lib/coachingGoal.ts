@@ -21,7 +21,7 @@ export interface CoachingSnapshot {
   unsupportedClaims: number;
   /** User claim-like nodes. */
   majorClaims: number;
-  /** User claims the opponent never answered. */
+  /** Opponent arguments the user never answered (user's rebuttal failure). */
   droppedOwn: number;
 }
 
@@ -36,12 +36,16 @@ export function snapshotFromAssessment(assessment: ObservableAssessment | null |
   const majorClaims = assessment.graph.nodes.filter(
     (n) => n.owner === "a" && (n.kind === "claim" || n.kind === "counterclaim"),
   ).length;
+  // DroppedArgument.owner is the side whose argument went unanswered, so the
+  // user's failure is opponent-owned entries — never the user's own ignored
+  // arguments (those are the opponent's miss).
+  const unanswered = assessment.graph.dropped.filter((d) => d.owner !== "a").length;
   return {
     responsesAnswered: responses?.responded ?? 0,
     responseOpportunities: responses?.opportunities ?? 0,
     unsupportedClaims: unsupported,
     majorClaims,
-    droppedOwn: assessment.features.a.droppedArguments?.value ?? 0,
+    droppedOwn: unanswered,
   };
 }
 
@@ -102,7 +106,7 @@ function described(snapshot: CoachingSnapshot): string {
     return `${snapshot.unsupportedClaims} of your claims had no supporting evidence.`;
   }
   if (snapshot.droppedOwn > 0) {
-    return `You left ${snapshot.droppedOwn} of your own claims unanswered.`;
+    return `You left ${snapshot.droppedOwn} opposing argument${snapshot.droppedOwn === 1 ? "" : "s"} unanswered.`;
   }
   return null as unknown as string;
 }
@@ -186,8 +190,8 @@ export function assessGoalOutcome(dimension: CoachDimension, snapshot: CoachingS
     case "structure": {
       const detail =
         snapshot.droppedOwn === 0
-          ? "You closed every loop you opened."
-          : `You left ${snapshot.droppedOwn} of your own claims unanswered.`;
+          ? "You answered every opposing argument."
+          : `You left ${snapshot.droppedOwn} opposing argument${snapshot.droppedOwn === 1 ? "" : "s"} unanswered.`;
       return { demonstrated: snapshot.droppedOwn === 0, detail };
     }
     default:

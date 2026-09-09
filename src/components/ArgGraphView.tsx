@@ -250,7 +250,7 @@ export function TrackingGrid({ graph }: { graph: ArgGraph }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <TrackCard title="Unsupported claims" items={graph.evidenceStats.unsupportedClaimIds.map((id) => graph.nodes.find((n) => n.id === id)?.text ?? id)} empty="Every claim was backed." />
-      <TrackCard title="Dropped arguments" items={graph.dropped.map((d) => `${d.text} (r${d.round})`)} empty="Nothing was left unanswered." />
+      <TrackCard title="Dropped arguments" items={graph.dropped.map((d) => `${d.text} (r${d.round}) — ${d.owner}'s argument went unanswered`)} empty="Nothing was left unanswered." />
       <TrackCard
         title="Contradictions"
         items={graph.contradictions.map((c) => `${c.explanation} (${c.owner})`)}

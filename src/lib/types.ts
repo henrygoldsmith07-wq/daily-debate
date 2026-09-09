@@ -59,6 +59,7 @@ export interface CoachingRecord {
     responseOpportunities?: number;
     unsupportedClaims?: number;
     majorClaims?: number;
+    /** Opponent arguments the user never answered (user's rebuttal failure). */
     droppedOwn?: number;
   } | null;
   /** Whether the goal behaviour was demonstrated (null = not measurable). */

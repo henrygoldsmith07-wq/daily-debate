@@ -12,6 +12,7 @@ import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAsse
 import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { minRoundsFor, measurementHonestyFor } from "@/lib/sprint";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
+import { snapshotFromAssessment } from "@/lib/coachingGoal";
 import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
 import { recordProductEvent } from "@/lib/productEvents";
 import type { CoachingRecord } from "@/lib/types";
@@ -207,21 +208,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   });
   let coachingUpdate: CoachingRecord = { ...coaching, snapshot: null, demonstrated: null };
   if (goalDimension && finalAssessment?.features?.a) {
-    const responses = finalAssessment.features.a.argumentResponses?.value;
-    const myIds = new Set(finalAssessment.graph.nodes.filter((n) => n.owner === "a").map((n) => n.id));
-    const behaviourSnapshot = {
-      responsesAnswered: responses?.responded ?? 0,
-      responseOpportunities: responses?.opportunities ?? 0,
-      unsupportedClaims: finalAssessment.graph.evidenceStats.unsupportedClaimIds.filter((id) => myIds.has(id)).length,
-      majorClaims: finalAssessment.graph.nodes.filter((n) => n.owner === "a" && (n.kind === "claim" || n.kind === "counterclaim")).length,
-      droppedOwn: finalAssessment.features.a.droppedArguments?.value ?? 0,
-    };
+    // Single source of truth for the coaching snapshot (coachingGoal.ts) —
+    // no inline duplicate of the behaviour extraction.
+    const behaviourSnapshot = snapshotFromAssessment(finalAssessment);
     let demonstrated: boolean | null = null;
-    if (goalDimension === "rebuttal" && behaviourSnapshot.responseOpportunities > 0) {
+    if (behaviourSnapshot && goalDimension === "rebuttal" && behaviourSnapshot.responseOpportunities > 0) {
       demonstrated = behaviourSnapshot.responsesAnswered >= behaviourSnapshot.responseOpportunities * 0.8;
-    } else if (goalDimension === "evidence" && behaviourSnapshot.majorClaims > 0) {
+    } else if (behaviourSnapshot && goalDimension === "evidence" && behaviourSnapshot.majorClaims > 0) {
       demonstrated = behaviourSnapshot.unsupportedClaims === 0;
-    } else if (goalDimension === "structure") {
+    } else if (behaviourSnapshot && goalDimension === "structure") {
       demonstrated = behaviourSnapshot.droppedOwn === 0;
     }
     coachingUpdate = { ...coaching, snapshot: behaviourSnapshot, demonstrated, weaknessKind: snapshot.weakness?.kind ?? null, recurrenceCount: snapshot.recurrence?.count ?? 0 };

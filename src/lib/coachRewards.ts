@@ -104,7 +104,10 @@ function weakestSkillImproved(current: ObservableAssessment, priors: ObservableA
   const extractScores = (a: ObservableAssessment) => ({
     unsupportedRate: a.graph.evidenceStats.unsupportedClaimIds.length /
       Math.max(1, a.graph.nodes.filter((n) => n.kind === "claim").length),
-    droppedCount: a.graph.dropped.length,
+    // Opponent arguments the user left unanswered (DroppedArgument.owner is
+    // the side whose argument went unanswered — the user's own ignored
+    // arguments are the opponent's miss, not the user's).
+    droppedCount: a.graph.dropped.filter((d) => d.owner !== "a").length,
     fallacyCount: a.graph.fallacies.length,
     impactMissing: !a.graph.impactComparison ? 1 : 0,
   });

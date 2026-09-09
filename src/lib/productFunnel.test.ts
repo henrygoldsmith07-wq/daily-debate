@@ -45,6 +45,10 @@ describe("buildFunnelReport", () => {
     const report = buildFunnelReport(rows, { now: NOW, minSample: 2 });
     expect(report.sprintCompletion.rate).toBeCloseTo(0.4);
     expect(report.fullCompletion.rate).toBeCloseTo(1 / 3);
+    // Combined top line: 3 completed of 8 started.
+    expect(report.debateCompletion.numerator).toBe(3);
+    expect(report.debateCompletion.denominator).toBe(8);
+    expect(report.debateCompletion.rate).toBeCloseTo(3 / 8);
   });
 
   it("computes repair start and completion through the funnel", () => {
@@ -158,6 +162,8 @@ describe("session conversion (per-debate funnel)", () => {
     const report = buildFunnelReport(rows, { now: NOW, minSample: 2 });
     expect(report.sessions.sprintCompletion.rate).toBeCloseTo(0.5);
     expect(report.sessions.fullCompletion.rate).toBeCloseTo(0.5);
+    expect(report.sessions.debateCompletion.numerator).toBe(2);
+    expect(report.sessions.debateCompletion.denominator).toBe(4);
     expect(report.sessions.coverage).toBe(1);
   });
 

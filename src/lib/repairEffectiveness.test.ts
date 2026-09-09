@@ -53,7 +53,7 @@ describe("countWeaknessesForSide (side-scoped validity)", () => {
       { id: "i1", kind: "impact", owner: "a", text: "User impact.", round: 2 },
     ],
     edges: [],
-    dropped: [{ nodeId: "c1", text: "User claim dropped.", owner: "a", round: 2 }],
+    dropped: [{ nodeId: "o1", text: "AI claim dropped.", owner: "ai", round: 2 }],
     contradictions: [],
     concessions: [],
     fallacies: [],
@@ -67,14 +67,17 @@ describe("countWeaknessesForSide (side-scoped validity)", () => {
     ...overrides,
   });
 
-  it("never attributes opponent weaknesses to the user", () => {
-    // The AI dropped its own claim — that says nothing about the user.
+  it("never attributes opponent behaviour to the user as a failure", () => {
+    // The user's own claim was ignored by the AI — that is the OPPONENT's
+    // miss, not a user failure.
     const g = graph({
-      dropped: [{ nodeId: "c2", text: "AI claim dropped.", owner: "ai", round: 2 }],
+      dropped: [{ nodeId: "c1", text: "User claim dropped.", owner: "a", round: 2 }],
     });
     const counts = countWeaknessesForSide(g, "a");
     expect(counts.dropped).toBe(0);
     expect(counts.rebuttal).toBe(0);
+    // Mirrored: it is the opponent's rebuttal failure.
+    expect(countWeaknessesForSide(g, "ai").dropped).toBe(1);
   });
 
   it("counts only the user's own structural failures", () => {

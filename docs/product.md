@@ -96,9 +96,10 @@ Funnel semantics: `repair_started` is the click on **Fix this now** (client-side
 Computed from `product_events` by `src/lib/productFunnel.ts` and served at `/api/analytics/funnel`:
 
 - Today → debate start rate;
-- Sprint vs Full completion, in **both** units (see below);
+- Debate completion (all formats) plus Sprint vs Full completion, in **both** units (see below);
 - repair start/completion rate;
-- D1/D7 return (with pending-user counts — users without a full window are never counted as churned);
+- D1/D7/D30 return (with pending-user counts — users without a full window are never counted as churned);
+- time-to-first-value and per-session completion time (proper medians);
 - full-analysis open rate;
 - Challenge Me usage, broken down by which rule fired;
 - friend-challenge creation/acceptance.
@@ -117,7 +118,8 @@ For each completed repair, the same weakness kind's presence is compared across 
 weakness detected → repair completed → next relevant debates → improved / unchanged / worse
 ```
 
-- Excludes the repaired debate itself; only debates that could actually express the weakness count, and weakness counts are **side-scoped** (an opponent's dropped arguments or fallacies never register as the user's weakness).
+- Excludes the repaired debate itself; only debates that could actually express the weakness count, and weakness counts are **side-scoped** (an opponent's fallacies or contradictions never register as the user's weakness).
+- **Dropped-argument direction is explicit**: `DroppedArgument.owner` is the side whose argument went unanswered, so a user's rebuttal/structure failure is opponent-owned entries — arguments the user left unanswered. An opponent ignoring the *user's* argument is the opponent's miss and never counts against the user. Scoring (`groundedDroppedArguments`) and weakness measurement read the same entries from opposite sides, deliberately.
 - **Opportunity gate**: debates that could not express the weakness are invisible to the measurement — evidence/structure/logic/impact repairs need user claims, rebuttal repairs need opponent moves. A clean debate with no opportunity is never counted as improvement.
 - **No double-counting**: after-windows stop at the next same-user same-kind repair, so repeated repairs never measure the same debates twice.
 - **Chronological first retest**: debates are sorted explicitly by completion time; "first retest" means the chronologically earliest eligible debate after the repair, never query order.

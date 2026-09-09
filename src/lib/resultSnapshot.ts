@@ -11,7 +11,7 @@ import type { ArgGraph, ArgNode } from "./argGraph";
 import type { ObservableAssessment } from "./observableAssessment";
 import type { RepairTarget } from "./argumentRepair";
 import { pickRepairTarget } from "./argumentRepair";
-import { buildCoachingGoal, type CoachingSnapshot, type CoachingGoal } from "./coachingGoal";
+import { buildCoachingGoal, assessGoalOutcome, type CoachingSnapshot, type CoachingGoal } from "./coachingGoal";
 import { measurementHonestyFor, type MeasurementHonesty } from "./sprint";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { CoachDimension } from "./adaptiveCoach";
@@ -127,7 +127,10 @@ export function buildResultSnapshot(
   const unsupported = ownUnsupportedClaims(graph);
   const evidence = ownEvidence(graph);
   const citedEvidence = evidence.filter((n) => (n.citations?.length ?? 0) > 0 || n.evidenceStrength === "cited" || n.evidenceStrength === "strong");
-  const dropped = graph.dropped.filter((d) => d.owner === "a");
+  // Opponent arguments the user left unanswered. DroppedArgument.owner is the
+  // side whose argument went unanswered, so the USER's failure is entries
+  // owned by the opponent — never the user's own ignored arguments.
+  const unanswered = graph.dropped.filter((d) => d.owner !== "a");
   const rebuttals = answeredRebuttals(graph);
   const opponentMoves = graph.nodes.filter((n) => n.owner === "ai" && ["claim", "counterclaim"].includes(n.kind));
 
@@ -164,11 +167,11 @@ export function buildResultSnapshot(
       repair,
       kind: weaknessKind,
     };
-  } else if (dropped.length > 0) {
-    weaknessKind = "structure";
+  } else if (unanswered.length > 0) {
+    weaknessKind = "rebuttal";
     weakness = {
-      headline: `${dropped.length} of your claim${dropped.length === 1 ? "" : "s"} went unanswered`,
-      whyItMatters: WEAKNESS_WHY.structure,
+      headline: `${unanswered.length} opposing argument${unanswered.length === 1 ? "" : "s"} went unanswered`,
+      whyItMatters: WEAKNESS_WHY.rebuttal,
       repair,
       kind: weaknessKind,
     };
@@ -207,36 +210,13 @@ export function buildResultSnapshot(
   }
 
   // ── Goal outcome: did today's focus show up? ─────────────────────────────
+  // Single source of truth (coachingGoal.assessGoalOutcome) — no inline copy.
   const snapshot = snapshotFromAssessment(assessment);
   const goal = opts.ledgerPoints ? buildCoachingGoal(opts.ledgerPoints, snapshot) : null;
-  let goalOutcome = { demonstrated: null as boolean | null, detail: null as string | null };
-  if (opts.goalDimension && snapshot) {
-    if (opts.goalDimension === "rebuttal") {
-      if (snapshot.responseOpportunities === 0) {
-        goalOutcome = { demonstrated: null, detail: "No opposing argument came up to answer this time." };
-      } else {
-        const answered = snapshot.responsesAnswered;
-        goalOutcome = {
-          demonstrated: answered >= snapshot.responseOpportunities * 0.8,
-          detail: `You directly answered ${answered} of ${snapshot.responseOpportunities} opposing arguments.`,
-        };
-      }
-    } else if (opts.goalDimension === "evidence") {
-      goalOutcome = snapshot.majorClaims === 0
-        ? { demonstrated: null, detail: "No major claims were extracted from this debate." }
-        : {
-            demonstrated: snapshot.unsupportedClaims === 0,
-            detail: snapshot.unsupportedClaims === 0
-              ? "Every major claim had support this time."
-              : `${snapshot.unsupportedClaims} claim${snapshot.unsupportedClaims === 1 ? "" : "s"} had no supporting evidence.`,
-          };
-    } else if (opts.goalDimension === "structure") {
-      goalOutcome = {
-        demonstrated: snapshot.droppedOwn === 0,
-        detail: snapshot.droppedOwn === 0 ? "You closed every loop you opened." : `You left ${snapshot.droppedOwn} of your own claims unanswered.`,
-      };
-    }
-  }
+  const goalOutcome =
+    opts.goalDimension && snapshot
+      ? assessGoalOutcome(opts.goalDimension, snapshot)
+      : { demonstrated: null as boolean | null, detail: null as string | null };
 
   return {
     ...base,
