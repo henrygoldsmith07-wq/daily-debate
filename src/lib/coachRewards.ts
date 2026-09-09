@@ -157,14 +157,18 @@ function isUnfamiliarCategory(currentCategory: string, previousCategories: strin
 //     (raw counts would reward shorter debates, not better debating);
 //  2. a dimension is measurable for a debate only if that debate offered a
 //     genuine opportunity (zero opportunity = unmeasurable, never perfect);
-//  3. the weakest dimension is the lowest prior mean among dimensions with
-//     enough measured priors — ties break by fixed dimension order so the
-//     choice is deterministic;
-//  4. the current debate must be measurable on that dimension AND beat its
-//     prior mean by a meaningful margin.
+//  3. PHASE 1 (priors only): compute prior means for every dimension,
+//     excluding dimensions with < IMPROVEMENT_MIN_PRIOR_DEBATES measured
+//     priors or < IMPROVEMENT_MIN_PRIOR_OPPORTUNITIES cumulative
+//     opportunities; select the lowest mean (fixed-order tie-break);
+//  4. PHASE 2 (current only): measure exactly that dimension in the current
+//     debate — if unmeasurable, no claim; never substitute a second-weakest;
+//  5. award only when the gain clears IMPROVEMENT_MIN_DELTA.
 //
 // Sprint and Full debates mix freely: every debate contributes a rate, so
-// length alone cannot manufacture improvement.
+// length alone cannot manufacture improvement. Per-debate rates average
+// equally (each debate is one rep) rather than pooled, so one long debate
+// cannot dominate the baseline.
 
 export type ImprovementDimension = "evidence" | "rebuttal" | "logic" | "impact";
 
@@ -173,6 +177,14 @@ export const IMPROVEMENT_DIMENSIONS: ImprovementDimension[] = ["evidence", "rebu
 
 /** Minimum measured prior debates before a dimension is eligible. */
 export const IMPROVEMENT_MIN_PRIOR_DEBATES = 2;
+
+/**
+ * Minimum cumulative opportunities across measured priors before a dimension
+ * is eligible. Two debates with one opportunity each (total 2) stay
+ * insufficient: a rate estimated from two chances cannot support an
+ * improvement claim.
+ */
+export const IMPROVEMENT_MIN_PRIOR_OPPORTUNITIES = 4;
 
 /** Minimum goodness gain (0..1) to count as meaningful improvement. */
 export const IMPROVEMENT_MIN_DELTA = 0.05;
@@ -235,7 +247,8 @@ export interface DimensionReading {
  * - rebuttal: 1 − unanswered eligible opponent moves / eligible opponent moves
  * - logic: 1 − min(1, own fallacies / substantive own moves)
  * - impact: 1 if the user made an explicit impact move, else 0
- *   (measurable only when the debate offered something to weigh: ≥1 own claim)
+ *   (measurable only when the debate offered something to weigh: ≥1 own claim
+ *   AND (≥1 opponent move OR ≥2 own claims to compare))
  */
 export function measureDimension(graph: ArgGraph, dimension: ImprovementDimension): DimensionReading {
   const mine = nodesOwnedBy(graph, REWARDED_OWNER);
@@ -262,7 +275,12 @@ export function measureDimension(graph: ArgGraph, dimension: ImprovementDimensio
     }
     case "impact": {
       const claims = mine.filter(isClaimLikeNode);
-      if (!claims.length) return { value: null, opportunities: 0 };
+      const opponentMoves = opponentMovesFor(graph, REWARDED_OWNER).length;
+      // Weighing needs something to weigh: the user's own claims plus either
+      // an opposing position or multiple own claims to compare.
+      if (!claims.length || (opponentMoves < 1 && claims.length < 2)) {
+        return { value: null, opportunities: 0 };
+      }
       const hasImpact = mine.some((n) => n.kind === "impact");
       return { value: hasImpact ? 1 : 0, opportunities: claims.length };
     }
@@ -273,6 +291,8 @@ export interface WeakestDimensionComparison {
   dimension: ImprovementDimension;
   priorMean: number;
   priorDebates: number;
+  /** Cumulative opportunities backing the prior mean. */
+  priorOpportunities: number;
   current: number;
   currentOpportunities: number;
   delta: number;
@@ -280,40 +300,53 @@ export interface WeakestDimensionComparison {
 }
 
 /**
- * Find the genuinely weakest eligible dimension and compare the current
- * debate against it — and nothing else. Returns null when no dimension has
- * enough measured priors, or when the current debate is unmeasurable on the
- * weakest dimension. In that case no claim is made at all.
+ * Find the genuinely weakest eligible dimension using PRIOR evidence only,
+ * then measure exactly that dimension in the current debate — never a
+ * second-weakest substitute.
+ *
+ *  1. For every dimension, collect prior readings (opportunity-normalised).
+ *  2. Exclude dimensions with < IMPROVEMENT_MIN_PRIOR_DEBATES measured priors
+ *     or < IMPROVEMENT_MIN_PRIOR_OPPORTUNITIES cumulative opportunities.
+ *  3. Select the lowest prior mean deterministically (fixed-order tie-break).
+ *  4. Measure that exact dimension in the current debate; if unmeasurable,
+ *     return null — no claim at all.
+ *  5. Award only when the gain clears IMPROVEMENT_MIN_DELTA.
  */
 export function compareWeakestDimension(
   current: ArgGraph,
   priors: ArgGraph[],
 ): WeakestDimensionComparison | null {
-  let weakest: WeakestDimensionComparison | null = null;
+  // Phase 1 — priors only: means over eligible dimensions.
+  let weakest: { dimension: ImprovementDimension; priorMean: number; priorDebates: number; priorOpportunities: number } | null = null;
   for (const dimension of IMPROVEMENT_DIMENSIONS) {
     const priorValues = priors
       .map((g) => measureDimension(g, dimension))
       .filter((r): r is { value: number; opportunities: number } => r.value !== null);
     if (priorValues.length < IMPROVEMENT_MIN_PRIOR_DEBATES) continue;
+    const priorOpportunities = priorValues.reduce((s, r) => s + r.opportunities, 0);
+    if (priorOpportunities < IMPROVEMENT_MIN_PRIOR_OPPORTUNITIES) continue;
     const priorMean = priorValues.reduce((s, r) => s + r.value, 0) / priorValues.length;
-    const reading = measureDimension(current, dimension);
-    if (reading.value === null) continue;
-    const delta = reading.value - priorMean;
-    const candidate: WeakestDimensionComparison = {
-      dimension,
-      priorMean,
-      priorDebates: priorValues.length,
-      current: reading.value,
-      currentOpportunities: reading.opportunities,
-      delta,
-      improved: delta >= IMPROVEMENT_MIN_DELTA,
-    };
     // Strictly-lower mean wins; ties keep the earlier (fixed-order) dimension.
-    if (!weakest || candidate.priorMean < weakest.priorMean) {
-      weakest = candidate;
+    if (!weakest || priorMean < weakest.priorMean) {
+      weakest = { dimension, priorMean, priorDebates: priorValues.length, priorOpportunities };
     }
   }
-  return weakest;
+  if (!weakest) return null;
+
+  // Phase 2 — the selected dimension only, measured in the current debate.
+  const reading = measureDimension(current, weakest.dimension);
+  if (reading.value === null) return null;
+  const delta = reading.value - weakest.priorMean;
+  return {
+    dimension: weakest.dimension,
+    priorMean: weakest.priorMean,
+    priorDebates: weakest.priorDebates,
+    priorOpportunities: weakest.priorOpportunities,
+    current: reading.value,
+    currentOpportunities: reading.opportunities,
+    delta,
+    improved: delta >= IMPROVEMENT_MIN_DELTA,
+  };
 }
 
 function pct(value: number): string {
@@ -349,7 +382,7 @@ export function computeCoachRewards(ctx: RewardContext): RewardEvent[] {
   if (comparison?.improved) {
     add("improve-weakest-skill", {
       dimension: comparison.dimension,
-      detail: `${IMPROVEMENT_DIMENSION_LABELS[comparison.dimension]} ${pct(comparison.priorMean)} → ${pct(comparison.current)} across ${comparison.priorDebates} prior debates`,
+      detail: `${IMPROVEMENT_DIMENSION_LABELS[comparison.dimension]} ${pct(comparison.priorMean)} → ${pct(comparison.current)} · ${comparison.priorOpportunities} opportunities across ${comparison.priorDebates} prior debates`,
     });
   }
 

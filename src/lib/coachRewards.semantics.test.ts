@@ -239,27 +239,46 @@ describe("improvement rewards track user behaviour, not graph state", () => {
   });
 
   it("a user impact move (not a graph comparison object) drives impact improvement", () => {
-    // Two identical no-impact priors (grounded claims, no fallacies, no
-    // unanswered moves): every dimension is perfect except impact at 0.
-    const priorBase = goodSolo("ai");
-    const priorNoImpact = (): ArgGraph => ({
-      ...priorBase,
-      nodes: priorBase.nodes.filter((n) => n.kind !== "impact"),
+    // Two rich no-impact priors: grounded claims, no fallacies, answered
+    // moves — every dimension perfect except impact at 0, with enough
+    // cumulative opportunities (≥4) for every dimension to be eligible.
+    const richNoImpact = (): ArgGraph => ({
+      ...emptyGraph(),
+      nodes: [
+        { id: "c1", kind: "claim", owner: "a", text: "User claim one.", round: 1 },
+        { id: "e1", kind: "evidence", owner: "a", text: "NREL data.", round: 1, evidenceStrength: "cited", citations: [{ sourceName: "NREL", homepage: "https://www.nrel.gov" }] },
+        { id: "c2", kind: "claim", owner: "a", text: "User claim two.", round: 2 },
+        { id: "e2", kind: "evidence", owner: "a", text: "Pew data.", round: 2, evidenceStrength: "cited", citations: [{ sourceName: "Pew", homepage: "https://www.pewresearch.org" }] },
+        { id: "o1", kind: "claim", owner: "ai", text: "Opponent claim one.", round: 1 },
+        { id: "o2", kind: "claim", owner: "ai", text: "Opponent claim two.", round: 2 },
+        { id: "r1", kind: "rebuttal", owner: "a", text: "User rebuttal one.", round: 2, targets: ["o1"] },
+        { id: "r2", kind: "rebuttal", owner: "a", text: "User rebuttal two.", round: 3, targets: ["o2"] },
+      ],
+      edges: [
+        { from: "e1", to: "c1", relation: "supports" },
+        { from: "e2", to: "c2", relation: "supports" },
+      ],
     });
-    // Same shape for the current debate, so unsupported/fallacy/dropped rates
-    // are EQUAL to the priors — only the impact move can drive improvement.
-    const current = goodSolo("ai");
+    // Same shape for the current debate plus the impact move, so every other
+    // rate equals the priors — only the impact move can drive improvement.
+    const current: ArgGraph = {
+      ...richNoImpact(),
+      nodes: [
+        ...richNoImpact().nodes,
+        { id: "i1", kind: "impact", owner: "a", text: "User impact.", round: 3 },
+      ],
+    };
     // weaken() keeps the comparison honest: strip impactComparison objects so
     // the graph-level flag cannot decide anything either way.
     const weaken = (graph: ArgGraph): ArgGraph => ({ ...graph, impactComparison: null });
-    expect(kindsOf(weaken(current), [weaken(priorNoImpact()), weaken(priorNoImpact())])).toContain(
+    expect(kindsOf(weaken(current), [weaken(richNoImpact()), weaken(richNoImpact())])).toContain(
       "improve-weakest-skill",
     );
 
     // Remove the user's impact move too: now nothing differs, so no reward.
     const noImpact = weaken({ ...current, nodes: current.nodes.filter((n) => n.kind !== "impact") });
-    expect(kindsOf(noImpact, [weaken(priorNoImpact()), weaken(priorNoImpact())])).not.toContain(
-      "improve-weakest-skill",
-    );
+    expect(
+      kindsOf(noImpact, [weaken(richNoImpact()), weaken(richNoImpact())]),
+    ).not.toContain("improve-weakest-skill");
   });
 });
