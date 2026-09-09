@@ -214,7 +214,15 @@ describe("side-scoping helpers", () => {
 
 describe("improvement rewards track user behaviour, not graph state", () => {
   it("fewer user fallacies than the prior mean earns the improvement reward", () => {
-    expect(kindsOf(goodSolo("ai"), [badPrior()])).toContain("improve-weakest-skill");
+    // Two priors with a user fallacy each (logic 0.5), everything else
+    // perfect; current is clean. Weakest = logic, and it improved.
+    const priorWithFallacy = (): ArgGraph => ({
+      ...goodSolo("ai"),
+      fallacies: [{ nodeId: "c1", fallacy: "strawman", note: "user" }],
+    });
+    expect(kindsOf(goodSolo("ai"), [priorWithFallacy(), priorWithFallacy()])).toContain(
+      "improve-weakest-skill",
+    );
   });
 
   it("opponent-only differences never flip the improvement reward", () => {
@@ -231,23 +239,27 @@ describe("improvement rewards track user behaviour, not graph state", () => {
   });
 
   it("a user impact move (not a graph comparison object) drives impact improvement", () => {
-    // Identical debates except for the user's impact move: prior has grounded
-    // claims, no fallacies and no unanswered moves but no impacts either.
+    // Two identical no-impact priors (grounded claims, no fallacies, no
+    // unanswered moves): every dimension is perfect except impact at 0.
     const priorBase = goodSolo("ai");
-    const priorNoImpact: ArgGraph = {
+    const priorNoImpact = (): ArgGraph => ({
       ...priorBase,
       nodes: priorBase.nodes.filter((n) => n.kind !== "impact"),
-    };
+    });
     // Same shape for the current debate, so unsupported/fallacy/dropped rates
-    // are EQUAL to the prior — only the impact move can drive improvement.
+    // are EQUAL to the priors — only the impact move can drive improvement.
     const current = goodSolo("ai");
     // weaken() keeps the comparison honest: strip impactComparison objects so
     // the graph-level flag cannot decide anything either way.
     const weaken = (graph: ArgGraph): ArgGraph => ({ ...graph, impactComparison: null });
-    expect(kindsOf(weaken(current), [weaken(priorNoImpact)])).toContain("improve-weakest-skill");
+    expect(kindsOf(weaken(current), [weaken(priorNoImpact()), weaken(priorNoImpact())])).toContain(
+      "improve-weakest-skill",
+    );
 
     // Remove the user's impact move too: now nothing differs, so no reward.
     const noImpact = weaken({ ...current, nodes: current.nodes.filter((n) => n.kind !== "impact") });
-    expect(kindsOf(noImpact, [weaken(priorNoImpact)])).not.toContain("improve-weakest-skill");
+    expect(kindsOf(noImpact, [weaken(priorNoImpact()), weaken(priorNoImpact())])).not.toContain(
+      "improve-weakest-skill",
+    );
   });
 });

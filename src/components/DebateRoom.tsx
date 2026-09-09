@@ -15,7 +15,7 @@ import type { ResultSnapshot } from "@/lib/resultSnapshot";
 import { minRoundsFor } from "@/lib/sprint";
 import { trackEvent } from "@/lib/trackClientEvent";
 
-interface RewardEventView { kind: string; xp: number; label: string; }
+interface RewardEventView { kind: string; xp: number; label: string; detail?: string; dimension?: string; }
 interface DebateSummaryPayload {
   totalScore: number;
   bonusXP: number;
@@ -35,6 +35,7 @@ interface ReplayView {
   repaired: boolean;
   bonusXP?: number;
   topRewardLabel?: string;
+  topRewardDetail?: string;
   honestyNote?: string | null;
   fresh?: boolean;
 }
@@ -187,6 +188,7 @@ export default function DebateRoom({
         repaired: false,
         bonusXP: result.bonusXP,
         topRewardLabel: result.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.label,
+        topRewardDetail: result.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.detail,
         honestyNote: result.honesty?.note ?? null,
         fresh: true,
       }
@@ -266,6 +268,7 @@ export default function DebateRoom({
             <span className="tabular text-xl font-bold">{view.totalScore}</span>
             {(view.bonusXP ?? 0) > 0 && <span className="tabular text-sm text-[var(--accent)]">+{view.bonusXP} XP</span>}
             {view.topRewardLabel && <span className="text-xs text-ink3">· {view.topRewardLabel}</span>}
+            {view.topRewardDetail && <span className="text-xs text-ink3">({view.topRewardDetail})</span>}
           </div>
           {view.honestyNote && <p className="text-xs leading-5 text-ink3">{view.honestyNote}</p>}
 

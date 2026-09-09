@@ -7,7 +7,7 @@ import GuestArena from "@/components/GuestArena";
 import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import SkillProfileBars from "@/components/SkillProfileBars";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
-import { computeSkillProfile } from "@/lib/skillProfile";
+import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, type CoachingSnapshot } from "@/lib/coachingGoal";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
 import { recordProductEvent } from "@/lib/productEvents";
@@ -81,7 +81,9 @@ export default async function DashboardPage() {
   }
 
   const skillProfile = ledger ? computeSkillProfile(ledger.points) : null;
-  const improving = ledger?.improvements ?? [];
+  // "Improving" needs more than a two-debate delta to be worth printing:
+  // hold the label until scores have started to settle.
+  const improving = ledger && ledger.debates >= MIN_PROFILE_DEBATES ? ledger.improvements : [];
   const improvementKey = improving[0];
 
   // Daily coaching goal: one focus, grounded in the previous debate's

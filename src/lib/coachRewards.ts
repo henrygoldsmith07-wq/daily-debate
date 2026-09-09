@@ -46,6 +46,10 @@ export interface RewardEvent {
   kind: RewardEventKind;
   xp: number;
   label: string;
+  /** Which skill dimension improved (improve-weakest-skill only). */
+  dimension?: string;
+  /** Human-readable evidence, e.g. "Evidence 40% → 85% across 3 prior debates". */
+  detail?: string;
 }
 
 /**
@@ -146,44 +150,174 @@ function isUnfamiliarCategory(currentCategory: string, previousCategories: strin
   );
 }
 
-/** Detect whether the user's weakest dimension improved vs their prior average. */
-function weakestSkillImproved(current: ObservableAssessment, priors: ObservableAssessment[]): boolean {
-  if (!priors.length) return false; // can't measure without baseline
+// --- weakest-dimension improvement measurement --------------------------------
+//
+// "Improved your weakest skill" must name a real dimension and a real change:
+//  1. measure each dimension per debate as an OPPORTUNITY-NORMALISED rate
+//     (raw counts would reward shorter debates, not better debating);
+//  2. a dimension is measurable for a debate only if that debate offered a
+//     genuine opportunity (zero opportunity = unmeasurable, never perfect);
+//  3. the weakest dimension is the lowest prior mean among dimensions with
+//     enough measured priors — ties break by fixed dimension order so the
+//     choice is deterministic;
+//  4. the current debate must be measurable on that dimension AND beat its
+//     prior mean by a meaningful margin.
+//
+// Sprint and Full debates mix freely: every debate contributes a rate, so
+// length alone cannot manufacture improvement.
 
-  const extractScores = (a: ObservableAssessment) => {
-    const myClaims = nodesOwnedBy(a.graph, REWARDED_OWNER).filter(
-      (n) => n.kind === "claim" || n.kind === "counterclaim",
-    );
-    const myUnsupported = unsupportedOwnedBy(a.graph, REWARDED_OWNER).length;
-    return {
-      unsupportedRate: myUnsupported / Math.max(1, myClaims.length),
-      // Opponent arguments the user left unanswered — never the user's own
-      // ignored arguments (those are the opponent's miss).
-      droppedCount: unansweredBy(a.graph, REWARDED_OWNER).length,
-      fallacyCount: fallaciesOwnedBy(a.graph, REWARDED_OWNER).length,
-      // User behaviour: did the user make an explicit impact move this time?
-      impactMissing: nodesOwnedBy(a.graph, REWARDED_OWNER).some((n) => n.kind === "impact") ? 0 : 1,
-    };
-  };
+export type ImprovementDimension = "evidence" | "rebuttal" | "logic" | "impact";
 
-  const cur = extractScores(current);
-  const priorMean = priors.reduce((acc, p) => {
-    const s = extractScores(p);
-    return {
-      unsupportedRate: acc.unsupportedRate + s.unsupportedRate / priors.length,
-      droppedCount: acc.droppedCount + s.droppedCount / priors.length,
-      fallacyCount: acc.fallacyCount + s.fallacyCount / priors.length,
-      impactMissing: acc.impactMissing + s.impactMissing / priors.length,
-    };
-  }, { unsupportedRate: 0, droppedCount: 0, fallacyCount: 0, impactMissing: 0 });
+/** Fixed evaluation order — also the deterministic tie-break. */
+export const IMPROVEMENT_DIMENSIONS: ImprovementDimension[] = ["evidence", "rebuttal", "logic", "impact"];
 
-  // Improved if current is better than prior mean on ANY dimension
-  return (
-    cur.unsupportedRate < priorMean.unsupportedRate ||
-    cur.droppedCount < priorMean.droppedCount ||
-    cur.fallacyCount < priorMean.fallacyCount ||
-    cur.impactMissing < priorMean.impactMissing
+/** Minimum measured prior debates before a dimension is eligible. */
+export const IMPROVEMENT_MIN_PRIOR_DEBATES = 2;
+
+/** Minimum goodness gain (0..1) to count as meaningful improvement. */
+export const IMPROVEMENT_MIN_DELTA = 0.05;
+
+export const IMPROVEMENT_DIMENSION_LABELS: Record<ImprovementDimension, string> = {
+  evidence: "Evidence",
+  rebuttal: "Rebuttal",
+  logic: "Logic",
+  impact: "Impact",
+};
+
+function isClaimLikeNode(n: ArgNode): boolean {
+  return n.kind === "claim" || n.kind === "counterclaim";
+}
+
+function isSubstantiveNode(n: ArgNode): boolean {
+  return isClaimLikeNode(n) || n.kind === "impact";
+}
+
+/**
+ * Opponent moves the user had a genuine chance to answer: opponent
+ * claim/counterclaim nodes with at least one later user node. A last-round
+ * opponent move with no subsequent user turn is not an opportunity.
+ */
+export function eligibleOpponentMoves(graph: ArgGraph): ArgNode[] {
+  return opponentMovesFor(graph, REWARDED_OWNER).filter((m) =>
+    graph.nodes.some((n) => n.owner === REWARDED_OWNER && n.round > m.round),
   );
+}
+
+/** Opponent-move ids the user actually answered (own rebuttals + rebuts/counters edges). */
+export function userAnsweredIds(graph: ArgGraph): Set<string> {
+  const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
+  const ids = new Set<string>();
+  for (const e of graph.edges) {
+    if (e.relation !== "rebuts" && e.relation !== "counters") continue;
+    if (nodes.get(e.from)?.owner === REWARDED_OWNER && nodes.get(e.to)?.owner !== REWARDED_OWNER) {
+      ids.add(e.to);
+    }
+  }
+  for (const n of graph.nodes) {
+    if (n.kind !== "rebuttal" || n.owner !== REWARDED_OWNER) continue;
+    for (const t of n.targets ?? []) {
+      if (nodes.get(t)?.owner !== REWARDED_OWNER) ids.add(t);
+    }
+  }
+  return ids;
+}
+
+export interface DimensionReading {
+  /** Goodness 0..1 (higher = better), or null when unmeasurable. */
+  value: number | null;
+  /** Opportunity count backing the reading (0 = unmeasurable). */
+  opportunities: number;
+}
+
+/**
+ * Measure one dimension for one debate as an opportunity-normalised goodness.
+ * - evidence: 1 − unsupported own claims / eligible own claims
+ * - rebuttal: 1 − unanswered eligible opponent moves / eligible opponent moves
+ * - logic: 1 − min(1, own fallacies / substantive own moves)
+ * - impact: 1 if the user made an explicit impact move, else 0
+ *   (measurable only when the debate offered something to weigh: ≥1 own claim)
+ */
+export function measureDimension(graph: ArgGraph, dimension: ImprovementDimension): DimensionReading {
+  const mine = nodesOwnedBy(graph, REWARDED_OWNER);
+  switch (dimension) {
+    case "evidence": {
+      const claims = mine.filter(isClaimLikeNode);
+      if (!claims.length) return { value: null, opportunities: 0 };
+      const unsupported = new Set(unsupportedOwnedBy(graph, REWARDED_OWNER));
+      const rate = claims.filter((c) => unsupported.has(c.id)).length / claims.length;
+      return { value: 1 - rate, opportunities: claims.length };
+    }
+    case "rebuttal": {
+      const eligible = eligibleOpponentMoves(graph);
+      if (!eligible.length) return { value: null, opportunities: 0 };
+      const answered = userAnsweredIds(graph);
+      const missed = eligible.filter((m) => !answered.has(m.id)).length;
+      return { value: 1 - missed / eligible.length, opportunities: eligible.length };
+    }
+    case "logic": {
+      const moves = mine.filter(isSubstantiveNode);
+      if (!moves.length) return { value: null, opportunities: 0 };
+      const rate = Math.min(1, fallaciesOwnedBy(graph, REWARDED_OWNER).length / moves.length);
+      return { value: 1 - rate, opportunities: moves.length };
+    }
+    case "impact": {
+      const claims = mine.filter(isClaimLikeNode);
+      if (!claims.length) return { value: null, opportunities: 0 };
+      const hasImpact = mine.some((n) => n.kind === "impact");
+      return { value: hasImpact ? 1 : 0, opportunities: claims.length };
+    }
+  }
+}
+
+export interface WeakestDimensionComparison {
+  dimension: ImprovementDimension;
+  priorMean: number;
+  priorDebates: number;
+  current: number;
+  currentOpportunities: number;
+  delta: number;
+  improved: boolean;
+}
+
+/**
+ * Find the genuinely weakest eligible dimension and compare the current
+ * debate against it — and nothing else. Returns null when no dimension has
+ * enough measured priors, or when the current debate is unmeasurable on the
+ * weakest dimension. In that case no claim is made at all.
+ */
+export function compareWeakestDimension(
+  current: ArgGraph,
+  priors: ArgGraph[],
+): WeakestDimensionComparison | null {
+  let weakest: WeakestDimensionComparison | null = null;
+  for (const dimension of IMPROVEMENT_DIMENSIONS) {
+    const priorValues = priors
+      .map((g) => measureDimension(g, dimension))
+      .filter((r): r is { value: number; opportunities: number } => r.value !== null);
+    if (priorValues.length < IMPROVEMENT_MIN_PRIOR_DEBATES) continue;
+    const priorMean = priorValues.reduce((s, r) => s + r.value, 0) / priorValues.length;
+    const reading = measureDimension(current, dimension);
+    if (reading.value === null) continue;
+    const delta = reading.value - priorMean;
+    const candidate: WeakestDimensionComparison = {
+      dimension,
+      priorMean,
+      priorDebates: priorValues.length,
+      current: reading.value,
+      currentOpportunities: reading.opportunities,
+      delta,
+      improved: delta >= IMPROVEMENT_MIN_DELTA,
+    };
+    // Strictly-lower mean wins; ties keep the earlier (fixed-order) dimension.
+    if (!weakest || candidate.priorMean < weakest.priorMean) {
+      weakest = candidate;
+    }
+  }
+  return weakest;
+}
+
+function pct(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 // --- main computation -----------------------------------------------------------
@@ -194,8 +328,8 @@ function weakestSkillImproved(current: ObservableAssessment, priors: ObservableA
  */
 export function computeCoachRewards(ctx: RewardContext): RewardEvent[] {
   const events: RewardEvent[] = [];
-  const add = (kind: RewardEventKind) =>
-    events.push({ kind, xp: REWARD_XP[kind], label: REWARD_LABELS[kind] });
+  const add = (kind: RewardEventKind, extra?: Partial<RewardEvent>) =>
+    events.push({ kind, xp: REWARD_XP[kind], label: REWARD_LABELS[kind], ...extra });
 
   // 1. Completion bonus (always earned when the route fires)
   add("complete-debate");
@@ -206,9 +340,17 @@ export function computeCoachRewards(ctx: RewardContext): RewardEvent[] {
   // 3. Full rebuttal coverage
   if (hasFullRebuttalCoverage(ctx.assessment.graph)) add("answer-every-rebuttal");
 
-  // 4. Improved weakest skill (needs ≥1 prior debate for comparison)
-  if (weakestSkillImproved(ctx.assessment, ctx.priorAssessments)) {
-    add("improve-weakest-skill");
+  // 4. Improved weakest skill: only the genuinely weakest eligible dimension,
+  // measured against its own prior mean — with the evidence in the metadata.
+  const comparison = compareWeakestDimension(
+    ctx.assessment.graph,
+    ctx.priorAssessments.map((p) => p.graph),
+  );
+  if (comparison?.improved) {
+    add("improve-weakest-skill", {
+      dimension: comparison.dimension,
+      detail: `${IMPROVEMENT_DIMENSION_LABELS[comparison.dimension]} ${pct(comparison.priorMean)} → ${pct(comparison.current)} across ${comparison.priorDebates} prior debates`,
+    });
   }
 
   // 5. Unfamiliar topic category
