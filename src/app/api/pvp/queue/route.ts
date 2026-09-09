@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   // Atomic claim: locks the oldest queued, unmatched opponent (SKIP LOCKED),
   // inserts the match, and clears both queue rows in one statement. Empty
   // result means nobody was waiting (or the joiner was matched concurrently).
-  const claim = await service.rpc("claim_pvp_match", {
+  const claim = await service.rpc("claim_pvp_opponent_and_create_match", {
     p_joiner: user.id,
     p_topic_id: topic.id,
     p_round_limit: PVP_ROUNDS,

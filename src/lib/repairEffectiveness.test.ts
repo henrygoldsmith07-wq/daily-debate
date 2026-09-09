@@ -210,6 +210,60 @@ describe("classifyRepair", () => {
   });
 });
 
+describe("retest linkage (weakness → repair → first retest)", () => {
+  it("identifies the first later debate and whether the weakness recurred", () => {
+    const r = repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r");
+    const debates = [
+      debate("u1", daysBefore(r.created_at, 2), { evidence: 1 }),
+      debate("u1", daysAfter(r.created_at, 1), { evidence: 1 }, "d-retest-clean-no"), // retest WITH weakness
+      debate("u1", daysAfter(r.created_at, 3), {}), // later debate, not the first retest
+    ];
+    const detail = classifyRepair(r, debates);
+    expect(detail.firstRetest).not.toBeNull();
+    expect(detail.firstRetest!.debateId).toBe("d-retest-clean-no");
+    expect(detail.firstRetest!.weaknessPresent).toBe(true);
+  });
+
+  it("reports a clean first retest when the weakness is gone", () => {
+    const r = repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r");
+    const debates = [
+      debate("u1", daysBefore(r.created_at, 2), { evidence: 2 }),
+      debate("u1", daysAfter(r.created_at, 1), {}, "d-retest"),
+    ];
+    const detail = classifyRepair(r, debates);
+    expect(detail.firstRetest!.weaknessPresent).toBe(false);
+  });
+
+  it("aggregates retest rates once the measurable threshold is met", () => {
+    const repairs: RepairRow[] = [];
+    const debates: DebateWeaknessRow[] = [];
+    for (let i = 0; i < 5; i++) {
+      const user = `u${i}`;
+      const at = "2026-06-08T12:00:00Z";
+      repairs.push(repair(user, "evidence", at, `d-r-${i}`));
+      debates.push(debate(user, daysBefore(at, 2), { evidence: 1 }));
+      // 3 of 5 first retests still carry the weakness.
+      debates.push(debate(user, daysAfter(at, 1), i < 3 ? { evidence: 1 } : {}, `d-retest-${i}`));
+    }
+    const report = buildRepairEffectiveness(repairs, debates, { now: NOW });
+    expect(report.overall.retest.repairsWithRetest).toBe(5);
+    expect(report.overall.retest.firstRetestWeaknessRate).toBeCloseTo(0.6);
+    expect(report.overall.retest.note).toBeNull();
+  });
+
+  it("keeps the retest rate pending below the threshold", () => {
+    const r = repair("u1", "evidence", "2026-06-08T12:00:00Z", "d-r");
+    const debates = [
+      debate("u1", daysBefore("2026-06-08T12:00:00Z", 2), { evidence: 1 }),
+      debate("u1", daysAfter("2026-06-08T12:00:00Z", 1), {}, "d-retest"),
+    ];
+    const report = buildRepairEffectiveness([r], debates, { now: NOW });
+    expect(report.overall.retest.repairsWithRetest).toBe(1);
+    expect(report.overall.retest.firstRetestWeaknessRate).toBeNull();
+    expect(report.overall.retest.note).toMatch(/pending/);
+  });
+});
+
 describe("buildRepairEffectiveness", () => {
   it("declines to claim a rate below the minimum thresholds", () => {
     const r = repair("u1", "evidence", "2026-06-10T12:00:00Z");

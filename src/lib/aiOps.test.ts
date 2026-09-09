@@ -3,7 +3,7 @@ import { summariseAiOps, type AiOpsRow } from "./aiOps";
 
 const NOW = "2026-06-15T12:00:00Z";
 
-function row(operation: string, at: string, opts: { ok?: boolean; latency?: number; provider?: string } = {}): AiOpsRow {
+function row(operation: string, at: string, opts: { ok?: boolean; latency?: number; provider?: string; errorCategory?: string | null } = {}): AiOpsRow {
   return {
     operation,
     provider: opts.provider ?? "openrouter",
@@ -11,6 +11,7 @@ function row(operation: string, at: string, opts: { ok?: boolean; latency?: numb
     latencyMs: opts.latency ?? 500,
     ok: opts.ok ?? true,
     totalTokens: 100,
+    errorCategory: opts.errorCategory ?? null,
     createdAt: at,
   };
 }

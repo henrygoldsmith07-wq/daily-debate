@@ -179,6 +179,30 @@ d("daily coach loop schema", () => {
     await pool.query("DELETE FROM drill_assignments WHERE id = $1", [assignment.rows[0].id]);
   });
 
+  it("stores jsonb arrays as JSON arrays, not Postgres array literals", async () => {
+    // Regression: node-postgres serialises a JS [] as the Postgres array
+    // literal '{}', which jsonb then stores as an empty OBJECT — crashing
+    // consumers that call .map() on the column (daily_topics.sources).
+    // The fix JSON-encodes arrays/objects at the query-builder boundary; this
+    // test verifies the stored shape end-to-end through node-postgres.
+    const userId = userIds.get("coach-a@test.local")!;
+    const topicId = await todayTopicId();
+
+    // Same binding path as the query builder: parameter passes through pg.
+    await pool.query(
+      `UPDATE daily_topics SET sources = $1::jsonb WHERE id = $2`,
+      [JSON.stringify([{ name: "Pew", homepage: "https://www.pewresearch.org", angle: "polling" }]), topicId],
+    );
+    const row = await pool.query<{ sources: unknown }>("SELECT sources FROM daily_topics WHERE id = $1", [topicId]);
+    expect(Array.isArray(row.rows[0].sources)).toBe(true);
+
+    // And the empty-array case that originally corrupted rows.
+    await pool.query(`UPDATE daily_topics SET sources = $1::jsonb WHERE id = $2`, [JSON.stringify([]), topicId]);
+    const empty = await pool.query<{ sources: unknown }>("SELECT sources FROM daily_topics WHERE id = $1", [topicId]);
+    expect(Array.isArray(empty.rows[0].sources)).toBe(true);
+    expect(empty.rows[0].sources).toEqual([]);
+  });
+
   it("records product events with an allowlisted name only", async () => {
     const userId = userIds.get("coach-a@test.local")!;
 

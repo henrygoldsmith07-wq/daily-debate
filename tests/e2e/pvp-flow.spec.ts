@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { HAS_BACKEND, signIn } from "./helpers";
 
 // PvP / history / evaluation-surface E2E flows.
 //
@@ -8,15 +9,7 @@ import { test, expect } from "@playwright/test";
 // reconnect, history replay) require a seeded backend via
 // E2E_DATABASE_URL and are skipped otherwise.
 
-const HAS_E2E_BACKEND = !!(process.env.E2E_DATABASE_URL);
-
-async function signIn(page: import("@playwright/test").Page) {
-  await page.goto("/login");
-  await page.getByLabel(/email/i).fill(process.env.E2E_TEST_EMAIL ?? "e2e@example.com");
-  await page.getByLabel(/password/i).fill(process.env.E2E_TEST_PASSWORD ?? "e2e-password");
-  await page.getByRole("button", { name: /sign in|log in/i }).click();
-  await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20000 });
-}
+const HAS_E2E_BACKEND = HAS_BACKEND;
 
 test.describe("pvp + history surfaces", () => {
   test("pvp lobby renders or auth-gates without crashing", async ({ page }) => {
@@ -71,16 +64,20 @@ test.describe("pvp + history surfaces", () => {
 
   test("authenticated two-player pvp flow: queue, alternate turns, verdict", async ({ browser }) => {
     test.skip(!HAS_E2E_BACKEND, "Requires E2E_DATABASE_URL with a seeded database and two accounts");
+    // Two sign-ins + matchmaking polling + alternating turns don't fit 45s.
+    test.setTimeout(120_000);
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
 
     // Player A joins the queue, then player B matches against them.
-    await signIn(a);
+    // DISTINCT seeded users: the one-active-match invariant (migration 003)
+    // correctly prevents a user from matching themselves.
+    await signIn(a, "a");
     await a.goto("/pvp");
     await a.getByRole("button", { name: /find an opponent/i }).click();
-    await signIn(b);
+    await signIn(b, "b");
     await b.goto("/pvp");
     await b.getByRole("button", { name: /find an opponent/i }).click();
 
@@ -115,6 +112,7 @@ test.describe("pvp + history surfaces", () => {
 
   test("authenticated player sees reconnect indicator only when realtime drops", async ({ page, context }) => {
     test.skip(!HAS_E2E_BACKEND, "Requires seeded backend");
+    test.setTimeout(90_000);
     await signIn(page);
     await page.goto("/history");
     await expect(page.getByText(/Your debates/i).first()).toBeVisible({ timeout: 15000 });

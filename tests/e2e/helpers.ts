@@ -21,7 +21,9 @@ export async function signIn(page: Page, emailSuffix?: string): Promise<void> {
   await page.goto("/login");
   await page.getByLabel(/email/i).fill(testEmail(emailSuffix));
   await page.getByLabel(/password/i).fill(testPassword());
-  await page.getByRole("button", { name: /sign in|log in/i }).click();
+  // Scope to the form's submit button: the login page also has a "Sign in"
+  // tab toggle, and a bare role query would be a strict-mode violation.
+  await page.locator('form button[type="submit"]').click();
   await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
 }
 

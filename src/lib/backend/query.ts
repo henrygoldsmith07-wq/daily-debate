@@ -29,6 +29,11 @@ const TABLES = new Set<TableName>([
   "corpus_ratings",
   "drill_assignments",
   "topic_evidence",
+  // migration 004/005/006/007
+  "repair_results",
+  "challenge_invites",
+  "product_events",
+  "ai_call_log",
 ]);
 
 function identifier(value: string): string {
@@ -229,6 +234,20 @@ export class QueryBuilder<Row extends object, Result = Row[]>
       const table = identifier(this.table);
       let statement: string;
 
+      // jsonb-bound JS values must reach Postgres as JSON text. node-postgres
+      // otherwise serialises plain JS arrays as Postgres ARRAY literals — an
+      // empty array becomes '{}' — which jsonb then stores as an empty OBJECT.
+      // Every array/object written through this builder targets a jsonb
+      // column, so JSON-encode them here, once, for insert/update/upsert.
+      const bind = (value: unknown): unknown => {
+        if (value === null || value === undefined) return null;
+        if (Array.isArray(value)) return JSON.stringify(value);
+        if (typeof value === "object" && !(value instanceof Date) && !(value instanceof Buffer)) {
+          return JSON.stringify(value);
+        }
+        return value;
+      };
+
       if (this.operation === "select") {
         const projection = this.countRequested ? "COUNT(*)::int AS count" : selectedColumns(this.columns);
         statement = `SELECT ${projection} FROM ${table}${this.whereClause(params)}`;
@@ -245,7 +264,7 @@ export class QueryBuilder<Row extends object, Result = Row[]>
         if (columns.length === 0) throw new Error("Insert requires at least one value.");
         const tuples = rows.map((row) => {
           const placeholders = columns.map((column) => {
-            params.push((row as Record<string, unknown>)[column]);
+            params.push(bind((row as Record<string, unknown>)[column]));
             return `$${params.length}`;
           });
           return `(${placeholders.join(", ")})`;
@@ -265,7 +284,7 @@ export class QueryBuilder<Row extends object, Result = Row[]>
         const entries = Object.entries(this.values ?? {});
         if (entries.length === 0) throw new Error("Update requires at least one value.");
         const assignments = entries.map(([column, value]) => {
-          params.push(value);
+          params.push(bind(value));
           return `${identifier(column)} = $${params.length}`;
         });
         statement = `UPDATE ${table} SET ${assignments.join(", ")}${this.whereClause(params)}`;

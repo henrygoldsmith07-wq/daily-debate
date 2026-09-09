@@ -9,9 +9,9 @@ import ThinkingIndicator from "./ThinkingIndicator";
 import ArgumentRepair, { FixThisNowButton } from "./ArgumentRepair";
 import { ArgGraphInline, TrackingGrid } from "./ArgGraphView";
 import { useSpeechSynthesis } from "./useSpeechSynthesis";
-import { MAX_ROUNDS, type DebateSummary, type InputMode, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
+import { MAX_ROUNDS, type DebateSummary, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
 import type { ArgGraph } from "@/lib/argGraph";
-import type { ResultSnapshot, ResultWeakness } from "@/lib/resultSnapshot";
+import type { ResultSnapshot } from "@/lib/resultSnapshot";
 import { minRoundsFor } from "@/lib/sprint";
 import { trackEvent } from "@/lib/trackClientEvent";
 

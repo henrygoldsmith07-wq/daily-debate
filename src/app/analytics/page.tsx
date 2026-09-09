@@ -73,6 +73,7 @@ export default async function AnalyticsPage() {
       latencyMs: r.latency_ms,
       ok: r.outcome === "ok",
       totalTokens: r.total_tokens,
+      errorCategory: r.error_category,
       createdAt: r.created_at,
     }));
     aiOps = summariseAiOps(mapped, {});
@@ -178,11 +179,22 @@ export default async function AnalyticsPage() {
               <div key={op.operation} className="flex items-baseline justify-between gap-3 border-b border-[var(--rule)] pb-2 last:border-0">
                 <span className="font-medium">{op.operation}</span>
                 <span className="tabular text-ink2">
-                  {op.errorRate === null ? `${op.calls} calls` : `${Math.round(op.errorRate * 100)}% errors · avg ${op.avgLatencyMs}ms · p95 ${op.p95LatencyMs}ms`}
+                  {op.errorRate === null
+                    ? `${op.calls} calls`
+                    : `${Math.round(op.errorRate * 100)}% errors · avg ${op.avgLatencyMs}ms · p95 ${op.p95LatencyMs}ms`}
                 </span>
               </div>
             ))}
           </div>
+          {Object.keys(aiOps.overall.byCategory).length > 0 && (
+            <p className="mt-2 text-xs text-ink3">
+              Failure categories:{" "}
+              {Object.entries(aiOps.overall.byCategory)
+                .sort((a, b) => b[1] - a[1])
+                .map(([cat, n]) => `${cat} ×${n}`)
+                .join(" · ")}
+            </p>
+          )}
           {aiOps.note && <p className="mt-2 text-xs text-ink3">{aiOps.note}</p>}
         </section>
       )}

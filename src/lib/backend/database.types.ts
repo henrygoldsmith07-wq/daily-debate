@@ -232,6 +232,10 @@ export type AiCallLogRow = {
   total_tokens: number | null;
   latency_ms: number;
   outcome: string;
+  error_category: string | null;
+  error_code: string | null;
+  http_status: number | null;
+  retryable: boolean | null;
   error: string | null;
   created_at: string;
 };

@@ -62,7 +62,7 @@ test.describe("solo full-flow", () => {
     await page.goto("/login");
     await page.getByLabel(/email/i).fill("e2e-a@test.local");
     await page.getByLabel(/password/i).fill("e2e-test-pass-123");
-    await page.getByRole("button", { name: /sign in|log in/i }).click();
+    await page.getByTestId("auth-submit").click();
     await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
 
     // 2. Dashboard loads with today's topic
@@ -73,9 +73,8 @@ test.describe("solo full-flow", () => {
     await page.getByTestId("start-full").click();
     await page.waitForURL(/\/debate\//, { timeout: 20_000 });
 
-    // Wait for the opening argument to appear
-    await expect(page.locator(".question-text, [aria-label='road layout diagram'], .scene").first())
-      .toBeVisible({ timeout: 15_000 });
+    // Wait for the debate room: topic header + opening argument from the AI.
+    await expect(page.getByLabel("Your debate response")).toBeVisible({ timeout: 20_000 });
 
     const debateUrl = page.url();
 

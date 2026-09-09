@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { ArgGraph } from "./argGraph";
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
-import { recordAiCall } from "./aiTelemetry";
+import { recordAiCall, classifyAiError } from "./aiTelemetry";
 
 // Lazy import to avoid circular deps: types -> argGraph ok, but anthropic -> types is fine.
 // ArgGraph types are structural; runtime validation via argGraph.validateGraph.
@@ -40,6 +40,7 @@ async function createWithTelemetry(
     });
     return message;
   } catch (error) {
+    const classified = classifyAiError((error as Error)?.message ?? error);
     recordAiCall({
       at: new Date().toISOString(),
       operation,
@@ -47,7 +48,11 @@ async function createWithTelemetry(
       model: String(params.model),
       latencyMs: Date.now() - startedAt,
       outcome: "error",
-      error: String((error as Error)?.message ?? error).slice(0, 200),
+      errorCategory: classified.category,
+      errorCode: classified.code,
+      httpStatus: classified.httpStatus,
+      retryable: classified.retryable,
+      error: classified.sanitized,
     });
     throw error;
   }

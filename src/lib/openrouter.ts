@@ -20,7 +20,7 @@
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
 import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
-import { recordAiCall } from "./aiTelemetry";
+import { recordAiCall, classifyAiError } from "./aiTelemetry";
 
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
@@ -249,7 +249,18 @@ async function tryModel<T>(
         costUsd: usage?.cost,
         latencyMs: Date.now() - startedAt,
         outcome,
-        ...(error ? { error: error.slice(0, 200) } : {}),
+        ...(error
+          ? (() => {
+              const classified = classifyAiError(error, response.status);
+              return {
+                errorCategory: classified.category,
+                errorCode: classified.code,
+                httpStatus: classified.httpStatus,
+                retryable: classified.retryable,
+                error: classified.sanitized,
+              };
+            })()
+          : {}),
       });
 
     if (response.ok) {

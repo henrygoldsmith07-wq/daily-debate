@@ -14,6 +14,8 @@ export interface AiOpsRow {
   latencyMs: number;
   ok: boolean;
   totalTokens: number | null;
+  /** Structured failure category (never raw provider text). */
+  errorCategory: string | null;
   createdAt: string;
 }
 
@@ -24,6 +26,8 @@ export interface AiOpsStats {
   errorRate: number | null;
   avgLatencyMs: number | null;
   p95LatencyMs: number | null;
+  /** Bounded failure-category counts (rate_limit, timeout, …). */
+  byCategory: Record<string, number>;
   /** Error rate is only reported at MIN_SAMPLE calls. */
   note: string | null;
 }
@@ -49,6 +53,11 @@ function p95NearestRank(sortedAsc: number[]): number | null {
 function summarise(operation: string, rows: AiOpsRow[], minSample: number): AiOpsStats {
   const latencies = rows.map((r) => r.latencyMs).sort((a, b) => a - b);
   const errors = rows.filter((r) => !r.ok).length;
+  const byCategory: Record<string, number> = {};
+  for (const r of rows) {
+    if (r.ok || !r.errorCategory) continue;
+    byCategory[r.errorCategory] = (byCategory[r.errorCategory] ?? 0) + 1;
+  }
   const measurable = rows.length >= minSample;
   return {
     operation,
@@ -57,6 +66,7 @@ function summarise(operation: string, rows: AiOpsRow[], minSample: number): AiOp
     errorRate: measurable ? +(errors / rows.length).toFixed(3) : null,
     avgLatencyMs: measurable ? Math.round(latencies.reduce((s, v) => s + v, 0) / rows.length) : null,
     p95LatencyMs: p95NearestRank(latencies),
+    byCategory,
     note: measurable ? null : `not yet measurable — ${rows.length} call${rows.length === 1 ? "" : "s"} (need ${minSample})`,
   };
 }

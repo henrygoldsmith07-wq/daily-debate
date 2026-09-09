@@ -21,7 +21,7 @@ export class BackendClient {
     name:
       | "increment_rate_limit"
       | "increment_total_points"
-      | "claim_pvp_match"
+      | "claim_pvp_opponent_and_create_match"
       | "enqueue_pvp_if_unmatched",
     args: RpcArgs,
   ) {
@@ -33,7 +33,7 @@ export class BackendClient {
         );
         return { data, error: null };
       }
-      if (name === "claim_pvp_match") {
+      if (name === "claim_pvp_opponent_and_create_match") {
         const rows = await queryRows<Record<string, unknown>>(
           "SELECT * FROM claim_pvp_opponent_and_create_match($1, $2, $3)",
           [args.p_joiner, args.p_topic_id, args.p_round_limit],

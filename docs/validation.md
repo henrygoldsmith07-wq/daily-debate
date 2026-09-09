@@ -8,6 +8,10 @@ Daily Debate distinguishes five kinds of statement. Every surface is expected to
 4. **Provisional heuristic confidence** — ensemble-judge confidence, score-gap bands, and judge splits are heuristics over 1–2 judge scores. Never gated on, never described as calibrated.
 5. **Externally validated claims** — none yet. Human-agreement and calibration numbers require the rated benchmark corpus; until then, scoring evidence stays synthetic-only.
 
+## Telemetry privacy posture
+
+AI call telemetry (`ai_call_log`) never stores raw provider error text. Every failure is reduced by `classifyAiError` to bounded fields — `error_category` (rate_limit / auth / invalid_request / timeout / network / server / invalid_response / unknown), `error_code`, HTTP status, retryable — plus a sanitised, truncated diagnostic with credentials and response bodies stripped (enforced again at the `recordAiCall` boundary, so even a misbehaving caller cannot leak raw text). Database persistence of telemetry is **best-effort** (fire-and-forget mirror, not guaranteed delivery); the structured log drain is the guaranteed record. Product funnel events follow the same rules: allowlisted names, bounded context, no free text.
+
 ## Session length and confidence
 
 - **Full debate (5–12 rounds)**: standard confidence; the generic extraction caveats apply.

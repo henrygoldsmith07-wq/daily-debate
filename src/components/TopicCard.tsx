@@ -28,6 +28,11 @@ export interface EvidenceCardView {
 
 type SideChoice = DebateSide | "challenge";
 
+/** Legacy rows may hold `{}` in the jsonb sources column — normalise to an array. */
+function safeSources(topic: DailyTopic): DailyTopic["sources"] {
+  return Array.isArray(topic.sources) ? topic.sources : [];
+}
+
 export default function TopicCard({
   topic,
   activeDebateId,
@@ -205,7 +210,7 @@ export default function TopicCard({
             <div>
             <p className="mb-2 text-xs uppercase tracking-wide text-ink3">Credible sources to consider</p>
             <ul className="flex flex-col gap-2">
-              {topic.sources.map((source) => {
+              {safeSources(topic).map((source) => {
                 // Offline allowlist check: flag institutions we can't vouch for so
                 // a hallucinated "source" is visible before anyone cites it.
                 const known = isKnownSource(source.name);

@@ -1,15 +1,5 @@
 import { test, expect } from "@playwright/test";
-
-// E2E flows for Daily Debate.
-//
-// CI runs without Postgres credentials: the middleware redirects every
-// unauthenticated page to /login, so the default suite asserts the *failure
-// states* (auth gates, error pages, no-crash guarantees). Authenticated
-// full-flow tests (solo 5-round debate, PvP room, source submission, judging)
-// require a seeded Postgres database — set E2E_DATABASE_URL
-// (and run migrations) to enable them; they are skipped otherwise.
-
-const HAS_E2E_BACKEND = !!(process.env.E2E_DATABASE_URL);
+import { HAS_BACKEND, signIn } from "./helpers";
 
 test.describe("solo debate", () => {
   test("unauthenticated dashboard redirects to login (auth gate)", async ({ page }) => {
@@ -55,14 +45,10 @@ test.describe("solo debate", () => {
   });
 
   test("authenticated solo full flow", async ({ page }) => {
-    test.skip(!HAS_E2E_BACKEND, "Requires E2E_DATABASE_URL with a seeded database");
-    // With a backend: sign in via the login form, start a solo debate,
-    // play five rounds, and finish.
-    await page.goto("/login");
-    await page.getByLabel(/email/i).fill(process.env.E2E_TEST_EMAIL ?? "e2e@example.com");
-    await page.getByLabel(/password/i).fill(process.env.E2E_TEST_PASSWORD ?? "e2e-password");
-    await page.getByRole("button", { name: /sign in|log in/i }).click();
-    await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20000 });
-    await expect(page.getByText(/Today's topic/i).first()).toBeVisible({ timeout: 15000 });
+    test.skip(!HAS_BACKEND, "Requires a seeded database");
+    // With a backend: sign in via the shared helper (seeded credentials),
+    // and land on the Today dashboard.
+    await signIn(page);
+    await expect(page.getByText(/Today's motion/i).first()).toBeVisible({ timeout: 15000 });
   });
 });

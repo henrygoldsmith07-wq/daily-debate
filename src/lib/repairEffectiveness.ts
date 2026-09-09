@@ -59,6 +59,8 @@ export interface RepairOutcomeDetail {
   afterRate: number | null;
   beforeDebates: number;
   afterDebates: number;
+  /** The first later debate (the deliberate retest) and whether the weakness recurred there. */
+  firstRetest?: { debateId: string; weaknessPresent: boolean } | null;
 }
 
 export interface RepairKindEffectiveness {
@@ -70,6 +72,8 @@ export interface RepairKindEffectiveness {
   worse: number;
   /** improvement share among measurable repairs, or null below thresholds */
   improvedRate: number | null;
+  /** Deliberate-retest evidence: did the weakness recur in the first later debate? */
+  retest: RetestStats;
   note: string | null;
 }
 
@@ -88,6 +92,13 @@ export const REPAIR_WINDOW_DAYS = 30;
 export const REPAIR_MIN_SAMPLE = 5;
 /** And at least this many of them must actually be measurable. */
 export const REPAIR_MIN_MEASURABLE = 3;
+
+export interface RetestStats {
+  repairsWithRetest: number;
+  /** Share of first retests where the same weakness recurred; null below threshold. */
+  firstRetestWeaknessRate: number | null;
+  note: string | null;
+}
 
 /**
  * Repair kinds with NO genuine deterministic weakness detector in the stored
@@ -229,6 +240,11 @@ export function classifyRepair(
     outcome = "unchanged";
   }
 
+  // Retest linkage: the FIRST later debate that could express the weakness is
+  // the deliberate retest; report whether the weakness appeared in it.
+  const firstRetest = after[0];
+  const retested = firstRetest ? weaknessPresent(firstRetest, kinds) : null;
+
   return {
     target_kind: repair.target_kind,
     debate_id: repair.debate_id,
@@ -238,6 +254,9 @@ export function classifyRepair(
     afterRate,
     beforeDebates: before.length,
     afterDebates: after.length,
+    firstRetest: firstRetest
+      ? { debateId: firstRetest.debateId, weaknessPresent: retested as boolean }
+      : null,
   };
 }
 
@@ -260,11 +279,30 @@ function summarise(
     unchanged,
     worse,
     improvedRate: canClaim && measurable.length ? +(improved / measurable.length).toFixed(3) : null,
+    retest: retestStats(details),
     note: NOT_CURRENTLY_MEASURABLE_KINDS.has(target_kind)
       ? `not currently measurable — no deterministic ${target_kind} signal exists in the argument graph yet`
       : canClaim
         ? null
         : `not yet claimable — ${totalRepairs} repair${totalRepairs === 1 ? "" : "s"} recorded, ${measurable.length} measurable (need ${REPAIR_MIN_SAMPLE} total and ${REPAIR_MIN_MEASURABLE} measurable)${notCurrentlyMeasurable ? `; ${notCurrentlyMeasurable} not currently measurable` : ""}`,
+  };
+}
+
+/**
+ * Retest evidence: of the repairs with a measurable comparison, how many had
+ * their first later debate within the window, and did the weakness recur in
+ * that first retest? Rates only at REPAIR_MIN_MEASURABLE retests.
+ */
+function retestStats(details: RepairOutcomeDetail[]): RetestStats {
+  const retested = details.filter((d) => d.firstRetest);
+  const recurred = retested.filter((d) => d.firstRetest!.weaknessPresent).length;
+  const measurable = retested.length >= REPAIR_MIN_MEASURABLE;
+  return {
+    repairsWithRetest: retested.length,
+    firstRetestWeaknessRate: measurable ? +(recurred / retested.length).toFixed(3) : null,
+    note: measurable
+      ? null
+      : `first-retest rate pending — ${retested.length} repair${retested.length === 1 ? "" : "s"} have had a retest (need ${REPAIR_MIN_MEASURABLE})`,
   };
 }
 

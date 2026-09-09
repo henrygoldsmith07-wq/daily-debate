@@ -44,7 +44,7 @@ async function signIn(page: Page, email: string) {
   await page.goto("/login");
   await page.getByLabel(/email/i).fill(email);
   await page.getByLabel(/password/i).fill("e2e-test-pass-123");
-  await page.getByRole("button", { name: /sign in|log in/i }).click();
+  await page.locator('form button[type="submit"]').click();
   await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
 }
 
@@ -59,6 +59,9 @@ async function sendTurn(page: Page, text: string): Promise<boolean> {
 
 test.describe("two-browser pvp full-flow", () => {
   test.skip(!HAS_BACKEND, "Requires ephemeral Postgres");
+  // Two sign-ins + matchmaking polling + alternating turns + judging don't fit
+  // the 45s default.
+  test.setTimeout(120_000);
 
   test("queue → match → alternate turns → judge → same result shown to both", async ({ browser }) => {
     const ctxA = await browser.newContext();
@@ -70,8 +73,10 @@ test.describe("two-browser pvp full-flow", () => {
     const playerB = await ctxB.newPage();
 
     // ── Sign in as two different users ──
-    await signIn(playerA, "e2e-b@test.local");
-    await signIn(playerB, "e2e-c@test.local");
+    // e2e-c/e2e-d: disjoint from pvp-flow.spec (e2e-a/e2e-b) so a match left
+    // behind by the other spec can never block this one's matchmaking.
+    await signIn(playerA, "e2e-c@test.local");
+    await signIn(playerB, "e2e-d@test.local");
 
     // ── Both navigate to PvP lobby ──
     await playerA.goto("/pvp");
@@ -106,19 +111,20 @@ test.describe("two-browser pvp full-flow", () => {
     await expect(playerB.getByText(/You.*arguing/i).first()).toBeVisible({ timeout: 15_000 });
 
     // ── Alternate turns until round limit reached ──
+    // Turn order: player_a opens; each turn alternates the turn holder.
     const maxRounds = 10; // 5 rounds × 2 players
     for (let round = 1; round <= maxRounds; round++) {
-      const turnDone = await Promise.all(
-        [playerA, playerB].map(async (page) => {
-          const composer = page.getByLabel("Your debate response");
-          return composer.isVisible().catch(() => false);
-        })
-      );
-      const activePage = turnDone[0] ? playerA : turnDone[1] ? playerB : null;
-      if (!activePage) break; // debate complete
+      // Only the player holding the turn has a composer; pick whichever shows one.
+      const composerA = playerA.getByLabel("Your debate response");
+      const composerB = playerB.getByLabel("Your debate response");
+      const aHasTurn = await composerA.isVisible().catch(() => false);
+      const activePage = aHasTurn ? playerA : playerB;
+      const composer = aHasTurn ? composerA : composerB;
+      if (!(await composer.isVisible().catch(() => false))) break; // debate complete
 
       const msg = `Round ${round}: My argument uses NREL data and weighs long-term impacts over short-term costs because evidence shows sustained benefit.`;
-      await sendTurn(activePage, msg);
+      await composer.fill(msg);
+      await activePage.getByRole("button", { name: /^send$/i }).click();
       await playerA.waitForTimeout(1500);
       await playerB.waitForTimeout(1500);
 

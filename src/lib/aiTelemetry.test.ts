@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { recordAiCall, recentAiCalls, aiCallStats, resetAiTelemetry, type AiCallTelemetry } from "./aiTelemetry";
+import {
+  recordAiCall,
+  recentAiCalls,
+  aiCallStats,
+  resetAiTelemetry,
+  classifyAiError,
+  sanitizeDiagnostic,
+  type AiCallTelemetry,
+} from "./aiTelemetry";
 
 function entry(overrides: Partial<AiCallTelemetry> = {}): AiCallTelemetry {
   return {
@@ -76,5 +84,91 @@ describe("aiTelemetry ledger", () => {
     for (let i = 0; i < 520; i++) recordAiCall(entry());
     expect(recentAiCalls(1000)).toHaveLength(500);
     expect(spy).toHaveBeenCalledTimes(520);
+  });
+});
+
+describe("telemetry privacy: classifyAiError", () => {
+  it("classifies rate limits as retryable", () => {
+    const c = classifyAiError("HTTP 429: too many requests", 429);
+    expect(c.category).toBe("rate_limit");
+    expect(c.retryable).toBe(true);
+    expect(c.httpStatus).toBe(429);
+    expect(c.code).toBe("429");
+  });
+
+  it("classifies auth failures as non-retryable", () => {
+    const c = classifyAiError("401 Unauthorized: invalid api key", 401);
+    expect(c.category).toBe("auth");
+    expect(c.retryable).toBe(false);
+  });
+
+  it("classifies timeouts and network failures as retryable", () => {
+    expect(classifyAiError("The operation was aborted due to timeout").category).toBe("timeout");
+    expect(classifyAiError("fetch failed: ECONNREFUSED").category).toBe("network");
+  });
+
+  it("classifies server errors as retryable and client errors as not", () => {
+    expect(classifyAiError("HTTP 502", 502).category).toBe("server");
+    expect(classifyAiError("HTTP 502", 502).retryable).toBe(true);
+    expect(classifyAiError("HTTP 422", 422).category).toBe("invalid_request");
+    expect(classifyAiError("HTTP 422", 422).retryable).toBe(false);
+  });
+
+  it("classifies empty/truncated responses", () => {
+    const c = classifyAiError("returned no content (finish_reason: length)");
+    expect(c.category).toBe("invalid_response");
+    expect(c.code).toBe("length");
+  });
+
+  it("sanitises credentials out of diagnostics", () => {
+    const c = classifyAiError("request failed with Authorization: Bearer sk-secret123456789 and api_key=abc123def456");
+    expect(c.sanitized).not.toMatch(/sk-secret/);
+    expect(c.sanitized).not.toMatch(/abc123def456/);
+    expect(c.sanitized).toMatch(/\[redacted\]/);
+  });
+
+  it("bounds the diagnostic length", () => {
+    const c = classifyAiError("x".repeat(500));
+    expect((c.sanitized ?? "").length).toBeLessThanOrEqual(160);
+  });
+});
+
+describe("telemetry privacy: storage boundary", () => {
+  beforeEach(() => resetAiTelemetry());
+  afterEach(() => vi.restoreAllMocks());
+
+  it("never stores raw provider error text even from a misbehaving caller", () => {
+    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
+    recordAiCall(
+      entry({
+        outcome: "error",
+        error: "HTTP 500 upstream said: Authorization: Bearer sk-live-abcdefghij {\"huge\":\"response body\"}".padEnd(400, "x"),
+      }),
+    );
+    const stored = recentAiCalls(1)[0];
+    expect(stored.error).not.toMatch(/sk-live/);
+    expect(stored.error!.length).toBeLessThanOrEqual(160);
+    // The structured log mirrors exactly what is stored — no raw leak.
+    const logged = JSON.parse((spy.mock.calls[0] as unknown as [string, string])[1]);
+    expect(logged.error).toBe(stored.error);
+  });
+
+  it("preserves structured classification fields on stored entries", () => {
+    resetAiTelemetry();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    recordAiCall(entry({ outcome: "error", errorCategory: "rate_limit", errorCode: "429", httpStatus: 429, retryable: true, error: "HTTP 429" }));
+    const stored = recentAiCalls(1)[0];
+    expect(stored.errorCategory).toBe("rate_limit");
+    expect(stored.errorCode).toBe("429");
+    expect(stored.retryable).toBe(true);
+  });
+});
+
+describe("sanitizeDiagnostic", () => {
+  it("redacts multiple secret shapes and collapses whitespace", () => {
+    const out = sanitizeDiagnostic("line1\napi_key = supersecretvalue\nBearer tok1234567890  end");
+    expect(out).not.toMatch(/supersecretvalue/);
+    expect(out).not.toMatch(/tok1234567890/);
+    expect(out).not.toMatch(/\n/);
   });
 });

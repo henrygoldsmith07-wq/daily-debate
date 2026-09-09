@@ -119,6 +119,7 @@ weakness detected → repair completed → next relevant debates → improved / 
 - Repair kinds without a genuine deterministic detector — `clarity` today — are hard-classified **not currently measurable** and can never enter the comparison, not even by comparing 0% vs 0%.
 - No later debates → "not yet measurable"; no earlier debates → "insufficient baseline". Nothing is silently dropped.
 - A per-kind rate is only claimed with ≥5 repairs and ≥3 measurable — otherwise the report says "not yet claimable".
+- **Retest linkage**: the first later debate that could express the weakness is the deliberate retest; the report tracks how often the weakness recurred in that first retest (rate claimed only at ≥3 measurable retests).
 - The output is labelled observational: an association with the repair, not proof of causation.
 
 ## Async friend challenges

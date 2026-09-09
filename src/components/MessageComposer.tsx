@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useSpeechRecognition } from "./useSpeechRecognition";
-import { resolveMode, DEBATE_MODE_LIST } from "@/lib/debateModes";
+import { resolveMode } from "@/lib/debateModes";
 import type { InputMode } from "@/lib/types";
 import type { TurnTiming } from "@/lib/speechAnalysis";
 
