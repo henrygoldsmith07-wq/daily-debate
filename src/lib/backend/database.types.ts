@@ -222,6 +222,20 @@ export type ProductEventRow = {
   created_at: string;
 };
 
+export type AiCallLogRow = {
+  id: string;
+  operation: string;
+  provider: string;
+  model: string;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  latency_ms: number;
+  outcome: string;
+  error: string | null;
+  created_at: string;
+};
+
 type TableDef<Row> = { Row: Row; Insert: Partial<Row>; Update: Partial<Row> };
 
 export type Database = {
@@ -244,5 +258,6 @@ export type Database = {
     repair_results: TableDef<RepairResultRow>;
     challenge_invites: TableDef<ChallengeInviteRow>;
     product_events: TableDef<ProductEventRow>;
+    ai_call_log: TableDef<AiCallLogRow>;
   };
 };

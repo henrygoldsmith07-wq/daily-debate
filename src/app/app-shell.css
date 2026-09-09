@@ -102,6 +102,8 @@
     display: flex;
     align-items: center;
     gap: 0.625rem;
+    /* 44px minimum interactive target (WCAG 2.5.5 / mobile a11y). */
+    min-height: 44px;
     padding: 0.5rem 0.625rem;
     border-radius: var(--radius-sm);
     color: var(--ink-2);
@@ -313,6 +315,8 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    /* 44px minimum touch target on mobile surfaces. */
+    min-height: 44px;
     padding: 0.6rem 0.65rem;
     border-radius: var(--radius-sm);
     color: var(--ink-2);

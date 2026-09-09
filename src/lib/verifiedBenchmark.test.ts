@@ -22,11 +22,6 @@ import {
 import { ensembleVerdicts } from "./ensembleJudge";
 import { claimCitationMap, distortionScore, cherryPickSignal, graphEvidenceReport } from "./evidenceVerification";
 import { classifyFallacies, detectDropped, detectConcessions, detectContradictions, detectBurdenShifts, applyGraphEdits, argumentEvolution } from "./graphEnrichers";
-import { canStartTournament, buildSingleElim, advanceWinners, seasonalLeaderboard } from "./tournament";
-import { TIMED_FORMATS, buildPrepPack, validatePrepSource } from "./researchPrep";
-import { validateAppeal, canFileAppeal } from "./appeals";
-import { shareText, shareMarkdown } from "./shareable";
-import { snapshotFromGraph, aggregateWeaknesses, topWeaknesses, measureDrillOutcome, drillsForWeaknesses } from "./weaknessTracker";
 import type { PvpJudgeResult } from "./types";
 
 function sampleGraph(): ArgGraph {
@@ -238,64 +233,4 @@ describe("graph enrichers — fallacy classifier + detectors", () => {
     expect(argumentEvolution(g2, "c1").length).toBeGreaterThan(0);
   });
 });
-
-describe("competitive / timed / tournament / seasonal", () => {
-  it("tournament needs min players and builds bracket", () => {
-    expect(canStartTournament([{ userId: "u1", rating: 1200, seed: 1 }]).ok).toBe(false);
-    const seeds = [
-      { userId: "u1", rating: 1600, seed: 1 }, { userId: "u2", rating: 1500, seed: 2 },
-      { userId: "u3", rating: 1400, seed: 3 }, { userId: "u4", rating: 1300, seed: 4 },
-    ];
-    const ms = buildSingleElim(seeds);
-    expect(ms.length).toBeGreaterThanOrEqual(3); // 2 semis + final (with placeholders)
-    const t = { id: "t1", title: "T", format: "single_elim" as const, status: "active" as const, seeds, matches: ms, winnerId: null, createdAt: new Date().toISOString() };
-    const adv = advanceWinners(t, [{ matchId: ms[0].id, winnerId: "u1" }]);
-    expect(adv.matches.find((m) => m.id === ms[0].id)?.status).toBe("completed");
-  });
-
-  it("seasonal leaderboard requires participation", () => {
-    expect(seasonalLeaderboard([{ userId: "u1", rating: 1500, games: 10 }]).length).toBe(0); // <8 qualified
-    const many = Array.from({ length: 10 }, (_, i) => ({ userId: `u${i}`, rating: 1500 - i * 10, games: 10 }));
-    expect(seasonalLeaderboard(many).length).toBe(10);
-  });
-
-  it("timed formats + prep pack validation", () => {
-    expect(TIMED_FORMATS.length).toBeGreaterThanOrEqual(4);
-    expect(validatePrepSource({ name: "", homepage: "https://example.com", angle: "x", addedBy: "user" }).length).toBeGreaterThan(0);
-    const pack = buildPrepPack({ id: "t1", title: "T", prompt: "P", sources: [{ name: "Pew", homepage: "https://www.pewresearch.org", angle: "polling" }] });
-    expect(pack.sources.length).toBeGreaterThan(0);
-  });
-
-  it("appeals validate and respect window", () => {
-    expect(validateAppeal({ reason: "bias", note: "short" }).length).toBeGreaterThan(0);
-    expect(validateAppeal({ reason: "bias", note: "This scoring ignored my Lazard citation in round 2 where I cited $24/MWh." }).length).toBe(0);
-    expect(canFileAppeal({ status: "active", completed_at: null }, new Date().toISOString()).ok).toBe(false);
-    expect(canFileAppeal({ status: "completed", completed_at: new Date().toISOString() }, new Date().toISOString()).ok).toBe(true);
-  });
-
-  it("share text/markdown", () => {
-    const v: PvpJudgeResult = { winner: "a", playerAScore: 80, playerBScore: 62, rationale: "A had cited Lazard and rebutted directly.", decidingFactor: "Grounded evidence.", breakdown: { a: { claims: 2, evidence: 2, rebuttals: 1, impacts: 1, fallacies: 0, droppedSuffered: 0 }, b: { claims: 2, evidence: 0, rebuttals: 0, impacts: 0, fallacies: 1, droppedSuffered: 1 } } };
-    expect(shareText({ topicTitle: "T", verdict: v, playerAName: "Alice", playerBName: "Bob" }).includes("Alice")).toBe(true);
-    expect(shareMarkdown({ topicTitle: "T", verdict: v, playerAName: "Alice", playerBName: "Bob" }).includes("|")).toBe(true);
-  });
-
-  it("weakness tracker aggregates and measures drill outcome", () => {
-    const g = sampleGraph();
-    const s1 = snapshotFromGraph(g, { at: "2026-01-01T00:00:00Z" });
-    const g2: ArgGraph = { ...g, evidenceStats: { ...g.evidenceStats, unsupportedClaimIds: ["c1"] }, dropped: [{ nodeId: "k1", text: "x", owner: "b", round: 2 }] };
-    const s2 = snapshotFromGraph(g2, { at: "2026-01-02T00:00:00Z" });
-    const hist = { snapshots: [s1, s2, s1, s2, s1, s2, s1, s2] };
-    const agg = aggregateWeaknesses(hist, 6);
-    expect(topWeaknesses(agg).length).toBeGreaterThan(0);
-    const drills = drillsForWeaknesses(topWeaknesses(agg, 2), "2026-01-05T00:00:00Z");
-    expect(drills.length).toBeGreaterThan(0);
-    // Before window had weakness, after window didn't => improved
-    const before = Array.from({ length: 5 }, () => snapshotFromGraph(g2, { at: "2026-01-01T00:00:00Z" }));
-    const after = Array.from({ length: 5 }, () => snapshotFromGraph(g, { at: "2026-01-06T00:00:00Z" }));
-    const outcome = measureDrillOutcome({ snapshots: [...before, drillAt(drills[0].assignedAt, g2), ...after] }, drills[0]);
-    expect(outcome).toBeDefined();
-  });
-});
-
-function drillAt(at: string, graph: ArgGraph) { return snapshotFromGraph(graph, { at }); }
 

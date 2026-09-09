@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildFunnelReport, returnRate, type FunnelEventRow } from "./productFunnel";
+import {
+  buildFunnelReport,
+  buildWeeklyCohorts,
+  completionTime,
+  repairRetentionComparison,
+  returnRate,
+  timeToFirstValue,
+  type FunnelEventRow,
+} from "./productFunnel";
 
 const NOW = "2026-06-15T12:00:00Z";
 
@@ -222,5 +230,84 @@ describe("returnRate (D1/D7)", () => {
     const result = returnRate(rows, 1, NOW, 5);
     expect(result.rate).toBeNull();
     expect(result.note).toMatch(/not yet measurable/);
+  });
+});
+
+describe("deeper product validation metrics", () => {
+  it("timeToFirstValue: median hours from first view to first completed debate", () => {
+    const rows = [
+      ...event(["a", "b", "c", "d", "e"], "daily_viewed", "2026-06-10T09:00:00Z"),
+      ...event(["a", "b", "c", "d", "e"], "debate_completed", "2026-06-10T11:00:00Z"), // 2h for all
+      ...event(["f", "g", "h", "i", "j"], "daily_viewed", "2026-06-11T09:00:00Z"),
+      ...event(["f", "g", "h", "i", "j"], "debate_completed", "2026-06-11T10:30:00Z"), // 1.5h
+    ];
+    const ttfv = timeToFirstValue(rows);
+    expect(ttfv.users).toBe(10);
+    // Proper median of [1.5×5, 2×5] = (1.5 + 2) / 2 = 1.75 → 1.8.
+    expect(ttfv.medianHours).toBe(1.8);
+  });
+
+  it("timeToFirstValue stays below threshold with too few users", () => {
+    const rows = [
+      ...event(["a"], "daily_viewed", "2026-06-10T09:00:00Z"),
+      ...event(["a"], "debate_completed", "2026-06-10T11:00:00Z"),
+    ];
+    const ttfv = timeToFirstValue(rows);
+    expect(ttfv.medianHours).toBeNull();
+    expect(ttfv.note).toMatch(/not yet measurable/);
+  });
+
+  it("completionTime: median minutes per session via debate_id", () => {
+    const rows = [
+      row("a", "sprint_started", "2026-06-12T09:00:00Z", { debate_id: "d1" }),
+      row("a", "debate_completed", "2026-06-12T09:04:00Z", { debate_id: "d1" }),
+      row("a", "sprint_started", "2026-06-12T10:00:00Z", { debate_id: "d2" }),
+      row("a", "debate_completed", "2026-06-12T10:06:00Z", { debate_id: "d2" }),
+    ];
+    const ct = completionTime(rows, 2);
+    expect(ct.sessions).toBe(2);
+    // Proper median of even sample [4, 6] = 5.
+    expect(ct.medianMinutes).toBe(5);
+  });
+
+  it("repairRetentionComparison compares repairers vs non-repairers, observationally", () => {
+    const rows: FunnelEventRow[] = [];
+    // 5 repairers: completed Jun 12, repaired, returned Jun 13.
+    for (const u of ["a", "b", "c", "d", "e"]) {
+      rows.push(row(u, "debate_completed", "2026-06-12T09:00:00Z"));
+      rows.push(row(u, "repair_completed", "2026-06-12T09:30:00Z"));
+      rows.push(row(u, "daily_viewed", "2026-06-13T09:00:00Z"));
+    }
+    // 5 non-repairers: completed Jun 12, no repair, no return.
+    for (const u of ["f", "g", "h", "i", "j"]) {
+      rows.push(row(u, "debate_completed", "2026-06-12T09:00:00Z"));
+    }
+    const comparison = repairRetentionComparison(rows, NOW);
+    expect(comparison.repairers.users).toBe(5);
+    expect(comparison.repairers.rate).toBe(1);
+    expect(comparison.nonRepairers.users).toBe(5);
+    expect(comparison.nonRepairers.rate).toBe(0);
+    expect(comparison.note).toMatch(/Observational only/);
+    expect(comparison.note).toMatch(/not evidence that repair causes retention/);
+  });
+
+  it("buildWeeklyCohorts: buckets users by Monday-start week with pending honesty", () => {
+    // Jun 8 2026 is a Monday; Jun 15 is the current week.
+    const rows = [
+      ...event(["a", "b"], "daily_viewed", "2026-06-08T09:00:00Z"),      // week of Jun 8
+      row("a", "daily_viewed", "2026-06-09T09:00:00Z"),                   // a returns D1; b does not
+      ...event(["c", "d"], "daily_viewed", "2026-06-15T09:00:00Z"),      // current week: pending
+    ];
+    const cohorts = buildWeeklyCohorts(rows, NOW, 2);
+    const lastWeek = cohorts.find((c) => c.weekStart === "2026-06-08");
+    const thisWeek = cohorts.find((c) => c.weekStart === "2026-06-15");
+    expect(lastWeek?.users).toBe(2);
+    expect(lastWeek?.eligibleD1).toBe(2);
+    expect(lastWeek?.returnedD1).toBe(1);
+    // D7 not yet eligible for anyone (Jun 8 cohort reaches D7 on Jun 15 �
+    // but only after 7 full days; Jun 8 + 7 = Jun 15, and "since" is exactly 7
+    // for users first seen Jun 8 at 09:00 with today Jun 15 ? eligible).
+    expect(thisWeek?.users).toBe(2);
+    expect(thisWeek?.eligibleD1).toBe(0); // pending, not churned
   });
 });

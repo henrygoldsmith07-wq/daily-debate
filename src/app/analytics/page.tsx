@@ -1,15 +1,20 @@
 import Link from "next/link";
-import { createClient } from "@/lib/backend/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { isCorpusAdmin } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadFunnelData } from "@/lib/productFunnelServer";
 import { buildFunnelReport } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
+import { summariseAiOps, type AiOpsRow } from "@/lib/aiOps";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Product funnel (admin)" };
+
+function aiOpsCutoffIso(): string {
+  return new Date(Date.now() - 7 * 86_400_000).toISOString();
+}
 
 function pct(n: number | null): string {
   return n === null ? "—" : `${Math.round(n * 100)}%`;
@@ -51,6 +56,30 @@ export default async function AnalyticsPage() {
   const funnel = buildFunnelReport(events, {});
   const effectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, {});
 
+  // AI ops: last 7 days of model calls, aggregate only (no user ids, no content).
+  let aiOps: ReturnType<typeof summariseAiOps> | null = null;
+  try {
+    const service = createServiceClient();
+    const { data: aiRows } = await service
+      .from("ai_call_log")
+      .select("operation, provider, model, latency_ms, outcome, total_tokens, created_at")
+      .gte("created_at", aiOpsCutoffIso())
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    const mapped: AiOpsRow[] = (aiRows ?? []).map((r) => ({
+      operation: r.operation,
+      provider: r.provider,
+      model: r.model,
+      latencyMs: r.latency_ms,
+      ok: r.outcome === "ok",
+      totalTokens: r.total_tokens,
+      createdAt: r.created_at,
+    }));
+    aiOps = summariseAiOps(mapped, {});
+  } catch {
+    aiOps = null;
+  }
+
   return (
     <AppShell width="narrow">
       <PageHeader
@@ -91,13 +120,72 @@ export default async function AnalyticsPage() {
           <span>Friend challenges: {funnel.friendChallenges.createdEvents} created · {funnel.friendChallenges.acceptedEvents} accepted</span>
           <span>D1 return: {funnel.d1Return.returnedUsers}/{funnel.d1Return.eligibleUsers} eligible ({funnel.d1Return.pendingUsers} pending)</span>
           <span>D7 return: {funnel.d7Return.returnedUsers}/{funnel.d7Return.eligibleUsers} eligible ({funnel.d7Return.pendingUsers} pending)</span>
+          <span>Time to first debate: {funnel.timeToFirstValue.medianHours ?? "—"}h median ({funnel.timeToFirstValue.users} users)</span>
+          <span>Debate completion time: {funnel.completionTime.medianMinutes ?? "—"} min median ({funnel.completionTime.sessions} sessions)</span>
         </div>
         {funnel.challengeMeReasons.length > 0 && (
           <p className="mt-2 text-xs text-ink3">
             Challenge-me rules used: {funnel.challengeMeReasons.map((r) => `${r.reason} ×${r.count}`).join(" · ")}
           </p>
         )}
+        <p className="mt-2 text-xs text-ink3">{funnel.repairRetention.note}</p>
+        <p className="mt-1 text-xs text-ink3">
+          Repair→return (observational): repairers {funnel.repairRetention.repairers.returned}/{funnel.repairRetention.repairers.users || "—"}
+          {" · "}non-repairers {funnel.repairRetention.nonRepairers.returned}/{funnel.repairRetention.nonRepairers.users || "—"} (D1)
+        </p>
       </section>
+
+      <section className="surface-card p-5" aria-labelledby="cohorts-heading">
+        <h2 id="cohorts-heading" className="text-sm font-semibold">Weekly cohorts (first activity)</h2>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="text-ink3">
+                <th className="py-1 pr-3 font-medium">Week</th>
+                <th className="py-1 pr-3 font-semibold">Users</th>
+                <th className="py-1 pr-3 font-semibold">D1</th>
+                <th className="py-1 pr-3 font-semibold">D7</th>
+                <th className="py-1 font-semibold">D30</th>
+              </tr>
+            </thead>
+            <tbody className="tabular">
+              {funnel.weeklyCohorts.map((c) => (
+                <tr key={c.weekStart} className="border-t border-[var(--rule)]">
+                  <td className="py-1.5 pr-3 font-medium">{c.weekStart}</td>
+                  <td className="py-1.5 pr-3">{c.users}</td>
+                  <td className="py-1.5 pr-3">{c.eligibleD1 ? `${c.returnedD1}/${c.eligibleD1}` : "—"}</td>
+                  <td className="py-1.5 pr-3">{c.eligibleD7 ? `${c.returnedD7}/${c.eligibleD7}` : "—"}</td>
+                  <td className="py-1.5">{c.eligibleD30 ? `${c.returnedD30}/${c.eligibleD30}` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs text-ink3">
+          Dashes mean the cohort still has users inside that window — they are pending, not churned.
+        </p>
+      </section>
+
+      {aiOps && (
+        <section className="surface-card p-5" aria-labelledby="aiops-heading">
+          <h2 id="aiops-heading" className="text-sm font-semibold">AI reliability (last 7 days)</h2>
+          <p className="mt-1 text-xs text-ink3">
+            Aggregate model-call health: {aiOps.totalCalls} calls · {aiOps.overall.errorRate === null ? `${aiOps.overall.errors} errors` : `${Math.round(aiOps.overall.errorRate * 100)}% errors`}
+            {aiOps.overall.p95LatencyMs !== null && ` · p95 ${aiOps.overall.p95LatencyMs}ms`}. Rates appear at ≥5 calls per operation.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 text-xs">
+            {aiOps.byOperation.map((op) => (
+              <div key={op.operation} className="flex items-baseline justify-between gap-3 border-b border-[var(--rule)] pb-2 last:border-0">
+                <span className="font-medium">{op.operation}</span>
+                <span className="tabular text-ink2">
+                  {op.errorRate === null ? `${op.calls} calls` : `${Math.round(op.errorRate * 100)}% errors · avg ${op.avgLatencyMs}ms · p95 ${op.p95LatencyMs}ms`}
+                </span>
+              </div>
+            ))}
+          </div>
+          {aiOps.note && <p className="mt-2 text-xs text-ink3">{aiOps.note}</p>}
+        </section>
+      )}
 
       <section className="surface-card p-5" aria-labelledby="repair-heading">
         <h2 id="repair-heading" className="text-sm font-semibold">Does repair work?</h2>

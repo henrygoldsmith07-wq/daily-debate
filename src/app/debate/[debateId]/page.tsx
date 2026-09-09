@@ -60,8 +60,7 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
       : null;
     const snapshot = finalAssessment
       ? buildResultSnapshot(finalAssessment, { format: debate.format === "sprint" ? "sprint" : "full" })
-      : null;
-    const { data: repair } = await db
+      : null;    const { data: repair } = await db
       .from("repair_results")
       .select("id, created_at")
       .eq("debate_id", debateId)

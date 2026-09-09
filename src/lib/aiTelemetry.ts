@@ -38,11 +38,41 @@ export interface AiCallTelemetry {
 const MAX_ENTRIES = 500;
 const buffer: AiCallTelemetry[] = [];
 
+/**
+ * Best-effort durable mirror: writes the entry to ai_call_log (migration 006)
+ * so latency/error dashboards survive serverless cold starts. Fire-and-forget
+ * — never awaited, never allowed to break the request path. The dynamic
+ * import keeps this module usable in pure-node contexts (benchmarks, tests).
+ */
+function mirrorToDatabase(entry: AiCallTelemetry): void {
+  void (async () => {
+    try {
+      const { createServiceClient } = await import("./backend/server");
+      const service = createServiceClient();
+      await service.from("ai_call_log").insert({
+        operation: entry.operation,
+        provider: entry.provider,
+        model: entry.model,
+        prompt_tokens: entry.promptTokens ?? null,
+        completion_tokens: entry.completionTokens ?? null,
+        total_tokens: entry.totalTokens ?? null,
+        latency_ms: entry.latencyMs,
+        outcome: entry.outcome,
+        error: entry.error ?? null,
+      });
+    } catch {
+      // Observability must never fail an operation; the log line below
+      // still reaches the platform drain.
+    }
+  })();
+}
+
 export function recordAiCall(entry: AiCallTelemetry): void {
   buffer.push(entry);
   if (buffer.length > MAX_ENTRIES) buffer.shift();
   // Structured log line — survives restarts via the platform's log drain.
   console.info("[ai-telemetry]", JSON.stringify(entry));
+  mirrorToDatabase(entry);
 }
 
 export function recentAiCalls(limit = 50): AiCallTelemetry[] {

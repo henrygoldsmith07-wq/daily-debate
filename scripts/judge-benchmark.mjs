@@ -219,25 +219,6 @@ function gateChecks(m, gates) {
   return checks;
 }
 
-function leaderboardMd(models, gates, at) {
-  const lines = [
-    "# Judge leaderboard (live benchmarks)",
-    "",
-    `Generated ${at} by \`scripts/judge-benchmark.mjs\` over ${LIMIT} labelled fixture debates.`,
-    "Human agreement here is against fixture labels (small n) until the rated corpus supplies consensus.",
-    "",
-    "| Model | Position mirror | Verbosity stab. | Names stab. | Fake-cit. influence | Human agree | ECE | Tokens | Errors |",
-    "|---|---|---|---|---|---|---|---|---|",
-  ];
-  for (const m of models) {
-    lines.push(
-      `| ${m.model} | ${m.positionMirrorOk ?? "—"} | ${m.stability["verbosity-up"] ?? "—"} | ${m.stability.names ?? "—"} | ${m.falseCitationInfluence ?? "—"} | ${m.humanAgreement ?? "—"} | ${m.ece ?? "—"} | ${m.totalTokens ?? "—"} | ${m.errors} |`,
-    );
-  }
-  lines.push("", "Gates: " + JSON.stringify(gates), "");
-  return lines.join("\n");
-}
-
 async function main() {
   assertPackIntegrity();
   if (args.includes("--pack-only")) {

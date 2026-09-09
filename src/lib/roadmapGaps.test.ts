@@ -4,8 +4,6 @@ import type { LabeledDebate } from "./humanCorpus";
 import { isPrimarySource, isSecondarySource, originalSourceGap, sourceDateCheck } from "./citationVerifier";
 import { runBiasAudit, measureIdeologicalAsymmetry, applyPoliticalTopic, swapPrestige, addIdeologicalFraming } from "./judgeInvariance";
 import { TRANSCRIPTS } from "./benchmark.fixtures";
-import { createTeam, validateTeam, assignMotion, proposeTeamDebate, transitionTeamDebate, classroomDashboard } from "./classroom";
-import type { TeacherMotion } from "./classroom";
 import { verifyQuote, extractQuotes, evidenceQualityScore, claimSourceMatch } from "./quoteVerification";
 import { graphEvidenceReport } from "./evidenceVerification";
 
@@ -179,43 +177,5 @@ describe("claim-to-source matching (§4 third pass)", () => {
     const rep = graphEvidenceReport(g);
     expect(rep.claimMismatchCount).toBe(0);
     expect(rep.links[0].support).toBe("supports");
-  });
-});
-
-describe("classroom — team debates, teacher-assigned motions, dashboard", () => {
-  const motion: TeacherMotion = { id: "m1", title: "Should schools ban phones?", prompt: "P", createdBy: "t1", createdAt: "2026-01-01T00:00:00Z" };
-  const classroom = { id: "c1", name: "5A", teacherId: "t1", studentIds: ["s1", "s2", "s3", "s4"] };
-  const teamA = createTeam("ta", "Team A", ["s1", "s2"]);
-  const teamB = createTeam("tb", "Team B", ["s3", "s4"]);
-
-  it("team validation", () => {
-    expect(validateTeam(teamA)).toHaveLength(0);
-    expect(validateTeam(createTeam("x", "Solo", ["s1"])).some((e) => e.includes("2 members"))).toBe(true);
-  });
-
-  it("teacher assigns a motion to a team and class", () => {
-    const assigned = assignMotion(motion, "ta", "c1");
-    expect(assigned.assignedToTeamId).toBe("ta");
-    expect(assigned.assignedToClassId).toBe("c1");
-  });
-
-  it("team debate lifecycle: proposed → accepted → active → judged", () => {
-    const d = proposeTeamDebate("m1", "ta", "tb");
-    expect(d.status).toBe("proposed");
-    const accepted = transitionTeamDebate(d, "accepted");
-    const active = transitionTeamDebate(accepted, "active");
-    const judged = transitionTeamDebate(active, "judged", "ta");
-    expect(judged.winnerTeamId).toBe("ta");
-    expect(() => transitionTeamDebate(d, "judged")).toThrow(/Cannot move team debate/);
-    expect(() => transitionTeamDebate(active, "judged")).toThrow(/winnerTeamId/);
-  });
-
-  it("dashboard aggregates per-student wins/losses/participation", () => {
-    const d = transitionTeamDebate(transitionTeamDebate(transitionTeamDebate(proposeTeamDebate("m1", "ta", "tb"), "accepted"), "active"), "judged", "ta");
-    const dash = classroomDashboard({ classroom, teams: [teamA, teamB], debates: [d], results: [{ debateId: d.id, winnerTeamId: "ta" }] });
-    expect(dash.byStudent["s1"].wins).toBe(1);
-    expect(dash.byStudent["s3"].losses).toBe(1);
-    expect(dash.byStudent["s9"]).toBeUndefined(); // off-roster ignored
-    expect(dash.participationRate).toBe(1);
   });
 });

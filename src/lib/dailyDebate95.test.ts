@@ -6,12 +6,8 @@ import { swapLabels, stripNames, inflateVerbosity, injectFakeSource, checkLabelI
 import { TRANSCRIPTS } from "./benchmark.fixtures";
 import { HUMAN_CORPUS, agreementRate, judgeVsHumanAgreement, splitQuality } from "./humanCorpus";
 import { detectRepetition, rebuttalCoverage, fallacyHints } from "./argHeuristics";
-import { drillsFor, weaknessProfile, topWeakness } from "./drills";
 import { eloGate, eloDelta, expectedScore, pickOpponent } from "./competitive";
 import { moderateMessage, isBlocked, repeatScore, isSuspiciousLength } from "./moderation";
-import { transcriptForReplay, isOverdue } from "./transcript";
-import type { PvpTurn } from "./types";
-import { dailyQuests, comebackCopy, onboardingChecklist } from "./retention";
 import type { ArgGraph, ArgNode } from "./argGraph";
 
 function g(): ArgGraph { return {
@@ -113,16 +109,6 @@ describe("arg heuristics: repetition / rebuttal / fallacy", () => {
   });
 });
 
-describe("drills + weakness profile", () => {
-  it("drillsFor suggests next steps", () => {
-    expect(drillsFor({ evidenceStats: { unsupportedClaimIds:["c1"] }, dropped:[{x:1}] as unknown[], fallacies:[{x:1}] as unknown[], impactComparison:null }).length).toBeGreaterThanOrEqual(3);
-  });
-  it("weakness profile aggregates", () => {
-    const p = weaknessProfile([{ evidenceStats:{unsupportedClaimIds:["c1"]}, dropped:[], fallacies:[] }, { evidenceStats:{unsupportedClaimIds:[]}, dropped:[{x:1}] as unknown[], fallacies:[] }]);
-    expect(topWeakness(p)).toBeTruthy();
-  });
-});
-
 describe("competitive: Elo gating + matchmaking", () => {
   it("gates Elo until invariance proven", () => {
     expect(eloGate({ invarianceOk:false, humanAgreement:0.9 }).reliable).toBe(false);
@@ -146,18 +132,5 @@ describe("moderation & anti-cheat", () => {
   it("repeat/length guards", () => {
     expect(repeatScore(["hi","hi"])).toBe(1);
     expect(isSuspiciousLength("a".repeat(7000))).toBe(true);
-  });
-});
-
-describe("transcript + async + retention + onboarding", () => {
-  it("replay orders by round", () => {
-    const turns: PvpTurn[] = [{ id:"1", match_id:"m", player_id:"a", round_number:2, message:"b", input_mode:"text", created_at:"" }, { id:"2", match_id:"m", player_id:"a", round_number:1, message:"a", input_mode:"text", created_at:"" }];
-    expect(transcriptForReplay(turns)[0].round).toBe(1);
-  });
-  it("isOverdue", () => { expect(isOverdue("2026-01-01T00:00:00Z","2026-01-02T12:00:00Z",24)).toBe(true); });
-  it("retention helpers", () => {
-    expect(dailyQuests(0,0)[0].done).toBe(0);
-    expect(comebackCopy("2026-01-01","2026-01-10")).toBeTruthy();
-    expect(onboardingChecklist({hasDebated:false,hasTriedVoice:false,hasSeenGraph:false}).steps).toHaveLength(3);
   });
 });

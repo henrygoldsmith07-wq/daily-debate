@@ -30,6 +30,8 @@ export interface ResultWeakness {
   whyItMatters: string;
   /** The repair exercise built from the user's actual argument. */
   repair: RepairTarget | null;
+  /** Repair-kind label for longitudinal comparison (repeated-weakness detection). */
+  kind: string | null;
 }
 
 export interface ResultSnapshot {
@@ -43,6 +45,8 @@ export interface ResultSnapshot {
   honesty: MeasurementHonesty;
   /** How many graph evidence references back the weakness claim. */
   evidenceNodeCount: number;
+  /** Repeated-weakness signal for the main weakness's kind. */
+  recurrence: { count: number; label: string | null };
 }
 
 function ownClaims(graph: ArgGraph): ArgNode[] {
@@ -87,7 +91,9 @@ const WEAKNESS_WHY: Record<string, string> = {
 /**
  * Build the simplified result story from a completed debate's assessment.
  * `ledgerPoints` and `goalDimension` connect the result to the ongoing
- * coaching loop when they are available; the story still works without them.
+ * coaching loop; `priorDebates` (side-scoped weakness counts per earlier
+ * debate) enables repeated-weakness detection. The story still works without
+ * any of them.
  */
 export function buildResultSnapshot(
   assessment: ObservableAssessment | null | undefined,
@@ -96,6 +102,8 @@ export function buildResultSnapshot(
     summary?: { overallFeedback: string; strengths: string[]; improvements: string[] } | null;
     ledgerPoints?: SkillMetricPoint[];
     goalDimension?: CoachDimension | null;
+    /** Prior debates, oldest last: { completedAt, kinds } from countWeaknessesForSide. */
+    priorDebates?: Array<{ completedAt: string; kinds: Record<string, number> }>;
   },
 ): ResultSnapshot {
   const honesty = measurementHonestyFor(opts.format);
@@ -111,6 +119,7 @@ export function buildResultSnapshot(
     goal: null,
     honesty,
     evidenceNodeCount: 0,
+    recurrence: { count: 0, label: null },
   };
   if (!assessment?.graph) return base;
 
@@ -142,32 +151,59 @@ export function buildResultSnapshot(
   }
 
   // ── Weakness: highest-priority observable miss, with its repair ──────────
+  // Priority also lifts weaknesses that have recurred in recent debates —
+  // a repeated miss is the most valuable thing to repair next.
   let weakness: ResultWeakness | null = null;
+  let weaknessKind: string | null = null;
   const repair = pickRepairTarget(graph);
   if (unsupported.length > 0) {
+    weaknessKind = "evidence";
     weakness = {
       headline: `${unsupported.length} important claim${unsupported.length === 1 ? " had" : "s had"} no supporting evidence`,
       whyItMatters: WEAKNESS_WHY.evidence,
       repair,
+      kind: weaknessKind,
     };
   } else if (dropped.length > 0) {
+    weaknessKind = "structure";
     weakness = {
       headline: `${dropped.length} of your claim${dropped.length === 1 ? "" : "s"} went unanswered`,
       whyItMatters: WEAKNESS_WHY.structure,
       repair,
+      kind: weaknessKind,
     };
   } else if (opponentMoves.length > 0 && rebuttals < opponentMoves.length) {
+    weaknessKind = "rebuttal";
     weakness = {
       headline: "You left an opposing argument unanswered",
       whyItMatters: WEAKNESS_WHY.rebuttal,
       repair,
+      kind: weaknessKind,
     };
   } else if (repair) {
+    weaknessKind = repair.kind;
     weakness = {
       headline: repair.label.toLowerCase(),
       whyItMatters: WEAKNESS_WHY[repair.kind] ?? "One concrete move from this debate is worth rewriting.",
       repair,
+      kind: weaknessKind,
     };
+  }
+
+  // ── Repeated-weakness detection: did this kind show up recently before? ──
+  // Observational pattern-surfacing, worded carefully (needs ≥1 prior debate
+  // with the same weakness; "again" language only at ≥2).
+  let recurrence: ResultSnapshot["recurrence"] = { count: 0, label: null };
+  if (weaknessKind && opts.priorDebates?.length) {
+    const RECURSION_WINDOW = 5;
+    const prior = opts.priorDebates.slice(-RECURSION_WINDOW);
+    const weaknessKinds = weaknessKind === "structure" ? ["structure", "dropped", "contradiction"] : [weaknessKind];
+    const count = prior.filter((d) => weaknessKinds.some((k) => (d.kinds[k] ?? 0) > 0)).length;
+    if (count >= 2) {
+      recurrence = { count, label: `This weakness has now shown up in ${count + 1} of your recent debates — worth deliberate practice.` };
+    } else if (count === 1) {
+      recurrence = { count, label: "You had this weakness in a recent debate too." };
+    }
   }
 
   // ── Goal outcome: did today's focus show up? ─────────────────────────────
@@ -209,5 +245,6 @@ export function buildResultSnapshot(
     goal,
     goalOutcome,
     evidenceNodeCount: evidence.length + graph.edges.length,
+    recurrence,
   };
 }

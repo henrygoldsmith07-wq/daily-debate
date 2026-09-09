@@ -84,6 +84,14 @@ export interface FunnelReport {
   d7Return: ReturnRate;
   /** Session-level (per-debate) completion for the same funnel steps. */
   sessions: SessionFunnel;
+  /** Median hours from first view to first completed debate. */
+  timeToFirstValue: TimeToFirstValue;
+  /** Median minutes per debate session, start → completion. */
+  completionTime: CompletionTime;
+  /** Observational D1-return comparison: repairers vs non-repairers. */
+  repairRetention: RepairRetainComparison;
+  /** Weekly first-activity cohorts with D1/D7/D30 retention. */
+  weeklyCohorts: WeeklyCohort[];
 }
 
 export const FUNNEL_MIN_SAMPLE = 5;
@@ -167,6 +175,214 @@ export function returnRate(
 }
 
 const DEBATE_STARTS = new Set(["sprint_started", "full_debate_started", "debate_started"]);
+
+// ── Deeper product validation metrics ───────────────────────────────────────
+
+export interface TimeToFirstValue {
+  /** Median hours from first daily_viewed to first debate_completed. */
+  medianHours: number | null;
+  users: number;
+  note: string | null;
+}
+
+/** Time-to-first-value: how long until a new user finishes their first debate? */
+export function timeToFirstValue(rows: FunnelEventRow[], minSample = FUNNEL_MIN_SAMPLE): TimeToFirstValue {
+  const firstViewed = new Map<string, number>();
+  const firstCompleted = new Map<string, number>();
+  for (const r of rows) {
+    const t = Date.parse(r.created_at);
+    if (r.name === "daily_viewed") {
+      const existing = firstViewed.get(r.user_id);
+      if (existing === undefined || t < existing) firstViewed.set(r.user_id, t);
+    }
+    if (r.name === "debate_completed") {
+      const existing = firstCompleted.get(r.user_id);
+      if (existing === undefined || t < existing) firstCompleted.set(r.user_id, t);
+    }
+  }
+  const hours: number[] = [];
+  for (const [userId, viewed] of firstViewed) {
+    const completed = firstCompleted.get(userId);
+    if (completed !== undefined && completed >= viewed) {
+      hours.push((completed - viewed) / 3_600_000);
+    }
+  }
+  hours.sort((a, b) => a - b);
+  const measurable = hours.length >= minSample;
+  return {
+    medianHours: measurable ? +median(hours).toFixed(1) : null,
+    users: hours.length,
+    note: measurable
+      ? null
+      : `not yet measurable — ${hours.length} user${hours.length === 1 ? "" : "s"} finished a first debate (need ${minSample})`,
+  };
+}
+
+export interface CompletionTime {
+  /** Median minutes from debate start to completion, per session. */
+  medianMinutes: number | null;
+  sessions: number;
+  note: string | null;
+}
+
+/** Proper median: mean of the two middle values for even-length samples. */
+function median(sortedAsc: number[]): number {
+  const mid = Math.floor(sortedAsc.length / 2);
+  return sortedAsc.length % 2 === 1
+    ? sortedAsc[mid]
+    : (sortedAsc[mid - 1] + sortedAsc[mid]) / 2;
+}
+
+/** Per-session completion time (needs session-tagged events, migration 005). */
+export function completionTime(rows: FunnelEventRow[], minSample = FUNNEL_MIN_SAMPLE): CompletionTime {
+  const starts = new Map<string, number>();
+  const completions = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.debate_id) continue;
+    const t = Date.parse(r.created_at);
+    if (DEBATE_STARTS.has(r.name)) {
+      const existing = starts.get(r.debate_id);
+      if (existing === undefined || t < existing) starts.set(r.debate_id, t);
+    }
+    if (r.name === "debate_completed") {
+      const existing = completions.get(r.debate_id);
+      if (existing === undefined || t < existing) completions.set(r.debate_id, t);
+    }
+  }
+  const minutes: number[] = [];
+  for (const [debateId, start] of starts) {
+    const completed = completions.get(debateId);
+    if (completed !== undefined && completed >= start) minutes.push((completed - start) / 60_000);
+  }
+  minutes.sort((a, b) => a - b);
+  const measurable = minutes.length >= minSample;
+  return {
+    medianMinutes: measurable ? +median(minutes).toFixed(1) : null,
+    sessions: minutes.length,
+    note: measurable
+      ? null
+      : `not yet measurable — ${minutes.length} completed session${minutes.length === 1 ? "" : "s"} with session ids (need ${minSample})`,
+  };
+}
+
+export interface GroupReturn {
+  users: number;
+  returned: number;
+  rate: number | null;
+}
+
+export interface RepairRetainComparison {
+  repairers: GroupReturn;
+  nonRepairers: GroupReturn;
+  note: string;
+}
+
+/**
+ * Do users who complete a repair come back more? Strictly OBSERVATIONAL:
+ * repairers differ from non-repairers in many ways, so this is a retention
+ * association, never evidence that repair causes retention.
+ */
+export function repairRetentionComparison(rows: FunnelEventRow[], now: string, minSample = FUNNEL_MIN_SAMPLE): RepairRetainComparison {
+  const today = dayOf(now);
+  const completedUsers = new Set(rows.filter((r) => r.name === "debate_completed").map((r) => r.user_id));
+  const repairers = new Set(rows.filter((r) => r.name === "repair_completed").map((r) => r.user_id));
+  const eventDays = new Map<string, Set<string>>();
+  const firstCompleted = new Map<string, string>();
+  for (const r of rows) {
+    const day = dayOf(r.created_at);
+    const days = eventDays.get(r.user_id) ?? new Set<string>();
+    days.add(day);
+    eventDays.set(r.user_id, days);
+    if (r.name === "debate_completed") {
+      const existing = firstCompleted.get(r.user_id);
+      if (!existing || day < existing) firstCompleted.set(r.user_id, day);
+    }
+  }
+  const groupRate = (users: Set<string>): GroupReturn => {
+    let eligible = 0;
+    let returned = 0;
+    for (const userId of users) {
+      const first = firstCompleted.get(userId);
+      if (!first) continue;
+      if (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${first}T00:00:00Z`) < 86_400_000) continue; // no full D1 window
+      eligible += 1;
+      if ((eventDays.get(userId) ?? new Set()).has(addDays(first, 1))) returned += 1;
+    }
+    return { users: eligible, returned, rate: eligible >= minSample ? +(returned / eligible).toFixed(3) : null };
+  };
+  const nonRepairers = new Set([...completedUsers].filter((u) => !repairers.has(u)));
+  return {
+    repairers: groupRate(repairers),
+    nonRepairers: groupRate(nonRepairers),
+    note: "Observational only — repairers may simply be more engaged users. This is not evidence that repair causes retention.",
+  };
+}
+
+export interface WeeklyCohort {
+  weekStart: string;
+  users: number;
+  eligibleD1: number;
+  returnedD1: number;
+  eligibleD7: number;
+  returnedD7: number;
+  eligibleD30: number;
+  returnedD30: number;
+}
+
+/** Weekly first-activity cohorts with D1/D7/D30 retention (counts, honest pending). */
+export function buildWeeklyCohorts(rows: FunnelEventRow[], now: string, weeks = 8): WeeklyCohort[] {
+  const today = dayOf(now);
+  const firstDay = new Map<string, string>();
+  const eventDays = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const day = dayOf(r.created_at);
+    const existing = firstDay.get(r.user_id);
+    if (!existing || day < existing) firstDay.set(r.user_id, day);
+    const days = eventDays.get(r.user_id) ?? new Set<string>();
+    days.add(day);
+    eventDays.set(r.user_id, days);
+  }
+  const weekStartOf = (day: string): string => {
+    const d = new Date(`${day}T00:00:00Z`);
+    const dow = d.getUTCDay(); // 0 = Sunday; weeks start Monday
+    const shift = (dow + 6) % 7;
+    d.setUTCDate(d.getUTCDate() - shift);
+    return d.toISOString().slice(0, 10);
+  };
+  const byWeek = new Map<string, Set<string>>();
+  for (const [userId, first] of firstDay) {
+    const week = weekStartOf(first);
+    const set = byWeek.get(week) ?? new Set<string>();
+    set.add(userId);
+    byWeek.set(week, set);
+  }
+  const start = weekStartOf(today);
+  const out: WeeklyCohort[] = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    const weekStart = addDays(start, -7 * i);
+    const users = byWeek.get(weekStart) ?? new Set<string>();
+    const bucket = { eligibleD1: 0, returnedD1: 0, eligibleD7: 0, returnedD7: 0, eligibleD30: 0, returnedD30: 0 };
+    for (const userId of users) {
+      const first = firstDay.get(userId)!;
+      const days = eventDays.get(userId) ?? new Set<string>();
+      const since = Math.floor((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${first}T00:00:00Z`)) / 86_400_000);
+      if (since >= 1) {
+        bucket.eligibleD1 += 1;
+        if (days.has(addDays(first, 1))) bucket.returnedD1 += 1;
+      }
+      if (since >= 7) {
+        bucket.eligibleD7 += 1;
+        if (days.has(addDays(first, 7))) bucket.returnedD7 += 1;
+      }
+      if (since >= 30) {
+        bucket.eligibleD30 += 1;
+        if (days.has(addDays(first, 30))) bucket.returnedD30 += 1;
+      }
+    }
+    out.push({ weekStart, users: users.size, ...bucket });
+  }
+  return out;
+}
 
 /**
  * Session-level (per-debate) funnel from events that carry a debate_id.
@@ -298,5 +514,9 @@ export function buildFunnelReport(
     d1Return: returnRate(inWindow, 1, now, minSample),
     d7Return: returnRate(inWindow, 7, now, minSample),
     sessions,
+    timeToFirstValue: timeToFirstValue(inWindow, minSample),
+    completionTime: completionTime(inWindow, minSample),
+    repairRetention: repairRetentionComparison(inWindow, now, minSample),
+    weeklyCohorts: buildWeeklyCohorts(inWindow, now),
   };
 }

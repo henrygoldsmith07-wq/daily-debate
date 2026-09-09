@@ -12,6 +12,7 @@ import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAsse
 import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { minRoundsFor, measurementHonestyFor } from "@/lib/sprint";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
+import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
 import { recordProductEvent } from "@/lib/productEvents";
 import type { CoachingRecord } from "@/lib/types";
 
@@ -101,16 +102,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     : null;
   if (finalAssessment) summary = { ...summary, argGraph: finalAssessment.graph, assessment: finalAssessment };
 
-  // Coach rewards: bonus XP for improvement behaviours, not just participation.
+  // Prior completed debates: feeds BOTH coach rewards (per-debate assessments)
+  // and repeated-weakness detection (side-scoped weakness counts). One query.
   const { data: priorDebates } = await db
     .from("solo_debates")
-    .select("id")
+    .select("id, completed_at")
     .eq("user_id", user.id)
     .eq("status", "completed")
     .neq("id", debateId)
     .order("completed_at", { ascending: false })
     .limit(5);
   let priorAssessments: ObservableAssessment[] = [];
+  let priorDebateKinds: Array<{ completedAt: string; kinds: Record<string, number> }> = [];
   if (priorDebates?.length) {
     const { data: priorTurns } = await db
       .from("solo_debate_turns")
@@ -120,11 +123,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       .order("round_number", { ascending: true })
       .limit(30);
     const byDebate = new Map<string, ObservableAssessment>();
+    const graphsByDebate = new Map<string, ObservableAssessment["graph"][]>();
     for (const t of (priorTurns ?? []) as Array<{ debate_id: string; assessment: unknown }>) {
       const a = t.assessment as ObservableAssessment;
-      if (a?.graph) byDebate.set(t.debate_id, a);
+      if (a?.graph) {
+        byDebate.set(t.debate_id, a);
+        const list = graphsByDebate.get(t.debate_id) ?? [];
+        list.push(a.graph);
+        graphsByDebate.set(t.debate_id, list);
+      }
     }
     priorAssessments = [...byDebate.values()];
+    priorDebateKinds = priorDebates
+      .map((d) => {
+        const graphs = graphsByDebate.get(d.id);
+        if (!graphs?.length) return null;
+        const merged = assessArgumentGraph(mergeAssessmentGraphs(graphs), {
+          sideA: "a", sideB: "ai", extractionSource: "deterministic", labelA: "You", labelB: "AI opponent",
+        });
+        return { completedAt: d.completed_at ?? new Date().toISOString(), kinds: countWeaknessesForSide(merged.graph, "a") };
+      })
+      .filter((x): x is { completedAt: string; kinds: Record<string, number> } => x !== null)
+      .reverse(); // oldest last
   }
   const { data: topicCategory } = await db
     .from("daily_topics").select("category").eq("id", debate.topic_id).single();
@@ -179,7 +199,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   // ── Coaching loop: assess today's goal and persist the snapshot ─────────
   const coaching = (debate.coaching ?? {}) as CoachingRecord;
   const goalDimension = coaching.dimension ?? null;
-  const snapshot = buildResultSnapshot(finalAssessment, { format, summary });
+
+  const snapshot = buildResultSnapshot(finalAssessment, {
+    format,
+    summary,
+    priorDebates: priorDebateKinds,
+  });
   let coachingUpdate: CoachingRecord = { ...coaching, snapshot: null, demonstrated: null };
   if (goalDimension && finalAssessment?.features?.a) {
     const responses = finalAssessment.features.a.argumentResponses?.value;
@@ -199,7 +224,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     } else if (goalDimension === "structure") {
       demonstrated = behaviourSnapshot.droppedOwn === 0;
     }
-    coachingUpdate = { ...coaching, snapshot: behaviourSnapshot, demonstrated };
+    coachingUpdate = { ...coaching, snapshot: behaviourSnapshot, demonstrated, weaknessKind: snapshot.weakness?.kind ?? null, recurrenceCount: snapshot.recurrence?.count ?? 0 };
     await db.from("solo_debates").update({ coaching: coachingUpdate }).eq("id", debateId);
   }
 

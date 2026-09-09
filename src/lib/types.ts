@@ -63,6 +63,10 @@ export interface CoachingRecord {
   } | null;
   /** Whether the goal behaviour was demonstrated (null = not measurable). */
   demonstrated?: boolean | null;
+  /** The repair-kind of this debate's main weakness (longitudinal tracking). */
+  weaknessKind?: string | null;
+  /** How many recent prior debates showed the same weakness (0 = first). */
+  recurrenceCount?: number | null;
 }
 
 export interface SoloDebateTurn {

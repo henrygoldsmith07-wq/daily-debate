@@ -35,6 +35,7 @@ export default function TopicCard({
   goalLine = "Use evidence for major claims.",
   lastLine,
   focusLabel = "Today's focus",
+  isFirstVisit = false,
 }: {
   topic: DailyTopic;
   activeDebateId: string | null;
@@ -44,6 +45,8 @@ export default function TopicCard({
   /** Evidence from the previous debate, when the goal is based on one. */
   lastLine?: string | null;
   focusLabel?: string;
+  /** First-run onboarding: replaces the goal card with a how-it-works line. */
+  isFirstVisit?: boolean;
 }) {
   const router = useRouter();
   const [side, setSide] = useState<SideChoice>("challenge");
@@ -51,6 +54,10 @@ export default function TopicCard({
   const [error, setError] = useState<string | null>(null);
 
   async function startDebate(format: "sprint" | "full") {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("You appear to be offline — reconnect and try again.");
+      return;
+    }
     setStarting(format);
     setError(null);
     try {
@@ -63,7 +70,8 @@ export default function TopicCard({
       if (!res.ok) throw new Error(data.error || "Failed to start debate.");
       router.push(`/debate/${data.debate.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start debate.");
+      // Distinguish a network failure (fetch throws) from a server rejection.
+      setError(err instanceof TypeError ? "Network error — check your connection and try again." : err instanceof Error ? err.message : "Failed to start debate.");
       setStarting(null);
     }
   }
@@ -93,9 +101,13 @@ export default function TopicCard({
         </div>
 
         <div className="home-coaching-focus">
-          <span className="home-coaching-label">{focusLabel}</span>
-          <strong>{goalLine}</strong>
-          {lastLine && <span className="home-coaching-lastline">{lastLine}</span>}
+          <span className="home-coaching-label">{isFirstVisit ? "How it works" : focusLabel}</span>
+          <strong>
+            {isFirstVisit
+              ? "Pick a side, argue three short rounds, then repair the one weakness the coach flags."
+              : goalLine}
+          </strong>
+          {isFirstVisit ? null : (lastLine && <span className="home-coaching-lastline">{lastLine}</span>)}
         </div>
 
         {activeDebateId ? (

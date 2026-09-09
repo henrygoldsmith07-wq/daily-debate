@@ -235,12 +235,17 @@ export default function DebateRoom({
             </div>
           )}
 
-          {/* One main weakness + why it matters */}
+          {/* One main weakness + why it matters (+ repeated-weakness signal) */}
           {weakness && (
             <div className="rounded-lg border border-[var(--speak)]/30 bg-[var(--speak-soft)] p-4" data-testid="main-weakness">
               <p className="text-xs uppercase tracking-wide text-[var(--speak)]">Main weakness</p>
               <p className="mt-1 text-base font-semibold">{weakness.headline}</p>
               <p className="mt-1 text-sm leading-6 text-ink2">{weakness.whyItMatters}</p>
+              {snapshot?.recurrence?.label && (
+                <p className="mt-2 text-xs font-medium text-[var(--speak)]" data-testid="weakness-recurrence">
+                  ↻ {snapshot.recurrence.label}
+                </p>
+              )}
             </div>
           )}
 

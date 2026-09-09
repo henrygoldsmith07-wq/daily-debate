@@ -91,6 +91,29 @@ describe("buildResultSnapshot", () => {
     expect(snapshot.secondary.overallFeedback).toBe("Solid");
     expect(snapshot.secondary.strengths).toEqual(["structure"]);
   });
+
+  it("flags a repeated weakness from side-scoped prior debates", () => {
+    const snapshot = buildResultSnapshot(assess(UNSUPPORTED_GRAPH), {
+      format: "full",
+      priorDebates: [
+        { completedAt: "2026-06-10T09:00:00Z", kinds: { evidence: 1 } },
+        { completedAt: "2026-06-12T09:00:00Z", kinds: { evidence: 2 } },
+        { completedAt: "2026-06-13T09:00:00Z", kinds: { dropped: 1 } }, // different kind
+      ],
+    });
+    expect(snapshot.weakness?.kind).toBe("evidence");
+    expect(snapshot.recurrence.count).toBe(2);
+    expect(snapshot.recurrence.label).toMatch(/recent debates/);
+  });
+
+  it("stays quiet when the weakness is new", () => {
+    const snapshot = buildResultSnapshot(assess(UNSUPPORTED_GRAPH), {
+      format: "full",
+      priorDebates: [{ completedAt: "2026-06-10T09:00:00Z", kinds: { dropped: 1 } }],
+    });
+    expect(snapshot.recurrence.count).toBe(0);
+    expect(snapshot.recurrence.label).toBeNull();
+  });
 });
 
 describe("graph turn helpers used by the snapshot", () => {

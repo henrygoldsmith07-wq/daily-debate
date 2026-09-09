@@ -120,6 +120,7 @@ export default async function DashboardPage() {
         goalLine={goal?.headline ?? "Use evidence for major claims."}
         lastLine={goal?.lastLine ?? null}
         focusLabel="Today's focus"
+        isFirstVisit={!previousDebate}
       />
 
       <section aria-labelledby="continue-heading">
