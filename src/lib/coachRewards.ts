@@ -22,10 +22,15 @@ import {
   nodesOwnedBy,
   opponentClaimNodes,
   type ArgGraph,
-  type ArgNode,
-  type FallacyTag,
   type Owner,
 } from "./argGraph";
+import {
+  eligibleOpponentMoves,
+  fallaciesOwnedBy,
+  rebuttalCoverageFor,
+  unsupportedOwnedBy,
+  userAnsweredIds,
+} from "./opportunity";
 
 export type RewardEventKind =
   | "complete-debate"
@@ -75,36 +80,16 @@ export interface RewardContext {
   currentCategory: string;
 }
 
-// --- side-scoping helpers -----------------------------------------------------
+// --- side-scoping ---------------------------------------------------------------
 //
-// Centralised so no detector re-implements (and potentially inverts) the
-// owner convention. DroppedArgument.owner is the side whose argument went
-// unanswered, so a side's FAILURE is always entries owned by the OTHER side.
+// The rewarded side is always the solo user (REWARDED_OWNER); the opponent is
+// whoever is not the user. DroppedArgument.owner is the side whose argument
+// went unanswered, so a side's FAILURE is always entries owned by the OTHER
+// side. Shared selection primitives live in argGraph.ts, shared measurement
+// primitives in opportunity.ts — this module holds only reward policy.
 
 /** The rewarded side in solo debates: the human user. */
 export const REWARDED_OWNER: Owner = "a";
-
-/** Opponent moves a side could answer: claims/counterclaims NOT owned by it. */
-export function opponentMovesFor(graph: ArgGraph, owner: Owner): ArgNode[] {
-  return opponentClaimNodes(graph, owner);
-}
-
-/** Fallacy tags attached to a side's own nodes (opponent fallacies excluded). */
-export function fallaciesOwnedBy(graph: ArgGraph, owner: Owner): FallacyTag[] {
-  const ids = new Set(nodesOwnedBy(graph, owner).map((n) => n.id));
-  return graph.fallacies.filter((f) => ids.has(f.nodeId));
-}
-
-/** Unsupported claim ids belonging to a side's own claims. */
-export function unsupportedOwnedBy(graph: ArgGraph, owner: Owner): string[] {
-  const ids = new Set(nodesOwnedBy(graph, owner).map((n) => n.id));
-  return graph.evidenceStats.unsupportedClaimIds.filter((id) => ids.has(id));
-}
-
-/** Opponent arguments a side left unanswered (its rebuttal failure). */
-export function unansweredBy(graph: ArgGraph, owner: Owner) {
-  return graph.dropped.filter((d) => d.owner !== owner);
-}
 
 // --- individual checks --------------------------------------------------------
 // All checks below are user-scoped: they read the user's nodes, the user's
@@ -131,17 +116,11 @@ function hasGroundedClaim(graph: ArgGraph): boolean {
 }
 
 function hasFullRebuttalCoverage(graph: ArgGraph): boolean {
-  // Direct graph check — more robust than reading enriched features because
-  // it doesn't depend on how enrichment computes the coverage ratio.
-  // Opponent = anyone who is not the user: "ai" in solo, "b" in PvP shapes.
-  const opposing = opponentMovesFor(graph, REWARDED_OWNER);
-  if (!opposing.length) return false;
-  const targetedIds = new Set(
-    graph.nodes
-      .filter((n) => n.kind === "rebuttal" && n.owner === REWARDED_OWNER)
-      .flatMap((r) => r.targets ?? [])
-  );
-  return opposing.every((o) => targetedIds.has(o.id));
+  // One shared definition with the improvement measurement and the ledger:
+  // every ELIGIBLE opponent move answered. Final-round moves the user had no
+  // later turn to answer are not opportunities and never count against them.
+  // Zero eligible opportunities means no reward (not a free pass).
+  return rebuttalCoverageFor(graph, REWARDED_OWNER).value === 1;
 }
 
 function isUnfamiliarCategory(currentCategory: string, previousCategories: string[]): boolean {
@@ -197,36 +176,6 @@ export const IMPROVEMENT_DIMENSION_LABELS: Record<ImprovementDimension, string> 
   impact: "Impact",
 };
 
-/**
- * Opponent moves the user had a genuine chance to answer: opponent
- * claim/counterclaim nodes with at least one later user node. A last-round
- * opponent move with no subsequent user turn is not an opportunity.
- */
-export function eligibleOpponentMoves(graph: ArgGraph): ArgNode[] {
-  return opponentMovesFor(graph, REWARDED_OWNER).filter((m) =>
-    graph.nodes.some((n) => n.owner === REWARDED_OWNER && n.round > m.round),
-  );
-}
-
-/** Opponent-move ids the user actually answered (own rebuttals + rebuts/counters edges). */
-export function userAnsweredIds(graph: ArgGraph): Set<string> {
-  const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
-  const ids = new Set<string>();
-  for (const e of graph.edges) {
-    if (e.relation !== "rebuts" && e.relation !== "counters") continue;
-    if (nodes.get(e.from)?.owner === REWARDED_OWNER && nodes.get(e.to)?.owner !== REWARDED_OWNER) {
-      ids.add(e.to);
-    }
-  }
-  for (const n of graph.nodes) {
-    if (n.kind !== "rebuttal" || n.owner !== REWARDED_OWNER) continue;
-    for (const t of n.targets ?? []) {
-      if (nodes.get(t)?.owner !== REWARDED_OWNER) ids.add(t);
-    }
-  }
-  return ids;
-}
-
 export interface DimensionReading {
   /** Goodness 0..1 (higher = better), or null when unmeasurable. */
   value: number | null;
@@ -238,7 +187,7 @@ export interface DimensionReading {
  * Measure one dimension for one debate as an opportunity-normalised goodness.
  * - evidence: 1 − unsupported own claims / eligible own claims
  * - rebuttal: 1 − unanswered eligible opponent moves / eligible opponent moves
- * - logic: 1 − min(1, own fallacies / substantive own moves)
+ * - logic: 1 − min(1, own fallacies / ALL own moves — the detector's scope)
  * - impact: 1 if the user made an explicit impact move, else 0
  *   (measurable only when the debate offered something to weigh: ≥1 own claim
  *   AND (≥1 opponent move OR ≥2 own claims to compare))
@@ -254,9 +203,9 @@ export function measureDimension(graph: ArgGraph, dimension: ImprovementDimensio
       return { value: 1 - rate, opportunities: claims.length };
     }
     case "rebuttal": {
-      const eligible = eligibleOpponentMoves(graph);
+      const eligible = eligibleOpponentMoves(graph, REWARDED_OWNER);
       if (!eligible.length) return { value: null, opportunities: 0 };
-      const answered = userAnsweredIds(graph);
+      const answered = userAnsweredIds(graph, REWARDED_OWNER);
       const missed = eligible.filter((m) => !answered.has(m.id)).length;
       return { value: 1 - missed / eligible.length, opportunities: eligible.length };
     }
@@ -273,7 +222,7 @@ export function measureDimension(graph: ArgGraph, dimension: ImprovementDimensio
     }
     case "impact": {
       const claims = claimNodesOwnedBy(graph, REWARDED_OWNER);
-      const opponentMoves = opponentMovesFor(graph, REWARDED_OWNER).length;
+      const opponentMoves = opponentClaimNodes(graph, REWARDED_OWNER).length;
       // Weighing needs something to weigh: the user's own claims plus either
       // an opposing position or multiple own claims to compare.
       if (!claims.length || (opponentMoves < 1 && claims.length < 2)) {

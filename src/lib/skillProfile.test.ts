@@ -7,7 +7,8 @@ function point(metrics: Partial<SkillMetricPoint["metrics"]>): SkillMetricPoint 
     debateId: "d",
     completedAt: "2026-01-01T00:00:00Z",
     metrics: {
-      unsupportedClaimRate: null, rebuttalCoverage: null, evidenceGrounding: null,
+      unsupportedClaimRate: null, rebuttalCoverage: null, rebuttalTargeting: null,
+      evidenceGrounding: null,
       droppedArguments: null, contradictions: null, impactHandling: null,
       steelmanQuality: null, fallacyRate: null, causalOverclaims: null,
       fakePrecisionHits: null, uncitedEvidenceRate: null, clarity: null,

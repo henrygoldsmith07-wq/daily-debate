@@ -24,6 +24,7 @@
 
 import type { ArgGraph, Owner } from "./argGraph";
 import type { RepairKind } from "./argumentRepair";
+import { unansweredBy } from "./opportunity";
 
 export interface RepairRow {
   user_id: string;
@@ -196,7 +197,7 @@ export function countWeaknessesForSide(graph: ArgGraph, owner: Owner): Record<st
   const unsupported = graph.evidenceStats.unsupportedClaimIds.filter((id) => ownIds.has(id)).length;
   // Opponent arguments the owner failed to answer (NOT own arguments the
   // opponent ignored — those are the opponent's miss, not the owner's).
-  const unanswered = graph.dropped.filter((d) => d.owner !== owner).length;
+  const unanswered = unansweredBy(graph, owner).length;
   const contradictions = graph.contradictions.filter((c) => c.owner === owner).length;
   const ownImpacts = graph.nodes.filter((n) => n.owner === owner && n.kind === "impact").length;
 

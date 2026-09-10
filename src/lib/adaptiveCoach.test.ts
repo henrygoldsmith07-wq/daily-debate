@@ -13,6 +13,7 @@ function point(i: number, m: Partial<Record<string, number>>): SkillMetricPoint 
   const metrics = {
     unsupportedClaimRate: null,
     rebuttalCoverage: null,
+    rebuttalTargeting: null,
     evidenceGrounding: null,
     droppedArguments: null,
     contradictions: null,

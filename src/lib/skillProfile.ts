@@ -24,7 +24,7 @@ export const PROFILE_DIMENSIONS: Array<{
   { key: "claim-clarity", label: "Claim clarity", sources: ["clarity", "unsupportedClaimRate"] },
   { key: "evidence",      label: "Evidence",       sources: ["evidenceGrounding", "uncitedEvidenceRate"] },
   { key: "reasoning",     label: "Reasoning",      sources: ["fallacyRate", "causalOverclaims"] },
-  { key: "rebuttal",      label: "Rebuttal",       sources: ["rebuttalCoverage"] },
+  { key: "rebuttal",      label: "Rebuttal",       sources: ["rebuttalCoverage", "rebuttalTargeting"] },
   { key: "weighing",      label: "Weighing",       sources: ["impactHandling"] },
   { key: "structure",     label: "Structure",      sources: ["droppedArguments", "contradictions", "steelmanQuality"] },
   { key: "delivery",      label: "Delivery",       sources: ["fakePrecisionHits"] },

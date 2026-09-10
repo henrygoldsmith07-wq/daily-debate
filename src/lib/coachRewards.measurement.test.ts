@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   compareWeakestDimension,
   computeCoachRewards,
-  eligibleOpponentMoves,
   measureDimension,
-  userAnsweredIds,
   IMPROVEMENT_MIN_DELTA,
   type RewardContext,
 } from "./coachRewards";
+import { eligibleOpponentMoves, userAnsweredIds } from "./opportunity";
 import { assessArgumentGraph } from "./observableAssessment";
 import type { ArgGraph } from "./argGraph";
 import { emptyGraph } from "./argGraph";
@@ -120,7 +119,7 @@ describe("measureDimension readings", () => {
       { id: "o2", kind: "claim", owner: "ai", text: "Late.", round: 3 },
       { id: "r1", kind: "rebuttal", owner: "a", text: "Answer.", round: 2, targets: ["o1"] },
     );
-    expect(eligibleOpponentMoves(g).map((n) => n.id)).toEqual(["o1"]);
+    expect(eligibleOpponentMoves(g, "a").map((n) => n.id)).toEqual(["o1"]);
     expect(measureDimension(g, "rebuttal")).toEqual({ value: 1, opportunities: 1 });
   });
 
@@ -159,8 +158,8 @@ describe("measureDimension readings", () => {
   it("userAnsweredIds recognises rebuttal targets and rebuts/counters edges", () => {
     const g = debateGraph({ opponentMoves: 2, answered: [1] });
     g.edges.push({ from: "r1", to: "o1", relation: "rebuts" });
-    expect(userAnsweredIds(g).has("o1")).toBe(true);
-    expect(userAnsweredIds(g).has("o2")).toBe(false);
+    expect(userAnsweredIds(g, "a").has("o1")).toBe(true);
+    expect(userAnsweredIds(g, "a").has("o2")).toBe(false);
   });
 });
 

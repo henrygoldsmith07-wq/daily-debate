@@ -11,12 +11,13 @@ import type { ObservableAssessment } from "./observableAssessment";
 import { graphFromTurn, mergeAssessmentGraphs, assessArgumentGraph } from "./observableAssessment";
 import { fitLinear } from "./debateEvaluation";
 import { scoreRebuttalQuality } from "./argumentEvaluation";
-import { validateGraph } from "./argGraph";
 import { isKnownSource } from "./citationVerifier";
+import { eligibleOpponentMoves, rebuttalCoverageFor } from "./opportunity";
 
 export type MetricKey =
   | "unsupportedClaimRate"
   | "rebuttalCoverage"
+  | "rebuttalTargeting"
   | "evidenceGrounding"
   | "droppedArguments"
   | "contradictions"
@@ -31,6 +32,7 @@ export type MetricKey =
 export const METRIC_KEYS: MetricKey[] = [
   "unsupportedClaimRate",
   "rebuttalCoverage",
+  "rebuttalTargeting",
   "evidenceGrounding",
   "droppedArguments",
   "contradictions",
@@ -47,6 +49,7 @@ export const METRIC_KEYS: MetricKey[] = [
 export const HIGHER_IS_BETTER: Record<MetricKey, boolean> = {
   unsupportedClaimRate: false,
   rebuttalCoverage: true,
+  rebuttalTargeting: true,
   evidenceGrounding: true,
   droppedArguments: false,
   contradictions: false,
@@ -62,6 +65,7 @@ export const HIGHER_IS_BETTER: Record<MetricKey, boolean> = {
 export const METRIC_LABELS: Record<MetricKey, string> = {
   unsupportedClaimRate: "Unsupported claims per claim",
   rebuttalCoverage: "Rebuttal coverage",
+  rebuttalTargeting: "Rebuttal targeting quality",
   evidenceGrounding: "Evidence grounding",
   droppedArguments: "Dropped arguments",
   contradictions: "Self-contradictions",
@@ -118,7 +122,13 @@ export function extractSkillPoint(
   const myUnsupported = [...myIds].filter((id) => unsupportedSet.has(id)).length;
   const myClaimsCount = myClaims.length;
 
-  // Rebuttal quality: already side-local via scoreRebuttalQuality(g, owner) ✓
+  // Rebuttal coverage: the CANONICAL opportunity metric shared with rewards
+  // (answered eligible opponent moves / eligible opponent moves). Last-round
+  // moves with no later user turn are not opportunities.
+  const coverage = rebuttalCoverageFor(g, owner);
+  // Rebuttal targeting quality (renamed, was mislabelled "coverage"): share
+  // of the user's own rebuttals that target a real node. A distinct,
+  // narrower signal kept for continuity, not conflated with coverage.
   const rbq = scoreRebuttalQuality(g, owner);
 
   // Evidence grounding: filter cited/strong nodes to MY evidence only
@@ -128,14 +138,12 @@ export function extractSkillPoint(
   const myGrounded = myCitedStrength.filter(
     (n) => (n.citations ?? []).some((c) => isKnownSource(c.sourceName))
   ).length;
-
-  // Citation issues: validateGraph returns whole-graph strings; scope to user's nodes.
-  const issues = validateGraph(g);
-  const citationIssues = issues.filter((i) => /no citation/i.test(i)).length;
-  // Approximate per-side scoping: if there are N total evidence nodes and M are mine,
-  // attribute proportionally (exact attribution needs per-node issue tracking).
-  const totalEvidence = g.nodes.filter((n) => n.kind === "evidence").length || 1;
-  const myCitationIssueShare = Math.min(citationIssues, Math.round(citationIssues * (myEvidence.length / totalEvidence)));
+  const myUncited = myCitedStrength.filter(
+    (n) => !(n.citations ?? []).some((c) => isKnownSource(c.sourceName))
+  );
+  // Uncited evidence: computed DIRECTLY from user-owned cited/strong nodes
+  // missing a valid citation — no whole-graph proportional attribution, so
+  // opponent citation errors can never move this metric.
 
   // Engine reports keyed by side; user's column depends on debate format.
   // Solo debates: user = "a", AI = "ai"/"b". PvP: user could be either side.
@@ -148,7 +156,8 @@ export function extractSkillPoint(
 
   const metrics: Record<MetricKey, number | null> = {
     unsupportedClaimRate: round3(myClaimsCount > 0 ? Math.min(1, myUnsupported / myClaimsCount) : null),
-    rebuttalCoverage: rbq ? round3(rbq.coverage) : null,
+    rebuttalCoverage: round3(coverage.value),
+    rebuttalTargeting: rbq ? round3(rbq.coverage) : null,
     evidenceGrounding: round3(myCitedStrength.length > 0 ? myGrounded / myCitedStrength.length : null),
     // Opponent arguments this side left unanswered. DroppedArgument.owner is
     // the side whose argument went unanswered, so the side's own failure is
@@ -167,14 +176,15 @@ export function extractSkillPoint(
       : null,
     causalOverclaims: engineSide?.causalOverclaims ?? null,
     fakePrecisionHits: engineSide?.unsourcedPrecisionHits ?? null,
-    uncitedEvidenceRate: myEvidence.length > 0
-      ? round3(Math.min(1, myCitationIssueShare / myEvidence.length))
+    uncitedEvidenceRate: myCitedStrength.length > 0
+      ? round3(myUncited.length / myCitedStrength.length)
       : null,
     clarity: clarity10 != null ? round3(Math.max(0, Math.min(1, clarity10 / 10))) : null,
   };
 
   // Evidence trail: which nodes contributed to each metric (explainability).
-  const fallacyNodeIds = g.fallacies.filter((f) => myIds.has(f.nodeId)).map((f) => f.nodeId);
+  // Rule: the trail references EXACTLY the nodes used in the calculation.
+  const fallacyNodeIds = g.fallacies.filter((f) => myNodeIds.has(f.nodeId)).map((f) => f.nodeId);
   const droppedIds = g.dropped.filter((d) => d.owner !== owner).map((d) => d.nodeId);
   const contradictionIds = g.contradictions.filter((c) => c.owner === owner).map((_: unknown, i: number) => `contradiction-${i}`);
   const overclaimNodes = engineSide && (engineSide.causalOverclaims ?? 0) > 0
@@ -186,7 +196,10 @@ export function extractSkillPoint(
 
   const evidence = {
     unsupportedClaimRate: g.evidenceStats.unsupportedClaimIds.filter((id: string) => myIds.has(id)),
-    rebuttalCoverage: rbq ? g.nodes.filter((n) => n.kind === "rebuttal" && n.owner === owner).map((n) => n.id) : [],
+    // The eligible opponent moves this reading was computed over.
+    rebuttalCoverage: eligibleOpponentMoves(g, owner).map((n) => n.id),
+    // The user's own rebuttals evaluated for targeting discipline.
+    rebuttalTargeting: rbq ? g.nodes.filter((n) => n.kind === "rebuttal" && n.owner === owner).map((n) => n.id) : [],
     evidenceGrounding: myCitedStrength.map((n) => n.id),
     droppedArguments: droppedIds,
     contradictions: contradictionIds,
@@ -195,7 +208,7 @@ export function extractSkillPoint(
     fallacyRate: fallacyNodeIds,
     causalOverclaims: overclaimNodes,
     fakePrecisionHits: precisionNodes,
-    uncitedEvidenceRate: myCitedStrength.filter((n) => !(n.citations ?? []).some((c) => isKnownSource(c.sourceName))).map((n) => n.id),
+    uncitedEvidenceRate: myUncited.map((n) => n.id),
     clarity: clarity10 != null ? ["turn-display-scores"] : [],
   };
 

@@ -19,7 +19,7 @@ function fmt(v: number | null | undefined, pctLike: boolean): string {
   return pctLike ? `${Math.round(v * 100)}%` : String(v);
 }
 
-const PCT_LIKE = new Set(["unsupportedClaimRate", "rebuttalCoverage", "evidenceGrounding", "impactHandling", "steelmanQuality", "fallacyRate", "uncitedEvidenceRate", "clarity"]);
+const PCT_LIKE = new Set(["unsupportedClaimRate", "rebuttalCoverage", "rebuttalTargeting", "evidenceGrounding", "impactHandling", "steelmanQuality", "fallacyRate", "uncitedEvidenceRate", "clarity"]);
 
 const TREND_GLYPH: Record<string, { glyph: string; tone: string }> = {
   up: { glyph: "↑", tone: "text-[var(--success)]" },

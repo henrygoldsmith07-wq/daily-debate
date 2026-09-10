@@ -6,6 +6,7 @@ function point(metrics: Partial<Record<MetricKey, number | null>>, i = 0): Skill
   const full = {
     unsupportedClaimRate: null,
     rebuttalCoverage: null,
+    rebuttalTargeting: null,
     evidenceGrounding: null,
     droppedArguments: null,
     contradictions: null,

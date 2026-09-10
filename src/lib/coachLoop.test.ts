@@ -11,7 +11,7 @@ import type { DrillAssignmentLite } from "./coachLoop";
 function pt(i: number, metrics: Partial<Record<string, number | null>>) {
   return {
     completedAt: `2026-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
-    metrics: { unsupportedClaimRate: null, rebuttalCoverage: null, evidenceGrounding: null, droppedArguments: null, contradictions: null, impactHandling: null, steelmanQuality: null, fallacyRate: null, causalOverclaims: null, fakePrecisionHits: null, uncitedEvidenceRate: null, clarity: null, ...metrics },
+    metrics: { unsupportedClaimRate: null, rebuttalCoverage: null, rebuttalTargeting: null, evidenceGrounding: null, droppedArguments: null, contradictions: null, impactHandling: null, steelmanQuality: null, fallacyRate: null, causalOverclaims: null, fakePrecisionHits: null, uncitedEvidenceRate: null, clarity: null, ...metrics },
   };
 }
 

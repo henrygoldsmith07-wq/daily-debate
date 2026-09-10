@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   computeCoachRewards,
-  fallaciesOwnedBy,
-  opponentMovesFor,
-  unansweredBy,
-  unsupportedOwnedBy,
   type RewardContext,
 } from "./coachRewards";
-import { nodesOwnedBy } from "./argGraph";
+import { fallaciesOwnedBy, unansweredBy, unsupportedOwnedBy } from "./opportunity";
+import { nodesOwnedBy, opponentClaimNodes } from "./argGraph";
 import { assessArgumentGraph } from "./observableAssessment";
 import type { ArgGraph, Owner } from "./argGraph";
 import { emptyGraph } from "./argGraph";
@@ -175,8 +172,8 @@ describe("side-scoping helpers", () => {
     expect(nodesOwnedBy(g, "a").length).toBeGreaterThan(0);
   });
 
-  it("opponentMovesFor returns non-user claims and counterclaims", () => {
-    const moves = opponentMovesFor(g, "a");
+  it("opponentClaimNodes returns non-user claims and counterclaims", () => {
+    const moves = opponentClaimNodes(g, "a");
     expect(moves.length).toBe(2);
     expect(moves.every((n) => n.owner !== "a" && ["claim", "counterclaim"].includes(n.kind))).toBe(true);
   });
