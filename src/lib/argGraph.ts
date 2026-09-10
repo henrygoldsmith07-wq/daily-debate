@@ -131,6 +131,37 @@ export interface ArgGraph {
 
 // ---- Pure helpers (no I/O) ------------------------------------------------
 
+// ---- Shared side-scoped node selection --------------------------------------
+// Central home for owner filtering so every measurement module reads the same
+// node sets. "Owner" always means the side being measured; the opponent is
+// whoever is not that side ("ai" in solo debates, "b" in PvP shapes).
+
+/** All nodes owned by a side. */
+export function nodesOwnedBy(graph: ArgGraph, owner: Owner): ArgNode[] {
+  return graph.nodes.filter((n) => n.owner === owner);
+}
+
+/** Claim-like nodes (claim/counterclaim) owned by a side. */
+export function claimNodesOwnedBy(graph: ArgGraph, owner: Owner): ArgNode[] {
+  return graph.nodes.filter(
+    (n) => n.owner === owner && (n.kind === "claim" || n.kind === "counterclaim"),
+  );
+}
+
+/** Substantive argument moves (claim/counterclaim/impact) owned by a side. */
+export function substantiveNodesOwnedBy(graph: ArgGraph, owner: Owner): ArgNode[] {
+  return graph.nodes.filter(
+    (n) => n.owner === owner && (n.kind === "claim" || n.kind === "counterclaim" || n.kind === "impact"),
+  );
+}
+
+/** Claim/counterclaim nodes NOT owned by a side (its rebuttal opportunities). */
+export function opponentClaimNodes(graph: ArgGraph, owner: Owner): ArgNode[] {
+  return graph.nodes.filter(
+    (n) => n.owner !== owner && (n.kind === "claim" || n.kind === "counterclaim"),
+  );
+}
+
 export function unsupportedClaims(graph: ArgGraph): ArgNode[] {
   const ids = new Set(graph.evidenceStats.unsupportedClaimIds);
   return graph.nodes.filter((n) => n.kind === "claim" && ids.has(n.id));

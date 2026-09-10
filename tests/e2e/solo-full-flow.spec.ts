@@ -97,8 +97,12 @@ test.describe("solo full-flow", () => {
     await expect(finishBtn).toBeVisible({ timeout: 10_000 });
     await finishBtn.click();
 
-    // 6. Score displayed
-    await expect(page.getByText(/\d+ pts/i).first()).toBeVisible({ timeout: 30_000 });
+    // 6. Simplified result card: one weakness, Fix-this-now CTA, score + XP
+    // secondary ("Score" label and number render in separate spans).
+    await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("main-weakness")).toBeVisible();
+    await expect(page.getByText("Score", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("fix-this-now")).toBeVisible();
     await expect(page.getByText(/Debate complete|Replay/i).first()).toBeVisible({ timeout: 15_000 });
 
     // 6b. The advanced analysis (graph + tracking grid) sits behind disclosure.

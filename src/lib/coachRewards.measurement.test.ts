@@ -131,12 +131,20 @@ describe("measureDimension readings", () => {
     });
   });
 
-  it("logic: fallacy rate over substantive own moves", () => {
-    // 1 fallacy across 2 claims + 1 impact = 1/3 miss.
+  it("logic: fallacy rate over ALL own nodes (the detector's exact scope)", () => {
+    // 1 fallacy across 2 claims + 2 evidence + 1 rebuttal + 1 impact = 1/6.
+    // Every node type the detector can tag counts as an opportunity, so a
+    // counted fallacy always has its move in the denominator.
     expect(measureDimension(debateGraph({ claims: 2, fallacies: 1, impacts: 1 }), "logic")).toEqual({
-      value: 1 - 1 / 3,
-      opportunities: 3,
+      value: 1 - 1 / 6,
+      opportunities: 6,
     });
+  });
+
+  it("logic: empty user side is unmeasurable, not perfect", () => {
+    const g = debateGraph({ claims: 0, opponentMoves: 1, answered: [], impacts: 0 });
+    g.nodes = g.nodes.filter((n) => n.owner !== "a");
+    expect(measureDimension(g, "logic")).toEqual({ value: null, opportunities: 0 });
   });
 
   it("impact: presence gated on having claims to weigh", () => {

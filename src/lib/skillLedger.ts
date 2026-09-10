@@ -108,6 +108,8 @@ export function extractSkillPoint(
   const substantive = g.nodes.filter((n) => n.kind === "claim" || n.kind === "counterclaim" || n.kind === "impact");
   const mine = substantive.filter((n) => n.owner === owner);
   const myIds = new Set(mine.map((n) => n.id));
+  const myNodeIds = new Set(g.nodes.filter((n) => n.owner === owner).map((n) => n.id));
+  const myNodeCount = myNodeIds.size;
   const myClaims = mine.filter((n) => n.kind === "claim" || n.kind === "counterclaim");
   const myEvidence = g.nodes.filter((n) => n.kind === "evidence" && n.owner === owner);
 
@@ -156,8 +158,12 @@ export function extractSkillPoint(
     impactHandling:
       impactValue === null || impactValue === undefined ? null : round3(Math.max(0, Math.min(1, impactValue))),
     steelmanQuality: engineSide?.steelmanQuality ? round3(engineSide.steelmanQuality.score) : null,
-    fallacyRate: mine.length > 0
-      ? round3(g.fallacies.filter((f) => myIds.has(f.nodeId)).length / mine.length)
+    fallacyRate: myNodeCount > 0
+      // Numerator and denominator share one scope (ALL own nodes, the exact
+      // set the detector scans): a counted fallacy always has its move
+      // present in the denominator. Same definition as the reward logic
+      // reading, so progress and rewards cannot disagree on fallacies.
+      ? round3(g.fallacies.filter((f) => myNodeIds.has(f.nodeId)).length / myNodeCount)
       : null,
     causalOverclaims: engineSide?.causalOverclaims ?? null,
     fakePrecisionHits: engineSide?.unsourcedPrecisionHits ?? null,

@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   computeCoachRewards,
   fallaciesOwnedBy,
-  nodesOwnedBy,
   opponentMovesFor,
   unansweredBy,
   unsupportedOwnedBy,
   type RewardContext,
 } from "./coachRewards";
+import { nodesOwnedBy } from "./argGraph";
 import { assessArgumentGraph } from "./observableAssessment";
 import type { ArgGraph, Owner } from "./argGraph";
 import { emptyGraph } from "./argGraph";

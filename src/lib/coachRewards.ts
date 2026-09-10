@@ -17,7 +17,15 @@
 // Pure — takes assessment data + context, returns earned reward events.
 
 import type { ObservableAssessment } from "./observableAssessment";
-import type { ArgGraph, ArgNode, FallacyTag, Owner } from "./argGraph";
+import {
+  claimNodesOwnedBy,
+  nodesOwnedBy,
+  opponentClaimNodes,
+  type ArgGraph,
+  type ArgNode,
+  type FallacyTag,
+  type Owner,
+} from "./argGraph";
 
 export type RewardEventKind =
   | "complete-debate"
@@ -76,16 +84,9 @@ export interface RewardContext {
 /** The rewarded side in solo debates: the human user. */
 export const REWARDED_OWNER: Owner = "a";
 
-/** Nodes owned by a side (user behaviour lives here). */
-export function nodesOwnedBy(graph: ArgGraph, owner: Owner): ArgNode[] {
-  return graph.nodes.filter((n) => n.owner === owner);
-}
-
 /** Opponent moves a side could answer: claims/counterclaims NOT owned by it. */
 export function opponentMovesFor(graph: ArgGraph, owner: Owner): ArgNode[] {
-  return graph.nodes.filter(
-    (n) => n.owner !== owner && (n.kind === "claim" || n.kind === "counterclaim"),
-  );
+  return opponentClaimNodes(graph, owner);
 }
 
 /** Fallacy tags attached to a side's own nodes (opponent fallacies excluded). */
@@ -196,14 +197,6 @@ export const IMPROVEMENT_DIMENSION_LABELS: Record<ImprovementDimension, string> 
   impact: "Impact",
 };
 
-function isClaimLikeNode(n: ArgNode): boolean {
-  return n.kind === "claim" || n.kind === "counterclaim";
-}
-
-function isSubstantiveNode(n: ArgNode): boolean {
-  return isClaimLikeNode(n) || n.kind === "impact";
-}
-
 /**
  * Opponent moves the user had a genuine chance to answer: opponent
  * claim/counterclaim nodes with at least one later user node. A last-round
@@ -254,7 +247,7 @@ export function measureDimension(graph: ArgGraph, dimension: ImprovementDimensio
   const mine = nodesOwnedBy(graph, REWARDED_OWNER);
   switch (dimension) {
     case "evidence": {
-      const claims = mine.filter(isClaimLikeNode);
+      const claims = claimNodesOwnedBy(graph, REWARDED_OWNER);
       if (!claims.length) return { value: null, opportunities: 0 };
       const unsupported = new Set(unsupportedOwnedBy(graph, REWARDED_OWNER));
       const rate = claims.filter((c) => unsupported.has(c.id)).length / claims.length;
@@ -268,13 +261,18 @@ export function measureDimension(graph: ArgGraph, dimension: ImprovementDimensio
       return { value: 1 - missed / eligible.length, opportunities: eligible.length };
     }
     case "logic": {
-      const moves = mine.filter(isSubstantiveNode);
+      // Numerator and denominator share one scope: EVERY user-owned node,
+      // because that is exactly the node set the fallacy detector scans.
+      // A fallacy tag on any own node (claim, rebuttal, evidence, impact)
+      // counts, and every own node counts as an opportunity — so a counted
+      // fallacy always has its move present in the denominator.
+      const moves = nodesOwnedBy(graph, REWARDED_OWNER);
       if (!moves.length) return { value: null, opportunities: 0 };
       const rate = Math.min(1, fallaciesOwnedBy(graph, REWARDED_OWNER).length / moves.length);
       return { value: 1 - rate, opportunities: moves.length };
     }
     case "impact": {
-      const claims = mine.filter(isClaimLikeNode);
+      const claims = claimNodesOwnedBy(graph, REWARDED_OWNER);
       const opponentMoves = opponentMovesFor(graph, REWARDED_OWNER).length;
       // Weighing needs something to weigh: the user's own claims plus either
       // an opposing position or multiple own claims to compare.
