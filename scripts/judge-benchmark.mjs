@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { FIXTURES, STRATA } from "./lib/judge-fixtures.mjs";
 import { PROBES, AUDIT_TRANSFORMS } from "./lib/judge-transforms.mjs";
-import { primaryChainJudge, anthropicJudge } from "./lib/judge-providers.mjs";
+import { primaryChainJudge, anthropicJudge, estimatedCost } from "./lib/judge-providers.mjs";
 
 function loadEnvLocal() {
   const p = path.join(process.cwd(), ".env.local");
@@ -84,9 +84,14 @@ async function mapLimit(items, limit, fn) {
 async function evaluateModel(judge) {
   const fixtures = FIXTURES.slice(0, LIMIT);
   const bases = [];
+  const latencySamples = [];
+  const tokenSamples = [];
   for (const f of fixtures) {
     try {
-      bases.push({ fixture: f.id, expected: f.expectedWinner, ...(await judge.fn(f.transcript)) });
+      const v = await judge.fn(f.transcript);
+      bases.push({ fixture: f.id, expected: f.expectedWinner, ...v });
+      if (v.latencyMs != null) latencySamples.push(v.latencyMs);
+      if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
     } catch (e) {
       log(`  [base] ${f.id}: ${String(e?.message ?? e).slice(0, 120)}`);
       bases.push({ fixture: f.id, expected: f.expectedWinner, error: String(e?.message ?? e) });
@@ -101,6 +106,8 @@ async function evaluateModel(judge) {
     if (!base) return { probe: probe.id, error: "no-base" };
     try {
       const v = await judge.fn(probe.fn(f.transcript));
+      if (v.latencyMs != null) latencySamples.push(v.latencyMs);
+      if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
       const flip = probe.mirrored ? v.winner !== mirror(base.winner) : v.winner !== base.winner;
       return {
         probe: probe.id,
@@ -122,6 +129,8 @@ async function evaluateModel(judge) {
       if (!base) return { id: t.id, error: true };
       try {
         const v = await judge.fn(t.fn(f.transcript));
+        if (v.latencyMs != null) latencySamples.push(v.latencyMs);
+        if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
         return { id: t.id, flipped: v.winner !== base };
       } catch {
         return { id: t.id, error: true };
@@ -166,12 +175,23 @@ async function evaluateModel(judge) {
     ? +(bins.reduce((s, x) => (x.total ? s + (x.total / binTotal) * Math.abs(x.correct / x.total - x.confSum / x.total) : s), 0)).toFixed(3)
     : null;
 
-  const latencies = probeResults.filter((r) => r.latencyMs == null).length >= 0 ? [] : [];
-  void latencies;
-  const allTokens = probeResults.reduce((s, r) => s + (r.tokens ?? 0), 0);
+  const latencies = latencySamples.length
+    ? {
+        n: latencySamples.length,
+        meanMs: Math.round(latencySamples.reduce((s, x) => s + x, 0) / latencySamples.length),
+        p50Ms: latencySamples.slice().sort((a, b) => a - b)[Math.floor(latencySamples.length / 2)],
+        maxMs: Math.max(...latencySamples),
+      }
+    : null;
+  const promptTokens = tokenSamples.reduce((s, x) => s + (x.prompt || 0), 0);
+  const completionTokens = tokenSamples.reduce((s, x) => s + (x.completion || 0), 0);
+  const allTokens = probeResults.reduce((s, r) => s + (r.tokens ?? 0), 0) || promptTokens + completionTokens;
+  const costUsd = estimatedCost(judge.id.replace(/^(nvidia|openrouter|anthropic):/, ""), promptTokens, completionTokens);
 
   return {
     model: judge.id,
+    judge: { provider: judge.id.split(":")[0], model: judge.id.split(":")[1] ?? judge.id, temperature: 0, promptVersion: 3 },
+    fixtures: fixtures.length,
     calls: bases.length + probeResults.length + auditResults.length,
     errors: [...bases, ...probeResults, ...auditResults].filter((r) => r.error).length,
     positionMirrorOk: position.n ? +(1 - position.flipRate).toFixed(3) : null,
@@ -183,6 +203,10 @@ async function evaluateModel(judge) {
     humanAgreement,
     ece,
     totalTokens: allTokens || null,
+    promptTokens: promptTokens || null,
+    completionTokens: completionTokens || null,
+    estimatedCostUsd: costUsd,
+    latency: latencies,
     probes: Object.fromEntries(PROBES.map((p) => [p.id, agg(p.id)])),
   };
 }
@@ -263,10 +287,11 @@ async function main() {
     "",
     `Last generated ${at} by \`scripts/judge-benchmark.mjs\` over ${LIMIT} labelled fixture debates.`,
     `Pack stratification: ${STRATA.size} fixtures, expected-winner ${JSON.stringify(STRATA.byExpectedWinner)}, ${Object.keys(STRATA.byDomain).length} domains, difficulty ${JSON.stringify(STRATA.byDifficulty)}.`,
+    `Judge configuration: temperature 0, prompt v3, scoring engine v1, graph schema v1 (see src/lib/judgeVersioning.ts).`,
     "Human agreement here is against fixture labels (small n) until the rated corpus supplies consensus.",
     "",
-    "| Model | Position mirror | Verbosity stab. | Names stab. | Fake-cit. influence | Human agree | ECE | Tokens | Errors | Gates |",
-    "|---|---|---|---|---|---|---|---|---|---|",
+    "| Model | Fixtures | Agreement | ECE | Position mirror | Verbosity stab. | Names stab. | Whitespace stab. | Fake-cit. | Ideology L/R flips | Political flips | Errors | Latency p50 | Tokens | Est. cost | PASS/FAIL |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
   const existing = fs.existsSync(mdTarget) ? fs.readFileSync(mdTarget, "utf8").split(/\r?\n/) : [];
   const priorRows = new Map();
@@ -276,7 +301,7 @@ async function main() {
     if (cells.length > 2) priorRows.set(cells[1], line);
   }
   const newRow = (m) =>
-    `| ${m.model} | ${m.positionMirrorOk ?? "—"} | ${m.stability["verbosity-up"] ?? "—"} | ${m.stability.names ?? "—"} | ${m.falseCitationInfluence ?? "—"} | ${m.humanAgreement ?? "—"} | ${m.ece ?? "—"} | ${m.totalTokens ?? "—"} | ${m.errors} | ${passCells(m)} |`;
+    `| ${m.model} | ${m.fixtures ?? LIMIT} | ${m.humanAgreement ?? "—"} | ${m.ece ?? "—"} | ${m.positionMirrorOk ?? "—"} | ${m.stability["verbosity-up"] ?? "—"} | ${m.stability.names ?? "—"} | ${m.stability.whitespace ?? "—"} | ${m.falseCitationInfluence ?? "—"} | ${m.ideologicalAsymmetry?.leftFlips ?? "—"}/${m.ideologicalAsymmetry?.rightFlips ?? "—"} | ${m.politicalTopicFlips ?? "—"} | ${m.errors} | ${m.latency ? `${m.latency.p50Ms}ms` : "—"} | ${m.totalTokens ?? "—"} | ${m.estimatedCostUsd != null ? `$${m.estimatedCostUsd}` : "—"} | ${passCells(m)} |`;
   for (const m of gated) priorRows.set(m.model, newRow(m));
   const body = [...priorRows.values()].sort().join("\n");
   fs.writeFileSync(mdTarget, [...header, body, "", `Gates: ${JSON.stringify(gates)}`, "", `Last run: ${allPass ? "PASS" : "FAIL"} (${at}). Gate status is per-row; a FAIL row means that model must not be trusted for competitive claims until it passes.`, ""].join("\n"));

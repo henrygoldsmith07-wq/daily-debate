@@ -4,6 +4,7 @@
 // — see reliability.stress.test.ts for why.
 
 import type { ArgGraph, ArgNode } from "./argGraph";
+import { isValidRebuttalTarget } from "./opportunity";
 
 // ---------------------------------------------------------------------------
 // Lexicons (single alternations; linear scan)
@@ -112,6 +113,12 @@ export function detectFakePrecision(text: string): FakePrecisionHit[] {
 
 // ---------------------------------------------------------------------------
 // Rebuttal-quality scoring (beyond coverage: backing + engagement + substance)
+//
+// "coverage" here is the TARGETING DISCIPLINE of the side's own rebuttals
+// (share of rebuttals aimed at a valid opponent target) — a different concept
+// from opportunity coverage (rebuttalCoverageFor in opportunity.ts), which
+// measures answered opportunities. The skill ledger exposes this one as
+// "rebuttalTargeting" so the two are never conflated.
 // ---------------------------------------------------------------------------
 
 export interface RebuttalQualityScore {
@@ -126,7 +133,6 @@ export function scoreRebuttalQuality(graph: ArgGraph, owner: ArgNode["owner"]): 
   const rebuttals = graph.nodes.filter((n) => n.kind === "rebuttal" && n.owner === owner);
   if (!rebuttals.length) return null;
 
-  const nodeIds = new Set(graph.nodes.map((n) => n.id));
   const evidenceIdsByOwner = new Set(
     graph.nodes.filter((n) => n.kind === "evidence" && n.owner === owner).map((n) => n.id),
   );
@@ -138,7 +144,11 @@ export function scoreRebuttalQuality(graph: ArgGraph, owner: ArgNode["owner"]): 
 
   for (const r of rebuttals) {
     const targets = r.targets ?? [];
-    const hasTargets = targets.length > 0 && targets.some((t) => nodeIds.has(t));
+    // Targeting credit uses THE canonical target rule (shared with coverage,
+    // rewards and the ledger): the target must exist, belong to the opponent,
+    // be a rebuttable kind, and predate this response. Self-targets, evidence
+    // nodes, future arguments and dangling ids score nothing here.
+    const hasTargets = targets.some((t) => isValidRebuttalTarget(graph, t, owner, r.round));
     if (hasTargets) covered += 1;
 
     const citesSomething = (r.citations?.length ?? 0) > 0 || CITATION_CUE_RE.test(r.text);
@@ -147,10 +157,15 @@ export function scoreRebuttalQuality(graph: ArgGraph, owner: ArgNode["owner"]): 
     );
     if (citesSomething || supportedByOwnEvidence) backed += 1;
 
-    const targetKinds = targets
-      .map((t) => graph.nodes.find((n) => n.id === t)?.kind)
-      .filter((k): k is NonNullable<typeof k> => !!k);
-    if (targetKinds.some((k) => k === "impact" || k === "counterclaim")) engagesStrong += 1;
+    // Engaging strong material: same canonical validity rule, restricted to
+    // the opponent's heaviest argument moves (impact/counterclaim). Invalid
+    // targets can never earn strong-material credit.
+    const targetNodes = targets
+      .map((t) => graph.nodes.find((n) => n.id === t))
+      .filter((n): n is ArgNode =>
+        !!n && isValidRebuttalTarget(graph, n.id, owner, r.round) && (n.kind === "impact" || n.kind === "counterclaim"),
+      );
+    if (targetNodes.length) engagesStrong += 1;
 
     const w = words(r.text).length;
     specificitySum += w >= 6 && w <= 60 ? 1 : w < 6 ? w / 6 : 60 / w;

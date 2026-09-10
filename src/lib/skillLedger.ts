@@ -12,7 +12,7 @@ import { graphFromTurn, mergeAssessmentGraphs, assessArgumentGraph } from "./obs
 import { fitLinear } from "./debateEvaluation";
 import { scoreRebuttalQuality } from "./argumentEvaluation";
 import { isKnownSource } from "./citationVerifier";
-import { eligibleOpponentMoves, rebuttalCoverageFor } from "./opportunity";
+import { rebuttalCoverageFor } from "./opportunity";
 
 export type MetricKey =
   | "unsupportedClaimRate"
@@ -84,6 +84,12 @@ export interface SkillMetricPoint {
   metrics: Record<MetricKey, number | null>;
   /** Node IDs that contributed to each metric (evidence trail for explainability) */
   evidence?: Partial<Record<MetricKey, string[]>>;
+  /**
+   * Exact-trail extras: nodes that were excluded by a metric's scope (e.g.
+   * eligible rebuttal opportunities the side left unanswered). Keys are
+   * metric names with a suffix so they can never collide with `metrics`.
+   */
+  unmatched?: { [K in `${MetricKey}Unmatched`]: string[] } extends never ? never : Partial<Record<string, string[]>>;
 }
 
 function round3(v: number | null): number | null {
@@ -124,7 +130,8 @@ export function extractSkillPoint(
 
   // Rebuttal coverage: the CANONICAL opportunity metric shared with rewards
   // (answered eligible opponent moves / eligible opponent moves). Last-round
-  // moves with no later user turn are not opportunities.
+  // moves with no later user turn are not opportunities; self/future/dangling
+  // targets are not answers. Trails below are exact.
   const coverage = rebuttalCoverageFor(g, owner);
   // Rebuttal targeting quality (renamed, was mislabelled "coverage"): share
   // of the user's own rebuttals that target a real node. A distinct,
@@ -196,8 +203,11 @@ export function extractSkillPoint(
 
   const evidence = {
     unsupportedClaimRate: g.evidenceStats.unsupportedClaimIds.filter((id: string) => myIds.has(id)),
-    // The eligible opponent moves this reading was computed over.
-    rebuttalCoverage: eligibleOpponentMoves(g, owner).map((n) => n.id),
+    // Exact trail: the eligible opportunities the coverage reading used…
+    rebuttalCoverage: coverage.eligibleIds,
+    // …and, where the coverage was imperfect, the ones that went unanswered.
+    // A full-coverage point lists only its (answered) opportunities.
+    rebuttalCoverageUnmatched: coverage.unmatchedIds,
     // The user's own rebuttals evaluated for targeting discipline.
     rebuttalTargeting: rbq ? g.nodes.filter((n) => n.kind === "rebuttal" && n.owner === owner).map((n) => n.id) : [],
     evidenceGrounding: myCitedStrength.map((n) => n.id),
@@ -212,7 +222,7 @@ export function extractSkillPoint(
     clarity: clarity10 != null ? ["turn-display-scores"] : [],
   };
 
-  return { debateId, completedAt, metrics, evidence };
+  return { debateId, completedAt, metrics, evidence, unmatched: { rebuttalCoverageUnmatched: coverage.unmatchedIds } };
 }
 
 export interface MetricTrajectory {

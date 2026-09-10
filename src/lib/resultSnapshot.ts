@@ -15,6 +15,7 @@ import { buildCoachingGoal, assessGoalOutcome, type CoachingSnapshot, type Coach
 import { measurementHonestyFor, type MeasurementHonesty } from "./sprint";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { CoachDimension } from "./adaptiveCoach";
+import { rebuttalCoverageFor } from "./opportunity";
 
 export interface ResultHighlight {
   /** Short headline of what went well, grounded in the debate. */
@@ -62,16 +63,12 @@ function ownEvidence(graph: ArgGraph): ArgNode[] {
   return graph.nodes.filter((n) => n.owner === "a" && n.kind === "evidence");
 }
 
-function answeredRebuttals(graph: ArgGraph): number {
-  return graph.nodes.filter((n) => n.owner === "a" && n.kind === "rebuttal").length;
-}
-
 function snapshotFromAssessment(assessment: ObservableAssessment): CoachingSnapshot {
   const responses = assessment.features?.a?.argumentResponses?.value;
   const unsupported = ownUnsupportedClaims(assessment.graph).length;
   const majorClaims = ownClaims(assessment.graph).length;
   return {
-    responsesAnswered: responses?.responded ?? answeredRebuttals(assessment.graph),
+    responsesAnswered: responses?.responded ?? 0,
     responseOpportunities: responses?.opportunities ?? 0,
     unsupportedClaims: unsupported,
     majorClaims,
@@ -131,15 +128,19 @@ export function buildResultSnapshot(
   // side whose argument went unanswered, so the USER's failure is entries
   // owned by the opponent — never the user's own ignored arguments.
   const unanswered = graph.dropped.filter((d) => d.owner !== "a");
-  const rebuttals = answeredRebuttals(graph);
-  const opponentMoves = graph.nodes.filter((n) => n.owner === "ai" && ["claim", "counterclaim"].includes(n.kind));
+  // CANONICAL rebuttal coverage (opportunity.ts): owner-scoped, so PvP "b"
+  // opponents and solo "ai" opponents read identically. Self/future/dangling
+  // targets cannot inflate these counts.
+  const coverage = rebuttalCoverageFor(graph, "a");
+  const opponentMoves = coverage.opportunities;
+  const rebuttals = coverage.answeredIds.length;
 
   // ── Highlight: the most meaningful positive behaviour this debate ────────
   let highlight: ResultHighlight | null = null;
-  if (opponentMoves.length > 0 && rebuttals >= Math.ceil(opponentMoves.length * 0.8)) {
+  if (opponentMoves > 0 && rebuttals >= Math.ceil(opponentMoves * 0.8)) {
     highlight = {
       headline: "You answered the opposing case",
-      evidence: `You directly responded to ${rebuttals} of ${opponentMoves.length} opposing arguments.`,
+      evidence: `You directly responded to ${rebuttals} of ${opponentMoves} opposing arguments.`,
     };
   } else if (citedEvidence.length > 0) {
     highlight = {
@@ -175,7 +176,7 @@ export function buildResultSnapshot(
       repair,
       kind: weaknessKind,
     };
-  } else if (opponentMoves.length > 0 && rebuttals < opponentMoves.length) {
+  } else if (opponentMoves > 0 && rebuttals < opponentMoves) {
     weaknessKind = "rebuttal";
     weakness = {
       headline: "You left an opposing argument unanswered",

@@ -30,6 +30,7 @@ function normaliseVerdict(parsed) {
 }
 
 async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {} }) {
+  const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {
@@ -49,7 +50,13 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
     const data = JSON.parse(bodyText);
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== "string" || !content.trim()) throw new Error("empty content");
-    return { content, tokens: data?.usage?.total_tokens ?? null };
+    return {
+      content,
+      tokens: data?.usage?.total_tokens ?? null,
+      promptTokens: data?.usage?.prompt_tokens ?? null,
+      completionTokens: data?.usage?.completion_tokens ?? null,
+      latencyMs: Date.now() - started,
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -92,6 +99,7 @@ export function anthropicJudge(env = process.env) {
   if (!env.ANTHROPIC_API_KEY) return null;
   const model = env.ANTHROPIC_MODEL || "claude-sonnet-5";
   const fn = async (transcript) => {
+    const started = Date.now();
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
@@ -100,7 +108,32 @@ export function anthropicJudge(env = process.env) {
     const data = await res.json();
     const content = data?.content?.map((c) => c.text ?? "").join("");
     if (!res.ok || !content) throw new Error(`anthropic ${res.status}`);
-    return { ...normaliseVerdict(extractJson(content)), model, tokens: data.usage ? (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0) : null };
+    return {
+      ...normaliseVerdict(extractJson(content)),
+      model,
+      tokens: data.usage ? (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0) : null,
+      promptTokens: data?.usage?.input_tokens ?? null,
+      completionTokens: data?.usage?.output_tokens ?? null,
+      latencyMs: Date.now() - started,
+    };
   };
   return { id: `anthropic:${model}`, fn };
+}
+
+/**
+ * Cost per 1M tokens (USD) for the benchmark's published models. Used only to
+ * PUBLISH an estimated run cost — never a gate. Unknown models report null.
+ */
+export const COST_PER_MTOK = {
+  "nvidia/nemotron-3-ultra-550b-a55b": { input: 0.6, output: 1.8 },
+  "nvidia/nemotron-3-super-120b-a12b": { input: null, output: null },
+  "z-ai/glm-5.2:free": { input: 0, output: 0 },
+  "claude-sonnet-5": { input: 3, output: 15 },
+};
+
+/** Estimated run cost in USD given prompt/completion token totals; null when the model is unpriced. */
+export function estimatedCost(model, promptTokens, completionTokens) {
+  const price = Object.entries(COST_PER_MTOK).find(([slug]) => model.endsWith(slug) || model.includes(slug))?.[1];
+  if (!price || price.input === null) return null;
+  return +(((promptTokens / 1e6) * price.input) + ((completionTokens / 1e6) * price.output)).toFixed(4);
 }

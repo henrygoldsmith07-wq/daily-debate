@@ -2,6 +2,7 @@
   "at": "2026-08-23T16:48:07.339Z",
   "limit": 3,
   "enforce": false,
+  "stale": "This artifact predates the 24-fixture pack expansion (verified 2026-09-10 via --pack-only: 24 fixtures, winners 8/8/8, 15 domains, 3 difficulty classes). No provider keys exist in this checkout, so the 24-fixture live run must come from the judge-benchmark GitHub Actions workflow, which rewrites this file and docs/judge-leaderboard.md and commits them back. The benchmark script now publishes the full required field set (judge fingerprint, latency, tokens, estimated cost, per-probe details); this 3-fixture record does not contain those fields.",
   "allPass": false,
   "gates": {
     "positionMirrorMin": 0.97,

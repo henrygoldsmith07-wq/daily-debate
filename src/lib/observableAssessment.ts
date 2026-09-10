@@ -23,6 +23,7 @@ import {
   detectContradictions,
   detectDropped,
 } from "./graphEnrichers";
+import { REBUTTABLE_KINDS, userAnsweredIds, isValidRebuttalTarget } from "./opportunity";
 import {
   isKnownSource,
   isRootHomepage,
@@ -259,10 +260,6 @@ function lexicalRelevance(claim: ArgNode, evidence: ArgNode): number {
   return clamp(0.25 + claimCoverage * 0.7 + numericOverlap);
 }
 
-function sameOwner(node: ArgNode | undefined, owner: Owner): boolean {
-  return !!node && node.owner === owner;
-}
-
 function isClaimLike(node: ArgNode): boolean {
   return CLAIM_KINDS.has(node.kind);
 }
@@ -425,37 +422,42 @@ function supportLinks(graph: ArgGraph): SupportLink[] {
   return links;
 }
 
-function addressedTargetIds(graph: ArgGraph, owner: Owner, opponent: Owner, nodes: Map<string, ArgNode>): Set<string> {
-  const ids = new Set<string>();
-  for (const edge of graph.edges) {
-    if ((edge.relation !== "rebuts" && edge.relation !== "counters") || !sameOwner(nodes.get(edge.from), owner) || !sameOwner(nodes.get(edge.to), opponent)) continue;
-    ids.add(edge.to);
-  }
-  for (const node of graph.nodes) {
-    if (node.kind !== "rebuttal" || node.owner !== owner) continue;
-    for (const target of node.targets ?? []) if (sameOwner(nodes.get(target), opponent)) ids.add(target);
-  }
-  return ids;
+function addressedTargetIds(graph: ArgGraph, owner: Owner): Set<string> {
+  // THE canonical "answered" definition (shared with rewards, the ledger and
+  // repair measurement): only chronologically valid responses to opponent
+  // argument moves count. Malformed graphs (self/future/dangling targets,
+  // non-rebuttable kinds) can never manufacture coverage here.
+  return userAnsweredIds(graph, owner);
 }
 
-function opportunitiesFor(graph: ArgGraph, responder: Owner, opponent: Owner): ArgNode[] {
-  const opponentNodes = graph.nodes.filter((node) => node.owner === opponent && isSubstantive(node));
-  return opponentNodes.filter((node) => graph.nodes.some((candidate) => candidate.owner === responder && candidate.round > node.round));
+function opportunitiesFor(graph: ArgGraph, responder: Owner): ArgNode[] {
+  // THE canonical opportunity definition: opponent argument moves with at
+  // least one later responder node. Includes impacts (they are answerable
+  // moves in turn scoring) but excludes last-round moves with no later turn.
+  return graph.nodes.filter(
+    (node) => node.owner !== responder && REBUTTABLE_KINDS.has(node.kind) && graph.nodes.some((candidate) => candidate.owner === responder && candidate.round > node.round),
+  );
 }
 
-function opponentTurnOpportunities(graph: ArgGraph, responder: Owner, opponent: Owner): number[] {
-  return [...new Set(opportunitiesFor(graph, responder, opponent).map((node) => node.round))].sort((a, b) => a - b);
+function opponentTurnOpportunities(graph: ArgGraph, responder: Owner): number[] {
+  return [...new Set(opportunitiesFor(graph, responder).map((node) => node.round))].sort((a, b) => a - b);
 }
 
-function directRebuttalRefs(graph: ArgGraph, owner: Owner, opponent: Owner, nodes: Map<string, ArgNode>): EvidenceRef[] {
+function directRebuttalRefs(graph: ArgGraph, owner: Owner, nodes: Map<string, ArgNode>): EvidenceRef[] {
+  // Evidence trail rule: only VALID direct responses appear — a rebuttal
+  // whose targets are all invalid (self/future/dangling) is not a direct
+  // response and never enters the trail.
   const refs: EvidenceRef[] = [];
   for (const node of graph.nodes) {
     if (node.owner !== owner || node.kind !== "rebuttal") continue;
-    const targets = (node.targets ?? []).filter((target) => sameOwner(nodes.get(target), opponent));
+    const targets = (node.targets ?? []).filter((target) => isValidRebuttalTarget(graph, target, owner, node.round));
     if (targets.length) refs.push(nodeRef(node, `Directly targets ${targets.join(", ")}`));
   }
   for (const edge of graph.edges) {
-    if ((edge.relation === "rebuts" || edge.relation === "counters") && sameOwner(nodes.get(edge.from), owner) && sameOwner(nodes.get(edge.to), opponent)) {
+    if (edge.relation !== "rebuts" && edge.relation !== "counters") continue;
+    const from = nodes.get(edge.from);
+    if (!from || from.owner !== owner) continue;
+    if (isValidRebuttalTarget(graph, edge.to, owner, from.round)) {
       refs.push(edgeRef(edge, nodes, "Direct response edge"));
     }
   }
@@ -505,12 +507,12 @@ function buildSideFeatures(graph: ArgGraph, owner: Owner, opponent: Owner, extra
   const evidenceRelevance = ownLinks.length
     ? ownLinks.reduce((sum, link) => sum + link.relevance, 0) / ownLinks.length
     : 0;
-  const rebuttalRefs = directRebuttalRefs(graph, owner, opponent, nodes);
-  const responseTargets = addressedTargetIds(graph, owner, opponent, nodes);
-  const rebuttalOpportunities = opportunitiesFor(graph, owner, opponent);
+  const rebuttalRefs = directRebuttalRefs(graph, owner, nodes);
+  const responseTargets = addressedTargetIds(graph, owner);
+  const rebuttalOpportunities = opportunitiesFor(graph, owner);
   const addressedOpportunities = rebuttalOpportunities.filter((node) => responseTargets.has(node.id));
   const rebuttalCoverage = rebuttalOpportunities.length ? addressedOpportunities.length / rebuttalOpportunities.length : 0;
-  const responseRounds = opponentTurnOpportunities(graph, owner, opponent);
+  const responseRounds = opponentTurnOpportunities(graph, owner);
   const respondedRounds = responseRounds.filter((roundNumber) => rebuttalOpportunities.some((node) => node.round === roundNumber && responseTargets.has(node.id)));
   const argumentResponseRate = responseRounds.length ? respondedRounds.length / responseRounds.length : 0;
   const responseRefs = [
@@ -518,7 +520,7 @@ function buildSideFeatures(graph: ArgGraph, owner: Owner, opponent: Owner, extra
     ...rebuttalRefs,
   ];
 
-  const opponentTargets = addressedTargetIds(graph, opponent, owner, nodes);
+  const opponentTargets = addressedTargetIds(graph, opponent);
   const ownDropped = ownSubstantive.filter((node) => {
     const hadLaterOpponentTurn = graph.nodes.some((candidate) => candidate.owner === opponent && candidate.round > node.round);
     return hadLaterOpponentTurn && !opponentTargets.has(node.id);

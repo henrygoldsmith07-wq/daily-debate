@@ -1,12 +1,12 @@
 // Hand-labelled debate fixtures for the live judge benchmark.
 // expectedWinner labels are provisional fixture truths, not corpus consensus.
 //
-// Stratification (v2): the original 3-fixture pack was too small to gate on —
-// one mislabel moved agreement by 33 points. The pack is now stratified across
-// expected winner (a/b/tie), domain, and difficulty style so regressions point
-// at a failure mode rather than a single fixture:
+// Stratification: the original 3-fixture pack was too small to gate on —
+// one mislabel moved agreement by 33 points. The pack is now 24 fixtures,
+// stratified across expected winner (a/b/tie), domain, and difficulty style
+// so regressions point at a failure mode rather than a single fixture:
 //
-//   expectedWinner: 4 × a, 4 × b, 4 × tie
+//   expectedWinner: 8 × a, 8 × b, 8 × tie
 //   difficulty:     "clear"      — decisive evidence asymmetry
 //                   "subtle"     — winner wins on fallacy/grounding, not volume
 //                   "near-tie"   — genuinely balanced, expected to be a tie
@@ -169,9 +169,10 @@ export const FIXTURES = [
       "Player B: Every crewed program has hardware surprises; the question of whether government or commercial Heavy lift better serves lunar goals depends on risk appetite, not just ledger cost.",
     ].join("\n"),
   },
-  // ── v3 expansion: 18-fixture pack ────────────────────────────────────────
-  // 6 a / 6 b / 6 tie, 17 domains, 3 difficulty classes. Larger n halves the
-  // agreement confidence interval before the corpus supplies consensus.
+  // ── v3+v4 expansion: brings the pack to 24 fixtures ────────────────────────
+  // Balanced a/b/tie strata across 15 domains, 3 difficulty classes. Larger n
+  // narrows the agreement confidence interval before the corpus supplies
+  // consensus.
   {
     id: "water-fluoridation",
     domain: "health",

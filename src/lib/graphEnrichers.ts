@@ -75,18 +75,32 @@ export function topFallacy(text: string, threshold = 0.6): Fallacy {
 
 export function detectDropped(graph: ArgGraph): DroppedArgument[] {
   // A node is "dropped" if it was introduced by one side and never rebutted/countered
-  // by the opponent in a later round. We infer from edges: any claim/counterclaim/evidence
-  // whose id is never a target of a `rebuts`/`counters` edge from the other side and is
-  // not the most recent round.
+  // by the opponent in a later round. An answer counts only when it is a
+  // chronologically valid response (canonical rule from opportunity.ts):
+  // self-targets, future targets, dangling ids and malformed edges never
+  // rescue an argument from being counted as unanswered.
   const maxRound = Math.max(0, ...graph.nodes.map((n) => n.round));
-  const rebuttedIds = new Set(graph.edges.filter((e) => e.relation === "rebuts" || e.relation === "counters").map((e) => e.to));
-  // Also, rebuttal.targets counts as rebutted
-  for (const n of graph.nodes) if (n.kind === "rebuttal") for (const t of n.targets ?? []) rebuttedIds.add(t);
+  const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
+  const answeredIds = new Set<string>();
+  for (const e of graph.edges) {
+    if (e.relation !== "rebuts" && e.relation !== "counters") continue;
+    const from = nodes.get(e.from);
+    const to = nodes.get(e.to);
+    if (!from || !to || from.owner === to.owner) continue;
+    if (from.round > to.round) answeredIds.add(e.to);
+  }
+  for (const n of graph.nodes) {
+    if (n.kind !== "rebuttal" || !n.targets) continue;
+    for (const t of n.targets) {
+      const target = nodes.get(t);
+      if (target && target.owner !== n.owner && n.round > target.round) answeredIds.add(t);
+    }
+  }
   const out: DroppedArgument[] = [];
   for (const n of graph.nodes) {
     if (!["claim", "evidence", "counterclaim", "impact"].includes(n.kind)) continue;
     if (n.round >= maxRound) continue; // last round can't be dropped yet
-    if (rebuttedIds.has(n.id)) continue;
+    if (answeredIds.has(n.id)) continue;
     // Only flag if opponent had at least one later turn and didn't engage
     const hadLaterOpponentTurn = graph.nodes.some((m) => m.owner !== n.owner && m.round > n.round);
     if (!hadLaterOpponentTurn) continue;
