@@ -252,9 +252,19 @@ async function main() {
 
   const judges = [primaryChainJudge(), anthropicJudge()].filter(Boolean);
   if (!judges.length) {
-    log("[judge-benchmark] skipped - no NVIDIA_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY set");
-    process.stdout.write(JSON.stringify({ skipped: true }) + "\n");
-    return;
+    // A missing-key run must never masquerade as a green validation: the
+    // workflow gate is --enforce, and skipping without failing would let a
+    // secrets regression ship unnoticed. Exit non-zero with an explicit
+    // reason so CI reports the true state.
+    const allowSkip = args.includes("--allow-skip") || process.env.JUDGE_BENCHMARK_ALLOW_SKIP === "1";
+    if (allowSkip) {
+      log("[judge-benchmark] skipped - no NVIDIA_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY set (allowed)");
+      process.stdout.write(JSON.stringify({ skipped: true, allowed: true }) + "\n");
+      return;
+    }
+    log("[judge-benchmark] FAILED - no judge is configured (set NVIDIA_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY). A live validation run cannot be skipped silently.");
+    process.stdout.write(JSON.stringify({ skipped: true, error: "no judge configured" }) + "\n");
+    process.exit(1);
   }
   log(`[judge-benchmark] models=${judges.map((j) => j.id).join(", ")} limit=${LIMIT} concurrency=${CONCURRENCY}`);
 

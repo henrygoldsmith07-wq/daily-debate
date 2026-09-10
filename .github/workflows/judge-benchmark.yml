@@ -27,11 +27,26 @@ jobs:
           node-version: 20
       - name: Check fixture pack stratification (no keys needed)
         run: node scripts/judge-benchmark.mjs --pack-only
-      - name: Run live judge benchmark (full pack, gated)
+      - name: Fail fast when no judge secrets are configured
+        # The live run below silently "passes" when all three secrets are
+        # empty — that masks a secrets regression as a green validation.
+        # Gate explicitly: at least one provider key must exist.
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$NVIDIA_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::No judge configured — set NVIDIA_API_KEY, OPENROUTER_API_KEY or ANTHROPIC_API_KEY as repository secrets. The live judge benchmark cannot run."
+            exit 1
+          fi
+      - name: Run live judge benchmark (full pack, gated)
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_MODEL: ${{ secrets.NVIDIA_MODEL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
         run: node scripts/judge-benchmark.mjs --concurrency 3 --enforce
       - name: Commit refreshed validation record
         if: always()

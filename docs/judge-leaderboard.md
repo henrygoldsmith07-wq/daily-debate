@@ -1,15 +1,21 @@
 # Judge leaderboard (live benchmarks)
 
-**Status: STALE — refresh pending.** The last completed run was generated 2026-08-23T16:48:07.339Z
-by `scripts/judge-benchmark.mjs` over only **3** labelled fixtures (the pre-expansion
-pack). The fixture pack has since expanded to **24 fixtures** (8 a / 8 b / 8 tie) across
-15 domains and 3 difficulty classes (validated by `node scripts/judge-benchmark.mjs
---pack-only`, 2026-09-10), so the numbers below must be treated as historical, not
-current. A fresh live run over the full pack is required before any trust claim is
-updated. No provider keys exist in this checkout, so the run must happen via the
-`judge-benchmark` GitHub Actions workflow (secrets live there).
+**Status: BLOCKED — no judge secrets configured.** The 24-fixture pack is
+validated and ready (verified 2026-09-10: 24 fixtures, 8/8/8 winners, 15
+domains, 3 difficulty classes), and the `judge-benchmark` workflow runs on
+schedule and dispatch — but the repository has **zero provider secrets**
+(`NVIDIA_API_KEY` / `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` are all
+unset), so every recent "successful" run, including the 2026-09-10 manual
+dispatch, was actually a silent skip that rewrote nothing. The numbers below
+remain the historical 3-fixture record from 2026-08-23 and must not be
+treated as current.
 
-**Last run result: `allPass: false` — the gates did NOT pass.** Failing checks were:
+**This is now guarded against:** as of 2026-09-10 the workflow fails fast
+when no judge secret exists, and the script exits non-zero without keys
+(`--allow-skip` exists for deliberately key-less contexts). A secrets
+regression can no longer masquerade as a green validation.
+
+**Last completed run result: `allPass: false` — the gates did NOT pass** (2026-08-23, 3 fixtures):
 
 - fixture-label agreement 0.667 (min 0.75)
 - ECE 0.367 (max 0.08)
@@ -30,14 +36,19 @@ replaced by the workflow's commit when it next runs with keys.
 
 ## Refresh procedure
 
-1. Trigger the **judge-benchmark** workflow (Actions → judge-benchmark → Run
+1. **Configure at least one repository secret** (Settings → Secrets → Actions):
+   `NVIDIA_API_KEY`, `OPENROUTER_API_KEY`, or `ANTHROPIC_API_KEY`
+   (optionally `NVIDIA_MODEL` / `ANTHROPIC_MODEL`).
+2. Trigger the **judge-benchmark** workflow (Actions → judge-benchmark → Run
    workflow), or run locally with keys:
    `NVIDIA_API_KEY=… / OPENROUTER_API_KEY=… node scripts/judge-benchmark.mjs --concurrency 3 --enforce`
-2. `--enforce` exits non-zero on gate breach; a breach blocks trust claims.
-3. The run rewrites this file and `docs/latest-judge-benchmark.json` **and
+3. `--enforce` exits non-zero on gate breach; a breach blocks trust claims.
+   A missing-key run now also exits non-zero (use `--allow-skip` only in
+   deliberately key-less contexts).
+4. The run rewrites this file and `docs/latest-judge-benchmark.json` **and
    commits them back to main automatically** (workflow has `contents: write`),
    so the checked-in validation record stays current without manual work.
-4. Gates live in `config/judge-gates.json` — they must not be loosened to force
+5. Gates live in `config/judge-gates.json` — they must not be loosened to force
    a pass. Each table row carries its own PASS/FAIL gate status.
 
 ## Historical result (2026-08-23, n=3 fixtures — superseded by pending refresh)
