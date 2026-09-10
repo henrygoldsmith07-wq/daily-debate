@@ -114,11 +114,18 @@ describe("isValidRebuttalTarget: the one canonical rule", () => {
     expect(isValidRebuttalTarget(g, "or1", "a", 2)).toBe(false);
   });
 
-  it("accepts impact and counterclaim as rebuttable kinds", () => {
+  it("rejects impact as a rebuttal target (weighing move, not an opportunity)", () => {
+    // Canonical opportunity kinds are claim/counterclaim ONLY: impact is a
+    // weighing move measured by impact handling, never a per-argument
+    // rebuttal opportunity.
     const g = graph();
     g.nodes.push({ id: "oi1", kind: "impact", owner: "ai", text: "Opponent impact.", round: 1 });
+    expect(isValidRebuttalTarget(g, "oi1", "a", 2)).toBe(false);
+  });
+
+  it("accepts counterclaim as a rebuttable kind", () => {
+    const g = graph();
     g.nodes.push({ id: "ok1", kind: "counterclaim", owner: "ai", text: "Opponent counterclaim.", round: 1 });
-    expect(isValidRebuttalTarget(g, "oi1", "a", 2)).toBe(true);
     expect(isValidRebuttalTarget(g, "ok1", "a", 2)).toBe(true);
   });
 
@@ -293,13 +300,23 @@ describe("malformed graphs cannot inflate metrics or rewards", () => {
   });
 
   it("evidence nodes as targets earn no targeting or strong-material credit", () => {
-    const g = graph();
-    g.nodes.push({ id: "oe1", kind: "evidence", owner: "ai", text: "Opponent evidence.", round: 1 });
     const bad = graph({ rebuttal: { targets: ["oe1"] } });
+    bad.nodes.push({ id: "oe1", kind: "evidence", owner: "ai", text: "Opponent evidence.", round: 1 });
     const rbq = scoreRebuttalQuality(bad, "a");
     expect(rbq?.coverage).toBe(0);
     expect(rbq?.engagesStrongMaterial).toBe(0);
-    void g;
+  });
+
+  it("impact targets are not rebuttal opportunities and earn no coverage", () => {
+    const g = graph({ rebuttal: null });
+    g.nodes.push({ id: "oi1", kind: "impact", owner: "ai", text: "Opponent impact.", round: 1 });
+    g.nodes.push({ id: "r2", kind: "rebuttal", owner: "a", text: "Answers the impact.", round: 2, targets: ["oi1"] });
+    // Not a coverage opportunity: the denominator excludes impact entirely.
+    const coverage = rebuttalCoverageFor(g, "a");
+    expect(coverage.eligibleIds).not.toContain("oi1");
+    // And targeting quality gives no credit for the invalid kind.
+    const rbq = scoreRebuttalQuality(g, "a");
+    expect(rbq?.coverage).toBe(0);
   });
 
   it("valid counterclaim target earns strong-material credit only when valid", () => {

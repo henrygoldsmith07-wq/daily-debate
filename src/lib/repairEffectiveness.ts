@@ -24,7 +24,7 @@
 
 import type { ArgGraph, Owner } from "./argGraph";
 import type { RepairKind } from "./argumentRepair";
-import { unansweredBy } from "./opportunity";
+import { eligibleOpponentMoves, unansweredOpportunitiesBy } from "./opportunity";
 
 export interface RepairRow {
   user_id: string;
@@ -154,7 +154,8 @@ export function weaknessKindsFor(kind: string): string[] {
  * Opportunity volume per debate: a debate can only express a weakness the
  * user (or opponent) gave it a chance to express. Evidence/structure/logic/
  * impact weaknesses need the user to have made claims; rebuttal needs
- * opponent moves to answer. Rows without `opps` (legacy) are treated as
+ * ELIGIBLE opponent opportunities (canonical definition from
+ * opportunity.ts) to answer. Rows without `opps` (legacy) are treated as
  * having opportunity so historical data still measures.
  */
 export function debateOpportunities(graph: ArgGraph, owner: Owner): { majorClaims: number; opponentMoves: number } {
@@ -162,9 +163,7 @@ export function debateOpportunities(graph: ArgGraph, owner: Owner): { majorClaim
     majorClaims: graph.nodes.filter(
       (n) => n.owner === owner && (n.kind === "claim" || n.kind === "counterclaim"),
     ).length,
-    opponentMoves: graph.nodes.filter(
-      (n) => n.owner !== owner && (n.kind === "claim" || n.kind === "counterclaim"),
-    ).length,
+    opponentMoves: eligibleOpponentMoves(graph, owner).length,
   };
 }
 
@@ -180,10 +179,12 @@ function hasOpportunity(repairKind: string, debate: DebateWeaknessRow): boolean 
  * Side-scoped weakness counts from a merged argument graph. Only the owner's
  * own failures can produce a weakness:
  * - evidence/logic/contradictions: the owner's own nodes;
- * - dropped/rebuttal: the OPPONENT's arguments the owner never answered
- *   (`DroppedArgument.owner` is the side whose argument went unanswered, so
- *   the owner's weakness is entries owned by someone ELSE — an opponent
- *   ignoring the owner's argument is not the owner's failure);
+ * - dropped/rebuttal: the CANONICAL unanswered-opportunity set (opportunity.
+ *   ts) — eligible opponent arguments the owner never validly answered. This
+ *   is the same structural set drop detection projects onto graph.dropped,
+ *   so "canonical unanswered opportunities == rebuttal weaknesses" holds by
+ *   construction. An opponent ignoring the owner's argument is the opponent's
+ *   miss and never appears here;
  * - impact: the owner made no impact move at all.
  * `clarity` is always 0 because no deterministic clarity detector exists;
  * clarity repairs are excluded from effectiveness measurement via
@@ -197,7 +198,7 @@ export function countWeaknessesForSide(graph: ArgGraph, owner: Owner): Record<st
   const unsupported = graph.evidenceStats.unsupportedClaimIds.filter((id) => ownIds.has(id)).length;
   // Opponent arguments the owner failed to answer (NOT own arguments the
   // opponent ignored — those are the opponent's miss, not the owner's).
-  const unanswered = unansweredBy(graph, owner).length;
+  const unanswered = unansweredOpportunitiesBy(graph, owner).length;
   const contradictions = graph.contradictions.filter((c) => c.owner === owner).length;
   const ownImpacts = graph.nodes.filter((n) => n.owner === owner && n.kind === "impact").length;
 

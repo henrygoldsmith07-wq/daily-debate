@@ -12,7 +12,7 @@ import { graphFromTurn, mergeAssessmentGraphs, assessArgumentGraph } from "./obs
 import { fitLinear } from "./debateEvaluation";
 import { scoreRebuttalQuality } from "./argumentEvaluation";
 import { isKnownSource } from "./citationVerifier";
-import { rebuttalCoverageFor } from "./opportunity";
+import { rebuttalCoverageFor, unansweredOpportunitiesBy } from "./opportunity";
 
 export type MetricKey =
   | "unsupportedClaimRate"
@@ -161,15 +161,19 @@ export function extractSkillPoint(
       ? ((assessment.impactComparison.value as unknown as Record<string, number | null>)[owner] ?? null)
       : null;
 
+  // The side's rebuttal failure: the CANONICAL unanswered-opportunity set —
+  // identical nodes to the coverage reading's unmatchedIds, so the ledger's
+  // droppedArguments can never disagree with its own rebuttalCoverage.
+  const unansweredNodes = unansweredOpportunitiesBy(g, owner);
+
   const metrics: Record<MetricKey, number | null> = {
     unsupportedClaimRate: round3(myClaimsCount > 0 ? Math.min(1, myUnsupported / myClaimsCount) : null),
     rebuttalCoverage: round3(coverage.value),
     rebuttalTargeting: rbq ? round3(rbq.coverage) : null,
     evidenceGrounding: round3(myCitedStrength.length > 0 ? myGrounded / myCitedStrength.length : null),
-    // Opponent arguments this side left unanswered. DroppedArgument.owner is
-    // the side whose argument went unanswered, so the side's own failure is
-    // entries owned by the OTHER side — never its own ignored arguments.
-    droppedArguments: g.dropped.filter((d) => d.owner !== owner).length,
+    // Opponent arguments this side left unanswered (canonical structural set,
+    // not judge-supplied dropped rows).
+    droppedArguments: unansweredNodes.length,
     contradictions: g.contradictions.filter((c) => c.owner === owner).length,
     impactHandling:
       impactValue === null || impactValue === undefined ? null : round3(Math.max(0, Math.min(1, impactValue))),
@@ -192,7 +196,7 @@ export function extractSkillPoint(
   // Evidence trail: which nodes contributed to each metric (explainability).
   // Rule: the trail references EXACTLY the nodes used in the calculation.
   const fallacyNodeIds = g.fallacies.filter((f) => myNodeIds.has(f.nodeId)).map((f) => f.nodeId);
-  const droppedIds = g.dropped.filter((d) => d.owner !== owner).map((d) => d.nodeId);
+  const droppedIds = unansweredNodes.map((n) => n.id);
   const contradictionIds = g.contradictions.filter((c) => c.owner === owner).map((_: unknown, i: number) => `contradiction-${i}`);
   const overclaimNodes = engineSide && (engineSide.causalOverclaims ?? 0) > 0
     ? mine.map((n) => n.id)

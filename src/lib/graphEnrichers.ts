@@ -3,6 +3,7 @@
 // evolution across rounds. All pure, testable offline.
 
 import type { ArgGraph, ArgNode, Fallacy, DroppedArgument, Concession, Contradiction } from "./argGraph";
+import { unansweredOpportunitiesBy } from "./opportunity";
 
 // ---------------------------------------------------------------------------
 // Fallacy classifier (lexicon → scored classifier, auditable)
@@ -74,39 +75,26 @@ export function topFallacy(text: string, threshold = 0.6): Fallacy {
 // ---------------------------------------------------------------------------
 
 export function detectDropped(graph: ArgGraph): DroppedArgument[] {
-  // A node is "dropped" if it was introduced by one side and never rebutted/countered
-  // by the opponent in a later round. An answer counts only when it is a
-  // chronologically valid response (canonical rule from opportunity.ts):
-  // self-targets, future targets, dangling ids and malformed edges never
-  // rescue an argument from being counted as unanswered.
-  const maxRound = Math.max(0, ...graph.nodes.map((n) => n.round));
-  const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
-  const answeredIds = new Set<string>();
-  for (const e of graph.edges) {
-    if (e.relation !== "rebuts" && e.relation !== "counters") continue;
-    const from = nodes.get(e.from);
-    const to = nodes.get(e.to);
-    if (!from || !to || from.owner === to.owner) continue;
-    if (from.round > to.round) answeredIds.add(e.to);
-  }
-  for (const n of graph.nodes) {
-    if (n.kind !== "rebuttal" || !n.targets) continue;
-    for (const t of n.targets) {
-      const target = nodes.get(t);
-      if (target && target.owner !== n.owner && n.round > target.round) answeredIds.add(t);
+  // A node is "dropped" when it was an answerable opportunity for the other
+  // side and the other side never validly answered it. The rule lives in
+  // opportunity.ts (THE rebuttal semantics layer): detectDropped is a pure
+  // projection of the canonical unanswered-opportunity set onto DroppedArgument
+  // rows — no local reconstruction of answered ids, ownership, chronology or
+  // target validity. By construction:
+  //
+  //   canonical unanswered opportunities == rebuttal weaknesses
+  //
+  // for the same graph. Evidence and impact nodes are not rebuttal
+  // opportunities and can never create a rebuttal weakness here.
+  const out: DroppedArgument[] = [];
+  for (const owner of new Set(graph.nodes.map((n) => n.owner))) {
+    for (const missed of unansweredOpportunitiesBy(graph, owner)) {
+      out.push({ nodeId: missed.id, text: missed.text, owner: missed.owner, round: missed.round });
     }
   }
-  const out: DroppedArgument[] = [];
-  for (const n of graph.nodes) {
-    if (!["claim", "evidence", "counterclaim", "impact"].includes(n.kind)) continue;
-    if (n.round >= maxRound) continue; // last round can't be dropped yet
-    if (answeredIds.has(n.id)) continue;
-    // Only flag if opponent had at least one later turn and didn't engage
-    const hadLaterOpponentTurn = graph.nodes.some((m) => m.owner !== n.owner && m.round > n.round);
-    if (!hadLaterOpponentTurn) continue;
-    out.push({ nodeId: n.id, text: n.text, owner: n.owner, round: n.round });
-  }
-  return out;
+  // Deduplicate by node id in case a graph contains overlapping owner shapes.
+  const seen = new Set<string>();
+  return out.filter((d) => (seen.has(d.nodeId) ? false : (seen.add(d.nodeId), true)));
 }
 
 const CONCESSION_RE = /\b(I concede|you'?re right (that|about)|fair point|I agree that|granted,)\b/i;

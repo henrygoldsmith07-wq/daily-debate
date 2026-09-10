@@ -1,4 +1,5 @@
 import type { ArgGraph, ArgNode, Fallacy } from "./argGraph";
+import { unansweredOpportunitiesBy } from "./opportunity";
 
 export type RepairKind = "evidence" | "rebuttal" | "logic" | "impact" | "structure" | "clarity";
 
@@ -92,21 +93,21 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
     }
   }
 
-  const opponentMoves = graph.nodes.filter(
-    (node) => node.owner === "ai" && ["counterclaim", "claim", "impact"].includes(node.kind),
-  );
-  const targeted = new Set(
-    own.filter((node) => node.kind === "rebuttal").flatMap((node) => node.targets ?? []),
-  );
-  const unanswered = opponentMoves.find((node) => !targeted.has(node.id));
-  if (unanswered) {
+  // Rebuttal repair target: the CANONICAL unanswered-opportunity set
+  // (opportunity.ts) — the same nodes every other layer reads. Owner-agnostic
+  // (PvP "b" and solo "ai" both work), chronology- and validity-checked, so
+  // a self/future/dangling target can never hide a genuine unanswered
+  // opponent argument, and impact/evidence moves are never offered as
+  // "unanswered" rebuttal material.
+  const unansweredOpportunity = unansweredOpportunitiesBy(graph, "a")[0];
+  if (unansweredOpportunity) {
     return {
       kind: "rebuttal",
       label: "Unanswered opposing move",
       title: "Close the rebuttal loop",
       prompt: "Answer this opposing move directly. Name what they got right, target the key assumption, and explain why your case still wins.",
-      sourceText: unanswered.text,
-      sourceNodeId: unanswered.id,
+      sourceText: unansweredOpportunity.text,
+      sourceNodeId: unansweredOpportunity.id,
     };
   }
 

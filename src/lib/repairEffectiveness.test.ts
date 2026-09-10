@@ -69,18 +69,41 @@ describe("countWeaknessesForSide (side-scoped validity)", () => {
 
   it("never attributes opponent behaviour to the user as a failure", () => {
     // The user's own claim was ignored by the AI — that is the OPPONENT's
-    // miss, not a user failure.
+    // miss, not a user failure. The graph holds no later user node after the
+    // AI's claim, so the user has no answerable opportunity either.
     const g = graph({
+      nodes: [
+        { id: "c1", kind: "claim", owner: "a", text: "User claim.", round: 1 },
+        { id: "c2", kind: "claim", owner: "ai", text: "AI claim.", round: 1 },
+      ],
       dropped: [{ nodeId: "c1", text: "User claim dropped.", owner: "a", round: 2 }],
     });
     const counts = countWeaknessesForSide(g, "a");
     expect(counts.dropped).toBe(0);
     expect(counts.rebuttal).toBe(0);
-    // Mirrored: it is the opponent's rebuttal failure.
-    expect(countWeaknessesForSide(g, "ai").dropped).toBe(1);
+    // Mirrored: it is the opponent's rebuttal failure — but only when the
+    // opponent had a later turn to answer (canonical eligibility). With no
+    // later "ai" node, the judge-supplied drop row cannot invent an
+    // opportunity for the opponent either.
+    expect(countWeaknessesForSide(g, "ai").dropped).toBe(0);
+    const withLaterAiTurn = graph({
+      nodes: [
+        { id: "c1", kind: "claim", owner: "a", text: "User claim.", round: 1 },
+        { id: "c2", kind: "claim", owner: "ai", text: "AI claim.", round: 1 },
+        { id: "c3", kind: "claim", owner: "ai", text: "AI later claim.", round: 2 },
+      ],
+      dropped: [{ nodeId: "c1", text: "User claim dropped.", owner: "a", round: 2 }],
+    });
+    // c1 becomes an eligible opportunity for "ai" (later ai node exists) and
+    // is unanswered — the mirrored failure registers through structure, not
+    // through the judge-supplied row.
+    expect(countWeaknessesForSide(withLaterAiTurn, "ai").dropped).toBe(1);
   });
 
   it("counts only the user's own structural failures", () => {
+    // Base graph: c2 (AI claim, round 1) with a later round-2 user impact is
+    // an eligible opportunity the user never answered — the canonical
+    // structural failure, independent of the judge-supplied dropped row.
     const counts = countWeaknessesForSide(graph(), "a");
     expect(counts.dropped).toBe(1);
     expect(counts.rebuttal).toBe(1);

@@ -15,7 +15,7 @@ import { buildCoachingGoal, assessGoalOutcome, type CoachingSnapshot, type Coach
 import { measurementHonestyFor, type MeasurementHonesty } from "./sprint";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { CoachDimension } from "./adaptiveCoach";
-import { rebuttalCoverageFor } from "./opportunity";
+import { rebuttalCoverageFor, unansweredOpportunitiesBy } from "./opportunity";
 
 export interface ResultHighlight {
   /** Short headline of what went well, grounded in the debate. */
@@ -72,7 +72,10 @@ function snapshotFromAssessment(assessment: ObservableAssessment): CoachingSnaps
     responseOpportunities: responses?.opportunities ?? 0,
     unsupportedClaims: unsupported,
     majorClaims,
-    droppedOwn: assessment.features?.a?.droppedArguments?.value ?? assessment.graph.dropped.filter((d) => d.owner === "a").length,
+    // The user's rebuttal failure: canonical unanswered opportunities (the
+    // same set drop detection and the weakness counters read), NOT the
+    // scoring-side "arguments the opponent ignored" feature.
+    droppedOwn: unansweredOpportunitiesBy(assessment.graph, "a").length,
   };
 }
 
@@ -124,10 +127,10 @@ export function buildResultSnapshot(
   const unsupported = ownUnsupportedClaims(graph);
   const evidence = ownEvidence(graph);
   const citedEvidence = evidence.filter((n) => (n.citations?.length ?? 0) > 0 || n.evidenceStrength === "cited" || n.evidenceStrength === "strong");
-  // Opponent arguments the user left unanswered. DroppedArgument.owner is the
-  // side whose argument went unanswered, so the USER's failure is entries
-  // owned by the opponent — never the user's own ignored arguments.
-  const unanswered = graph.dropped.filter((d) => d.owner !== "a");
+  // The user's rebuttal failure: the CANONICAL unanswered-opportunity set —
+  // the identical nodes that appear as the coverage reading's unmatchedIds and
+  // in the weakness counters. Judge-supplied dropped rows are projection-only.
+  const unanswered = unansweredOpportunitiesBy(graph, "a");
   // CANONICAL rebuttal coverage (opportunity.ts): owner-scoped, so PvP "b"
   // opponents and solo "ai" opponents read identically. Self/future/dangling
   // targets cannot inflate these counts.

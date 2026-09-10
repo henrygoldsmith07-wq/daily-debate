@@ -35,11 +35,41 @@ describe("argument repair targets", () => {
     expect(target?.label).toContain("appeal to authority");
   });
 
-  it("selects an unanswered opposing move when the user's graph is otherwise clean", () => {
+  it("selects an unanswered eligible opposing move when the user's graph is otherwise clean", () => {
+    // ai1 (round 1) is an ELIGIBLE opportunity: the user has a later node
+    // (a2, round 2) and never validly answered it.
     const target = pickRepairTarget(graph({
       nodes: [
         { id: "a1", kind: "claim", owner: "a", text: "The policy improves access.", round: 1 },
         { id: "ai1", kind: "counterclaim", owner: "ai", text: "The policy creates a costly trade-off.", round: 1 },
+        { id: "a2", kind: "claim", owner: "a", text: "The policy also reduces cost.", round: 2 },
+      ],
+    }));
+    expect(target?.kind).toBe("rebuttal");
+    expect(target?.sourceNodeId).toBe("ai1");
+  });
+
+  it("does not offer a rebuttal repair when the opposing move was never answerable", () => {
+    // No later user node exists after ai1, so there is no rebuttal
+    // opportunity at all: the repair falls through to other kinds instead
+    // of blaming the user for something they had no turn to answer.
+    const target = pickRepairTarget(graph({
+      nodes: [
+        { id: "a1", kind: "claim", owner: "a", text: "The policy improves access.", round: 1 },
+        { id: "ai1", kind: "counterclaim", owner: "ai", text: "The policy creates a costly trade-off.", round: 1 },
+      ],
+    }));
+    expect(target?.kind).not.toBe("rebuttal");
+  });
+
+  it("an invalid answer (self-target) does not hide the unanswered opposing move", () => {
+    // The user's rebuttal targets their own claim: the canonical rule
+    // ignores it, so ai1 stays an unanswered eligible opportunity.
+    const target = pickRepairTarget(graph({
+      nodes: [
+        { id: "a1", kind: "claim", owner: "a", text: "The policy improves access.", round: 1 },
+        { id: "ai1", kind: "counterclaim", owner: "ai", text: "The policy creates a costly trade-off.", round: 1 },
+        { id: "r1", kind: "rebuttal", owner: "a", text: "Bad self-targeting answer.", round: 2, targets: ["a1"] },
       ],
     }));
     expect(target?.kind).toBe("rebuttal");

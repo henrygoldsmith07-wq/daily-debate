@@ -23,7 +23,7 @@ import {
   detectContradictions,
   detectDropped,
 } from "./graphEnrichers";
-import { REBUTTABLE_KINDS, userAnsweredIds, isValidRebuttalTarget } from "./opportunity";
+import { ENGAGEMENT_KINDS, userAnsweredIds, isValidRebuttalTarget, rebuttalCoverageFor, eligibleOpponentMoves, unansweredOpportunitiesBy } from "./opportunity";
 import {
   isKnownSource,
   isRootHomepage,
@@ -167,7 +167,6 @@ export interface ObservableBreakdown {
 }
 
 const CLAIM_KINDS = new Set<ArgNodeKind>(["claim", "counterclaim"]);
-const SUBSTANTIVE_KINDS = new Set<ArgNodeKind>(["claim", "counterclaim", "impact"]);
 const STRENGTH_WEIGHT: Record<EvidenceStrength, number> = {
   anecdotal: 0.15,
   general: 0.35,
@@ -262,10 +261,6 @@ function lexicalRelevance(claim: ArgNode, evidence: ArgNode): number {
 
 function isClaimLike(node: ArgNode): boolean {
   return CLAIM_KINDS.has(node.kind);
-}
-
-function isSubstantive(node: ArgNode): boolean {
-  return SUBSTANTIVE_KINDS.has(node.kind);
 }
 
 function cloneGraph(graph: ArgGraph): ArgGraph {
@@ -423,24 +418,27 @@ function supportLinks(graph: ArgGraph): SupportLink[] {
 }
 
 function addressedTargetIds(graph: ArgGraph, owner: Owner): Set<string> {
-  // THE canonical "answered" definition (shared with rewards, the ledger and
-  // repair measurement): only chronologically valid responses to opponent
-  // argument moves count. Malformed graphs (self/future/dangling targets,
+  // THE canonical "answered" definition (shared with rewards, the ledger,
+  // drop detection and repair measurement): only chronologically valid
+  // responses from valid response nodes to valid opponent targets count.
+  // Malformed graphs (self/future/dangling targets, evidence → counters,
   // non-rebuttable kinds) can never manufacture coverage here.
   return userAnsweredIds(graph, owner);
 }
 
-function opportunitiesFor(graph: ArgGraph, responder: Owner): ArgNode[] {
-  // THE canonical opportunity definition: opponent argument moves with at
-  // least one later responder node. Includes impacts (they are answerable
-  // moves in turn scoring) but excludes last-round moves with no later turn.
+/**
+ * Argument ENGAGEMENT opportunities — deliberately broader than canonical
+ * rebuttal coverage: any opponent argument move (claim/counterclaim/impact)
+ * the side had a later turn to engage with. This feeds the per-round
+ * "argumentResponses" feature (did the side engage every opponent turn?) and
+ * is NEVER exposed under the "rebuttalCoverage" name. Rebuttal coverage
+ * itself (claim/counterclaim opportunities only) comes from
+ * rebuttalCoverageFor in opportunity.ts.
+ */
+function engagementOpportunitiesFor(graph: ArgGraph, responder: Owner): ArgNode[] {
   return graph.nodes.filter(
-    (node) => node.owner !== responder && REBUTTABLE_KINDS.has(node.kind) && graph.nodes.some((candidate) => candidate.owner === responder && candidate.round > node.round),
+    (node) => node.owner !== responder && ENGAGEMENT_KINDS.has(node.kind) && graph.nodes.some((candidate) => candidate.owner === responder && candidate.round > node.round),
   );
-}
-
-function opponentTurnOpportunities(graph: ArgGraph, responder: Owner): number[] {
-  return [...new Set(opportunitiesFor(graph, responder).map((node) => node.round))].sort((a, b) => a - b);
 }
 
 function directRebuttalRefs(graph: ArgGraph, owner: Owner, nodes: Map<string, ArgNode>): EvidenceRef[] {
@@ -494,7 +492,6 @@ function buildSideFeatures(graph: ArgGraph, owner: Owner, opponent: Owner, extra
   const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
   const ownClaims = graph.nodes.filter((node) => node.owner === owner && isClaimLike(node));
   const ownEvidence = graph.nodes.filter((node) => node.owner === owner && node.kind === "evidence");
-  const ownSubstantive = graph.nodes.filter((node) => node.owner === owner && isSubstantive(node));
   const links = supportLinks(graph).filter((link) => link.claim.owner === owner || link.evidence.owner === owner);
   const ownLinks = links.filter((link) => link.claim.owner === owner && link.evidence.owner === owner);
   const byClaim = new Map<string, SupportLink[]>();
@@ -508,23 +505,40 @@ function buildSideFeatures(graph: ArgGraph, owner: Owner, opponent: Owner, extra
     ? ownLinks.reduce((sum, link) => sum + link.relevance, 0) / ownLinks.length
     : 0;
   const rebuttalRefs = directRebuttalRefs(graph, owner, nodes);
-  const responseTargets = addressedTargetIds(graph, owner);
-  const rebuttalOpportunities = opportunitiesFor(graph, owner);
-  const addressedOpportunities = rebuttalOpportunities.filter((node) => responseTargets.has(node.id));
-  const rebuttalCoverage = rebuttalOpportunities.length ? addressedOpportunities.length / rebuttalOpportunities.length : 0;
-  const responseRounds = opponentTurnOpportunities(graph, owner);
-  const respondedRounds = responseRounds.filter((roundNumber) => rebuttalOpportunities.some((node) => node.round === roundNumber && responseTargets.has(node.id)));
-  const argumentResponseRate = responseRounds.length ? respondedRounds.length / responseRounds.length : 0;
+  // CANONICAL rebuttal coverage (opportunity.ts): the exact same reading
+  // rewards, the skill ledger, Progress and the result story compute. Score
+  // path treats unmeasurable (null) as 0 with the feature status carrying
+  // "insufficient_evidence" — the numeric value can never disagree across
+  // systems because it comes from one implementation.
+  const canonicalCoverage = rebuttalCoverageFor(graph, owner);
+  const rebuttalCoverage = canonicalCoverage.value ?? 0;
+  // Exact trails from the canonical reading: eligible opportunities, each
+  // marked answered or unmatched, plus the valid direct responses. Nodes
+  // excluded by the canonical scope (last-round moves, impacts, evidence)
+  // never appear here.
   const responseRefs = [
-    ...rebuttalOpportunities.map((node) => nodeRef(node, responseTargets.has(node.id) ? "Answered" : "No direct response recorded")),
+    ...eligibleOpponentMoves(graph, owner).map((node) =>
+      nodeRef(node, canonicalCoverage.answeredIds.includes(node.id) ? "Answered" : "No direct response recorded"),
+    ),
     ...rebuttalRefs,
   ];
+  // Argument ENGAGEMENT (broader than rebuttal coverage): per-round view of
+  // whether the side engaged any opponent argument move (claim/counterclaim/
+  // impact). A round counts as responded when any of its engagement
+  // opportunities was validly answered.
+  const engagementOpportunities = engagementOpportunitiesFor(graph, owner);
+  const responseTargets = addressedTargetIds(graph, owner);
+  const responseRounds = [...new Set(engagementOpportunities.map((node) => node.round))].sort((a, b) => a - b);
+  const respondedRounds = responseRounds.filter((roundNumber) =>
+    engagementOpportunities.some((node) => node.round === roundNumber && responseTargets.has(node.id)),
+  );
+  const argumentResponseRate = responseRounds.length ? respondedRounds.length / responseRounds.length : 0;
 
-  const opponentTargets = addressedTargetIds(graph, opponent);
-  const ownDropped = ownSubstantive.filter((node) => {
-    const hadLaterOpponentTurn = graph.nodes.some((candidate) => candidate.owner === opponent && candidate.round > node.round);
-    return hadLaterOpponentTurn && !opponentTargets.has(node.id);
-  });
+  // OWN arguments the opponent never validly answered — the canonical mirror
+  // of detectDropped (opportunity.ts): the opponent's unanswered-opportunity
+  // set restricted to this side's argument moves. Evidence and impact nodes
+  // are not rebuttal opportunities and cannot appear here.
+  const ownDropped = unansweredOpportunitiesBy(graph, opponent).filter((node) => node.owner === owner);
   const unsupportedAssertions = ownClaims.filter((claim) => !byClaim.has(claim.id) || explicitUnsupported.has(claim.id));
   const contradictions = graph.contradictions.filter((item) => item.owner === owner && nodes.has(item.a) && nodes.has(item.b));
   const deterministicContradictions = detectContradictions(graph.nodes).filter((item) => item.owner === owner && nodes.has(item.a) && nodes.has(item.b));
@@ -562,12 +576,12 @@ function buildSideFeatures(graph: ArgGraph, owner: Owner, opponent: Owner, extra
     evidenceActuallyCited: feature(citedEvidence.length, citedEvidenceRefs.length ? citedEvidenceRefs : ownEvidence.map((node) => nodeRef(node, "No usable citation supplied")), confidence),
     evidenceRelevance: feature(round(evidenceRelevance), relevanceRefs.length ? relevanceRefs : ownEvidence.map((node) => nodeRef(node, "No claim link to assess relevance")), confidence),
     directRebuttals: feature(rebuttalRefs.filter((ref) => ref.kind === "node").length, rebuttalRefs, confidence),
-    rebuttalCoverage: feature(round(rebuttalCoverage), responseRefs.length ? responseRefs : rebuttalOpportunities.map((node) => nodeRef(node, "No direct response recorded")), confidence, rebuttalOpportunities.length ? undefined : "insufficient_evidence"),
+    rebuttalCoverage: feature(round(rebuttalCoverage), responseRefs.length ? responseRefs : eligibleOpponentMoves(graph, owner).map((node) => nodeRef(node, "No direct response recorded")), confidence, canonicalCoverage.opportunities ? undefined : "insufficient_evidence"),
     // SCOPING NOTE: droppedArguments counts this side's OWN arguments that the
     // opponent ignored — a scoring input (credit via groundedDroppedArguments),
     // NOT a weakness measure. A side's rebuttal failure is the opponent's
     // unanswered arguments (see repairEffectiveness.countWeaknessesForSide).
-    droppedArguments: feature(ownDropped.length, droppedRefs.length ? droppedRefs : ownSubstantive.map((node) => nodeRef(node, "No dropped argument observed")), confidence),
+    droppedArguments: feature(ownDropped.length, droppedRefs.length ? droppedRefs : ownClaims.map((node) => nodeRef(node, "No dropped argument observed")), confidence),
     contradictions: feature(allContradictions.length, contradictionRefs.length ? contradictionRefs : claimEvidence, confidence),
     unsupportedAssertions: feature(unsupportedAssertions.length, unsupportedAssertions.length ? unsupportedAssertions.map((node) => nodeRef(node, "No usable support edge")) : claimEvidence, confidence),
     concededPoints: feature(concessions.length, concessionRefs, confidence),
@@ -615,15 +629,20 @@ function scoreSide(features: SideObservableFeatures, graph: ArgGraph, globalStat
   const rebuttalRefs = uniqueRefs([...features.rebuttalCoverage.evidence, ...features.directRebuttals.evidence]);
   const responseRefs = features.argumentResponses.evidence;
   const impactRefs = features.impactHandling.evidence;
-  const groundedDropped = graph.dropped.filter((item) => item.owner === features.owner && graph.nodes.some((node) => node.id === item.nodeId && isClaimLike(node))).filter((item) => {
-    const claim = graph.nodes.find((node) => node.id === item.nodeId);
-    return !!claim && supportLinks(graph).some((link) => link.claim.id === claim.id && link.quality > 0.2);
+  // Grounded dropped arguments: this side's OWN supported claims the opponent
+  // never validly answered — the canonical structural set (same definition as
+  // detectDropped), narrowed to claim-like nodes with real grounded support
+  // so credit reflects "a good argument the other side ignored".
+  const linksForGrounding = supportLinks(graph);
+  const groundedDropped = unansweredOpportunitiesBy(graph, features.owner).filter((node) => {
+    if (!isClaimLike(node)) return false;
+    return linksForGrounding.some((link) => link.claim.id === node.id && link.quality > 0.2);
   });
-  const droppedRefs = groundedDropped.length ? groundedDropped.map((item) => derivedRef(`dropped:${item.nodeId}`, item.text, "Supported argument left unanswered")) : features.droppedArguments.evidence;
+  const droppedRefs = groundedDropped.length ? groundedDropped.map((node) => derivedRef(`dropped:${node.id}`, node.text, "Supported argument left unanswered")) : features.droppedArguments.evidence;
   const components = [
     component("supportedClaimRate", features.claimsDirectlySupported.value / claims, supportedRefs.length ? supportedRefs : claimRefs, "Direct support edges divided by claims made; unsupported claims do not count."),
     component("evidenceQuality", features.claimsMade.value ? evidenceRefs.length ? averageClaimEvidenceQuality(graph, features.owner) : 0 : 0, evidenceRefs.length ? evidenceRefs : claimRefs, "Per-claim maximum of citation grounding × evidence strength × relevance; duplicate sources do not stack."),
-    component("rebuttalCoverage", features.rebuttalCoverage.value, rebuttalRefs, "Opponent arguments with a direct target response divided by response opportunities."),
+    component("rebuttalCoverage", features.rebuttalCoverage.value, rebuttalRefs, "Canonical rebuttal coverage: opponent claim/counterclaim opportunities answered by a valid, later response divided by eligible opportunities."),
     component("argumentResponseRate", features.argumentResponses.value.rate, responseRefs, "Opponent turns answered by a target response divided by turns where a response was possible."),
     component("impactHandling", features.impactHandling.value, impactRefs, "Impact nodes linked to arguments, grounded where possible, and explicitly compared."),
     component("groundedDroppedArguments", groundedDropped.length / claims, droppedRefs, "Supported claims the opponent left unanswered; dropped unsupported assertions earn no credit."),
@@ -861,7 +880,10 @@ export function graphFromTurn(params: { userMessage: string; opponentMessage: st
   const nodes: ArgNode[] = [];
   const edges: ArgEdge[] = [];
   const opponentId = opponentMessage ? `r${params.round}-opponent` : null;
-  if (opponentId) nodes.push({ id: opponentId, kind: "counterclaim", owner: "ai", text: opponentMessage.slice(0, 240), round: Math.max(1, params.round - 1) });
+  // The opponent's opener PRECEDES this round's response (round − 1, floor 0):
+  // canonical rebuttal chronology requires the response strictly after the
+  // target, so round-1 answers must not share their target's round.
+  if (opponentId) nodes.push({ id: opponentId, kind: "counterclaim", owner: "ai", text: opponentMessage.slice(0, 240), round: Math.max(0, params.round - 1) });
   const claimId = `r${params.round}-claim`;
   nodes.push({ id: claimId, kind: "claim", owner: "a", text: userMessage.slice(0, 240), round: params.round });
 

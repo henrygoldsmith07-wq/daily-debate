@@ -10,6 +10,7 @@ import type { CoachDimension } from "./adaptiveCoach";
 import { buildCoachProfile, selectFocus } from "./adaptiveCoach";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { ObservableAssessment } from "./observableAssessment";
+import { unansweredOpportunitiesBy } from "./opportunity";
 
 /** Observable facts from one completed debate, persisted on the debate row. */
 export interface CoachingSnapshot {
@@ -36,10 +37,11 @@ export function snapshotFromAssessment(assessment: ObservableAssessment | null |
   const majorClaims = assessment.graph.nodes.filter(
     (n) => n.owner === "a" && (n.kind === "claim" || n.kind === "counterclaim"),
   ).length;
-  // DroppedArgument.owner is the side whose argument went unanswered, so the
-  // user's failure is opponent-owned entries — never the user's own ignored
-  // arguments (those are the opponent's miss).
-  const unanswered = assessment.graph.dropped.filter((d) => d.owner !== "a").length;
+  // The user's rebuttal failure: the CANONICAL unanswered-opportunity set
+  // (opportunity.ts) — opponent arguments the user had a later turn to answer
+  // but never validly did. Judge-supplied dropped rows are not re-implemented
+  // here; this is the same definition drop detection and rewards read.
+  const unanswered = unansweredOpportunitiesBy(assessment.graph, "a").length;
   return {
     responsesAnswered: responses?.responded ?? 0,
     responseOpportunities: responses?.opportunities ?? 0,
