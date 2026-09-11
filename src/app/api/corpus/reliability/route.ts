@@ -32,7 +32,7 @@ export async function GET() {
   const service = createServiceClient();
   const [{ data: items }, { data: ratingRows }] = await Promise.all([
     service.from("corpus_items").select("id, status, length_bucket, subject_category, ability_band"),
-    service.from("corpus_ratings").select("corpus_id, rater_id, scores_a, scores_b, winner"),
+    service.from("corpus_ratings").select("corpus_id, rater_id, scores_a, scores_b, winner, presented_first"),
   ]);
 
   const byItem = new Map<string, RatingRow[]>();
@@ -109,6 +109,15 @@ export async function GET() {
     .map((r) => r.confidence)
     .filter((c): c is number => typeof c === "number");
 
+  // Presentation randomisation balance: which original side raters saw
+  // first. A healthy pipeline stays near 50/50; skew here would confound
+  // any position-bias reading of the ratings.
+  const presented = (ratingRows ?? []) as Array<RatingRow & { presented_first?: string | null }>;
+  const presentationBalance = {
+    aFirst: presented.filter((r) => (r.presented_first ?? "a") === "a").length,
+    bFirst: presented.filter((r) => r.presented_first === "b").length,
+  };
+
   return NextResponse.json({
     totalItems: progress.totalItems,
     fullyRatedItems: progress.fullyRatedItems,
@@ -116,6 +125,7 @@ export async function GET() {
     agreementReady,
     needsAdjudication,
     adjudicationQueue,
+    presentationBalance,
     meanWinnerKappa: kappas.length ? Number((kappas.reduce((s, k) => s + k, 0) / kappas.length).toFixed(3)) : null,
     perDimensionIcc,
     strata: {

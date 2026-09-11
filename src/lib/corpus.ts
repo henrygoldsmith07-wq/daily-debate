@@ -40,6 +40,61 @@ export function anonymiseTranscript(lines: Array<{ side: "a" | "b"; round: numbe
   return lines.map((l) => `Side ${l.side.toUpperCase()} (round ${l.round}): ${l.text}`).join("\n");
 }
 
+// --- Presentation randomisation (position-bias control) ----------------------
+// Human raters must not always see the same original side first: a rater who
+// always reads "Side A" first may systematically favour it. Each (rater,
+// item) pair is deterministically assigned a presentation side — stable
+// across refreshes (no mid-rating flips) and balanced ~50/50 in expectation
+// via FNV-1a hash parity. Scores and winners submitted in presented
+// coordinates are mapped back to original coordinates server-side before
+// storage (normalizeRatingToOriginal), so analysis always reads one frame.
+
+/** Which original side is shown first to a rater for one item. */
+export type PresentationSide = "a" | "b";
+
+export function assignPresentationSide(raterId: string, itemId: string): PresentationSide {
+  let h = 2166136261;
+  const s = `${raterId}:${itemId}`;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) % 2 === 0 ? "a" : "b";
+}
+
+/** Swap "Side A"/"Side B" labels throughout an anonymised transcript. */
+export function swapTranscriptSides(transcript: string): string {
+  return transcript
+    .replaceAll("Side A", "__SIDE_T__")
+    .replaceAll("Side B", "Side A")
+    .replaceAll("__SIDE_T__", "Side B");
+}
+
+/** Mirror a winner label across the presentation swap. */
+export function mirrorWinner(winner: "a" | "b" | "tie"): "a" | "b" | "tie" {
+  return winner === "a" ? "b" : winner === "b" ? "a" : "tie";
+}
+
+export interface PresentedRating {
+  scores_a: Partial<SideScores>;
+  scores_b: Partial<SideScores>;
+  winner: "a" | "b" | "tie";
+}
+
+/**
+ * Map a rating submitted in PRESENTED coordinates back to original item
+ * coordinates before storage. When presented_first is "b", Side A on the
+ * rater's screen was original side B, so scores swap and the winner mirrors.
+ */
+export function normalizeRatingToOriginal(rating: PresentedRating, presentedFirst: PresentationSide): PresentedRating {
+  if (presentedFirst === "a") return rating;
+  return {
+    scores_a: rating.scores_b,
+    scores_b: rating.scores_a,
+    winner: mirrorWinner(rating.winner),
+  };
+}
+
 // --- Rating payload validation ---------------------------------------------
 
 export interface RatingPayload {

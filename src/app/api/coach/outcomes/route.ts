@@ -64,7 +64,7 @@ export async function GET() {
         note:
           measured < 2
             ? "Movement is measured against your next debates — complete a few after drilling."
-            : `${improved}/${measured} drills produced skill movement.`,
+            : `${improved}/${measured} drills showed skill movement.`,
       },
     },
     { headers: { "Cache-Control": "no-store" } },

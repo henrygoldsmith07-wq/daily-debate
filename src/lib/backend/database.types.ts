@@ -18,6 +18,8 @@ export type DailyTopicRow = {
   prompt: string;
   category: string | null;
   sources: unknown;
+  /** ai | fallback | unknown — recorded by the generator (migration 009). */
+  generation_source: string | null;
   created_at: string;
 };
 
@@ -149,7 +151,14 @@ export type CorpusRatingRow = {
   winner: string;
   confidence: number | null;
   rationale: string;
+  /** Which original side was presented first (migration 010; 'a' pre-randomisation). */
+  presented_first: string | null;
   created_at: string;
+};
+
+export type MigrationRow = {
+  name: string;
+  applied_at: string;
 };
 
 export type DrillAssignmentRow = {
@@ -263,5 +272,6 @@ export type Database = {
     challenge_invites: TableDef<ChallengeInviteRow>;
     product_events: TableDef<ProductEventRow>;
     ai_call_log: TableDef<AiCallLogRow>;
+    app_migrations: TableDef<MigrationRow>;
   };
 };

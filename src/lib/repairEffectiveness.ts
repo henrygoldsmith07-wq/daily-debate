@@ -166,7 +166,7 @@ export function debateOpportunities(graph: ArgGraph, owner: Owner): { majorClaim
   };
 }
 
-function hasOpportunity(repairKind: string, debate: DebateWeaknessRow): boolean {
+export function hasOpportunity(repairKind: string, debate: DebateWeaknessRow): boolean {
   const opps = debate.opps;
   if (!opps) return true; // legacy rows: assume opportunity (conservative = may measure)
   if (repairKind === "rebuttal") return opps.opponentMoves > 0;

@@ -5,6 +5,13 @@
 // explicit "not yet measurable" note rather than a misleading small-n number.
 // Pure — the API route loads rows, this module does the math.
 
+import {
+  hasOpportunity,
+  weaknessKindsFor,
+  type DebateWeaknessRow,
+  type RepairRow,
+} from "./repairEffectiveness";
+
 export interface FunnelEventRow {
   user_id: string;
   name: string;
@@ -571,5 +578,227 @@ export function buildFunnelReport(
     completionTime: completionTime(inWindow, minSample),
     repairRetention: repairRetentionComparison(inWindow, now, minSample),
     weeklyCohorts: buildWeeklyCohorts(inWindow, now),
+  };
+}
+
+// --- Training-loop outcome funnel --------------------------------------------
+// One joined view over the full longitudinal chain:
+//
+//   weakness detected → repair offered → repair completed → first eligible
+//   retest → recurrence / no recurrence → later retention
+//
+// Strictly OBSERVATIONAL (same honesty rule as repairRetentionComparison):
+// users who repair differ from those who don't, so every number here is an
+// association with explicit denominators, sample sizes and missing-data
+// counts — never evidence that a repair caused a change.
+
+export const REPAIR_OUTCOME_MIN_SAMPLE = 5;
+
+export interface RepairOutcomeRow {
+  userId: string;
+  debateId: string;
+  targetKind: string;
+  createdAt: string;
+  /** A repair_started event exists for the same user+debate at/before completion. */
+  accepted: boolean;
+  /** Whole days from repair completion to the first later eligible debate. */
+  daysToRetest: number | null;
+  firstRetestDebateId: string | null;
+  /** Whether the repaired weakness kinds recurred in the first retest. */
+  firstRetestRecurred: boolean | null;
+  /** Whether they recurred in any eligible debate after the first retest. */
+  laterRecurred: boolean | null;
+  /** Eligible later debates (the retest denominator for this repair). */
+  eligibleRetests: number;
+}
+
+export interface RepairOutcomeFunnel {
+  repairs: number;
+  /** Repairs with a matching repair_started event (acceptance proxy). */
+  acceptance: FunnelRate;
+  /** repair_started events without a debate_id that cannot be matched. */
+  unmatchedStarts: number;
+  /** Repairs with at least one later eligible debate. */
+  retestsObserved: number;
+  /** Repairs with no later eligible debate yet (pending, excluded from recurrence rates). */
+  retestsPending: number;
+  medianDaysToRetest: number | null;
+  /** First-retest recurrence among observed retests. */
+  firstRetestRecurrence: FunnelRate;
+  /** Later recurrence among repairs with ≥1 eligible debate after the first retest. */
+  laterRecurrence: FunnelRate;
+  /** D1/D7/D30 return anchored at each user's first repair (not first activity). */
+  postRepairReturn: { d1: ReturnRate; d7: ReturnRate; d30: ReturnRate };
+  note: string;
+}
+
+function weaknessPresent(kinds: Record<string, number>, wanted: string[]): boolean {
+  return wanted.some((k) => (kinds[k] ?? 0) > 0);
+}
+
+/**
+ * Return rate anchored at an arbitrary per-user date (e.g. first repair)
+ * instead of first activity: of the anchors at least N days old (eligible),
+ * how many users had any event exactly N calendar days later? Anchors too
+ * recent are pending, never churned.
+ */
+export function returnRateAfterAnchor(
+  rows: FunnelEventRow[],
+  anchors: Map<string, string>,
+  nDays: number,
+  now: string,
+  minSample: number = FUNNEL_MIN_SAMPLE,
+): ReturnRate {
+  const today = dayOf(now);
+  const eventDays = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const days = eventDays.get(row.user_id) ?? new Set<string>();
+    days.add(dayOf(row.created_at));
+    eventDays.set(row.user_id, days);
+  }
+  let eligible = 0;
+  let returned = 0;
+  let pending = 0;
+  for (const [userId, anchor] of anchors) {
+    const anchorDay = dayOf(anchor);
+    const daysSinceAnchor = Math.floor(
+      (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${anchorDay}T00:00:00Z`)) / 86_400_000,
+    );
+    if (daysSinceAnchor < nDays) {
+      pending += 1;
+      continue;
+    }
+    eligible += 1;
+    if ((eventDays.get(userId) ?? new Set()).has(addDays(anchorDay, nDays))) returned += 1;
+  }
+  const measurable = eligible >= minSample;
+  return {
+    eligibleUsers: eligible,
+    returnedUsers: returned,
+    pendingUsers: pending,
+    rate: measurable ? +(returned / eligible).toFixed(3) : null,
+    note: measurable
+      ? null
+      : `not yet measurable — ${eligible} anchored user${eligible === 1 ? "" : "s"} (need ${minSample})`,
+  };
+}
+
+export function buildRepairOutcomeRows(
+  repairs: RepairRow[],
+  debates: DebateWeaknessRow[],
+  events: FunnelEventRow[],
+): RepairOutcomeRow[] {
+  const byUser = new Map<string, DebateWeaknessRow[]>();
+  for (const d of debates) {
+    const list = byUser.get(d.userId) ?? [];
+    list.push(d);
+    byUser.set(d.userId, list);
+  }
+  for (const list of byUser.values()) {
+    list.sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
+  }
+  const starts = events.filter((e) => e.name === "repair_started" && e.debate_id);
+
+  return repairs.map((repair) => {
+    const kinds = weaknessKindsFor(repair.target_kind);
+    const accepted = starts.some(
+      (e) =>
+        e.user_id === repair.user_id &&
+        e.debate_id === repair.debate_id &&
+        Date.parse(e.created_at) <= Date.parse(repair.created_at),
+    );
+    const repairedAt = Date.parse(repair.created_at);
+    const later = (byUser.get(repair.user_id) ?? [])
+      .filter((d) => d.debateId !== repair.debate_id && Date.parse(d.completedAt) > repairedAt)
+      .filter((d) => hasOpportunity(repair.target_kind, d));
+    const first = later[0] ?? null;
+    const rest = later.slice(1);
+    return {
+      userId: repair.user_id,
+      debateId: repair.debate_id,
+      targetKind: repair.target_kind,
+      createdAt: repair.created_at,
+      accepted,
+      daysToRetest: first
+        ? Math.floor((Date.parse(first.completedAt) - repairedAt) / 86_400_000)
+        : null,
+      firstRetestDebateId: first?.debateId ?? null,
+      firstRetestRecurred: first ? weaknessPresent(first.kinds, kinds) : null,
+      laterRecurred: rest.length ? rest.some((d) => weaknessPresent(d.kinds, kinds)) : null,
+      eligibleRetests: later.length,
+    };
+  });
+}
+
+export function buildRepairOutcomeFunnel(
+  repairs: RepairRow[],
+  debates: DebateWeaknessRow[],
+  events: FunnelEventRow[],
+  opts: { now?: string; minSample?: number } = {},
+): RepairOutcomeFunnel {
+  const now = opts.now ?? new Date().toISOString();
+  const minSample = opts.minSample ?? REPAIR_OUTCOME_MIN_SAMPLE;
+  const rows = buildRepairOutcomeRows(repairs, debates, events);
+  const withRetest = rows.filter((r) => r.firstRetestDebateId !== null);
+  const withLater = rows.filter((r) => r.laterRecurred !== null);
+  const days = withRetest
+    .map((r) => r.daysToRetest as number)
+    .sort((a, b) => a - b);
+  const medianDaysToRetest = days.length
+    ? days.length % 2
+      ? days[(days.length - 1) / 2]
+      : (days[days.length / 2 - 1] + days[days.length / 2]) / 2
+    : null;
+  const acceptedCount = rows.filter((r) => r.accepted).length;
+  const firstRecurred = withRetest.filter((r) => r.firstRetestRecurred).length;
+  const laterRecurred = withLater.filter((r) => r.laterRecurred).length;
+  const unmatchedStarts = events.filter((e) => e.name === "repair_started" && !e.debate_id).length;
+
+  // Post-repair return: anchor each user at their FIRST repair completion.
+  const anchors = new Map<string, string>();
+  const sortedRepairs = [...repairs].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  for (const r of sortedRepairs) {
+    if (!anchors.has(r.user_id)) anchors.set(r.user_id, r.created_at);
+  }
+
+  return {
+    repairs: rows.length,
+    acceptance: {
+      numerator: acceptedCount,
+      denominator: rows.length,
+      sample: rows.length,
+      rate: rows.length >= minSample ? +(acceptedCount / rows.length).toFixed(3) : null,
+      note: rows.length >= minSample
+        ? null
+        : `not yet measurable — ${rows.length} repair${rows.length === 1 ? "" : "s"} (need ${minSample})`,
+    },
+    unmatchedStarts,
+    retestsObserved: withRetest.length,
+    retestsPending: rows.length - withRetest.length,
+    medianDaysToRetest,
+    firstRetestRecurrence: {
+      numerator: firstRecurred,
+      denominator: withRetest.length,
+      sample: withRetest.length,
+      rate: withRetest.length >= minSample ? +(firstRecurred / withRetest.length).toFixed(3) : null,
+      note: withRetest.length >= minSample
+        ? null
+        : `not yet measurable — ${withRetest.length} observed retest${withRetest.length === 1 ? "" : "s"} (need ${minSample})`,
+    },
+    laterRecurrence: {
+      numerator: laterRecurred,
+      denominator: withLater.length,
+      sample: withLater.length,
+      rate: withLater.length >= minSample ? +(laterRecurred / withLater.length).toFixed(3) : null,
+      note: withLater.length >= minSample
+        ? null
+        : `not yet measurable — ${withLater.length} repair${withLater.length === 1 ? "" : "s"} with later debates (need ${minSample})`,
+    },
+    postRepairReturn: {
+      d1: returnRateAfterAnchor(events, anchors, 1, now, minSample),
+      d7: returnRateAfterAnchor(events, anchors, 7, now, minSample),
+      d30: returnRateAfterAnchor(events, anchors, 30, now, minSample),
+    },
+    note: "Observational only — users who complete repairs differ from those who don't in many ways. Recurrence and return rates describe what happened after repairs; they are not evidence that a repair caused any change.",
   };
 }

@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { MIN_RATERS_PER_ITEM, validateRating } from "@/lib/corpus";
+import {
+  MIN_RATERS_PER_ITEM,
+  assignPresentationSide,
+  normalizeRatingToOriginal,
+  swapTranscriptSides,
+  validateRating,
+} from "@/lib/corpus";
 
 // Blind rater assignment. Returns the next open corpus item this user is
 // eligible to rate: not authored by them, not already rated by them.
@@ -52,8 +58,16 @@ export async function GET(request: Request) {
     });
   }
 
+  // Position-bias control: deterministically assign which original side this
+  // rater sees first (stable per rater+item, ~50/50 across items). The client
+  // renders the transcript as given; coordinates are normalised server-side.
+  const presentedFirst = assignPresentationSide(user.id, next.id);
+  const transcript =
+    presentedFirst === "b" ? swapTranscriptSides(next.transcript) : next.transcript;
+
   return NextResponse.json({
-    item: { id: next.id, transcript: next.transcript, topic: next.topic },
+    item: { id: next.id, transcript, topic: next.topic },
+    presentedFirst,
     ratersRequired: MIN_RATERS_PER_ITEM,
     myRatingsCount,
   });
@@ -78,6 +92,7 @@ export async function POST(request: Request) {
 
   const corpusId = typeof body?.corpusId === "string" ? body.corpusId : null;
   if (!corpusId) return NextResponse.json({ error: "corpusId is required." }, { status: 400 });
+  const presentedFirst = body?.presentedFirst === "b" ? "b" : "a";
 
   const service = createServiceClient();
 
@@ -88,14 +103,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "You cannot rate your own debate." }, { status: 403 });
   }
 
+  // Ratings arrive in PRESENTED coordinates (whichever side the rater saw
+  // first); normalise to original item coordinates before storage so all
+  // analysis reads one frame regardless of presentation randomisation.
+  const normalized = normalizeRatingToOriginal(
+    { scores_a: body.scores_a, scores_b: body.scores_b, winner: body.winner },
+    presentedFirst,
+  );
   const payload = {
     corpus_id: corpusId,
     rater_id: user.id,
-    scores_a: body.scores_a,
-    scores_b: body.scores_b,
-    winner: body.winner,
+    scores_a: normalized.scores_a,
+    scores_b: normalized.scores_b,
+    winner: normalized.winner,
     confidence: body.confidence ?? null,
     rationale: (body.rationale ?? "").slice(0, 1000),
+    presented_first: presentedFirst,
   };
   // unique(corpus_id, rater_id) makes double-submission a no-op conflict.
   const { error } = await service.from("corpus_ratings").upsert(payload, { onConflict: "corpus_id,rater_id" });

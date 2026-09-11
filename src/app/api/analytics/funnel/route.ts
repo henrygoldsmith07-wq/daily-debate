@@ -3,7 +3,7 @@ import { createClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { isCorpusAdmin } from "@/lib/corpus";
 import { loadFunnelData } from "@/lib/productFunnelServer";
-import { buildFunnelReport, FUNNEL_DEFAULT_WINDOW_DAYS } from "@/lib/productFunnel";
+import { buildFunnelReport, buildRepairOutcomeFunnel, FUNNEL_DEFAULT_WINDOW_DAYS } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 
 /**
@@ -31,6 +31,7 @@ export async function GET(request: Request) {
   const { events, repairs, debateWeaknesses, completeness } = await loadFunnelData();
   const funnel = buildFunnelReport(events, { windowDays });
   const repairEffectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { windowDays });
+  const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, {});
 
-  return NextResponse.json({ funnel, repairEffectiveness, completeness });
+  return NextResponse.json({ funnel, repairEffectiveness, trainingLoop, completeness });
 }

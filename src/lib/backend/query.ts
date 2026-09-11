@@ -34,6 +34,8 @@ const TABLES = new Set<TableName>([
   "challenge_invites",
   "product_events",
   "ai_call_log",
+  // migration ledger itself (read-only health checks)
+  "app_migrations",
 ]);
 
 function identifier(value: string): string {

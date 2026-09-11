@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   buildFunnelReport,
+  buildRepairOutcomeFunnel,
+  buildRepairOutcomeRows,
   buildWeeklyCohorts,
   completenessNote,
   completionTime,
   repairRetentionComparison,
   returnRate,
+  returnRateAfterAnchor,
   takeBounded,
   timeToFirstValue,
   type FunnelEventRow,
 } from "./productFunnel";
+import type { DebateWeaknessRow, RepairRow } from "./repairEffectiveness";
 
 const NOW = "2026-06-15T12:00:00Z";
 
@@ -351,5 +355,108 @@ describe("truthful truncation (takeBounded + completenessNote)", () => {
     expect(note).toMatch(/funnel rate/);
     expect(note).toMatch(/repair effectiveness/);
     expect(note).toMatch(/weakness recurrence/);
+  });
+});
+
+describe("training-loop outcome funnel (repair → retest → recurrence → return)", () => {
+  const T0 = "2026-06-01T12:00:00Z";
+  const NOW2 = "2026-07-15T12:00:00Z";
+
+  function repair(user: string, debate: string, kind: string, at: string): RepairRow {
+    return { user_id: user, debate_id: debate, target_kind: kind, score: 80, succeeded: true, created_at: at };
+  }
+
+  function debateRow(user: string, debate: string, at: string, kinds: Record<string, number>): DebateWeaknessRow {
+    return {
+      debateId: debate,
+      userId: user,
+      completedAt: at,
+      kinds,
+      opps: { majorClaims: 2, opponentMoves: 2 },
+    };
+  }
+
+  function ev(user: string, name: string, at: string, debate: string | null = null): FunnelEventRow {
+    return { user_id: user, name, format: null, reason: null, debate_id: debate, created_at: at };
+  }
+
+  it("joins acceptance, time-to-retest, first recurrence and later recurrence per repair", () => {
+    const repairs = [repair("u1", "d0", "rebuttal", T0)];
+    const debates = [
+      debateRow("u1", "d0", "2026-05-31T12:00:00Z", { rebuttal: 1, dropped: 2 }),
+      debateRow("u1", "d1", "2026-06-04T12:00:00Z", { rebuttal: 1, dropped: 1 }),
+      debateRow("u1", "d2", "2026-06-10T12:00:00Z", { rebuttal: 0, dropped: 0 }),
+    ];
+    const events = [ev("u1", "repair_started", "2026-06-01T11:00:00Z", "d0")];
+    const rows = buildRepairOutcomeRows(repairs, debates, events);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].accepted).toBe(true);
+    expect(rows[0].daysToRetest).toBe(3);
+    expect(rows[0].firstRetestDebateId).toBe("d1");
+    expect(rows[0].firstRetestRecurred).toBe(true);
+    expect(rows[0].laterRecurred).toBe(false);
+    expect(rows[0].eligibleRetests).toBe(2);
+  });
+
+  it("marks repairs with no later eligible debate as pending (never as clean)", () => {
+    const repairs = [repair("u1", "d0", "rebuttal", T0)];
+    const debates = [debateRow("u1", "d0", "2026-05-31T12:00:00Z", { rebuttal: 1 })];
+    const rows = buildRepairOutcomeRows(repairs, debates, []);
+    expect(rows[0].firstRetestRecurred).toBeNull();
+    expect(rows[0].daysToRetest).toBeNull();
+    expect(rows[0].eligibleRetests).toBe(0);
+    const funnel = buildRepairOutcomeFunnel(repairs, debates, [], { now: NOW2, minSample: 1 });
+    expect(funnel.retestsPending).toBe(1);
+    expect(funnel.firstRetestRecurrence.rate).toBeNull();
+  });
+
+  it("gates every rate on the minimum sample with explicit denominators", () => {
+    const repairs = [repair("u1", "d0", "rebuttal", T0)];
+    const debates = [debateRow("u1", "d1", "2026-06-04T12:00:00Z", { rebuttal: 0, dropped: 0 })];
+    const funnel = buildRepairOutcomeFunnel(repairs, debates, [], { now: NOW2, minSample: 5 });
+    expect(funnel.acceptance.rate).toBeNull();
+    expect(funnel.acceptance.denominator).toBe(1);
+    expect(funnel.firstRetestRecurrence.rate).toBeNull();
+    expect(funnel.note).toMatch(/Observational only/);
+  });
+
+  it("computes post-repair D1 return anchored at first repair, with pending windows", () => {
+    const repairs = [
+      repair("u1", "d0", "rebuttal", "2026-06-01T12:00:00Z"),
+      repair("u2", "d9", "rebuttal", "2026-07-14T12:00:00Z"),
+    ];
+    const events = [
+      ev("u1", "repair_completed", "2026-06-01T12:00:00Z", "d0"),
+      ev("u1", "daily_viewed", "2026-06-02T09:00:00Z"),
+      ev("u2", "repair_completed", "2026-07-14T12:00:00Z", "d9"),
+    ];
+    const funnel = buildRepairOutcomeFunnel(repairs, [], events, { now: "2026-07-15T12:00:00Z", minSample: 1 });
+    // u1's anchor (Jun 1) has a full D1 window and returned; u2's anchor
+    // (Jul 14) targets today, which counts as a full window by the same
+    // convention as returnRate — no event yet, so not returned.
+    expect(funnel.postRepairReturn.d1.eligibleUsers).toBe(2);
+    expect(funnel.postRepairReturn.d1.returnedUsers).toBe(1);
+    expect(funnel.postRepairReturn.d1.pendingUsers).toBe(0);
+    expect(funnel.postRepairReturn.d1.rate).toBe(0.5);
+    // u2's anchor is too recent for D30 (pending); u1's anchor is eligible.
+    expect(funnel.postRepairReturn.d30.pendingUsers).toBe(1);
+    expect(funnel.postRepairReturn.d30.eligibleUsers).toBe(1);
+  });
+
+  it("returnRateAfterAnchor counts only full windows as eligible", () => {
+    const events = [
+      ev("u1", "daily_viewed", "2026-06-02T09:00:00Z"),
+      ev("u2", "daily_viewed", "2026-07-10T09:00:00Z"),
+    ];
+    const anchors = new Map([
+      ["u1", "2026-06-01T12:00:00Z"],
+      ["u2", "2026-07-14T12:00:00Z"],
+    ]);
+    const r = returnRateAfterAnchor(events, anchors, 7, "2026-07-15T12:00:00Z", 1);
+    // u1's anchor is 44 days old (eligible, no D7 return); u2's is 1 day old
+    // (pending for a 7-day window).
+    expect(r.eligibleUsers).toBe(1);
+    expect(r.returnedUsers).toBe(0);
+    expect(r.pendingUsers).toBe(1);
   });
 });

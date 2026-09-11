@@ -21,11 +21,9 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const script = path.join(projectRoot, "scripts", "generate-topics.mjs");
 
 function runScript(args: string[], env: Record<string, string | undefined>): { stdout: string; stderr: string; status: number } {
-  const cleanEnv: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined && !["DATABASE_URL", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"].includes(k)) {
-      cleanEnv[k] = v;
-    }
+  const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
+  for (const k of ["DATABASE_URL", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"]) {
+    delete cleanEnv[k];
   }
   for (const [k, v] of Object.entries(env)) {
     if (v !== undefined) cleanEnv[k] = v;

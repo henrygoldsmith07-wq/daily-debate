@@ -4,6 +4,10 @@ import {
   lengthBucketFor,
   abilityBandFor,
   anonymiseTranscript,
+  assignPresentationSide,
+  mirrorWinner,
+  normalizeRatingToOriginal,
+  swapTranscriptSides,
   validateRating,
   completeScores,
   oppositeStance,
@@ -153,5 +157,48 @@ describe("population progress", () => {
       "ability:intermediate",
       "ability:advanced",
     ]);
+  });
+});
+
+describe("presentation randomisation (position-bias control)", () => {
+  it("assigns a stable side per rater+item", () => {
+    expect(assignPresentationSide("r1", "item-1")).toBe(assignPresentationSide("r1", "item-1"));
+    expect(["a", "b"]).toContain(assignPresentationSide("r1", "item-1"));
+  });
+
+  it("splits roughly evenly across many pairs", () => {
+    let bFirst = 0;
+    const n = 400;
+    for (let i = 0; i < n; i++) {
+      if (assignPresentationSide(`rater-${i % 20}`, `item-${i}`) === "b") bFirst += 1;
+    }
+    expect(bFirst).toBeGreaterThan(n * 0.35);
+    expect(bFirst).toBeLessThan(n * 0.65);
+  });
+
+  it("swapTranscriptSides is an involution that exchanges the labels", () => {
+    const t = "Side A (round 1): Alpha speaks.\nSide B (round 1): Beta replies.";
+    const swapped = swapTranscriptSides(t);
+    expect(swapped).toContain("Side B (round 1): Alpha speaks.");
+    expect(swapped).toContain("Side A (round 1): Beta replies.");
+    expect(swapTranscriptSides(swapped)).toBe(t);
+  });
+
+  it("normalizeRatingToOriginal is identity for a-first presentation", () => {
+    const rating = { scores_a: { evidenceQuality: 4 }, scores_b: { evidenceQuality: 2 }, winner: "a" as const };
+    expect(normalizeRatingToOriginal(rating, "a")).toEqual(rating);
+  });
+
+  it("normalizeRatingToOriginal mirrors scores and winner for b-first presentation", () => {
+    const normalized = normalizeRatingToOriginal(
+      { scores_a: { evidenceQuality: 4 }, scores_b: { evidenceQuality: 2 }, winner: "a" as const },
+      "b",
+    );
+    expect(normalized).toEqual({
+      scores_a: { evidenceQuality: 2 },
+      scores_b: { evidenceQuality: 4 },
+      winner: "b",
+    });
+    expect(mirrorWinner("tie")).toBe("tie");
   });
 });
