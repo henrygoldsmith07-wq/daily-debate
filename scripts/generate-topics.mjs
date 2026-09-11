@@ -13,6 +13,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { neon } from "@neondatabase/serverless";
 
 function loadEnvLocal() {
@@ -27,41 +28,157 @@ loadEnvLocal();
 
 const log = (...a) => process.stderr.write(a.join(" ") + "\n");
 
+const args = process.argv.slice(2);
+export const isMainModule =
+  !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+function printHelp() {
+  process.stdout.write(
+    [
+      "Pre-generate tomorrow's debate topic (daily_topics + topic_evidence).",
+      "",
+      "Usage:",
+      "  node scripts/generate-topics.mjs [--check-config] [--help]",
+      "",
+      "  (no flags)     run the pipeline: AI candidates, else curated fallback",
+      "  --check-config validate env + DB connectivity + required tables, no writes",
+      "  --help         print this help",
+      "",
+      "Exit codes: 0 ok (fallback stored counts as ok); 1 config/db failure.",
+      "Required: DATABASE_URL. Optional: NVIDIA_API_KEY / OPENROUTER_API_KEY /",
+      "ANTHROPIC_API_KEY (without any provider key the curated fallback is used).",
+      "",
+    ].join("\n"),
+  );
+}
+
+export function databaseHost(databaseUrl) {
+  try {
+    return new URL(databaseUrl).hostname || "(unparseable)";
+  } catch {
+    return "(unparseable)";
+  }
+}
+
+export function providerStatus(env = process.env) {
+  const providers = [];
+  if (env.NVIDIA_API_KEY) providers.push("nvidia");
+  if (env.OPENROUTER_API_KEY) providers.push("openrouter");
+  if (env.ANTHROPIC_API_KEY) providers.push("anthropic");
+  return providers;
+}
+
+/**
+ * Fail-fast configuration validation (no writes, no provider calls, no
+ * secret values in output). Returns { ok, checks } and never throws.
+ */
+export async function checkConfig(env = process.env, sqlFactory = neon) {
+  const checks = {};
+  const databaseUrl = env.DATABASE_URL?.trim();
+  checks.database_url_present = !!databaseUrl;
+  if (databaseUrl) checks.database_url_host = databaseHost(databaseUrl);
+  const providers = providerStatus(env);
+  checks.providers_configured = providers;
+  checks.ai_generation_expected = providers.length > 0;
+  if (!databaseUrl) {
+    return { ok: false, checks, reason: "config-failure: DATABASE_URL is required" };
+  }
+  let sql;
+  try {
+    sql = sqlFactory(databaseUrl);
+  } catch (e) {
+    return { ok: false, checks, reason: `config-failure: cannot create DB client (${String(e?.message ?? e).slice(0, 120)})` };
+  }
+  const withTimeout = (promise, ms, label) =>
+    Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
+    ]);
+  try {
+    await withTimeout(sql.query("SELECT 1"), 10_000, "database connectivity");
+    checks.database_reachable = true;
+  } catch (e) {
+    checks.database_reachable = false;
+    return { ok: false, checks, reason: `db-failure: database unreachable (${String(e?.message ?? e).slice(0, 120)})` };
+  }
+  try {
+    const tables = await withTimeout(
+      sql.query(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('daily_topics', 'topic_evidence')",
+      ),
+      10_000,
+      "table check",
+    );
+    const present = new Set(tables.map((r) => r.table_name));
+    checks.tables_present = [...present].sort();
+    const missing = ["daily_topics", "topic_evidence"].filter((t) => !present.has(t));
+    if (missing.length) {
+      return { ok: false, checks, reason: `db-failure: missing required tables (${missing.join(", ")}); run migrations` };
+    }
+    const unique = await withTimeout(
+      sql.query(
+        `SELECT 1 FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema)
+         WHERE tc.table_name = 'daily_topics' AND tc.constraint_type = 'UNIQUE' AND kcu.column_name = 'topic_date'
+         LIMIT 1`,
+      ),
+      10_000,
+      "constraint check",
+    );
+    checks.topic_date_unique = unique.length > 0;
+    if (!checks.topic_date_unique) {
+      return { ok: false, checks, reason: "db-failure: daily_topics.topic_date lacks its UNIQUE constraint; re-runs would duplicate rows" };
+    }
+  } catch (e) {
+    return { ok: false, checks, reason: `db-failure: schema check failed (${String(e?.message ?? e).slice(0, 120)})` };
+  }
+  return { ok: true, checks, reason: "ok" };
+}
+
 const databaseUrl = process.env.DATABASE_URL?.trim();
 
-if (!databaseUrl) {
-  console.error("[generate-topics] DATABASE_URL is required.");
+if (isMainModule && !databaseUrl && !args.includes("--help") && !args.includes("--check-config")) {
+  console.error("[generate-topics] outcome=config-failure: DATABASE_URL is required.");
   process.exit(1);
 }
 
-const sql = neon(databaseUrl);
+const sql = databaseUrl ? neon(databaseUrl) : null;
+
+function requireSql() {
+  if (!sql) throw new Error("DATABASE_URL is required.");
+  return sql;
+}
 
 async function getRecentTitles(limit = 14) {
-  const rows = await sql.query(
+  const rows = await requireSql().query(
     "SELECT title FROM daily_topics ORDER BY topic_date DESC LIMIT $1",
     [limit],
   );
   return rows.map((r) => r.title);
 }
 
-async function upsertTopic(targetDate, topic) {
-  return sql.query(
-    `INSERT INTO daily_topics (topic_date, title, prompt, category, sources)
-     VALUES ($1, $2, $3, $4, $5)
+async function upsertTopic(targetDate, topic, source) {
+  return requireSql().query(
+    `INSERT INTO daily_topics (topic_date, title, prompt, category, sources, generation_source)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (topic_date) DO UPDATE SET
        title = EXCLUDED.title,
        prompt = EXCLUDED.prompt,
        category = EXCLUDED.category,
-       sources = EXCLUDED.sources
+       sources = EXCLUDED.sources,
+       generation_source = EXCLUDED.generation_source
      RETURNING id`,
-    [targetDate, topic.title, topic.prompt, topic.category, topic.sources || []],
+    [targetDate, topic.title, topic.prompt, topic.category, topic.sources || [], source],
   );
 }
 
 async function storeEvidenceCards(topicId, cards) {
   if (!cards.length) return;
+  // Idempotent re-runs: replace this topic's cards instead of duplicating
+  // them, so a second run for the same date is always safe.
+  await requireSql().query("DELETE FROM topic_evidence WHERE topic_id = $1", [topicId]);
   for (const card of cards) {
-    await sql.query(
+    await requireSql().query(
       `INSERT INTO topic_evidence
        (topic_id, claim, source_name, source_type, url, title, passage, published_date, checks)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -327,61 +444,104 @@ function scoreCandidate(topic, recentTitles) {
 
 // --- Main ---
 
+export { pickFallback, scoreCandidate, scoreNovelty };
+
 async function main() {
+  if (args.includes("--help") || args.includes("-h")) {
+    printHelp();
+    return;
+  }
+  if (args.includes("--check-config")) {
+    const result = await checkConfig();
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    if (!result.ok) process.exit(1);
+    return;
+  }
+
   const now = new Date();
   const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   log(`[generate-topics] Pre-generating for ${tomorrow}`);
 
-  const recentTitles = await getRecentTitles(14);
+  let recentTitles;
+  try {
+    recentTitles = await getRecentTitles(14);
+  } catch (e) {
+    log(`[generate-topics] outcome=db-failure: cannot read recent topics (${String(e?.message ?? e).slice(0, 140)})`);
+    process.exit(1);
+  }
   log(`[generate-topics] ${recentTitles.length} recent titles loaded`);
 
+  const providers = providerStatus();
   let bestTopic = null;
-  try {
-    const candidates = await generateCandidates(recentTitles, 5);
-    log(`[generate-topics] ${candidates.length} candidates generated`);
+  let providerFailure = null;
+  if (!providers.length) {
+    log("[generate-topics] no provider keys configured — curated fallback mode (acceptable, not an error)");
+  } else {
+    try {
+      const candidates = await generateCandidates(recentTitles, 5);
+      log(`[generate-topics] ${candidates.length} candidates generated`);
 
-    const scored = candidates.map((c) => ({ ...scoreCandidate(c, recentTitles), raw: c }));
-    scored.sort((a, b) => b._score - a._score);
-    scored.forEach((c, i) => log(`  #${i + 1} score=${c._score} "${c.raw.title}"`));
-    bestTopic = {
-      title: scored[0].raw.title,
-      prompt: scored[0].raw.prompt,
-      category: scored[0].raw.category,
-      sources: scored[0].raw.sources || [],
-    };
-  } catch (e) {
-    log(`[generate-topics] AI generation failed: ${e.message} — falling back to curated.`);
+      const scored = candidates.map((c) => ({ ...scoreCandidate(c, recentTitles), raw: c }));
+      scored.sort((a, b) => b._score - a._score);
+      scored.forEach((c, i) => log(`  #${i + 1} score=${c._score} "${c.raw.title}"`));
+      bestTopic = {
+        title: scored[0].raw.title,
+        prompt: scored[0].raw.prompt,
+        category: scored[0].raw.category,
+        sources: scored[0].raw.sources || [],
+      };
+    } catch (e) {
+      providerFailure = e;
+      log(`[generate-topics] AI generation failed: ${String(e?.message ?? e).slice(0, 140)} — falling back to curated.`);
+    }
   }
 
+  const generationSource = bestTopic ? "ai" : "fallback";
   if (!bestTopic) {
     bestTopic = pickFallback(tomorrow, recentTitles);
     log(`[generate-topics] Using curated fallback: "${bestTopic.title}"`);
   }
 
-  const stored = await upsertTopic(tomorrow, bestTopic);
+  let stored;
+  try {
+    stored = await upsertTopic(tomorrow, bestTopic, generationSource);
+  } catch (e) {
+    log(`[generate-topics] outcome=db-failure: cannot store topic (${String(e?.message ?? e).slice(0, 140)})`);
+    process.exit(1);
+  }
   const topicId = stored?.[0]?.id;
 
+  let evidenceCards = 0;
   if (topicId) {
     log(`[generate-topics] Stored topic id=${topicId}, retrieving evidence...`);
     try {
       const cards = await retrieveEvidence(bestTopic.title, bestTopic.prompt);
       if (cards.length) {
         await storeEvidenceCards(topicId, cards);
+        evidenceCards = cards.length;
         log(`[generate-topics] ${cards.length} evidence cards stored`);
       } else {
         log(`[generate-topics] No evidence cards retrieved`);
       }
     } catch (e) {
-      log(`[generate-topics] Evidence retrieval failed: ${e.message}`);
+      log(`[generate-topics] Evidence retrieval failed: ${String(e?.message ?? e).slice(0, 140)}`);
     }
   } else {
     log(`[generate-topics] Could not resolve stored topic id`);
   }
 
-  log(`[generate-topics] Done — tomorrow's topic: "${bestTopic.title}"`);
+  const outcome = bestTopic && generationSource === "ai"
+    ? "ai-generated"
+    : providerFailure
+      ? "provider-failure"
+      : "curated-fallback";
+  log(`[generate-topics] outcome=${outcome} source=${generationSource} topic="${bestTopic.title}" evidence_cards=${evidenceCards}`);
+  process.stdout.write(JSON.stringify({ outcome, source: generationSource, date: tomorrow, title: bestTopic.title, evidenceCards }) + "\n");
 }
 
-main().catch((e) => {
-  process.stderr.write(String(e?.stack ?? e) + "\n");
-  process.exit(1);
-});
+if (isMainModule) {
+  main().catch((e) => {
+    process.stderr.write(String(e?.stack ?? e) + "\n");
+    process.exit(1);
+  });
+}
