@@ -606,8 +606,21 @@ export interface RepairOutcomeRow {
   firstRetestDebateId: string | null;
   /** Whether the repaired weakness kinds recurred in the first retest. */
   firstRetestRecurred: boolean | null;
-  /** Whether they recurred in any eligible debate after the first retest. */
-  laterRecurred: boolean | null;
+  /**
+   * Chronological per-retest recurrence flags over every ELIGIBLE later
+   * debate (the exposure base). length === eligibleRetests.
+   */
+  retestRecurrences: boolean[];
+  /** 1-based index of the first recurring eligible retest; null = none observed. */
+  firstRecurrenceAtRetest: number | null;
+  /** Whole days from repair to the first recurring eligible retest; null = none. */
+  daysToFirstRecurrence: number | null;
+  /** Recurrences among eligible retests AFTER the first (density numerator). */
+  recurrencesAfterFirst: number;
+  /** Eligible retests after the first (density denominator); 0 until a 2nd exists. */
+  retestsAfterFirst: number;
+  /** Recurrence within the first 3 eligible retests; null while exposure < 3. */
+  recurredWithinFirstThree: boolean | null;
   /** Eligible later debates (the retest denominator for this repair). */
   eligibleRetests: number;
 }
@@ -623,10 +636,25 @@ export interface RepairOutcomeFunnel {
   /** Repairs with no later eligible debate yet (pending, excluded from recurrence rates). */
   retestsPending: number;
   medianDaysToRetest: number | null;
-  /** First-retest recurrence among observed retests. */
+  /** PRIMARY outcome: first-retest recurrence among observed retests. */
   firstRetestRecurrence: FunnelRate;
-  /** Later recurrence among repairs with ≥1 eligible debate after the first retest. */
-  laterRecurrence: FunnelRate;
+  /**
+   * Opportunity-adjusted density: recurrences among eligible retests AFTER
+   * the first, divided by the number of those retests (pooled across repairs
+   * with ≥2 eligible retests). Exposure-neutral: extra follow-up debates add
+   * numerator AND denominator, so more retests never imply worse outcomes.
+   */
+  recurrencePerEligibleRetest: FunnelRate & { retestSlots: number };
+  /**
+   * Fixed-window recurrence: of the repairs with ≥3 eligible retests, how
+   * many saw the weakness back within the first three. Repairs with less
+   * exposure are counted, never guessed.
+   */
+  firstThreeExposure: FunnelRate & { belowWindow: number };
+  /** Among repairs that recurred at some observed retest: median days to FIRST recurrence. */
+  timeToFirstRecurrence: { medianDays: number | null; observedRepairs: number; censoredRepairs: number };
+  /** Among the same repairs: median number of ELIGIBLE retests passed before recurrence. */
+  opportunitiesBeforeRecurrence: { median: number | null };
   /** D1/D7/D30 return anchored at each user's first repair (not first activity). */
   postRepairReturn: { d1: ReturnRate; d7: ReturnRate; d30: ReturnRate };
   note: string;
@@ -683,6 +711,13 @@ export function returnRateAfterAnchor(
   };
 }
 
+function medianNumbers(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
 export function buildRepairOutcomeRows(
   repairs: RepairRow[],
   debates: DebateWeaknessRow[],
@@ -712,7 +747,12 @@ export function buildRepairOutcomeRows(
       .filter((d) => d.debateId !== repair.debate_id && Date.parse(d.completedAt) > repairedAt)
       .filter((d) => hasOpportunity(repair.target_kind, d));
     const first = later[0] ?? null;
-    const rest = later.slice(1);
+    // Exposure base: a chronological recurrence flag per eligible later
+    // debate. Every downstream opportunity-adjusted metric is derived from
+    // this list, so a repair with MORE follow-up debates contributes more
+    // denominator too — more chances never translate into a worse score.
+    const retestRecurrences = later.map((d) => weaknessPresent(d.kinds, kinds));
+    const recurrenceIdx = retestRecurrences.indexOf(true);
     return {
       userId: repair.user_id,
       debateId: repair.debate_id,
@@ -723,8 +763,16 @@ export function buildRepairOutcomeRows(
         ? Math.floor((Date.parse(first.completedAt) - repairedAt) / 86_400_000)
         : null,
       firstRetestDebateId: first?.debateId ?? null,
-      firstRetestRecurred: first ? weaknessPresent(first.kinds, kinds) : null,
-      laterRecurred: rest.length ? rest.some((d) => weaknessPresent(d.kinds, kinds)) : null,
+      firstRetestRecurred: first ? retestRecurrences[0] : null,
+      retestRecurrences,
+      firstRecurrenceAtRetest: recurrenceIdx === -1 ? null : recurrenceIdx + 1,
+      daysToFirstRecurrence:
+        recurrenceIdx === -1
+          ? null
+          : Math.floor((Date.parse(later[recurrenceIdx].completedAt) - repairedAt) / 86_400_000),
+      recurrencesAfterFirst: retestRecurrences.slice(1).filter(Boolean).length,
+      retestsAfterFirst: Math.max(0, later.length - 1),
+      recurredWithinFirstThree: later.length >= 3 ? retestRecurrences.slice(0, 3).some(Boolean) : null,
       eligibleRetests: later.length,
     };
   });
@@ -740,19 +788,26 @@ export function buildRepairOutcomeFunnel(
   const minSample = opts.minSample ?? REPAIR_OUTCOME_MIN_SAMPLE;
   const rows = buildRepairOutcomeRows(repairs, debates, events);
   const withRetest = rows.filter((r) => r.firstRetestDebateId !== null);
-  const withLater = rows.filter((r) => r.laterRecurred !== null);
-  const days = withRetest
-    .map((r) => r.daysToRetest as number)
-    .sort((a, b) => a - b);
-  const medianDaysToRetest = days.length
-    ? days.length % 2
-      ? days[(days.length - 1) / 2]
-      : (days[days.length / 2 - 1] + days[days.length / 2]) / 2
-    : null;
+  const medianDaysToRetest = medianNumbers(withRetest.map((r) => r.daysToRetest as number));
   const acceptedCount = rows.filter((r) => r.accepted).length;
   const firstRecurred = withRetest.filter((r) => r.firstRetestRecurred).length;
-  const laterRecurred = withLater.filter((r) => r.laterRecurred).length;
   const unmatchedStarts = events.filter((e) => e.name === "repair_started" && !e.debate_id).length;
+
+  // Opportunity-adjusted density across eligible retests AFTER the first.
+  const densityRows = rows.filter((r) => r.retestsAfterFirst >= 1);
+  const retestSlots = densityRows.reduce((s, r) => s + r.retestsAfterFirst, 0);
+  const recurrencesInSlots = densityRows.reduce((s, r) => s + r.recurrencesAfterFirst, 0);
+
+  // Fixed-window (first 3) recurrence, restricted to repairs that HAVE 3+
+  // eligible retests — shorter exposure is reported separately, never guessed.
+  const window3 = rows.filter((r) => r.recurredWithinFirstThree !== null);
+  const within3Recurred = window3.filter((r) => r.recurredWithinFirstThree).length;
+  const belowWindow3 = withRetest.length - window3.length;
+
+  // Time to first recurrence among repairs that recurred at some point;
+  // the rest are censored (observed retests, no recurrence yet).
+  const recurred = rows.filter((r) => r.firstRecurrenceAtRetest !== null);
+  const censored = withRetest.filter((r) => r.firstRecurrenceAtRetest === null).length;
 
   // Post-repair return: anchor each user at their FIRST repair completion.
   const anchors = new Map<string, string>();
@@ -785,20 +840,39 @@ export function buildRepairOutcomeFunnel(
         ? null
         : `not yet measurable — ${withRetest.length} observed retest${withRetest.length === 1 ? "" : "s"} (need ${minSample})`,
     },
-    laterRecurrence: {
-      numerator: laterRecurred,
-      denominator: withLater.length,
-      sample: withLater.length,
-      rate: withLater.length >= minSample ? +(laterRecurred / withLater.length).toFixed(3) : null,
-      note: withLater.length >= minSample
-        ? null
-        : `not yet measurable — ${withLater.length} repair${withLater.length === 1 ? "" : "s"} with later debates (need ${minSample})`,
+    recurrencePerEligibleRetest: {
+      numerator: recurrencesInSlots,
+      denominator: retestSlots,
+      sample: densityRows.length,
+      retestSlots,
+      rate: densityRows.length >= minSample && retestSlots > 0 ? +(recurrencesInSlots / retestSlots).toFixed(3) : null,
+      note: densityRows.length >= minSample
+        ? `pooled over ${retestSlots} eligible retests (2nd+) from ${densityRows.length} repairs`
+        : `not yet measurable — ${densityRows.length} repairs have a 2nd eligible retest (need ${minSample})`,
+    },
+    firstThreeExposure: {
+      numerator: within3Recurred,
+      denominator: window3.length,
+      sample: window3.length,
+      belowWindow: belowWindow3,
+      rate: window3.length >= minSample ? +(within3Recurred / window3.length).toFixed(3) : null,
+      note: window3.length >= minSample
+        ? `${belowWindow3} repair${belowWindow3 === 1 ? "" : "s"} have fewer than 3 eligible retests and are excluded, never guessed`
+        : `not yet measurable — ${window3.length} repairs have 3+ eligible retests (need ${minSample})`,
+    },
+    timeToFirstRecurrence: {
+      medianDays: medianNumbers(recurred.map((r) => r.daysToFirstRecurrence as number)),
+      observedRepairs: recurred.length,
+      censoredRepairs: censored,
+    },
+    opportunitiesBeforeRecurrence: {
+      median: medianNumbers(recurred.map((r) => (r.firstRecurrenceAtRetest as number) - 1)),
     },
     postRepairReturn: {
       d1: returnRateAfterAnchor(events, anchors, 1, now, minSample),
       d7: returnRateAfterAnchor(events, anchors, 7, now, minSample),
       d30: returnRateAfterAnchor(events, anchors, 30, now, minSample),
     },
-    note: "Observational only — users who complete repairs differ from those who don't in many ways. Recurrence and return rates describe what happened after repairs; they are not evidence that a repair caused any change.",
+    note: "Observational only — users who complete repairs differ from those who don't. First-eligible-retest recurrence is the primary outcome; the per-retest and first-three measures are opportunity-adjusted so a user with more follow-up debates is not penalised for the extra chances they had to recur. Median time/opportunities-to-first-recurrence treat never-repaired-on repairs as censored, not clean.",
   };
 }

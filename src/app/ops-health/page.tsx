@@ -4,7 +4,7 @@ import { isCorpusAdmin } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadOpsHealth } from "@/lib/opsHealthServer";
-import type { HealthState } from "@/lib/opsHealth";
+import type { EvidenceSection, HealthState } from "@/lib/opsHealth";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +74,9 @@ export default async function OpsHealthPage() {
           <StateBadge state={report.overall} />
         </div>
         {report.unknowns.length > 0 && (
-          <p className="mt-1 text-xs text-ink3">Unknown (excluded from overall): {report.unknowns.join(", ")}</p>
+          <p className="mt-1 text-xs text-amber-700">
+            Unresolved (raises overall to at least &ldquo;unknown&rdquo;, never healthy): {report.unknowns.join(", ")}
+          </p>
         )}
         {report.notes.length > 0 && (
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-ink3">
@@ -145,6 +147,29 @@ export default async function OpsHealthPage() {
           <Link className="underline" href={report.app.ciUrl}>Open GitHub Actions</Link>
         </p>
       </section>
+
+      {report.human && <EvidenceSectionCard id="human-heading" title="Human validation" section={report.human} />}
+      {report.training && <EvidenceSectionCard id="training-heading" title="Training effectiveness" section={report.training} />}
     </AppShell>
+  );
+}
+
+function EvidenceSectionCard({ id, title, section }: { id: string; title: string; section: EvidenceSection }) {
+  return (
+    <section className="surface-card mt-4 p-5" aria-labelledby={id}>
+      <div className="flex items-center justify-between gap-3">
+        <h2 id={id} className="text-sm font-semibold">{title}</h2>
+        <StateBadge state={section.status} />
+      </div>
+      <p className="mt-1 text-xs font-medium">{section.headline}</p>
+      {section.facts.length > 0 && (
+        <div className="mt-2">
+          {section.facts.map((fact) => (
+            <Fact key={fact.label} label={fact.label} value={fact.value} />
+          ))}
+        </div>
+      )}
+      {section.note && <p className="mt-2 text-xs text-ink3">{section.note}</p>}
+    </section>
   );
 }

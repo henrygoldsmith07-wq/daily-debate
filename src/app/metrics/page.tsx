@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/backend/server";
 import { computeCorpusMetrics, type MetricItem, type MetricRating } from "@/lib/corpusMetrics";
+import { POPULATION_TARGET_ITEMS } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 
@@ -28,7 +29,7 @@ export default async function MetricsPage() {
   ]);
   const m = computeCorpusMetrics((items ?? []) as MetricItem[], (ratings ?? []) as unknown as MetricRating[]);
 
-  const targetPct = Math.min(100, Math.round((m.corpus.items / 1000) * 100));
+  const targetPct = Math.min(100, Math.round((m.corpus.items / POPULATION_TARGET_ITEMS) * 100));
 
   return (
     <AppShell width="narrow">
@@ -41,11 +42,34 @@ export default async function MetricsPage() {
       <section className="surface-card flex flex-col gap-3 p-5">
         <h2 className="text-sm font-semibold">Campaign progress</h2>
         <p className="tabular text-xs text-ink3">
-          {m.corpus.items} / 1000 debates · {m.corpus.ratings} judgements · {m.corpus.raters} raters
+          {m.corpus.items} / {POPULATION_TARGET_ITEMS} debates · {m.corpus.ratings} judgements · {m.corpus.raters} raters
         </p>
         <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
           <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${targetPct}%` }} />
         </div>
+      </section>
+
+      <section className="surface-card p-5" aria-labelledby="hv-heading">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 id="hv-heading" className="text-sm font-semibold">Human validation status</h2>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+              m.humanValidation.groundTruth.ready ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"
+            }`}
+          >
+            {m.humanValidation.groundTruth.ready ? "meets ground-truth requirements" : "not yet human ground truth"}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-ink3">
+          {m.humanValidation.consensusReadyItems} consensus-ready items · {m.humanValidation.unresolvedDisagreements} unresolved
+          disagreements · mean winner κ {m.humanValidation.meanWinnerKappa ?? "—"} · score-gap dispersion (mean SD){" "}
+          {m.humanValidation.meanScoreGapDispersion ?? "—"} · mean confidence {m.humanValidation.meanRaterConfidence ?? "—"}
+        </p>
+        {!m.humanValidation.groundTruth.ready && (
+          <p className="mt-1 text-xs text-amber-700">
+            Judge-vs-human numbers below are provisional until: {m.humanValidation.groundTruth.reasons.join("; ")}.
+          </p>
+        )}
       </section>
 
       <section className="surface-card p-5">

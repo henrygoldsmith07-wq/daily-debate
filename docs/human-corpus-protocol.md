@@ -18,11 +18,14 @@ real human-grounded judge evidence. Every rule here exists to keep a future
 ## Presentation randomisation (position-bias control)
 
 - Each (rater, item) pair is deterministically assigned which original side
-  is shown first (`assignPresentationSide`, FNV-1a hash parity — stable
-  across refreshes, ~50/50 in expectation). `swapTranscriptSides` exchanges
-  the labels for `b`-first presentation.
-- Ratings arrive in presented coordinates and are normalised to original
-  coordinates server-side before storage (`normalizeRatingToOriginal`:
+  is shown first (`assignPresentationSide`, FNV-1a hash + avalanche fold —
+  stable across refreshes, ~50/50 even for adversarial id patterns).
+  `swapTranscriptSides` exchanges the labels for `b`-first presentation.
+- **The server owns presentation truth.** The submission handler recomputes
+  the assignment from `(userId, corpusId)`; client-supplied side-order
+  metadata is ignored, so a forged `presentedFirst` can never invert stored
+  coordinates. Ratings arrive in presented coordinates and are normalised to
+  original item coordinates before storage (`normalizeRatingToOriginal`:
   scores swap, winner mirrors). Analysis always reads one frame.
 - The stored `presented_first` column lets reliability reporting check the
   balance (`presentationBalance` in the reliability endpoint) so a skewed
@@ -47,7 +50,12 @@ real human-grounded judge evidence. Every rule here exists to keep a future
   shared items), winner agreement. Disagreements (≥2 raters differ) enter
   the adjudication queue; an admin settles them by majority or moderator
   override with a required note (`adjudicateDebate`).
-- System-vs-human accuracy is computed ONLY over agreement-ready items
+- **Ground-truth gate** (`humanGroundTruthReady`): the corpus may be used as
+  judge ground truth only with ≥30 consensus-ready items, ≥5 independent
+  raters, and mean winner κ ≥0.6. Every surface (public `/metrics`, admin
+  reliability, ops health) shows the same explicit not-yet/ready verdict —
+  agreement claims below the gate are labelled provisional.
+- System-vs-human accuracy is computed ONLY over agreementReady items
   (unanimous or adjudicated) via the admin `system-comparison` flow, which
   never re-judges an item and records a position-swap stability check.
 - Public aggregates (`/metrics`) are sample-gated to null/dash below

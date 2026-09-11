@@ -380,7 +380,7 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     return { user_id: user, name, format: null, reason: null, debate_id: debate, created_at: at };
   }
 
-  it("joins acceptance, time-to-retest, first recurrence and later recurrence per repair", () => {
+  it("exposes acceptance, retest timing and the full recurrence sequence per repair", () => {
     const repairs = [repair("u1", "d0", "rebuttal", T0)];
     const debates = [
       debateRow("u1", "d0", "2026-05-31T12:00:00Z", { rebuttal: 1, dropped: 2 }),
@@ -394,8 +394,80 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     expect(rows[0].daysToRetest).toBe(3);
     expect(rows[0].firstRetestDebateId).toBe("d1");
     expect(rows[0].firstRetestRecurred).toBe(true);
-    expect(rows[0].laterRecurred).toBe(false);
+    // Full chronological exposure base: d1 recurred, d2 clean.
+    expect(rows[0].retestRecurrences).toEqual([true, false]);
+    expect(rows[0].firstRecurrenceAtRetest).toBe(1);
+    expect(rows[0].daysToFirstRecurrence).toBe(3);
+    expect(rows[0].recurrencesAfterFirst).toBe(0);
+    expect(rows[0].retestsAfterFirst).toBe(1);
+    // Only 2 eligible retests: the 3-retest fixed window is not yet observable.
+    expect(rows[0].recurredWithinFirstThree).toBeNull();
     expect(rows[0].eligibleRetests).toBe(2);
+  });
+
+  it("measures later recurrence per eligible retest, not 'any later debate'", () => {
+    // A long-exposure repair (weakness back once among six retests) and a
+    // short one (back on its only second retest) are compared on the SAME
+    // per-retest basis: more follow-up debates add denominator, so the
+    // long-exposure user is not scored worse for having more chances.
+    const repairs = [
+      repair("long", "d0", "rebuttal", T0),
+      repair("short", "d0", "rebuttal", T0),
+    ];
+    const debates = [
+      debateRow("long", "r0", "2026-06-02T00:00:00Z", { rebuttal: 0 }),
+      debateRow("long", "r1", "2026-06-03T00:00:00Z", { rebuttal: 0 }),
+      debateRow("long", "r2", "2026-06-04T00:00:00Z", { rebuttal: 1 }),
+      debateRow("long", "r3", "2026-06-05T00:00:00Z", { rebuttal: 0 }),
+      debateRow("long", "r4", "2026-06-06T00:00:00Z", { rebuttal: 0 }),
+      debateRow("long", "r5", "2026-06-07T00:00:00Z", { rebuttal: 0 }),
+      debateRow("short", "s1", "2026-06-02T00:00:00Z", { rebuttal: 0 }),
+      debateRow("short", "s2", "2026-06-03T00:00:00Z", { rebuttal: 1 }),
+    ];
+    const rows = buildRepairOutcomeRows(repairs, debates, []);
+    const long = rows.find((r) => r.userId === "long")!;
+    const short = rows.find((r) => r.userId === "short")!;
+    expect(long.retestRecurrences).toEqual([false, false, true, false, false, false]);
+    expect(long.firstRecurrenceAtRetest).toBe(3);
+    expect(long.recurrencesAfterFirst).toBe(1);
+    expect(long.retestsAfterFirst).toBe(5);
+    expect(long.recurredWithinFirstThree).toBe(true);
+    expect(short.recurrencesAfterFirst).toBe(1);
+    expect(short.retestsAfterFirst).toBe(1);
+    expect(short.recurredWithinFirstThree).toBeNull();
+    // Pooled density: 2 recurrences across 6 post-first retests = 1/3.
+    const funnel = buildRepairOutcomeFunnel(repairs, debates, [], { now: NOW2, minSample: 2 });
+    expect(funnel.recurrencePerEligibleRetest.numerator).toBe(2);
+    expect(funnel.recurrencePerEligibleRetest.denominator).toBe(6);
+    expect(funnel.recurrencePerEligibleRetest.rate).toBeCloseTo(1 / 3, 3);
+    expect(funnel.recurrencePerEligibleRetest.note).toMatch(/pooled over 6/);
+  });
+
+  it("restricts the first-three window to repairs with that exposure, never guessing", () => {
+    const repairs = [repair("u1", "d0", "rebuttal", T0)];
+    const debates = [debateRow("u1", "d1", "2026-06-04T12:00:00Z", { rebuttal: 0 })];
+    const funnel = buildRepairOutcomeFunnel(repairs, debates, [], { now: NOW2, minSample: 1 });
+    expect(funnel.firstThreeExposure.denominator).toBe(0);
+    expect(funnel.firstThreeExposure.rate).toBeNull();
+    expect(funnel.firstThreeExposure.belowWindow).toBe(1);
+  });
+
+  it("treats observed-but-not-recurring repairs as censored, not clean", () => {
+    const repairs = [
+      repair("u1", "d0", "rebuttal", T0),
+      repair("u2", "d0", "rebuttal", T0),
+      repair("u3", "d0", "rebuttal", T0),
+    ];
+    const debates = [
+      debateRow("u1", "x1", "2026-06-02T12:00:00Z", { rebuttal: 0 }),
+      debateRow("u2", "x1", "2026-06-02T12:00:00Z", { rebuttal: 1 }),
+      debateRow("u3", "x1", "2026-06-02T12:00:00Z", { rebuttal: 1 }),
+    ];
+    const funnel = buildRepairOutcomeFunnel(repairs, debates, [], { now: NOW2, minSample: 1 });
+    expect(funnel.timeToFirstRecurrence.observedRepairs).toBe(2);
+    expect(funnel.timeToFirstRecurrence.censoredRepairs).toBe(1);
+    expect(funnel.timeToFirstRecurrence.medianDays).toBe(1);
+    expect(funnel.opportunitiesBeforeRecurrence.median).toBe(0);
   });
 
   it("marks repairs with no later eligible debate as pending (never as clean)", () => {
@@ -417,6 +489,7 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     expect(funnel.acceptance.rate).toBeNull();
     expect(funnel.acceptance.denominator).toBe(1);
     expect(funnel.firstRetestRecurrence.rate).toBeNull();
+    expect(funnel.recurrencePerEligibleRetest.rate).toBeNull();
     expect(funnel.note).toMatch(/Observational only/);
   });
 

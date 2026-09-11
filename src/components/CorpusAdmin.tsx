@@ -9,13 +9,20 @@ interface ReliabilityReport {
   agreementReady: number;
   needsAdjudication: number;
   adjudicationQueue: Array<{ id: string; verdicts: string[] }>;
-  meanWinnerKappa: number | null;
+  presentationBalance: { aFirst: number; bFirst: number };
+  humanValidation: {
+    consensusReadyItems: number;
+    unresolvedDisagreements: number;
+    meanWinnerKappa: number | null;
+    meanScoreGapDispersion: number | null;
+    meanRaterConfidence: number | null;
+    groundTruth: { ready: boolean; reasons: string[] };
+  };
   perDimensionIcc: Record<string, number | null>;
   population: {
     targetItems: number;
     remainingToTarget: number;
     cellsNeedingCoverage: string[];
-    meanRaterConfidence: number | null;
   };
   strata: {
     byLength: Record<string, number>;
@@ -164,11 +171,28 @@ export default function CorpusAdmin() {
           <Stat label="Needs adjudication" value={report.needsAdjudication} />
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="Winner Cohen κ (pairs ≥5 items)" value={report.meanWinnerKappa ?? "—"} />
-          <Stat label="Mean rater confidence" value={report.population.meanRaterConfidence ?? "—"} />
+          <Stat label="Winner Cohen κ (pairs ≥5 items)" value={report.humanValidation.meanWinnerKappa ?? "—"} />
+          <Stat label="Mean rater confidence" value={report.humanValidation.meanRaterConfidence ?? "—"} />
+          <Stat label="Score-gap dispersion (mean SD)" value={report.humanValidation.meanScoreGapDispersion ?? "—"} />
           <Stat label="Remaining to target" value={report.population.remainingToTarget} />
-          <Stat label="Rated items" value={report.ratedItems} />
         </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="Consensus-ready items" value={report.humanValidation.consensusReadyItems} />
+          <Stat label="Unresolved disagreements" value={report.humanValidation.unresolvedDisagreements} />
+          <Stat
+            label="Presentation balance (a/b first)"
+            value={`${report.presentationBalance.aFirst} / ${report.presentationBalance.bFirst}`}
+          />
+          <Stat
+            label="Human ground truth"
+            value={report.humanValidation.groundTruth.ready ? "READY" : "not yet"}
+          />
+        </div>
+        {!report.humanValidation.groundTruth.ready && (
+          <p className="mt-1 text-xs text-amber-700" role="note">
+            Not yet human ground truth — {report.humanValidation.groundTruth.reasons.join("; ")}.
+          </p>
+        )}
         <div>
           <p className="mb-1 text-xs font-medium">Strata below minimum (recruit here)</p>
           {report.population.cellsNeedingCoverage.length ? (

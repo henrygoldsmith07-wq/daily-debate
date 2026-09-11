@@ -92,7 +92,11 @@ export async function POST(request: Request) {
 
   const corpusId = typeof body?.corpusId === "string" ? body.corpusId : null;
   if (!corpusId) return NextResponse.json({ error: "corpusId is required." }, { status: 400 });
-  const presentedFirst = body?.presentedFirst === "b" ? "b" : "a";
+  // INTEGRITY: presentation is recomputed server-side from the SAME
+  // deterministic assignment GET uses for (user, item). Client-supplied
+  // side-order metadata is ignored entirely — a forged presentedFirst can
+  // never invert the stored scores or winner.
+  const presentedFirst = assignPresentationSide(user.id, corpusId);
 
   const service = createServiceClient();
 

@@ -2,6 +2,12 @@
 // Every published metric carries: { estimate, ciLower, ciUpper, n, state }.
 
 import { gateBinomial, SAMPLE_GATES, type GatedMetric } from "./evidenceState";
+import { cohenKappa } from "./humanCorpus";
+import {
+  MIN_RATERS_PER_ITEM,
+  humanGroundTruthReady,
+  type GroundTruthDecision,
+} from "./corpus";
 
 export interface MetricRating {
   corpus_id: string;
@@ -65,8 +71,29 @@ export interface CorpusMetricsResult {
   positionSwapStability: GatedMetric;
   calibrationError: number | null;
   citationFlagRate: GatedMetric;
+  /** Independent-human-validation readiness (ground-truth gate + dispersion). */
+  humanValidation: {
+    consensusReadyItems: number;
+    unresolvedDisagreements: number;
+    meanWinnerKappa: number | null;
+    meanScoreGapDispersion: number | null;
+    meanRaterConfidence: number | null;
+    groundTruth: GroundTruthDecision;
+  };
   /** Evidence states for dashboard rendering */
   evidenceStates: Record<string, string>;
+}
+
+/** Mean overall preference gap (a minus b) a rater assigned to one item. */
+function raterGap(r: MetricRating): number {
+  return meanOverall(r.scores_a) - meanOverall(r.scores_b);
+}
+
+/** Population standard deviation, null when fewer than two values. */
+function stdev(values: number[]): number | null {
+  if (values.length < 2) return null;
+  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  return Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length);
 }
 
 export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[]): CorpusMetricsResult {
@@ -136,6 +163,52 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
     if (typeof swap?.stable === "boolean") { swapN++; if (swap.stable) swapStable++; }
   }
 
+  // --- Independent-human-validation readiness --------------------------------
+  // Consensus-ready = ≥2 raters with a STRICT majority winner (not a split).
+  // Everything else among multi-rated items is an unresolved disagreement that
+  // must go through adjudication before it counts toward anything.
+  let consensusReadyItems = 0;
+  let unresolvedDisagreements = 0;
+  const dispersions: number[] = [];
+  for (const [, list] of ratingsByItem) {
+    if (list.length < MIN_RATERS_PER_ITEM) continue;
+    const winners = list.map((r) => r.winner);
+    const votes: Record<WinnerLabel, number> = { a: 0, b: 0, tie: 0 };
+    for (const w of winners) if (w === "a" || w === "b" || w === "tie") votes[w] += 1;
+    const ranked = Object.values(votes).sort((x, y) => y - x);
+    const hasConsensus = ranked[0] > ranked[1] && majorityWinner(winners) !== "tie";
+    if (hasConsensus) consensusReadyItems++;
+    else unresolvedDisagreements++;
+    const d = stdev(list.map(raterGap));
+    if (d !== null) dispersions.push(d);
+  }
+  // Pairwise winner κ over rater pairs with ≥5 commonly-rated items (same
+  // discipline as the admin reliability endpoint, reused from humanCorpus).
+  const pairVotes = new Map<string, Array<[WinnerLabel, WinnerLabel]>>();
+  for (const [, list] of ratingsByItem) {
+    if (list.length !== 2) continue;
+    const [x, y] = [...list].sort((m, n) => m.rater_id.localeCompare(n.rater_id));
+    const key = `${x.rater_id}|${y.rater_id}`;
+    const seq = pairVotes.get(key) ?? [];
+    seq.push([x.winner as WinnerLabel, y.winner as WinnerLabel]);
+    pairVotes.set(key, seq);
+  }
+  const kappas: number[] = [];
+  for (const seq of pairVotes.values()) {
+    if (seq.length >= 5) kappas.push(cohenKappa(seq.map(([a]) => a), seq.map(([, b]) => b)));
+  }
+  const meanWinnerKappa = kappas.length
+    ? Number((kappas.reduce((s, k) => s + k, 0) / kappas.length).toFixed(3))
+    : null;
+  const confidences = ratings
+    .map((r) => r.confidence)
+    .filter((c): c is number => typeof c === "number" && c >= 0 && c <= 1);
+  const groundTruth = humanGroundTruthReady({
+    consensusReadyItems,
+    raters: raters.size,
+    meanWinnerKappa,
+  });
+
   // Gated results
   const consensusGate = SAMPLE_GATES.humanConsensus;
   const judgeGate = SAMPLE_GATES.judgeVsConsensus;
@@ -166,6 +239,18 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
     positionSwapStability: gateBinomial(swapStable, swapN, swapGate),
     calibrationError: finalizeEce(calibBins),
     citationFlagRate: gateBinomial(flaggedNodes, citedNodes, { minReportable: citeGate.minReportable, minEarly: citeGate.minEarly }),
+    humanValidation: {
+      consensusReadyItems,
+      unresolvedDisagreements,
+      meanWinnerKappa,
+      meanScoreGapDispersion: dispersions.length
+        ? Number((dispersions.reduce((s, d) => s + d, 0) / dispersions.length).toFixed(3))
+        : null,
+      meanRaterConfidence: confidences.length
+        ? Number((confidences.reduce((s, c) => s + c, 0) / confidences.length).toFixed(3))
+        : null,
+      groundTruth,
+    },
     evidenceStates: {
       humanConsensus: resolveState(multiRatedCount, consensusGate),
       judgeVsConsensus: resolveState(judged, judgeGate),

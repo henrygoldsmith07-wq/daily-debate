@@ -59,6 +59,11 @@ export function assignPresentationSide(raterId: string, itemId: string): Present
     h ^= s.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
+  // Avalanche: without this, the LSB (and thus the parity) can correlate with
+  // string structure — an unlucky or chosen id pattern could then see one side
+  // first every time. Folding high bits down balances it; the adversarial
+  // user-i/item-i pattern that failed 500/500 before is now ~50/50.
+  h ^= h >>> 15;
   return (h >>> 0) % 2 === 0 ? "a" : "b";
 }
 
@@ -252,6 +257,49 @@ export function deriveStyleBucket(s: StyleSignals): StyleBucket {
 
 export function oppositeStance(stance: "for" | "against"): "for" | "against" {
   return stance === "for" ? "against" : "for";
+}
+
+// --- Human ground-truth gate -------------------------------------------------
+// The corpus may be called "human ground truth" for judge validation ONLY
+// when it clears independent-collection bars. Below this it is a sample under
+// construction; agreement numbers are provisional, never truth. One predicate
+// so the reliability endpoint, the public metrics and the ops report cannot
+// drift on the definition.
+
+export const GROUND_TRUTH_MIN_CONSENSUS_ITEMS = 30;
+export const GROUND_TRUTH_MIN_RATERS = 5;
+/** Mean winner Cohen κ (floor); "substantial agreement" on the Landis-Koch scale. */
+export const GROUND_TRUTH_MIN_KAPPA = 0.6;
+
+export interface GroundTruthInput {
+  /** Items with ≥ MIN_RATERS_PER_ITEM raters AND a usable (non-split) consensus. */
+  consensusReadyItems: number;
+  /** Distinct raters who contributed those consensus items. */
+  raters: number;
+  /** Mean pairwise winner κ over rater pairs, or null when none computable. */
+  meanWinnerKappa: number | null;
+}
+
+export interface GroundTruthDecision {
+  ready: boolean;
+  reasons: string[];
+}
+
+export function humanGroundTruthReady(input: GroundTruthInput): GroundTruthDecision {
+  const reasons: string[] = [];
+  if (input.consensusReadyItems < GROUND_TRUTH_MIN_CONSENSUS_ITEMS) {
+    reasons.push(
+      `needs ${GROUND_TRUTH_MIN_CONSENSUS_ITEMS} consensus-rated items (have ${input.consensusReadyItems})`,
+    );
+  }
+  if (input.raters < GROUND_TRUTH_MIN_RATERS) {
+    reasons.push(`needs ${GROUND_TRUTH_MIN_RATERS} independent raters (have ${input.raters})`);
+  }
+  if (input.meanWinnerKappa === null || input.meanWinnerKappa < GROUND_TRUTH_MIN_KAPPA) {
+    const shown = input.meanWinnerKappa === null ? "—" : input.meanWinnerKappa.toFixed(3);
+    reasons.push(`needs mean winner κ ≥ ${GROUND_TRUTH_MIN_KAPPA} (have ${shown})`);
+  }
+  return { ready: reasons.length === 0, reasons };
 }
 
 export interface ComparisonPair {

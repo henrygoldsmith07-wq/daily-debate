@@ -1,28 +1,33 @@
 // Operational health — explicit states for critical background systems.
 //
 // Every section reports one of: healthy / degraded / blocked / stale /
-// failed (plus "unknown" only where the data source is unreachable from the
-// runtime, e.g. CI status without a GitHub token). Missing or stale
-// validation is NEVER represented as green: unknown inputs produce unknown,
-// never healthy. Pure assessment functions live here (unit-tested); I/O
-// lives in opsHealthServer.ts and the admin API route.
+// failed / unknown. Missing or stale validation is NEVER represented as
+// green: unknown inputs produce unknown, and unknown outranks healthy in
+// the overall roll-up (missing evidence is visibly unresolved). Pure
+// assessment functions live here (unit-tested); I/O lives in
+// opsHealthServer.ts and the admin API route.
 
 export type HealthState = "healthy" | "degraded" | "blocked" | "stale" | "failed" | "unknown";
 
-/** Severity order for the overall rollup (unknown never rolls up). */
-const SEVERITY: Record<Exclude<HealthState, "unknown">, number> = {
+/**
+ * Explicit roll-up severity order — an unresolved subsystem can never be
+ * averaged away: failed > blocked > stale > degraded > unknown > healthy.
+ * "unknown" sits ABOVE healthy deliberately: missing evidence is visibly
+ * unresolved, not green.
+ */
+export const STATE_SEVERITY: Record<HealthState, number> = {
   healthy: 0,
-  degraded: 1,
-  stale: 2,
-  blocked: 3,
-  failed: 4,
+  unknown: 1,
+  degraded: 2,
+  stale: 3,
+  blocked: 4,
+  failed: 5,
 };
 
-export function rollupOverall(states: HealthState[]): Exclude<HealthState, "unknown"> {
-  let worst: Exclude<HealthState, "unknown"> = "healthy";
+export function rollupOverall(states: HealthState[]): HealthState {
+  let worst: HealthState = "healthy";
   for (const s of states) {
-    if (s === "unknown") continue;
-    if (SEVERITY[s] > SEVERITY[worst]) worst = s;
+    if (STATE_SEVERITY[s] > STATE_SEVERITY[worst]) worst = s;
   }
   return worst;
 }
@@ -304,13 +309,112 @@ export function assessAppHealth(
 
 // --- Report -------------------------------------------------------------------
 
+/**
+ * A production-evidence section: one explicitly-stated status with its
+ * facts and denominators. Used for subsystems that inform trust but are not
+ * part of the operational overall roll-up (human validation, training
+ * effectiveness). Unknown/insufficient stays visible, never green-washed.
+ */
+export interface EvidenceSection {
+  status: HealthState;
+  headline: string;
+  facts: Array<{ label: string; value: string }>;
+  note: string | null;
+}
+
+export interface HumanValidationInput {
+  items: number;
+  raters: number;
+  itemsWithTwoPlusRatings: number;
+  consensusReady: number;
+  unresolvedDisagreements: number;
+  meanWinnerKappa: number | null;
+  canUseAsGroundTruth: boolean;
+}
+
+export function assessHumanValidation(input: HumanValidationInput): EvidenceSection {
+  const facts = [
+    { label: "Corpus items", value: String(input.items) },
+    { label: "Raters", value: String(input.raters) },
+    { label: "Independently rated (≥2)", value: String(input.itemsWithTwoPlusRatings) },
+    { label: "Consensus-ready", value: String(input.consensusReady) },
+    { label: "Unresolved disagreements", value: String(input.unresolvedDisagreements) },
+    { label: "Mean winner κ", value: input.meanWinnerKappa === null ? "—" : input.meanWinnerKappa.toFixed(3) },
+  ];
+  if (input.items === 0 || input.itemsWithTwoPlusRatings === 0) {
+    return {
+      status: "blocked",
+      headline: "no independently-rated debates yet",
+      facts,
+      note: "The corpus cannot validate the judge until ≥2 independent raters cover real debates.",
+    };
+  }
+  if (input.canUseAsGroundTruth) {
+    return {
+      status: "healthy",
+      headline: "meets ground-truth requirements (raters + agreement)",
+      facts,
+      note: "Judge-vs-human claims may be computed over consensus-ready items only.",
+    };
+  }
+  return {
+    status: "degraded",
+    headline: "collecting — below rater/agreement thresholds for ground truth",
+    facts,
+    note: "Sample-gated: not yet human ground truth; agreement numbers are provisional.",
+  };
+}
+
+export interface TrainingEvidenceInput {
+  repairs: number;
+  retestsObserved: number;
+  retestsPending: number;
+  /** First-retest recurrence rate, or null below the minimum sample. */
+  firstRetestRate: number | null;
+  firstRetestN: number;
+}
+
+export function assessTrainingEvidence(input: TrainingEvidenceInput): EvidenceSection {
+  const facts = [
+    { label: "Completed repairs", value: String(input.repairs) },
+    { label: "First-eligible retests observed", value: String(input.retestsObserved) },
+    { label: "Awaiting retest (pending, never counted clean)", value: String(input.retestsPending) },
+    { label: "First-retest recurrence", value: input.firstRetestRate === null ? "—" : `${Math.round(input.firstRetestRate * 100)}%` },
+    { label: "Denominator", value: String(input.firstRetestN) },
+  ];
+  if (input.repairs === 0) {
+    return {
+      status: "blocked",
+      headline: "no completed repairs recorded yet",
+      facts,
+      note: "The loop cannot be measured until repairs exist. Observational only once it does.",
+    };
+  }
+  if (input.firstRetestRate === null) {
+    return {
+      status: "degraded",
+      headline: "insufficient retest sample for any outcome claim",
+      facts,
+      note: "Below the minimum measurable sample: recurrence is not yet reportable.",
+    };
+  }
+  return {
+    status: "healthy",
+    headline: "first-eligible-retest recurrence is measurable (observational)",
+    facts,
+    note: "Association, not causation: users who repair differ in many ways.",
+  };
+}
+
 export interface OpsHealthReport {
   generatedAt: string;
   topic: TopicHealth;
   judge: JudgeHealth;
   database: DatabaseHealth;
   app: AppHealth;
-  overall: Exclude<HealthState, "unknown">;
+  human?: EvidenceSection;
+  training?: EvidenceSection;
+  overall: HealthState;
   unknowns: string[];
   notes: string[];
 }
@@ -321,6 +425,8 @@ export function buildOpsHealthReport(parts: {
   judge: JudgeHealth;
   database: DatabaseHealth;
   app: AppHealth;
+  human?: EvidenceSection;
+  training?: EvidenceSection;
 }): OpsHealthReport {
   const unknowns: string[] = [];
   if (parts.app.status === "unknown") unknowns.push("app/ci");

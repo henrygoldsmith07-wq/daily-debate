@@ -149,16 +149,16 @@ function requireSql() {
   return sql;
 }
 
-async function getRecentTitles(limit = 14) {
-  const rows = await requireSql().query(
+async function getRecentTitles(query, limit = 14) {
+  const rows = await query(
     "SELECT title FROM daily_topics ORDER BY topic_date DESC LIMIT $1",
     [limit],
   );
   return rows.map((r) => r.title);
 }
 
-async function upsertTopic(targetDate, topic, source) {
-  return requireSql().query(
+async function upsertTopic(query, targetDate, topic, source) {
+  return query(
     `INSERT INTO daily_topics (topic_date, title, prompt, category, sources, generation_source)
      VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (topic_date) DO UPDATE SET
@@ -172,13 +172,13 @@ async function upsertTopic(targetDate, topic, source) {
   );
 }
 
-async function storeEvidenceCards(topicId, cards) {
+async function storeEvidenceCards(query, topicId, cards) {
   if (!cards.length) return;
   // Idempotent re-runs: replace this topic's cards instead of duplicating
   // them, so a second run for the same date is always safe.
-  await requireSql().query("DELETE FROM topic_evidence WHERE topic_id = $1", [topicId]);
+  await query("DELETE FROM topic_evidence WHERE topic_id = $1", [topicId]);
   for (const card of cards) {
-    await requireSql().query(
+    await query(
       `INSERT INTO topic_evidence
        (topic_id, claim, source_name, source_type, url, title, passage, published_date, checks)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -446,6 +446,99 @@ function scoreCandidate(topic, recentTitles) {
 
 export { pickFallback, scoreCandidate, scoreNovelty };
 
+/**
+ * The generation pipeline, dependency-injected so every branch — AI success,
+ * provider failure → fallback, DB failure, idempotent re-run — is testable
+ * against an in-memory query double. Outcomes are explicit:
+ * ai-generated | curated-fallback | provider-failure | db-failure.
+ */
+export async function runGeneration(deps = {}) {
+  const query = deps.query ?? ((text, params) => requireSql().query(text, params));
+  const generate = deps.generate ?? ((recent, count) => generateCandidates(recent, count, deps.env));
+  const retrieve = deps.retrieve ?? retrieveEvidence;
+  const env = deps.env ?? process.env;
+  const now = deps.now ?? new Date();
+  const emit = deps.log ?? log;
+
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  emit(`[generate-topics] Pre-generating for ${tomorrow}`);
+
+  let recentTitles;
+  try {
+    recentTitles = await getRecentTitles(query, 14);
+  } catch (e) {
+    return { outcome: "db-failure", stage: "read-recent", error: String(e?.message ?? e) };
+  }
+  emit(`[generate-topics] ${recentTitles.length} recent titles loaded`);
+
+  const providers = providerStatus(env);
+  let bestTopic = null;
+  let providerFailure = null;
+  if (!providers.length) {
+    emit("[generate-topics] no provider keys configured — curated fallback mode (acceptable, not an error)");
+  } else {
+    try {
+      const candidates = await generate(recentTitles, 5);
+      emit(`[generate-topics] ${candidates.length} candidates generated`);
+      const scored = candidates.map((c) => ({ ...scoreCandidate(c, recentTitles), raw: c }));
+      scored.sort((a, b) => b._score - a._score);
+      scored.forEach((c, i) => emit(`  #${i + 1} score=${c._score} "${c.raw.title}"`));
+      const top = scored[0];
+      if (top) {
+        bestTopic = {
+          title: top.raw.title,
+          prompt: top.raw.prompt,
+          category: top.raw.category,
+          sources: top.raw.sources || [],
+        };
+      } else {
+        providerFailure = new Error("provider returned no usable candidates");
+      }
+    } catch (e) {
+      providerFailure = e;
+      emit(`[generate-topics] AI generation failed: ${String(e?.message ?? e).slice(0, 140)} — falling back to curated.`);
+    }
+  }
+
+  const generationSource = bestTopic ? "ai" : "fallback";
+  if (!bestTopic) {
+    bestTopic = pickFallback(tomorrow, recentTitles);
+    emit(`[generate-topics] Using curated fallback: "${bestTopic.title}"`);
+  }
+
+  let stored;
+  try {
+    stored = await upsertTopic(query, tomorrow, bestTopic, generationSource);
+  } catch (e) {
+    return { outcome: "db-failure", stage: "store-topic", error: String(e?.message ?? e) };
+  }
+  const topicId = stored?.[0]?.id;
+
+  let evidenceCards = 0;
+  if (topicId) {
+    try {
+      const cards = await retrieve(bestTopic.title, bestTopic.prompt);
+      if (cards.length) {
+        await storeEvidenceCards(query, topicId, cards);
+        evidenceCards = cards.length;
+      }
+      emit(`[generate-topics] ${evidenceCards} evidence cards stored`);
+    } catch (e) {
+      // Evidence is best-effort: a retrieval hiccup must not lose the topic.
+      emit(`[generate-topics] Evidence retrieval failed: ${String(e?.message ?? e).slice(0, 140)}`);
+    }
+  } else {
+    emit(`[generate-topics] Could not resolve stored topic id`);
+  }
+
+  const outcome = generationSource === "ai"
+    ? "ai-generated"
+    : providerFailure
+      ? "provider-failure"
+      : "curated-fallback";
+  return { outcome, source: generationSource, date: tomorrow, title: bestTopic.title, evidenceCards };
+}
+
 async function main() {
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
@@ -458,85 +551,13 @@ async function main() {
     return;
   }
 
-  const now = new Date();
-  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  log(`[generate-topics] Pre-generating for ${tomorrow}`);
-
-  let recentTitles;
-  try {
-    recentTitles = await getRecentTitles(14);
-  } catch (e) {
-    log(`[generate-topics] outcome=db-failure: cannot read recent topics (${String(e?.message ?? e).slice(0, 140)})`);
+  const result = await runGeneration();
+  if (result.outcome === "db-failure") {
+    log(`[generate-topics] outcome=db-failure (${result.stage}): ${result.error}`);
     process.exit(1);
   }
-  log(`[generate-topics] ${recentTitles.length} recent titles loaded`);
-
-  const providers = providerStatus();
-  let bestTopic = null;
-  let providerFailure = null;
-  if (!providers.length) {
-    log("[generate-topics] no provider keys configured — curated fallback mode (acceptable, not an error)");
-  } else {
-    try {
-      const candidates = await generateCandidates(recentTitles, 5);
-      log(`[generate-topics] ${candidates.length} candidates generated`);
-
-      const scored = candidates.map((c) => ({ ...scoreCandidate(c, recentTitles), raw: c }));
-      scored.sort((a, b) => b._score - a._score);
-      scored.forEach((c, i) => log(`  #${i + 1} score=${c._score} "${c.raw.title}"`));
-      bestTopic = {
-        title: scored[0].raw.title,
-        prompt: scored[0].raw.prompt,
-        category: scored[0].raw.category,
-        sources: scored[0].raw.sources || [],
-      };
-    } catch (e) {
-      providerFailure = e;
-      log(`[generate-topics] AI generation failed: ${String(e?.message ?? e).slice(0, 140)} — falling back to curated.`);
-    }
-  }
-
-  const generationSource = bestTopic ? "ai" : "fallback";
-  if (!bestTopic) {
-    bestTopic = pickFallback(tomorrow, recentTitles);
-    log(`[generate-topics] Using curated fallback: "${bestTopic.title}"`);
-  }
-
-  let stored;
-  try {
-    stored = await upsertTopic(tomorrow, bestTopic, generationSource);
-  } catch (e) {
-    log(`[generate-topics] outcome=db-failure: cannot store topic (${String(e?.message ?? e).slice(0, 140)})`);
-    process.exit(1);
-  }
-  const topicId = stored?.[0]?.id;
-
-  let evidenceCards = 0;
-  if (topicId) {
-    log(`[generate-topics] Stored topic id=${topicId}, retrieving evidence...`);
-    try {
-      const cards = await retrieveEvidence(bestTopic.title, bestTopic.prompt);
-      if (cards.length) {
-        await storeEvidenceCards(topicId, cards);
-        evidenceCards = cards.length;
-        log(`[generate-topics] ${cards.length} evidence cards stored`);
-      } else {
-        log(`[generate-topics] No evidence cards retrieved`);
-      }
-    } catch (e) {
-      log(`[generate-topics] Evidence retrieval failed: ${String(e?.message ?? e).slice(0, 140)}`);
-    }
-  } else {
-    log(`[generate-topics] Could not resolve stored topic id`);
-  }
-
-  const outcome = bestTopic && generationSource === "ai"
-    ? "ai-generated"
-    : providerFailure
-      ? "provider-failure"
-      : "curated-fallback";
-  log(`[generate-topics] outcome=${outcome} source=${generationSource} topic="${bestTopic.title}" evidence_cards=${evidenceCards}`);
-  process.stdout.write(JSON.stringify({ outcome, source: generationSource, date: tomorrow, title: bestTopic.title, evidenceCards }) + "\n");
+  log(`[generate-topics] outcome=${result.outcome} source=${result.source} topic="${result.title}" evidence_cards=${result.evidenceCards}`);
+  process.stdout.write(JSON.stringify(result) + "\n");
 }
 
 if (isMainModule) {

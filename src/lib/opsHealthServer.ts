@@ -6,12 +6,18 @@ import type { TableName } from "./backend/query";
 import {
   assessAppHealth,
   assessDatabaseHealth,
+  assessHumanValidation,
   assessJudgeHealth,
   assessTopicHealth,
+  assessTrainingEvidence,
   buildOpsHealthReport,
+  type EvidenceSection,
   type OpsHealthReport,
   type WorkflowStatusInput,
 } from "./opsHealth";
+import { computeCorpusMetrics, type MetricItem, type MetricRating } from "./corpusMetrics";
+import { buildRepairOutcomeFunnel } from "./productFunnel";
+import { loadFunnelData } from "./productFunnelServer";
 
 // Server-side data gathering for the operational-health report. All state
 // interpretation lives in the pure opsHealth.ts assessors (unit-tested);
@@ -95,6 +101,8 @@ function readJudgeArtifact(): {
 export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   const now = nowIso ?? new Date().toISOString();
   const service = createServiceClient();
+  const human = await loadHumanSection();
+  const training = await loadTrainingSection(now);
 
   // --- Database: connectivity, latency, migrations, required tables --------
   let database;
@@ -167,5 +175,68 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   const token = process.env.GITHUB_TOKEN?.trim();
   const app = assessAppHealth(token ? await fetchWorkflowRuns(token) : null, CI_ACTIONS_URL);
 
-  return buildOpsHealthReport({ generatedAt: now, topic, judge, database, app });
+  return buildOpsHealthReport({ generatedAt: now, topic, judge, database, app, human, training });
+}
+
+/**
+ * Human-evaluation readiness: consensus volume, independent-rater count and
+ * winner κ gate whether the corpus may be called ground truth. A read failure
+ * is reported as blocked, never as healthy.
+ */
+async function loadHumanSection(): Promise<EvidenceSection> {
+  try {
+    const service = createServiceClient();
+    const [{ data: items }, { data: ratings }] = await Promise.all([
+      service.from("corpus_items").select("id, side_mapping"),
+      service
+        .from("corpus_ratings")
+        .select("corpus_id, rater_id, winner, confidence, scores_a, scores_b"),
+    ]);
+    const metrics = computeCorpusMetrics(
+      (items ?? []) as MetricItem[],
+      (ratings ?? []) as unknown as MetricRating[],
+    );
+    return assessHumanValidation({
+      items: metrics.corpus.items,
+      raters: metrics.corpus.raters,
+      itemsWithTwoPlusRatings: metrics.corpus.itemsWithTwoPlusRatings,
+      consensusReady: metrics.humanValidation.consensusReadyItems,
+      unresolvedDisagreements: metrics.humanValidation.unresolvedDisagreements,
+      meanWinnerKappa: metrics.humanValidation.meanWinnerKappa,
+      canUseAsGroundTruth: metrics.humanValidation.groundTruth.ready,
+    });
+  } catch {
+    return {
+      status: "blocked",
+      headline: "human corpus unreadable from this runtime",
+      facts: [],
+      note: "Could not load corpus_items / corpus_ratings — validation status is unresolved, not green.",
+    };
+  }
+}
+
+/**
+ * Training-loop evidence: repairs recorded, eligible retests observed, and
+ * whether the primary first-retest recurrence rate is reportable yet. The
+ * loop is observational; this section says so and stays honest about samples.
+ */
+async function loadTrainingSection(now: string): Promise<EvidenceSection> {
+  try {
+    const { events, repairs, debateWeaknesses } = await loadFunnelData();
+    const funnel = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { now });
+    return assessTrainingEvidence({
+      repairs: funnel.repairs,
+      retestsObserved: funnel.retestsObserved,
+      retestsPending: funnel.retestsPending,
+      firstRetestRate: funnel.firstRetestRecurrence.rate,
+      firstRetestN: funnel.firstRetestRecurrence.denominator,
+    });
+  } catch {
+    return {
+      status: "blocked",
+      headline: "training-loop data unreadable from this runtime",
+      facts: [],
+      note: "Could not load repair/event data — outcome status is unresolved, not green.",
+    };
+  }
 }

@@ -268,8 +268,9 @@ export default async function AnalyticsPage() {
         <p className="mt-1 text-xs text-ink3">{trainingLoop.note}</p>
         <div className="mt-2">
           <RateRow label="Repair acceptance (started → submitted)" {...trainingLoop.acceptance} />
-          <RateRow label="First-retest recurrence (weakness back on next eligible debate)" {...trainingLoop.firstRetestRecurrence} />
-          <RateRow label="Later recurrence (weakness back in any subsequent eligible debate)" {...trainingLoop.laterRecurrence} />
+          <RateRow label="First-retest recurrence (primary outcome)" {...trainingLoop.firstRetestRecurrence} />
+          <RateRow label="Recurrence per eligible retest after the first (opportunity-adjusted)" {...trainingLoop.recurrencePerEligibleRetest} />
+          <RateRow label="Recurrence within first 3 eligible retests (equal exposure)" {...trainingLoop.firstThreeExposure} />
           <RateRow label="Return next day after first repair" numerator={trainingLoop.postRepairReturn.d1.returnedUsers} denominator={trainingLoop.postRepairReturn.d1.eligibleUsers} rate={trainingLoop.postRepairReturn.d1.rate} note={trainingLoop.postRepairReturn.d1.note} />
           <RateRow label="Return after 7 days" numerator={trainingLoop.postRepairReturn.d7.returnedUsers} denominator={trainingLoop.postRepairReturn.d7.eligibleUsers} rate={trainingLoop.postRepairReturn.d7.rate} note={trainingLoop.postRepairReturn.d7.note} />
           <RateRow label="Return after 30 days" numerator={trainingLoop.postRepairReturn.d30.returnedUsers} denominator={trainingLoop.postRepairReturn.d30.eligibleUsers} rate={trainingLoop.postRepairReturn.d30.rate} note={trainingLoop.postRepairReturn.d30.note} />
@@ -278,7 +279,11 @@ export default async function AnalyticsPage() {
           {trainingLoop.repairs} repairs · {trainingLoop.retestsObserved} with an eligible retest
           ({trainingLoop.retestsPending} pending, never counted as clean) · median {trainingLoop.medianDaysToRetest ?? "—"} days to retest
           {trainingLoop.unmatchedStarts > 0 && ` · ${trainingLoop.unmatchedStarts} start events without a debate id cannot be matched`}
-          . Acceptance means a repair_started event exists for the same debate at/before submission.
+          . Time to first recurrence: median {trainingLoop.timeToFirstRecurrence.medianDays ?? "—"} days across
+          {trainingLoop.timeToFirstRecurrence.observedRepairs} repairs that recurred ({trainingLoop.timeToFirstRecurrence.censoredRepairs} observed
+          retests recurred on none — censored, not clean); median{" "}
+          {trainingLoop.opportunitiesBeforeRecurrence.median ?? "—"} eligible retests before the first recurrence.
+          The per-retest and first-three measures add to the denominator with exposure, so more follow-up debates never imply a worse outcome.
         </p>
       </section>
 

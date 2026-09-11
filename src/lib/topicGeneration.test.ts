@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   pickFallback,
+  runGeneration,
   scoreCandidate,
   scoreNovelty,
 } from "../../scripts/generate-topics.mjs";
@@ -124,5 +125,125 @@ describe("candidate scoring", () => {
     const stale = scoreNovelty(candidate.title, [candidate.title]);
     expect(fresh).toBeGreaterThan(stale);
     expect(stale).toBe(0);
+  });
+});
+
+/**
+ * PIPELINE INTEGRATION — runGeneration against an in-memory query double.
+ * Proves the write path end to end (topic + evidence + provenance) and,
+ * crucially, that an immediate re-run for the SAME target date is safe:
+ * one topic row, no duplicate or lost evidence, consistent provenance.
+ */
+describe("runGeneration pipeline (injected query)", () => {
+  type Row = Record<string, unknown>;
+  interface Fake {
+    topics: Map<string, Row & { id: number }>;
+    evidence: Row[];
+    queries: string[];
+    query: (text: string, params?: unknown[]) => Promise<Row[]>;
+  }
+  function fakeDb(): Fake {
+    const topics = new Map<string, Row & { id: number }>();
+    const evidence: Row[] = [];
+    const queries: string[] = [];
+    let seq = 0;
+    const query = async (text: string, params: unknown[] = []): Promise<Row[]> => {
+      queries.push(text.replace(/\s+/g, " ").trim().slice(0, 40));
+      if (/^SELECT title FROM daily_topics/i.test(text)) {
+        return [...topics.values()].map((r) => ({ title: r.title }));
+      }
+      if (/^INSERT INTO daily_topics/i.test(text)) {
+        const [date, title, prompt, category, sources, source] = params as [string, string, string, string, unknown, string];
+        const existing = topics.get(date);
+        if (existing) {
+          Object.assign(existing, { title, prompt, category, sources, generation_source: source });
+          return [{ id: existing.id }];
+        }
+        const row = { id: ++seq, topic_date: date, title, prompt, category, sources, generation_source: source } as Row & { id: number };
+        topics.set(date, row);
+        return [{ id: row.id }];
+      }
+      if (/^DELETE FROM topic_evidence/i.test(text)) {
+        const [topicId] = params as [number];
+        for (let i = evidence.length - 1; i >= 0; i--) if (evidence[i].topic_id === topicId) evidence.splice(i, 1);
+        return [];
+      }
+      if (/^INSERT INTO topic_evidence/i.test(text)) {
+        const [topicId, claim, sourceName] = params as [number, string, string];
+        evidence.push({ topic_id: topicId, claim, source_name: sourceName });
+        return [];
+      }
+      throw new Error(`unexpected SQL: ${text.slice(0, 60)}`);
+    };
+    return { topics, evidence, queries, query };
+  }
+
+  const NOW = new Date("2026-09-11T02:00:00Z");
+  const stubRetrieve = async () => [
+    { claim: "c", sourceName: "NREL", sourceType: "primary", url: "https://nrel.gov", passage: "p" },
+    { claim: "c", sourceName: "Pew", sourceType: "secondary", url: "https://pewresearch.org", passage: "q" },
+  ];
+  const silent = { log: () => {} } as const;
+
+  it("curated fallback path stores exactly one topic + evidence with fallback provenance", async () => {
+    const db = fakeDb();
+    const result = await runGeneration({ query: db.query, env: {}, retrieve: stubRetrieve, now: NOW, ...silent });
+    expect(result.outcome).toBe("curated-fallback");
+    expect(result.source).toBe("fallback");
+    expect(db.topics.size).toBe(1);
+    expect([...db.topics.values()][0].generation_source).toBe("fallback");
+    expect(db.evidence).toHaveLength(2);
+  });
+
+  it("re-running immediately is idempotent: no duplicate topic, no duplicate evidence", async () => {
+    const db = fakeDb();
+    const first = await runGeneration({ query: db.query, env: {}, retrieve: stubRetrieve, now: NOW, ...silent });
+    const second = await runGeneration({ query: db.query, env: {}, retrieve: stubRetrieve, now: NOW, ...silent });
+    expect(second.date).toBe(first.date);
+    expect(db.topics.size).toBe(1); // ON CONFLICT, not a second row
+    expect(db.evidence).toHaveLength(2); // replaced, never doubled
+    const rows = [...db.topics.values()];
+    expect(new Set(rows.map((r) => r.generation_source)).size).toBe(1); // consistent provenance
+    expect(rows[0].generation_source).toBe(second.source);
+  });
+
+  it("AI success stores ai provenance", async () => {
+    const db = fakeDb();
+    const generate = async () => [
+      { title: "Cities should eliminate minimum parking requirements", prompt: "Should planning rules stop requiring parking?", category: "Policy", sources: [] },
+    ];
+    const result = await runGeneration({ query: db.query, env: { NVIDIA_API_KEY: "x" }, generate, retrieve: async () => [], now: NOW, ...silent });
+    expect(result.outcome).toBe("ai-generated");
+    expect([...db.topics.values()][0].generation_source).toBe("ai");
+  });
+
+  it("AI provider failure falls back to curated and still writes a valid topic", async () => {
+    const db = fakeDb();
+    const generate = async () => { throw new Error("429 rate limited"); };
+    const result = await runGeneration({ query: db.query, env: { NVIDIA_API_KEY: "x" }, generate, retrieve: stubRetrieve, now: NOW, ...silent });
+    expect(result.outcome).toBe("provider-failure");
+    expect(result.source).toBe("fallback");
+    expect(db.topics.size).toBe(1);
+    expect([...db.topics.values()][0].generation_source).toBe("fallback");
+  });
+
+  it("a DB write failure surfaces as db-failure, never a silent success", async () => {
+    const db = fakeDb();
+    const query = async (text: string) => {
+      if (/^INSERT INTO daily_topics/i.test(text)) throw new Error("connection reset");
+      return db.query(text);
+    };
+    const result = await runGeneration({ query, env: {}, retrieve: async () => [], now: NOW, ...silent });
+    expect(result.outcome).toBe("db-failure");
+    expect(result.stage).toBe("store-topic");
+  });
+
+  it("evidence retrieval failure is non-destructive: the topic still stands", async () => {
+    const db = fakeDb();
+    const retrieve = async () => { throw new Error("network down"); };
+    const result = await runGeneration({ query: db.query, env: {}, retrieve, now: NOW, ...silent });
+    expect(result.outcome).toBe("curated-fallback");
+    expect(result.evidenceCards).toBe(0);
+    expect(db.topics.size).toBe(1);
   });
 });
