@@ -4,7 +4,7 @@
 // — see reliability.stress.test.ts for why.
 
 import type { ArgGraph, ArgNode } from "./argGraph";
-import { isValidRebuttalTarget } from "./opportunity";
+import { isValidRebuttalTarget, STRONG_TARGET_KINDS } from "./opportunity";
 
 // ---------------------------------------------------------------------------
 // Lexicons (single alternations; linear scan)
@@ -158,12 +158,13 @@ export function scoreRebuttalQuality(graph: ArgGraph, owner: ArgNode["owner"]): 
     if (citesSomething || supportedByOwnEvidence) backed += 1;
 
     // Engaging strong material: same canonical validity rule, restricted to
-    // the opponent's heaviest argument moves (impact/counterclaim). Invalid
-    // targets can never earn strong-material credit.
+    // the opponent's strongest answerable move (counterclaim). Impact is a
+    // weighing move handled by impact handling, so it cannot earn rebuttal
+    // target credit here.
     const targetNodes = targets
       .map((t) => graph.nodes.find((n) => n.id === t))
       .filter((n): n is ArgNode =>
-        !!n && isValidRebuttalTarget(graph, n.id, owner, r.round) && (n.kind === "impact" || n.kind === "counterclaim"),
+        !!n && isValidRebuttalTarget(graph, n.id, owner, r.round) && STRONG_TARGET_KINDS.has(n.kind),
       );
     if (targetNodes.length) engagesStrong += 1;
 

@@ -67,10 +67,12 @@ export interface ArgNode {
   fallacy?: Fallacy;
 }
 
+export type ArgEdgeRelation = "supports" | "counters" | "rebuts" | "impacts";
+
 export interface ArgEdge {
   from: string;
   to: string;
-  relation: "supports" | "counters" | "rebuts" | "impacts";
+  relation: ArgEdgeRelation;
 }
 
 export interface DroppedArgument {

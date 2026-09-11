@@ -3,7 +3,7 @@ import {
   computeCoachRewards,
   type RewardContext,
 } from "./coachRewards";
-import { fallaciesOwnedBy, unansweredBy, unsupportedOwnedBy } from "./opportunity";
+import { fallaciesOwnedBy, unansweredOpportunitiesBy, unsupportedOwnedBy } from "./opportunity";
 import { nodesOwnedBy, opponentClaimNodes } from "./argGraph";
 import { assessArgumentGraph } from "./observableAssessment";
 import type { ArgGraph, Owner } from "./argGraph";
@@ -197,7 +197,9 @@ describe("side-scoping helpers", () => {
     expect(unsupportedOwnedBy(withUnsupported, "a")).toEqual(["c1"]);
   });
 
-  it("unansweredBy returns opponent-owned drops only", () => {
+  it("unansweredOpportunitiesBy ignores judge-supplied drops that contradict structure", () => {
+    // goodSolo answers o1 (round 2 > round 1) and o2 (round 3 > round 2), so
+    // the canonical unanswered set is empty no matter what the judge rows say.
     const withDrops: ArgGraph = {
       ...g,
       dropped: [
@@ -205,7 +207,7 @@ describe("side-scoping helpers", () => {
         { nodeId: "c1", text: "y", owner: "a", round: 1 },
       ],
     };
-    expect(unansweredBy(withDrops, "a").map((d) => d.nodeId)).toEqual(["o1"]);
+    expect(unansweredOpportunitiesBy(withDrops, "a").map((n) => n.id)).toEqual([]);
   });
 });
 

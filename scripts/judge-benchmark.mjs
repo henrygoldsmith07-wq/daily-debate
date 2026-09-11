@@ -4,7 +4,7 @@
 // benchmark script silently no-op'd because Node cannot import .ts).
 //
 //   node scripts/judge-benchmark.mjs [--limit N] [--concurrency N] [--enforce]
-//        [--out docs/judge-leaderboard.md] [--pack-only]
+//        [--out docs/judge-leaderboard.md] [--pack-only] [--allow-skip] [--help]
 //
 // Gates live in config/judge-gates.json; --enforce exits non-zero on breach.
 // --pack-only validates fixture-pack stratification without calling providers.
@@ -26,14 +26,19 @@ function loadEnvLocal() {
 loadEnvLocal();
 
 const args = process.argv.slice(2);
-const argNum = (name, dflt) => {
+const argInt = (name, dflt, min, max) => {
+  if (args.includes("--help") || args.includes("-h")) return dflt;
   const a = args.find((x) => x.startsWith(`--${name}`));
   if (!a) return dflt;
-  const v = a.split("=")[1];
-  return Number.isFinite(Number(v)) ? Number(v) : dflt;
+  const v = Number(a.split("=")[1]);
+  if (!Number.isInteger(v) || v < min || v > max) {
+    process.stderr.write(`[judge-benchmark] invalid --${name}: expected an integer from ${min} to ${max}\n`);
+    process.exit(1);
+  }
+  return v;
 };
-const LIMIT = argNum("limit", FIXTURES.length);
-const CONCURRENCY = argNum("concurrency", 3);
+const LIMIT = argInt("limit", FIXTURES.length, 1, FIXTURES.length);
+const CONCURRENCY = argInt("concurrency", 3, 1, 8);
 const ENFORCE = args.includes("--enforce");
 const OUT_MD_ARG = args.find((a) => a.startsWith("--out="));
 const OUT_MD = OUT_MD_ARG ? OUT_MD_ARG.split("=")[1] : null;
@@ -244,6 +249,24 @@ function gateChecks(m, gates) {
 }
 
 async function main() {
+  if (args.includes("--help") || args.includes("-h")) {
+    process.stdout.write(
+      [
+        "Live judge benchmark over the 24-fixture pack.",
+        "",
+        "Usage:",
+        "  node scripts/judge-benchmark.mjs [--limit N] [--concurrency N] [--enforce] [--out PATH] [--pack-only] [--allow-skip]",
+        "",
+        "  --limit N        fixtures to judge (1-24; default 24)",
+        "  --concurrency N  parallel provider calls (1-8; default 3)",
+        "  --enforce        exit non-zero when any gate fails",
+        "  --pack-only      validate fixtures only; never calls providers",
+        "  --allow-skip     allow a no-key run to exit 0 (deliberate key-less contexts only)",
+        "",
+      ].join("\n"),
+    );
+    return;
+  }
   assertPackIntegrity();
   if (args.includes("--pack-only")) {
     process.stdout.write(JSON.stringify({ packOnly: true, strata: STRATA }) + "\n");

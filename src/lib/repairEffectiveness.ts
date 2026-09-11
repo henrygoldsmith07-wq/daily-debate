@@ -23,6 +23,7 @@
 // Pure — the admin route loads rows and stored graphs.
 
 import type { ArgGraph, Owner } from "./argGraph";
+import { claimNodesOwnedBy } from "./argGraph";
 import type { RepairKind } from "./argumentRepair";
 import { eligibleOpponentMoves, unansweredOpportunitiesBy } from "./opportunity";
 
@@ -119,10 +120,10 @@ export const NOT_CURRENTLY_MEASURABLE_KINDS: ReadonlySet<string> = new Set(["cla
  * Audit (deterministic detector per kind — all read from the REPAIRED side's
  * failures, never the opponent's):
  * - evidence   → unsupported-claim detector (unsupportedClaimIds ∩ own claims) ✓
- * - rebuttal   → dropped-argument detector (OPPONENT's claims the user never
- *                answered: graph.dropped entries owned by someone OTHER than
- *                the user) ✓. An opponent ignoring the USER's argument is not
- *                a user failure and never counts.
+ * - rebuttal   → dropped-argument detector (the CANONICAL unanswered-
+ *                opportunity set: eligible opponent arguments the user never
+ *                validly answered) ✓. An opponent ignoring the USER's argument
+ *                is not a user failure and never counts.
  * - logic      → fallacy detector (deterministic classification above the
  *                confidence threshold, tagged on own nodes) ✓
  * - impact     → own-impact detector (debate contains no impact node owned by
@@ -160,9 +161,7 @@ export function weaknessKindsFor(kind: string): string[] {
  */
 export function debateOpportunities(graph: ArgGraph, owner: Owner): { majorClaims: number; opponentMoves: number } {
   return {
-    majorClaims: graph.nodes.filter(
-      (n) => n.owner === owner && (n.kind === "claim" || n.kind === "counterclaim"),
-    ).length,
+    majorClaims: claimNodesOwnedBy(graph, owner).length,
     opponentMoves: eligibleOpponentMoves(graph, owner).length,
   };
 }
@@ -192,9 +191,7 @@ function hasOpportunity(repairKind: string, debate: DebateWeaknessRow): boolean 
  */
 export function countWeaknessesForSide(graph: ArgGraph, owner: Owner): Record<string, number> {
   const ownIds = new Set(graph.nodes.filter((n) => n.owner === owner).map((n) => n.id));
-  const ownClaims = graph.nodes.filter(
-    (n) => n.owner === owner && (n.kind === "claim" || n.kind === "counterclaim"),
-  );
+  const ownClaims = claimNodesOwnedBy(graph, owner);
   const unsupported = graph.evidenceStats.unsupportedClaimIds.filter((id) => ownIds.has(id)).length;
   // Opponent arguments the owner failed to answer (NOT own arguments the
   // opponent ignored — those are the opponent's miss, not the owner's).

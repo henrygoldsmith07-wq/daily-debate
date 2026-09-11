@@ -7,6 +7,7 @@
 // self-report. Pure functions throughout — the API route only fetches rows.
 
 import type { ArgGraph } from "./argGraph";
+import { claimNodesOwnedBy, substantiveNodesOwnedBy } from "./argGraph";
 import type { ObservableAssessment } from "./observableAssessment";
 import { graphFromTurn, mergeAssessmentGraphs, assessArgumentGraph } from "./observableAssessment";
 import { fitLinear } from "./debateEvaluation";
@@ -115,12 +116,11 @@ export function extractSkillPoint(
   // opponent nodes contaminates the profile (a terrible AI opponent would
   // make a good debater look worse).
 
-  const substantive = g.nodes.filter((n) => n.kind === "claim" || n.kind === "counterclaim" || n.kind === "impact");
-  const mine = substantive.filter((n) => n.owner === owner);
+  const mine = substantiveNodesOwnedBy(g, owner);
   const myIds = new Set(mine.map((n) => n.id));
   const myNodeIds = new Set(g.nodes.filter((n) => n.owner === owner).map((n) => n.id));
   const myNodeCount = myNodeIds.size;
-  const myClaims = mine.filter((n) => n.kind === "claim" || n.kind === "counterclaim");
+  const myClaims = claimNodesOwnedBy(g, owner);
   const myEvidence = g.nodes.filter((n) => n.kind === "evidence" && n.owner === owner);
 
   // Unsupported claims: intersect the graph's unsupported list with MY claim IDs

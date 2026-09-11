@@ -6,6 +6,7 @@
 // scoring system.
 
 import type { ArgGraph, ArgNode, Owner } from "./argGraph";
+import { unansweredOpportunitiesBy } from "./opportunity";
 import { computeSkillProfile, PROFILE_DIMENSIONS, type ArgumentSkillProfile, type ProfileDimensionKey } from "./skillProfile";
 import {
   buildSkillLedger,
@@ -151,10 +152,10 @@ export function graphStatsFor(graph: ArgGraph | null, owner: Owner = "a"): DnaGr
     rebuttals: mine.filter((node) => node.kind === "rebuttal").length,
     impacts: mine.filter((node) => node.kind === "impact").length,
     unsupportedClaims: graph.evidenceStats.unsupportedClaimIds.filter((id) => myIds.has(id)).length,
-    // Opponent arguments this side left unanswered. DroppedArgument.owner is
-    // the side whose argument went unanswered, so this side's failure is
-    // entries owned by the OTHER side.
-    droppedArguments: graph.dropped.filter((item) => item.owner !== owner).length,
+    // The CANONICAL unanswered-opportunity count (opportunity.ts): opponent
+    // arguments this side had a later turn to answer but never validly did.
+    // Reads the same structural set as drop detection and the ledger.
+    droppedArguments: unansweredOpportunitiesBy(graph, owner).length,
     contradictions: graph.contradictions.filter((item) => item.owner === owner).length,
     concessions: graph.concessions.filter((item) => item.by === owner).length,
     fallacies: graph.fallacies.filter((item) => myIds.has(item.nodeId) && item.fallacy !== "none").length,

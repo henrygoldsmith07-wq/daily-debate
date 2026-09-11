@@ -618,7 +618,7 @@ function component(
   };
 }
 
-function scoreSide(features: SideObservableFeatures, graph: ArgGraph, globalStatus: AssessmentStatus, extractionConfidence: number): ObservableSideScore {
+function scoreSide(features: SideObservableFeatures, graph: ArgGraph, globalStatus: AssessmentStatus, extractionConfidence: number, opponent: Owner): ObservableSideScore {
   if (globalStatus === "insufficient_evidence" || features.claimsMade.value === 0) {
     return { score: null, status: "insufficient_evidence", confidence: 0, components: [], supportingEvidence: [] };
   }
@@ -630,11 +630,13 @@ function scoreSide(features: SideObservableFeatures, graph: ArgGraph, globalStat
   const responseRefs = features.argumentResponses.evidence;
   const impactRefs = features.impactHandling.evidence;
   // Grounded dropped arguments: this side's OWN supported claims the opponent
-  // never validly answered — the canonical structural set (same definition as
-  // detectDropped), narrowed to claim-like nodes with real grounded support
-  // so credit reflects "a good argument the other side ignored".
+  // never validly answered — the canonical mirror of that side's unanswered
+  // opportunities (same definition as detectDropped), narrowed to claim-like
+  // nodes with real grounded support so credit reflects "a good argument the
+  // other side ignored".
   const linksForGrounding = supportLinks(graph);
-  const groundedDropped = unansweredOpportunitiesBy(graph, features.owner).filter((node) => {
+  const groundedDropped = unansweredOpportunitiesBy(graph, opponent).filter((node) => {
+    if (node.owner !== features.owner) return false;
     if (!isClaimLike(node)) return false;
     return linksForGrounding.some((link) => link.claim.id === node.id && link.quality > 0.2);
   });
@@ -761,8 +763,8 @@ export function assessArgumentGraph(input: ArgGraph | null | undefined, options:
   }
   const status: AssessmentStatus = globallyInsufficient ? "insufficient_evidence" : "scored";
   const sideScores = {
-    a: scoreSide(features.a, graph, status, adjustedExtractionConfidence),
-    b: scoreSide(features.b, graph, status, adjustedExtractionConfidence),
+    a: scoreSide(features.a, graph, status, adjustedExtractionConfidence, sideB),
+    b: scoreSide(features.b, graph, status, adjustedExtractionConfidence, sideA),
   };
   const scoreA = sideScores.a.score;
   const scoreB = sideScores.b.score;

@@ -8,6 +8,7 @@
 // adds no scoring of its own and never contradicts the assessment. Pure.
 
 import type { ArgGraph, ArgNode } from "./argGraph";
+import { claimNodesOwnedBy } from "./argGraph";
 import type { ObservableAssessment } from "./observableAssessment";
 import type { RepairTarget } from "./argumentRepair";
 import { pickRepairTarget } from "./argumentRepair";
@@ -51,7 +52,7 @@ export interface ResultSnapshot {
 }
 
 function ownClaims(graph: ArgGraph): ArgNode[] {
-  return graph.nodes.filter((n) => n.owner === "a" && (n.kind === "claim" || n.kind === "counterclaim"));
+  return claimNodesOwnedBy(graph, "a");
 }
 
 function ownUnsupportedClaims(graph: ArgGraph): ArgNode[] {

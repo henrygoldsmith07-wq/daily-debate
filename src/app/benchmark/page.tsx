@@ -42,9 +42,13 @@ export default function BenchmarkPage() {
         title="Judge benchmark"
         description={
           <>
-            Mock-harness numbers run on every CI turn (no keys needed). Live-model numbers appear when
-            OPENROUTER_API_KEY / ANTHROPIC_API_KEY are set — see{" "}
-            <code className="rounded bg-surface-2 px-1 py-0.5 text-xs">scripts/benchmark-judges.mjs</code>.
+            Mock-harness numbers run on every CI turn (no keys needed). Live-model numbers come from{" "}
+            <code className="rounded bg-surface-2 px-1 py-0.5 text-xs">scripts/judge-benchmark.mjs</code>{" "}
+            over the 24-fixture pack and are published in{" "}
+            <code className="rounded bg-surface-2 px-1 py-0.5 text-xs">docs/judge-leaderboard.md</code>.
+            Live runs need <code className="text-xs">NVIDIA_API_KEY</code>,{" "}
+            <code className="text-xs">OPENROUTER_API_KEY</code>, or{" "}
+            <code className="text-xs">ANTHROPIC_API_KEY</code> — repository secrets for CI, local keys for direct runs.
           </>
         }
       />
@@ -98,8 +102,8 @@ export default function BenchmarkPage() {
           </table>
         </div>
         <p className="mt-2 text-xs text-ink3">
-          Live: the same probes call OpenRouter + Anthropic twice per transcript (transformed vs original) and report flip-rate + exact binomial p-value with
-          effect size. Run <code className="text-xs">node scripts/benchmark-judges.mjs --bias</code> with keys set.
+          Live: the same probes call the configured judge transport for transformed vs original transcripts and report flip-rate + exact binomial p-value with
+          effect size. Run <code className="text-xs">node scripts/judge-benchmark.mjs --concurrency 3 --enforce</code> with keys set; keep every gate in <code className="text-xs">config/judge-gates.json</code> unchanged.
         </p>
       </section>
 

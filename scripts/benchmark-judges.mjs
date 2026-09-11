@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+// DEPRECATED: retained for historical reference only. Do not use for live
+// validation. The canonical live judge benchmark is
+// scripts/judge-benchmark.mjs (24 fixtures, gates, fingerprint/latency/cost).
+// This file is not wired into npm scripts or CI and may import stale paths.
 // Live judge benchmark: runs real OpenRouter + Anthropic judges over the corpus,
 // computes bias probes with significance, ensemble, correlation and calibration.
 // Usage:

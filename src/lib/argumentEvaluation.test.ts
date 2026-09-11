@@ -57,22 +57,19 @@ describe("fake-precision detection", () => {
 });
 
 describe("rebuttal quality scoring", () => {
-  function graphWith(rebuttal: Record<string, unknown>, targetKind: "impact" | "counterclaim" = "counterclaim"): ArgGraph {
+  function graphWith(rebuttal: Record<string, unknown>, targetKind: "claim" | "counterclaim" = "counterclaim"): ArgGraph {
     return {
       ...emptyGraph(),
       nodes: [
         { id: "opp-c1", kind: targetKind, owner: "b", text: "Opponent's strongest point.", round: 1 },
-        ...(targetKind === "impact"
-          ? [{ id: "opp-i1", kind: "impact" as const, owner: "b" as const, text: "Harm.", round: 1 }]
-          : []),
         { id: "my-e1", kind: "evidence", owner: "a", text: "Lazard 2024 LCOE analysis.", round: 2 },
         {
           id: "r1",
           kind: "rebuttal",
           owner: "a",
-          text: "Even granting that cost point, according to NREL storage data the trend reverses by 2035, which addresses the impact directly.",
+          text: "Even granting that cost point, according to NREL storage data the trend reverses by 2035, which addresses the counterclaim directly.",
           round: 2,
-          targets: [targetKind === "impact" ? "opp-i1" : "opp-c1"],
+          targets: ["opp-c1"],
           ...rebuttal,
         } as never,
       ],
@@ -89,6 +86,15 @@ describe("rebuttal quality scoring", () => {
     expect(strong.score).toBeGreaterThan(weak.score);
     expect(strong.coverage).toBe(1);
     expect(weak.coverage).toBe(0);
+  });
+
+  it("reserves strong-material credit for valid counterclaim targets", () => {
+    const counterclaim = scoreRebuttalQuality(graphWith({}, "counterclaim"), "a")!;
+    const claim = scoreRebuttalQuality(graphWith({}, "claim"), "a")!;
+    expect(counterclaim.coverage).toBe(1);
+    expect(counterclaim.engagesStrongMaterial).toBe(1);
+    expect(claim.coverage).toBe(1);
+    expect(claim.engagesStrongMaterial).toBe(0);
   });
 });
 

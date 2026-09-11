@@ -10,6 +10,7 @@ import type { CoachDimension } from "./adaptiveCoach";
 import { buildCoachProfile, selectFocus } from "./adaptiveCoach";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { ObservableAssessment } from "./observableAssessment";
+import { claimNodesOwnedBy } from "./argGraph";
 import { unansweredOpportunitiesBy } from "./opportunity";
 
 /** Observable facts from one completed debate, persisted on the debate row. */
@@ -34,9 +35,7 @@ export function snapshotFromAssessment(assessment: ObservableAssessment | null |
     assessment.graph.nodes.filter((n) => n.owner === "a").map((n) => n.id),
   );
   const unsupported = assessment.graph.evidenceStats.unsupportedClaimIds.filter((id) => myIds.has(id)).length;
-  const majorClaims = assessment.graph.nodes.filter(
-    (n) => n.owner === "a" && (n.kind === "claim" || n.kind === "counterclaim"),
-  ).length;
+  const majorClaims = claimNodesOwnedBy(assessment.graph, "a").length;
   // The user's rebuttal failure: the CANONICAL unanswered-opportunity set
   // (opportunity.ts) — opponent arguments the user had a later turn to answer
   // but never validly did. Judge-supplied dropped rows are not re-implemented
@@ -100,7 +99,7 @@ export interface CoachingGoal {
   numeric: boolean;
 }
 
-function described(snapshot: CoachingSnapshot): string {
+function described(snapshot: CoachingSnapshot): string | null {
   if (snapshot.responseOpportunities > 0) {
     return `You directly answered ${snapshot.responsesAnswered} of ${snapshot.responseOpportunities} major opposing arguments.`;
   }
@@ -110,7 +109,7 @@ function described(snapshot: CoachingSnapshot): string {
   if (snapshot.droppedOwn > 0) {
     return `You left ${snapshot.droppedOwn} opposing argument${snapshot.droppedOwn === 1 ? "" : "s"} unanswered.`;
   }
-  return null as unknown as string;
+  return null;
 }
 
 /**

@@ -128,8 +128,11 @@ those links to tangential, and docks its score for decorative citations.
 - Stronger fallacy validation *(extend — `fallacyHints` is lexicon-based)*.
 - Better dropped-argument detection.
 - Better burden-of-proof modelling.
-- Better rebuttal matching *(extend — `rebuttalCoverage` /
-  `rebuttalAddressesTargets`)*.
+- Rebuttal semantics — *shipped*: one canonical implementation in
+  `src/lib/opportunity.ts`; rewards, ledger, scoring, dropped detection,
+  goals, results, and repair all share the same opportunity/target/coverage
+  definitions. Impact is measured separately as weighing, not as a rebuttal
+  opportunity.
 
 ## 6. Speech
 

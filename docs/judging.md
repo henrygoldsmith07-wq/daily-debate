@@ -18,7 +18,7 @@ Scored features: `claimsMade`, `claimsDirectlySupported`, `evidenceActuallyCited
 
 ## Engine findings
 
-`src/lib/argumentEvaluation.ts` adds deterministic detectors surfaced as `assessment.engine`: causal overclaims (unhedged causation over associational-only citations), fake precision (decimal-exact figures without attribution), rebuttal-quality scoring (target coverage × evidence backing × engagement × substance), and steelman-quality scoring.
+`src/lib/argumentEvaluation.ts` adds deterministic detectors surfaced as `assessment.engine`: causal overclaims (unhedged causation over associational-only citations), fake precision (decimal-exact figures without attribution), rebuttal-quality scoring (valid-target discipline × evidence backing × valid counterclaim engagement × specificity), and steelman-quality scoring. Impact weighing stays separate from rebuttal coverage.
 
 ## PvP judging
 

@@ -24,7 +24,7 @@
 // side's failure is always entries owned by the OTHER side — an opponent
 // ignoring your argument is their miss, never yours.
 
-import type { ArgGraph, ArgNode, DroppedArgument, FallacyTag, Owner } from "./argGraph";
+import type { ArgEdgeRelation, ArgGraph, ArgNode, FallacyTag, Owner } from "./argGraph";
 import { nodesOwnedBy, opponentClaimNodes } from "./argGraph";
 
 /**
@@ -33,6 +33,13 @@ import { nodesOwnedBy, opponentClaimNodes } from "./argGraph";
  * move; evidence is support — neither is an answerable argument here.
  */
 export const OPPORTUNITY_KINDS: ReadonlySet<ArgNode["kind"]> = new Set(["claim", "counterclaim"]);
+
+/**
+ * Strong rebuttal targets: the opponent counterclaim is the heaviest
+ * answerable argument move. Impact is weighing rather than a rebuttal
+ * opportunity, so it does not earn rebuttal-target credit.
+ */
+export const STRONG_TARGET_KINDS: ReadonlySet<ArgNode["kind"]> = new Set(["counterclaim"]);
 
 /**
  * Broader ENGAGEMENT scope for the per-round argument-response view only:
@@ -53,8 +60,6 @@ export const RESPONSE_KINDS: ReadonlySet<ArgNode["kind"]> = new Set(["rebuttal",
 
 /** Edge relations that may carry a rebuttal answer. */
 export const ANSWER_RELATIONS: ReadonlySet<ArgEdgeRelation> = new Set(["rebuts", "counters"]);
-
-type ArgEdgeRelation = "supports" | "counters" | "rebuts" | "impacts";
 
 /**
  * The canonical rebuttal-target rule. A target is legitimate only when ALL of
@@ -89,8 +94,8 @@ export function isValidRebuttalTarget(
  *
  * 1. the response node exists (no dangling ids);
  * 2. the response node belongs to the measured side;
- * 3. the response node is a permitted RESPONSE kind (rebuttal/counterclaim —
- *    an evidence node can never answer an argument);
+ * 3. the response node is a permitted RESPONSE kind (rebuttal/counterclaim/
+ *    claim — evidence and impact can never answer an argument);
  * 4. the edge relation is a permitted answer relation (rebuts/counters);
  * 5. the target passes isValidRebuttalTarget (opponent opportunity, earlier
  *    round, correct kind) against THIS response node's round.
@@ -204,16 +209,6 @@ export function rebuttalCoverageFor(graph: ArgGraph, owner: Owner): CoverageRead
 export function unansweredOpportunitiesBy(graph: ArgGraph, owner: Owner): ArgNode[] {
   const missed = userAnsweredIds(graph, owner);
   return eligibleOpponentMoves(graph, owner).filter((m) => !missed.has(m.id));
-}
-
-/**
- * Judge-supplied dropped entries that represent the measured side's rebuttal
- * failure (DroppedArgument.owner is the side whose argument went
- * unanswered, so the measured side's failure is entries owned by the OTHER
- * side). Enrichment and measurement read the same direction here.
- */
-export function unansweredBy(graph: ArgGraph, owner: Owner): DroppedArgument[] {
-  return graph.dropped.filter((d) => d.owner !== owner);
 }
 
 /** Fallacy tags attached to a side's own nodes (opponent fallacies excluded). */
