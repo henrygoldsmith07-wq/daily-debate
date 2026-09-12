@@ -216,7 +216,7 @@ async function evaluateModel(judge) {
 
   return {
     model: judge.id,
-    judge: { provider: judge.id.split(":")[0], model: judge.id.split(":")[1] ?? judge.id, temperature: 0, promptVersion: 3 },
+    judge: { provider: judge.id.split(":")[0], model: judge.id.split(":")[1] ?? judge.id, temperature: 0, promptVersion: 4 },
     fixtures: fixtures.length,
     calls: bases.length + probeResults.length + auditResults.length,
     errors: [...bases, ...probeResults, ...auditResults].filter((r) => r.error).length,
@@ -341,7 +341,7 @@ async function main() {
     "",
     `Last generated ${at} by \`scripts/judge-benchmark.mjs\` over ${LIMIT} labelled fixture debates.`,
     `Pack stratification: ${STRATA.size} fixtures, expected-winner ${JSON.stringify(STRATA.byExpectedWinner)}, ${Object.keys(STRATA.byDomain).length} domains, difficulty ${JSON.stringify(STRATA.byDifficulty)}.`,
-    `Judge configuration: temperature 0, prompt v3, scoring engine v1, graph schema v1 (see src/lib/judgeVersioning.ts).`,
+    `Judge configuration: temperature 0, prompt v4, scoring engine v1, graph schema v1 (benchmark verdict prompt aligned with the production judging policy; see src/lib/judgeVersioning.ts for the app's versioned judge).`,
     "Human agreement here is against fixture labels (small n) until the rated corpus supplies consensus.",
     "",
     "| Model | Fixtures | Agreement | ECE | Position mirror | Verbosity stab. | Names stab. | Whitespace stab. | Fake-cit. | Ideology L/R flips | Political flips | Errors | Latency p50 | Tokens | Est. cost | PASS/FAIL |",

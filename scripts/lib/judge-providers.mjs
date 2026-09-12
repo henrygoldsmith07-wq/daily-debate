@@ -18,10 +18,10 @@ function extractJson(text) {
 }
 
 const VERDICT_SYSTEM =
-  "You are a neutral debate judge. Analyse argument structure only. Respond with ONE JSON object, no prose.";
+  "You are a neutral, rigorous debate judge. Analyse the observable argument structure only — never which side of the topic is 'correct'. Do not reward verbosity, fluency, or confidence by itself; credit grounded claims, direct engagement, and weighing that is supported.";
 
 export function verdictUser(transcript) {
-  return `Debate transcript (Player A vs Player B):\n\n${transcript}\n\nScore both sides 0-100 on observable argument quality (grounded claims, rebuttals, impact weighing). Decide the winner strictly on that structure.\nReturn JSON exactly: {"winner":"a|b|tie","playerAScore":<int>,"playerBScore":<int>,"confidence":<0..1>}`;
+  return `Debate transcript (Player A vs Player B):\n\n${transcript}\n\nScore both sides 0-100 on observable argument quality (grounded claims, rebuttals, impact weighing). Decide the winner strictly on that structure.\nIf the structural advantage is small or the sides trade comparable blows, return "tie". Confidence must reflect how clear that advantage is: 0.5-0.6 when genuinely balanced; above 0.8 only for a decisive, one-sided advantage.\nReturn JSON exactly: {"winner":"a|b|tie","playerAScore":<int>,"playerBScore":<int>,"confidence":<0..1>}`;
 }
 
 function normaliseVerdict(parsed) {
