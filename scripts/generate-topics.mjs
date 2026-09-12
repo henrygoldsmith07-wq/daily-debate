@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { neon } from "@neondatabase/serverless";
+import { generationChain, providerStatus as registryProviderStatus } from "./lib/judge-providers.mjs";
 
 function loadEnvLocal() {
   const p = path.join(process.cwd(), ".env.local");
@@ -45,8 +46,8 @@ function printHelp() {
       "  --help         print this help",
       "",
       "Exit codes: 0 ok (fallback stored counts as ok); 1 config/db failure.",
-      "Required: DATABASE_URL. Optional: NVIDIA_API_KEY / OPENROUTER_API_KEY /",
-      "ANTHROPIC_API_KEY (without any provider key the curated fallback is used).",
+      "Required: DATABASE_URL. Optional: NVIDIA_API_KEY / OPENROUTER_API_KEY",
+      "(without any provider key the curated fallback is used).",
       "",
     ].join("\n"),
   );
@@ -61,11 +62,9 @@ export function databaseHost(databaseUrl) {
 }
 
 export function providerStatus(env = process.env) {
-  const providers = [];
-  if (env.NVIDIA_API_KEY) providers.push("nvidia");
-  if (env.OPENROUTER_API_KEY) providers.push("openrouter");
-  if (env.ANTHROPIC_API_KEY) providers.push("anthropic");
-  return providers;
+  // Same registry the app and the judge benchmark use — one source of truth
+  // for "which providers are configured".
+  return registryProviderStatus(env);
 }
 
 /**
@@ -298,18 +297,12 @@ function pickFallback(dateIso, recentTitles) {
   return { title, prompt, category };
 }
 
-// --- AI generation via OpenRouter/NVIDIA/Anthropic chain ---
+// --- AI generation via the shared provider-chain registry ---
 
-async function generateCandidates(recentTitles, count = 5) {
-  const useNvidia = !!process.env.NVIDIA_API_KEY;
-  const url = useNvidia
-    ? "https://integrate.api.nvidia.com/v1/chat/completions"
-    : "https://openrouter.ai/api/v1/chat/completions";
-  const key = useNvidia ? process.env.NVIDIA_API_KEY : process.env.OPENROUTER_API_KEY;
-  const models = useNvidia
-    ? [process.env.NVIDIA_MODEL || "nvidia/nemotron-3-ultra-550b-a55b"]
-    : [process.env.OPENROUTER_MODEL || "z-ai/glm-5.2:free"];
-  const extraHeaders = useNvidia ? {} : { "HTTP-Referer": "https://daily-debate.app" };
+async function generateCandidates(recentTitles, count = 5, env = process.env) {
+  const chain = generationChain(env);
+  if (!chain) throw new Error("No AI provider configured.");
+  const { url, key, models, extraHeaders } = chain;
 
   const avoid = recentTitles.length
     ? `Avoid these recent topics: ${recentTitles.join("; ")}.`
@@ -360,31 +353,6 @@ Return JSON: {"topics":[{"title":"...","prompt":"...","category":"...","sources"
       lastError = e;
       log(`[generate] ${model}: ${String(e?.message ?? e).slice(0, 140)}`);
     }
-  }
-
-  // Anthropic fallback
-  if (process.env.ANTHROPIC_API_KEY) {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": process.env.ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-sonnet-5", max_tokens: 3000, messages: [{ role: "user", content: `${user}\n\nReturn ONLY the JSON object.` }] }),
-      });
-      const data = await res.json();
-      const content = data?.content?.map((c) => c.text ?? "").join("");
-      if (content) {
-        const start = content.indexOf("{"), end = content.lastIndexOf("}");
-        if (start !== -1 && end > start) {
-          const parsed = JSON.parse(content.slice(start, end + 1));
-          const topics = parsed.topics || parsed.candidates;
-          if (Array.isArray(topics) && topics.length) return topics;
-        }
-      }
-    } catch (e) { lastError = e; }
   }
 
   throw lastError ?? new Error("No AI provider configured.");

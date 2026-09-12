@@ -11,9 +11,10 @@
 
 import type { PvpJudgeResult, PvpVerdict } from "./types";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
+import type { ProviderLabel } from "./openrouter";
 import { makeEnsembleFingerprint, type JudgeFingerprint } from "./judgeVersioning";
 
-export type JudgeId = "openrouter" | "anthropic" | "nvidia";
+export type JudgeId = ProviderLabel | "anthropic";
 export interface JudgedVerdict extends PvpJudgeResult {
   judgeId: JudgeId;
   latencyMs?: number;
@@ -197,40 +198,47 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
   }
 }
 
-/** Live ensemble: runs OpenRouter and Anthropic judges in parallel (best-effort). Returns whatever succeeded. */
+/** Live ensemble: runs the active judge transport (and Anthropic when its key is present) in parallel, best-effort. Returns whatever succeeded. */
 export async function liveEnsembleJudge(params: {
   topicTitle: string;
   topicPrompt: string;
   playerASide: "for" | "against";
   transcript: string;
 }): Promise<EnsembleResult> {
-  const settled = await Promise.allSettled([
+  const legs: Promise<JudgedVerdict>[] = [
     (async (): Promise<JudgedVerdict> => {
-      // Primary chat transport: NVIDIA when its key is set, else OpenRouter.
+      // Primary chat transport: the first configured OpenAI-style provider in
+      // the registry (NVIDIA → OpenRouter → UnoRouter → Kirai → B.ai).
       const primary = await import("./openrouter");
       const { makeFingerprint } = await import("./judgeVersioning");
+      const label = primary.activeProviderLabel();
       const t0 = Date.now();
-      const r = await withTimeout(primary.judgePvpMatch(params), JUDGE_TIMEOUT_MS, primary.activeProviderLabel());
+      const r = await withTimeout(primary.judgePvpMatch(params), JUDGE_TIMEOUT_MS, label);
       return {
         ...r,
-        judgeId: primary.activeProviderLabel(),
+        judgeId: label,
         latencyMs: Date.now() - t0,
-        fingerprint: makeFingerprint(primary.activeProviderLabel(), process.env.NVIDIA_MODEL || process.env.OPENROUTER_MODEL || "default"),
+        fingerprint: makeFingerprint(label, primary.currentModel()),
       };
     })(),
-    (async (): Promise<JudgedVerdict> => {
-      const anthropic = await import("./anthropic");
-      const { makeFingerprint } = await import("./judgeVersioning");
-      const t0 = Date.now();
-      const r = await withTimeout(anthropic.judgePvpMatch(params), JUDGE_TIMEOUT_MS, "anthropic");
-      return {
-        ...r,
-        judgeId: "anthropic" as const,
-        latencyMs: Date.now() - t0,
+  ];
+  if (process.env.ANTHROPIC_API_KEY) {
+    legs.push(
+      (async (): Promise<JudgedVerdict> => {
+        const anthropic = await import("./anthropic");
+        const { makeFingerprint } = await import("./judgeVersioning");
+        const t0 = Date.now();
+        const r = await withTimeout(anthropic.judgePvpMatch(params), JUDGE_TIMEOUT_MS, "anthropic");
+        return {
+          ...r,
+          judgeId: "anthropic" as const,
+          latencyMs: Date.now() - t0,
         fingerprint: makeFingerprint("anthropic", process.env.ANTHROPIC_MODEL || "claude-sonnet-5"),
       };
-    })(),
-  ]);
+      })(),
+    );
+  }
+  const settled = await Promise.allSettled(legs);
   const ok = settled.filter((r): r is PromiseFulfilledResult<JudgedVerdict> => r.status === "fulfilled").map((r) => r.value);
   if (!ok.length) {
     const reasons = settled.filter((r) => r.status === "rejected").map((r) => String((r as PromiseRejectedResult).reason?.message ?? r));

@@ -22,7 +22,7 @@ Scored features: `claimsMade`, `claimsDirectlySupported`, `evidenceActuallyCited
 
 ## PvP judging
 
-PvP verdicts come from an ensemble (primary transport + Anthropic in parallel when configured); the graph drives winner/scores via `finalizePvpAssessment`. Verdicts carry judge fingerprints (provider, model, prompt version, scoring engine version, temperature, ensemble) and the evaluation envelope stamp (`src/lib/evaluationEnvelope.ts`), so any stored result is attributable to the exact policy that produced it.
+PvP verdicts come from the ensemble harness — OpenRouter's free NVIDIA Nemotron chain is the configured judge (the ensemble supports a second judge in parallel only when another provider key is present; with one key it runs single-judge); the graph drives winner/scores via `finalizePvpAssessment`. Verdicts carry judge fingerprints (provider, model, prompt version, scoring engine version, temperature, ensemble) and the evaluation envelope stamp (`src/lib/evaluationEnvelope.ts`), so any stored result is attributable to the exact policy that produced it.
 
 ## Judge invariance and health
 

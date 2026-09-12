@@ -26,44 +26,103 @@ const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 
 /**
- * Two interchangeable OpenAI-style transports:
- *  - NVIDIA (build.nvidia.com) when NVIDIA_API_KEY is set — the intended primary;
- *    direct Nemotron access without the ":free" pool saturation.
- *  - OpenRouter free tier otherwise.
+ * Interchangeable OpenAI-style judge transports, tried in priority order —
+ * the first one whose API key is present serves every call. Each transport
+ * has its own model chain (`<LABEL>_MODEL` primary, `<LABEL>_FALLBACK_MODELS`
+ * comma-separated failover; an empty string pins to the single model).
+ * NVIDIA/OpenRouter keep their historical env names.
  */
-export type ProviderLabel = "nvidia" | "openrouter";
+export type ProviderLabel = "nvidia" | "openrouter" | "unorouter" | "kiraai" | "bai";
 
-export function activeProvider(): { label: ProviderLabel; url: string; key: string } {
-  if (process.env.NVIDIA_API_KEY) {
-    return { label: "nvidia", url: NVIDIA_API_URL, key: process.env.NVIDIA_API_KEY };
-  }
-  return { label: "openrouter", url: OPENROUTER_API_URL, key: process.env.OPENROUTER_API_KEY ?? "" };
+interface ProviderSpec {
+  label: ProviderLabel;
+  keyEnv: string;
+  url: string;
+  defaultModel: string;
+  defaultFallbacks: string[];
 }
 
-export function activeProviderLabel(): ProviderLabel {
-  return activeProvider().label;
-}
-
-/** Free GLM 5.2 on the OpenRouter transport. Override per-environment without a code change. */
-export const DEFAULT_MODEL = "z-ai/glm-5.2:free";
+/** Free NVIDIA Nemotron on the OpenRouter transport. Override per-environment without a code change. */
+export const DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free";
 
 /** Direct-NVIDIA default: the strongest Nemotron, no shared free-pool saturation. */
 export const NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
 
 /**
- * GLM 5.2's free tier is served by a single upstream provider whose shared pool
- * is frequently saturated — it can return 429 for long stretches. These two are
- * the free models measured to hold up on the heaviest call (the PvP argument
- * graph): both returned a well-formed 12-node graph with every cited evidence
- * node carrying a citation. Ordered strongest first.
+ * Free OpenRouter models that hold up on the heaviest calls (the PvP argument
+ * graph). Ordered strongest first: Nemotron 3.5 Super, then the full Ultra.
+ * A DeepSeek free tier is retained as a trailing fallback.
  */
 export const DEFAULT_FALLBACK_MODELS = [
-  "nvidia/nemotron-3-ultra-550b-a55b:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "deepseek/deepseek-v4-flash:free",
 ];
 
 /** NVIDIA-transport fallbacks (no ":free" suffix on the direct API). */
 export const NVIDIA_DEFAULT_FALLBACK_MODELS = ["nvidia/nemotron-3-super-120b-a12b"];
+
+/**
+ * Provider registry — verified 2026-09-11: each transport below answers an
+ * OpenAI-style chat/completions request with its listed default model.
+ * UnoRouter carries the same free Nemotron chain as OpenRouter without the
+ * (currently invalid) OpenRouter key; Kirai and B.ai add independent free
+ * Qwen/GLM families for failover diversity.
+ */
+export const PROVIDERS: readonly ProviderSpec[] = [
+  {
+    label: "nvidia",
+    keyEnv: "NVIDIA_API_KEY",
+    url: NVIDIA_API_URL,
+    defaultModel: NVIDIA_DEFAULT_MODEL,
+    defaultFallbacks: NVIDIA_DEFAULT_FALLBACK_MODELS,
+  },
+  {
+    label: "openrouter",
+    keyEnv: "OPENROUTER_API_KEY",
+    url: OPENROUTER_API_URL,
+    defaultModel: DEFAULT_MODEL,
+    defaultFallbacks: DEFAULT_FALLBACK_MODELS,
+  },
+  {
+    label: "unorouter",
+    keyEnv: "UNOROUTER_API_KEY",
+    url: "https://api.unorouter.com/v1/chat/completions",
+    defaultModel: "nemotron-3.5-lightning:free",
+    defaultFallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free", "glm-5.3:free"],
+  },
+  {
+    label: "kiraai",
+    keyEnv: "KIRAAI_API_KEY",
+    url: "https://kiraai.vn/api/v1/chat/completions",
+    defaultModel: "qwen3.8-flash-free",
+    defaultFallbacks: ["glm-5.3-free", "hy3-free", "mimo-v2.5-free"],
+  },
+  {
+    label: "bai",
+    keyEnv: "BAI_API_KEY",
+    url: "https://api.b.ai/v1/chat/completions",
+    defaultModel: "qwen3.8-flash",
+    defaultFallbacks: ["glm-5.3-flash", "deepseek-v4.1-flash"],
+  },
+];
+
+/** All providers that currently have an API key configured, in priority order. */
+export function configuredProviders(env: Record<string, string | undefined> = process.env): ProviderSpec[] {
+  return PROVIDERS.filter((p) => (env[p.keyEnv] ?? "").trim().length > 0);
+}
+
+export function activeProvider(env: Record<string, string | undefined> = process.env): ProviderSpec & { key: string } {
+  const [first] = configuredProviders(env);
+  if (first) return { ...first, key: (env[first.keyEnv] ?? "").trim() };
+  // Default shape when nothing is configured: OpenRouter without a key —
+  // apiKey() surfaces the actionable error on first use.
+  return { ...PROVIDERS[1], key: "" };
+}
+
+export function activeProviderLabel(): ProviderLabel {
+  return activeProvider().label;
+}
 
 const MAX_ATTEMPTS = Number(process.env.OPENROUTER_MAX_ATTEMPTS ?? 4);
 const RETRY_BUDGET_MS = Number(process.env.OPENROUTER_RETRY_BUDGET_MS ?? 45_000);
@@ -72,31 +131,31 @@ function apiKey(): string {
   const provider = activeProvider();
   if (!provider.key) {
     throw new Error(
-      provider.label === "nvidia"
-        ? "NVIDIA_API_KEY is not configured."
-        : "OPENROUTER_API_KEY is not configured (or set NVIDIA_API_KEY for the NVIDIA transport).",
+      "No judge provider key configured — set one of NVIDIA_API_KEY, OPENROUTER_API_KEY, UNOROUTER_API_KEY, KIRAAI_API_KEY, BAI_API_KEY.",
     );
   }
   return provider.key;
 }
 
 function model(): string {
-  if (activeProvider().label === "nvidia") {
-    return process.env.NVIDIA_MODEL || NVIDIA_DEFAULT_MODEL;
-  }
-  return process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+  const provider = activeProvider();
+  return process.env[`${provider.label.toUpperCase()}_MODEL`] || provider.defaultModel;
+}
+
+/** The model currently selected on the active transport (for fingerprints/telemetry). */
+export function currentModel(): string {
+  return model();
 }
 
 /**
- * Preferred model first, then fallbacks. Set OPENROUTER_FALLBACK_MODELS (or
- * NVIDIA_FALLBACK_MODELS on the NVIDIA transport) to a comma-separated list to
- * override, or to an empty string to disable failover and pin the app to a
- * single model.
+ * Preferred model first, then fallbacks. Set `<LABEL>_FALLBACK_MODELS` to a
+ * comma-separated list to override, or to an empty string to disable failover
+ * and pin the app to a single model.
  */
 export function modelChain(): string[] {
-  const onNvidia = activeProvider().label === "nvidia";
-  const configured = onNvidia ? process.env.NVIDIA_FALLBACK_MODELS : process.env.OPENROUTER_FALLBACK_MODELS;
-  const defaults = onNvidia ? NVIDIA_DEFAULT_FALLBACK_MODELS : DEFAULT_FALLBACK_MODELS;
+  const provider = activeProvider();
+  const configured = process.env[`${provider.label.toUpperCase()}_FALLBACK_MODELS`];
+  const defaults = provider.defaultFallbacks;
   const fallbacks =
     configured === undefined
       ? defaults
@@ -241,7 +300,7 @@ async function tryModel<T>(
       recordAiCall({
         at: new Date().toISOString(),
         operation: options.operation,
-        provider: "openrouter",
+        provider: activeProvider().label,
         model: m,
         promptTokens: usage?.prompt_tokens,
         completionTokens: usage?.completion_tokens,

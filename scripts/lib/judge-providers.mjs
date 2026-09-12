@@ -1,5 +1,11 @@
-// Provider adapters for the live judge benchmark: NVIDIA (direct) with model
-// failover, OpenRouter free tier, and Anthropic.
+// Provider adapters for the live judge benchmark and topic generation: a
+// registry of interchangeable OpenAI-compatible transports, each with its own
+// model chain. Mirrors src/lib/openrouter.ts (the app's transports) so the
+// benchmark validates the same providers production uses.
+//
+// Configured providers (in priority order): NVIDIA_API_KEY → OPENROUTER_API_KEY
+// → UNOROUTER_API_KEY → KIRAAI_API_KEY → BAI_API_KEY. Model overrides use
+// <LABEL>_MODEL and <LABEL>_FALLBACK_MODELS (comma-separated; empty pins one).
 
 function extractJson(text) {
   const trimmed = String(text ?? "").trim();
@@ -62,16 +68,89 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
   }
 }
 
-/** NVIDIA/OpenRouter chain judge: tries each model in order. */
+/**
+ * The provider registry — same transports and priority order the app uses.
+ * Default chains verified against each /models endpoint on 2026-09-11.
+ */
+export const PROVIDERS = [
+  {
+    label: "nvidia",
+    keyEnv: "NVIDIA_API_KEY",
+    url: "https://integrate.api.nvidia.com/v1/chat/completions",
+    defaultModel: "nvidia/nemotron-3-ultra-550b-a55b",
+    fallbacks: ["nvidia/nemotron-3-super-120b-a12b"],
+  },
+  {
+    label: "openrouter",
+    keyEnv: "OPENROUTER_API_KEY",
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    defaultModel: "nvidia/nemotron-3.5-lightning:free",
+    fallbacks: [
+      "nvidia/nemotron-3-super-120b-a12b:free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "deepseek/deepseek-v4-flash:free",
+    ],
+    extraHeaders: { "HTTP-Referer": "https://daily-debate.app" },
+  },
+  {
+    label: "unorouter",
+    keyEnv: "UNOROUTER_API_KEY",
+    url: "https://api.unorouter.com/v1/chat/completions",
+    defaultModel: "nemotron-3.5-lightning:free",
+    fallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free", "glm-5.3:free"],
+  },
+  {
+    label: "kiraai",
+    keyEnv: "KIRAAI_API_KEY",
+    url: "https://kiraai.vn/api/v1/chat/completions",
+    defaultModel: "qwen3.8-flash-free",
+    fallbacks: ["glm-5.3-free", "hy3-free", "mimo-v2.5-free"],
+  },
+  {
+    label: "bai",
+    keyEnv: "BAI_API_KEY",
+    url: "https://api.b.ai/v1/chat/completions",
+    defaultModel: "qwen3.8-flash",
+    fallbacks: ["glm-5.3-flash", "deepseek-v4.1-flash"],
+  },
+];
+
+export function providerStatus(env = process.env) {
+  return PROVIDERS.filter((p) => (env[p.keyEnv] ?? "").trim().length > 0).map((p) => p.label);
+}
+
+/** Model chain for one provider entry: primary + fallbacks (env-overridable). */
+export function chainFor(provider, env = process.env) {
+  const upper = provider.label.toUpperCase();
+  const primary = env[`${upper}_MODEL`] || provider.defaultModel;
+  const fallbacks = env[`${upper}_FALLBACK_MODELS`] !== undefined
+    ? env[`${upper}_FALLBACK_MODELS`].split(",").map((m) => m.trim()).filter(Boolean)
+    : provider.fallbacks;
+  return [primary, ...fallbacks.filter((m) => m !== primary)];
+}
+
+/** OpenAI-style chain transport for topic generation: { url, key, models } or null. */
+export function generationChain(env = process.env) {
+  const [provider] = PROVIDERS.filter((p) => (env[p.keyEnv] ?? "").trim().length > 0);
+  if (!provider) return null;
+  return {
+    url: provider.url,
+    key: (env[provider.keyEnv] ?? "").trim(),
+    models: chainFor(provider, env),
+    extraHeaders: provider.extraHeaders ?? {},
+  };
+}
+
+/** Chain judge: tries each model in order; the judge id names the primary. */
 function makeChainJudge({ url, key, models, extraHeaders = {} }) {
   return async (transcript) => {
     let lastError;
     for (const model of models) {
       try {
-        const { content, tokens } = await chat({
+        const { content, tokens, promptTokens, completionTokens, latencyMs } = await chat({
           url, key, model, system: VERDICT_SYSTEM, user: verdictUser(transcript), maxTokens: 900, extraHeaders,
         });
-        return { ...normaliseVerdict(extractJson(content)), model, tokens };
+        return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs };
       } catch (e) {
         lastError = e;
       }
@@ -80,59 +159,51 @@ function makeChainJudge({ url, key, models, extraHeaders = {} }) {
   };
 }
 
-export function primaryChainJudge(env = process.env) {
-  if (env.NVIDIA_API_KEY) {
-    const models = [env.NVIDIA_MODEL || "nvidia/nemotron-3-ultra-550b-a55b"];
-    if (env.ALL_MODELS && env.NVIDIA_FALLBACK_MODELS) models.push(...env.NVIDIA_FALLBACK_MODELS.split(",").map((m) => m.trim()).filter(Boolean));
-    else if (!env.ALL_MODELS && env.NVIDIA_FALLBACK_MODELS) models.push(...env.NVIDIA_FALLBACK_MODELS.split(",").map((m) => m.trim()).filter(Boolean).slice(0, 0));
-    return { id: `nvidia:${models.join("/")}`, fn: makeChainJudge({ url: "https://integrate.api.nvidia.com/v1/chat/completions", key: env.NVIDIA_API_KEY, models }) };
+/**
+ * All configured providers as benchmark judges. Each runs the full 24-fixture
+ * pack + probe battery, so per-model rows compare free transports fairly.
+ * NVIDIA appears only via its direct key (its models also ride the OpenRouter
+ * chain as ":free" variants when that key exists).
+ */
+export function allJudgeProviders(env = process.env) {
+  const judges = [];
+  for (const provider of PROVIDERS) {
+    const key = (env[provider.keyEnv] ?? "").trim();
+    if (!key) continue;
+    if (provider.label === "nvidia") {
+      const models = chainFor(provider, env);
+      judges.push({ id: `nvidia:${models.join("/")}`, fn: makeChainJudge({ url: provider.url, key, models }) });
+      continue;
+    }
+    if (provider.label === "openrouter" && env.NVIDIA_API_KEY) continue; // already covered as direct nvidia
+    const models = chainFor(provider, env);
+    judges.push({
+      id: `${provider.label}:${models[0]}`,
+      fn: makeChainJudge({ url: provider.url, key, models, extraHeaders: provider.extraHeaders ?? {} }),
+    });
   }
-  if (env.OPENROUTER_API_KEY) {
-    const models = [env.OPENROUTER_MODEL || "z-ai/glm-5.2:free"];
-    if (env.OPENROUTER_FALLBACK_MODELS) models.push(...env.OPENROUTER_FALLBACK_MODELS.split(",").map((m) => m.trim()).filter(Boolean));
-    return { id: `openrouter:${models[0]}`, fn: makeChainJudge({ url: "https://openrouter.ai/api/v1/chat/completions", key: env.OPENROUTER_API_KEY, models, extraHeaders: { "HTTP-Referer": "https://daily-debate.app" } }) };
-  }
-  return null;
+  return judges;
 }
 
-export function anthropicJudge(env = process.env) {
-  if (!env.ANTHROPIC_API_KEY) return null;
-  const model = env.ANTHROPIC_MODEL || "claude-sonnet-5";
-  const fn = async (transcript) => {
-    const started = Date.now();
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: 900, messages: [{ role: "user", content: `${VERDICT_SYSTEM}\n\n${verdictUser(transcript)}` }] }),
-    });
-    const data = await res.json();
-    const content = data?.content?.map((c) => c.text ?? "").join("");
-    if (!res.ok || !content) throw new Error(`anthropic ${res.status}`);
-    return {
-      ...normaliseVerdict(extractJson(content)),
-      model,
-      tokens: data.usage ? (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0) : null,
-      promptTokens: data?.usage?.input_tokens ?? null,
-      completionTokens: data?.usage?.output_tokens ?? null,
-      latencyMs: Date.now() - started,
-    };
-  };
-  return { id: `anthropic:${model}`, fn };
+/** Historical direct-nvidia alias kept for older env setups. */
+export function primaryChainJudge(env = process.env) {
+  return allJudgeProviders(env)[0] ?? null;
 }
 
 /**
- * Cost per 1M tokens (USD) for the benchmark's published models. Used only to
- * PUBLISH an estimated run cost — never a gate. Unknown models report null.
+ * Cost per 1M tokens (USD) for priced models. Used only to PUBLISH an
+ * estimated run cost — never a gate. Free-tier models (any ":free"/"-free"
+ * suffix) are $0; unknown paid models report null.
  */
 export const COST_PER_MTOK = {
   "nvidia/nemotron-3-ultra-550b-a55b": { input: 0.6, output: 1.8 },
   "nvidia/nemotron-3-super-120b-a12b": { input: null, output: null },
-  "z-ai/glm-5.2:free": { input: 0, output: 0 },
-  "claude-sonnet-5": { input: 3, output: 15 },
 };
 
-/** Estimated run cost in USD given prompt/completion token totals; null when the model is unpriced. */
+/** Estimated run cost in USD given prompt/completion token totals; null when unpriced. */
 export function estimatedCost(model, promptTokens, completionTokens) {
+  const isFree = /:free\b|-free\b|\/free\b/i.test(model);
+  if (isFree) return 0;
   const price = Object.entries(COST_PER_MTOK).find(([slug]) => model.endsWith(slug) || model.includes(slug))?.[1];
   if (!price || price.input === null) return null;
   return +(((promptTokens / 1e6) * price.input) + ((completionTokens / 1e6) * price.output)).toFixed(4);

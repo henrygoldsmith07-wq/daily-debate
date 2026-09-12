@@ -6,7 +6,7 @@ Daily Debate is a daily reasoning trainer: argue today's motion against an AI op
 
 ## Stack
 
-Next.js (App Router) + a repository-owned Postgres/auth backend + OpenRouter (primary, default model `z-ai/glm-5.2:free` with automatic failover) / Anthropic (alternate judge backend). The app talks to standard Postgres through the Neon serverless driver.
+Next.js (App Router) + a repository-owned Postgres/auth backend + OpenRouter (primary judge, default model `nvidia/nemotron-3.5-lightning:free` with automatic failover through the free Nemotron chain). The app talks to standard Postgres through the Neon serverless driver.
 
 ## The daily loop
 
@@ -76,10 +76,10 @@ Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only chec
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | Server-only pooled Postgres connection string. Never expose it with a `NEXT_PUBLIC_` prefix. |
-| `OPENROUTER_API_KEY` | yes | Primary judge; solo debates and daily topics fail without it. |
-| `OPENROUTER_MODEL` | optional | Defaults to `z-ai/glm-5.2:free`. |
-| `OPENROUTER_FALLBACK_MODELS` | optional | Comma-separated failover chain. Defaults to free Nemotron 3 Ultra then Super. Empty string pins to one model. |
-| `ANTHROPIC_API_KEY` | optional | Second judge in the ensemble when present. |
+| `OPENROUTER_API_KEY` | at least one of these | Primary judge when set; solo debates, PvP judging, and daily topics fail without any provider key. |
+| `UNOROUTER_API_KEY` / `KIRAAI_API_KEY` / `BAI_API_KEY` | alternative judges | Free-model OpenAI-compatible transports tried in priority order (NVIDIA → OpenRouter → UnoRouter → Kirai → B.ai). |
+| `OPENROUTER_MODEL` | optional | Defaults to `nvidia/nemotron-3.5-lightning:free`. |
+| `OPENROUTER_FALLBACK_MODELS` | optional | Comma-separated failover chain. Defaults to free Nemotron 3 Super then Ultra. Empty string pins to one model. |
 | `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |
 
 After setting `DATABASE_URL`, run `npm run db:migrate` locally against the same database before deploying authenticated features.

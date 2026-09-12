@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_FALLBACK_MODELS,
   DEFAULT_MODEL,
+  activeProvider,
+  configuredProviders,
+  currentModel,
   extractJson,
   generateDailyTopic,
   modelChain,
@@ -58,8 +61,8 @@ describe("extractJson", () => {
 describe("modelChain", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("defaults to free GLM 5.2 ahead of the measured fallbacks", () => {
-    expect(DEFAULT_MODEL).toBe("z-ai/glm-5.2:free");
+  it("defaults to the free Nemotron 3.5 Lightning ahead of the measured fallbacks", () => {
+    expect(DEFAULT_MODEL).toBe("nvidia/nemotron-3.5-lightning:free");
     expect(modelChain()).toEqual([DEFAULT_MODEL, ...DEFAULT_FALLBACK_MODELS]);
   });
 
@@ -83,6 +86,57 @@ describe("modelChain", () => {
   it("accepts a custom comma-separated fallback list", () => {
     vi.stubEnv("OPENROUTER_FALLBACK_MODELS", " a/one , b/two ");
     expect(modelChain()).toEqual([DEFAULT_MODEL, "a/one", "b/two"]);
+  });
+});
+
+describe("provider registry", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("lists configured providers in priority order", () => {
+    vi.stubEnv("NVIDIA_API_KEY", "");
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("UNOROUTER_API_KEY", "u");
+    vi.stubEnv("KIRAAI_API_KEY", "k");
+    vi.stubEnv("BAI_API_KEY", "");
+    expect(configuredProviders().map((p) => p.label)).toEqual(["unorouter", "kiraai"]);
+  });
+
+  it("prefers NVIDIA, then OpenRouter, then the free alternates", () => {
+    vi.stubEnv("NVIDIA_API_KEY", "n");
+    vi.stubEnv("OPENROUTER_API_KEY", "o");
+    vi.stubEnv("UNOROUTER_API_KEY", "u");
+    expect(activeProvider().label).toBe("nvidia");
+    vi.stubEnv("NVIDIA_API_KEY", "");
+    expect(activeProvider().label).toBe("openrouter");
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    expect(activeProvider().label).toBe("unorouter");
+    expect(activeProvider().url).toBe("https://api.unorouter.com/v1/chat/completions");
+  });
+
+  it("falls back to OpenRouter shape (no key) when nothing is configured", () => {
+    for (const k of ["NVIDIA_API_KEY", "OPENROUTER_API_KEY", "UNOROUTER_API_KEY", "KIRAAI_API_KEY", "BAI_API_KEY"]) {
+      vi.stubEnv(k, "");
+    }
+    expect(configuredProviders()).toEqual([]);
+    // activeProvider defaults to the OpenRouter label with an empty key; the
+    // first request throws the actionable "no provider key" message.
+    expect(activeProvider().label).toBe("openrouter");
+    expect(activeProvider().key).toBe("");
+  });
+
+  it("uses per-provider defaults and override envs for the free alternates", () => {
+    vi.stubEnv("NVIDIA_API_KEY", "");
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("UNOROUTER_API_KEY", "u");
+    expect(currentModel()).toBe("nemotron-3.5-lightning:free");
+    expect(modelChain().slice(0, 2)).toEqual([
+      "nemotron-3.5-lightning:free",
+      "nemotron-3-super-120b-a12b:free",
+    ]);
+    vi.stubEnv("UNOROUTER_MODEL", "custom/model");
+    expect(modelChain()[0]).toBe("custom/model");
+    vi.stubEnv("UNOROUTER_FALLBACK_MODELS", "a/x,b/y");
+    expect(modelChain()).toEqual(["custom/model", "a/x", "b/y"]);
   });
 });
 
@@ -243,7 +297,7 @@ describe("generateDailyTopic transport", () => {
 
     it("fails fast and clearly when the key is absent", async () => {
       vi.stubEnv("OPENROUTER_API_KEY", "");
-      await expect(generateDailyTopic([])).rejects.toThrow("OPENROUTER_API_KEY is not configured");
+      await expect(generateDailyTopic([])).rejects.toThrow(/No judge provider key configured/i);
     });
   });
 
@@ -266,7 +320,9 @@ describe("generateDailyTopic transport", () => {
       const fetchMock = vi.fn().mockImplementation(async () => rateLimited());
       vi.stubGlobal("fetch", fetchMock);
 
-      await expect(settle(generateDailyTopic([]))).rejects.toThrow(/Tried 3/);
+      await expect(settle(generateDailyTopic([]))).rejects.toThrow(
+        new RegExp(`Tried ${1 + DEFAULT_FALLBACK_MODELS.length}`),
+      );
 
       const perModel = fetchMock.mock.calls.map(modelOf).reduce<Record<string, number>>((acc, m) => {
         acc[m] = (acc[m] ?? 0) + 1;
@@ -275,7 +331,7 @@ describe("generateDailyTopic transport", () => {
       // Only the last model in the chain gets the full attempt allowance.
       expect(perModel[DEFAULT_MODEL]).toBe(2);
       expect(perModel[DEFAULT_FALLBACK_MODELS[0]]).toBe(2);
-      expect(perModel[DEFAULT_FALLBACK_MODELS[1]]).toBe(4);
+      expect(perModel[DEFAULT_FALLBACK_MODELS[DEFAULT_FALLBACK_MODELS.length - 1]]).toBe(4);
     });
 
     it("falls through when a model is unavailable to the account", async () => {

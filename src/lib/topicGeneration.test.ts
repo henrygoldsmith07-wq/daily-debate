@@ -23,7 +23,7 @@ const script = path.join(projectRoot, "scripts", "generate-topics.mjs");
 
 function runScript(args: string[], env: Record<string, string | undefined>): { stdout: string; stderr: string; status: number } {
   const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
-  for (const k of ["DATABASE_URL", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"]) {
+  for (const k of ["DATABASE_URL", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "UNOROUTER_API_KEY", "KIRAAI_API_KEY", "BAI_API_KEY", "OPENROUTER_MODEL", "OPENROUTER_FALLBACK_MODELS", "ANTHROPIC_API_KEY"]) {
     delete cleanEnv[k];
   }
   for (const [k, v] of Object.entries(env)) {

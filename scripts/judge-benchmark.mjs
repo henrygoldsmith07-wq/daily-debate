@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { FIXTURES, STRATA } from "./lib/judge-fixtures.mjs";
 import { PROBES, AUDIT_TRANSFORMS } from "./lib/judge-transforms.mjs";
-import { primaryChainJudge, anthropicJudge, estimatedCost } from "./lib/judge-providers.mjs";
+import { allJudgeProviders, estimatedCost } from "./lib/judge-providers.mjs";
 
 function loadEnvLocal() {
   const p = path.join(process.cwd(), ".env.local");
@@ -191,7 +191,7 @@ async function evaluateModel(judge) {
   const promptTokens = tokenSamples.reduce((s, x) => s + (x.prompt || 0), 0);
   const completionTokens = tokenSamples.reduce((s, x) => s + (x.completion || 0), 0);
   const allTokens = probeResults.reduce((s, r) => s + (r.tokens ?? 0), 0) || promptTokens + completionTokens;
-  const costUsd = estimatedCost(judge.id.replace(/^(nvidia|openrouter|anthropic):/, ""), promptTokens, completionTokens);
+  const costUsd = estimatedCost(judge.id.slice(judge.id.indexOf(":") + 1), promptTokens, completionTokens);
 
   return {
     model: judge.id,
@@ -273,7 +273,7 @@ async function main() {
     return;
   }
 
-  const judges = [primaryChainJudge(), anthropicJudge()].filter(Boolean);
+  const judges = allJudgeProviders(process.env);
   if (!judges.length) {
     // A missing-key run must never masquerade as a green validation: the
     // workflow gate is --enforce, and skipping without failing would let a
@@ -281,11 +281,11 @@ async function main() {
     // reason so CI reports the true state.
     const allowSkip = args.includes("--allow-skip") || process.env.JUDGE_BENCHMARK_ALLOW_SKIP === "1";
     if (allowSkip) {
-      log("[judge-benchmark] skipped - no NVIDIA_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY set (allowed)");
+      log("[judge-benchmark] skipped - no provider key set (OPENROUTER_API_KEY / UNOROUTER_API_KEY / KIRAAI_API_KEY / BAI_API_KEY / NVIDIA_API_KEY) (allowed)");
       process.stdout.write(JSON.stringify({ skipped: true, allowed: true }) + "\n");
       return;
     }
-    log("[judge-benchmark] FAILED - no judge is configured (set NVIDIA_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY). A live validation run cannot be skipped silently.");
+    log("[judge-benchmark] FAILED - no judge is configured (set OPENROUTER_API_KEY or another provider key). A live validation run cannot be skipped silently.");
     process.stdout.write(JSON.stringify({ skipped: true, error: "no judge configured" }) + "\n");
     process.exit(1);
   }
@@ -329,7 +329,7 @@ async function main() {
   const existing = fs.existsSync(mdTarget) ? fs.readFileSync(mdTarget, "utf8").split(/\r?\n/) : [];
   const priorRows = new Map();
   for (const line of existing) {
-    if (!line.startsWith("| nvidia") && !line.startsWith("| openrouter") && !line.startsWith("| anthropic")) continue;
+    if (!/^\| (nvidia|openrouter|unorouter|kiraai|bai|anthropic)/.test(line)) continue;
     const cells = line.split("|").map((c) => c.trim());
     if (cells.length > 2) priorRows.set(cells[1], line);
   }

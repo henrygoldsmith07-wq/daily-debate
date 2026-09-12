@@ -31,7 +31,7 @@ Removals are code-deletions (recoverable from git history), not disabled flags.
 - **CI gate**: lint → typecheck → unit + DB-invariant tests → build → `npm audit` (critical blocks) → authenticated Playwright E2E over a production build with ephemeral Postgres (`DATABASE_URL` provided to migration/seed scripts).
 - **Migrations**: sequential SQL files, `app_migrations` ledger, statement-splitter tolerant of comments/dollar-quoting; `npm run db:migrate`.
 - **Concurrency**: atomic turn claiming (`.is("user_message", null)`), atomic debate completion (`status = 'active'`), atomic PvP matchmaking (`FOR UPDATE SKIP LOCKED`), atomic invite claim (`status = 'open'`), DB unique constraints as backstops.
-- **AI failures**: `withProviderFallback` (retries with backoff → failover → Anthropic leg), schema validation on every response, moderation gates, compensating deletes for dead debates.
+- **AI failures**: `withProviderFallback` (retries with backoff → model failover chain → optional second provider when configured), schema validation on every response, moderation gates, compensating deletes for dead debates.
 - **Observability**: `aiTelemetry` ring buffer + structured log lines + durable `ai_call_log` (migration 006); product funnel events with user/session ids; admin views `/analytics`, `/metrics`.
 - **Security**: scrypt password hashing, hashed session tokens, server-only DB access, SSRF-guarded source retrieval, moderation + length caps, admin allowlist gates, rate limits on every mutating route.
 

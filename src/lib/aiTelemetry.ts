@@ -106,8 +106,8 @@ export interface AiCallTelemetry {
   at: string;
   /** Logical operation, e.g. "judge_pvp" — stable identifiers for attribution. */
   operation: string;
-  /** Provider stack that served (or failed) the call: "openrouter" | "anthropic". */
-  provider: "openrouter" | "anthropic";
+  /** Provider stack that served (or failed) the call. */
+  provider: "openrouter" | "nvidia" | "unorouter" | "kiraai" | "bai" | "anthropic";
   /** Concrete model identifier attempted, e.g. "anthropic/claude-sonnet-4.5". */
   model: string;
   promptTokens?: number;

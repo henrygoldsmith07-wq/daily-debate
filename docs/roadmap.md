@@ -89,7 +89,7 @@ those links to tangential, and docks its score for decorative citations.
 ## 2. Model benchmarks & bias testing
 
 - Gemini benchmark.
-- Anthropic benchmark.
+- Live judge benchmark on the free OpenRouter NVIDIA chain (24 fixtures, gated).
 - Multi-model ensemble.
 - Position-swap testing *(extend — `swapLabels`)*.
 - Name-removal testing *(extend — `stripNames`)*.

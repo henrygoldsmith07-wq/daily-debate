@@ -46,9 +46,11 @@ export default function BenchmarkPage() {
             <code className="rounded bg-surface-2 px-1 py-0.5 text-xs">scripts/judge-benchmark.mjs</code>{" "}
             over the 24-fixture pack and are published in{" "}
             <code className="rounded bg-surface-2 px-1 py-0.5 text-xs">docs/judge-leaderboard.md</code>.
-            Live runs need <code className="text-xs">NVIDIA_API_KEY</code>,{" "}
-            <code className="text-xs">OPENROUTER_API_KEY</code>, or{" "}
-            <code className="text-xs">ANTHROPIC_API_KEY</code> — repository secrets for CI, local keys for direct runs.
+            Live runs need at least one provider key —{" "}
+            <code className="text-xs">OPENROUTER_API_KEY</code>,{" "}
+            <code className="text-xs">UNOROUTER_API_KEY</code>,{" "}
+            <code className="text-xs">KIRAAI_API_KEY</code>, <code className="text-xs">BAI_API_KEY</code>, or{" "}
+            <code className="text-xs">NVIDIA_API_KEY</code> — repository secrets for CI, local keys for direct runs.
           </>
         }
       />
