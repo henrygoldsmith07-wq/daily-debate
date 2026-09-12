@@ -28,9 +28,14 @@ loadEnvLocal();
 const args = process.argv.slice(2);
 const argInt = (name, dflt, min, max) => {
   if (args.includes("--help") || args.includes("-h")) return dflt;
-  const a = args.find((x) => x.startsWith(`--${name}`));
-  if (!a) return dflt;
-  const v = Number(a.split("=")[1]);
+  // Accept both --name=N and --name N forms.
+  const eq = args.find((x) => x.startsWith(`--${name}=`));
+  const raw = eq !== undefined ? eq.split("=")[1] : (() => {
+    const i = args.indexOf(`--${name}`);
+    return i === -1 ? undefined : args[i + 1];
+  })();
+  if (raw === undefined) return dflt;
+  const v = Number(raw);
   if (!Number.isInteger(v) || v < min || v > max) {
     process.stderr.write(`[judge-benchmark] invalid --${name}: expected an integer from ${min} to ${max}\n`);
     process.exit(1);
