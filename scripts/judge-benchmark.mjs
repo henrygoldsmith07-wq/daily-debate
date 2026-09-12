@@ -216,8 +216,9 @@ async function evaluateModel(judge) {
 
   return {
     model: judge.id,
-    judge: { provider: judge.id.split(":")[0], model: judge.id.split(":")[1] ?? judge.id, temperature: 0, promptVersion: 4 },
+    judge: { provider: judge.id.split(":")[0], model: judge.id.split(":")[1] ?? judge.id, temperature: 0, promptVersion: 4, tieThreshold: 5 },
     fixtures: fixtures.length,
+    bases: bases.map((b) => ({ fixture: b.fixture, expected: b.expected, winner: b.winner ?? null, a: b.a ?? null, b: b.b ?? null, confidence: b.confidence ?? null, error: b.error ? String(b.error).slice(0, 120) : undefined })),
     calls: bases.length + probeResults.length + auditResults.length,
     errors: [...bases, ...probeResults, ...auditResults].filter((r) => r.error).length,
     positionMirrorOk: position.n ? +(1 - position.flipRate).toFixed(3) : null,

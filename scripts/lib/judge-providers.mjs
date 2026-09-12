@@ -25,12 +25,20 @@ export function verdictUser(transcript) {
 }
 
 function normaliseVerdict(parsed) {
-  const winner = ["a", "b", "tie"].includes(parsed.winner) ? parsed.winner : "tie";
   const clamp = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+  let winner = ["a", "b", "tie"].includes(parsed.winner) ? parsed.winner : "tie";
+  const a = clamp(parsed.playerAScore);
+  const b = clamp(parsed.playerBScore);
+  // Production tie policy: observableAssessment (WINNER_TIE_THRESHOLD = 5)
+  // only declares a winner when the score gap clears the threshold. A judge
+  // awarding 52-49 must say "tie" — exactly what the app does downstream of
+  // extraction. Aligned here so the benchmark measures the production
+  // verdict rule, not a harsher one the product never applies.
+  if (winner !== "tie" && Math.abs(a - b) < 5) winner = "tie";
   return {
     winner,
-    a: clamp(parsed.playerAScore),
-    b: clamp(parsed.playerBScore),
+    a,
+    b,
     confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
   };
 }
