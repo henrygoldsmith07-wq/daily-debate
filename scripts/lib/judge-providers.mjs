@@ -35,24 +35,35 @@ function normaliseVerdict(parsed) {
   };
 }
 
-async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {}, timeoutMs = 35_000 }) {
+async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {}, timeoutMs = 35_000, disableReasoning = true }) {
   const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const payload = {
+      model,
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      max_tokens: maxTokens,
+      temperature: 0,
+    };
+    // Free Nemotron models bill thinking tokens against max_tokens; the
+    // verdict JSON is small, so reasoning is disabled exactly like the app's
+    // transport (openrouter.ts post()). Endpoints that require reasoning
+    // reject the flag and are retried without it.
+    if (disableReasoning) payload.reasoning = { enabled: false };
     const res = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...extraHeaders },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        max_tokens: maxTokens,
-        temperature: 0,
-      }),
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
     const bodyText = await res.text();
-    if (!res.ok) throw new Error(`${res.status}: ${bodyText.slice(0, 160)}`);
+    if (!res.ok) {
+      if (disableReasoning && res.status === 400 && /reasoning/i.test(bodyText)) {
+        return chat({ url, key, model, system, user, maxTokens, extraHeaders, timeoutMs, disableReasoning: false });
+      }
+      throw new Error(`${res.status}: ${bodyText.slice(0, 160)}`);
+    }
     const data = JSON.parse(bodyText);
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== "string" || !content.trim()) throw new Error("empty content");
@@ -97,7 +108,9 @@ export const PROVIDERS = [
     keyEnv: "UNOROUTER_API_KEY",
     url: "https://api.unorouter.com/v1/chat/completions",
     defaultModel: "nemotron-3.5-lightning:free",
-    fallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free", "glm-5.3:free"],
+    // glm-5.3:free deliberately excluded: its free tier allows 1 request per
+    // minute per account, which poisons burst benchmark traffic with 429s.
+    fallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free"],
   },
   {
     label: "kiraai",

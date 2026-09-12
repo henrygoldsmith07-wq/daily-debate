@@ -89,7 +89,10 @@ export const PROVIDERS: readonly ProviderSpec[] = [
     keyEnv: "UNOROUTER_API_KEY",
     url: "https://api.unorouter.com/v1/chat/completions",
     defaultModel: "nemotron-3.5-lightning:free",
-    defaultFallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free", "glm-5.3:free"],
+    // glm-5.3:free excluded from the chain: its free tier allows 1 request
+    // per minute per account — it 429s under burst traffic and poisons the
+    // failover chain instead of rescuing it.
+    defaultFallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free"],
   },
   {
     label: "kiraai",
