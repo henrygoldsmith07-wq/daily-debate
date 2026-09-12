@@ -35,10 +35,10 @@ function normaliseVerdict(parsed) {
   };
 }
 
-async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {} }) {
+async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {}, timeoutMs = 35_000 }) {
   const started = Date.now();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       method: "POST",

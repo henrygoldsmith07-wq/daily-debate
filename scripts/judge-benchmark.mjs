@@ -96,6 +96,17 @@ async function evaluateModel(judge) {
   const bases = [];
   const latencySamples = [];
   const tokenSamples = [];
+  // Progress visibility: the probe/audit phases are silent, so a slow free
+  // pool looked like a hang. Count every completed call against the judge's
+  // total budget (base + probes + audits).
+  const totalCalls = fixtures.length + fixtures.length * PROBES.length + fixtures.length * AUDIT_TRANSFORMS.length;
+  let doneCalls = 0;
+  const tick = (label) => {
+    doneCalls += 1;
+    if (doneCalls % 24 === 0 || doneCalls === totalCalls) {
+      log(`  [${judge.id}] ${doneCalls}/${totalCalls} calls (${label})`);
+    }
+  };
   for (const f of fixtures) {
     try {
       const v = await judge.fn(f.transcript);
@@ -106,6 +117,7 @@ async function evaluateModel(judge) {
       log(`  [base] ${f.id}: ${String(e?.message ?? e).slice(0, 120)}`);
       bases.push({ fixture: f.id, expected: f.expectedWinner, error: String(e?.message ?? e) });
     }
+    tick("base");
     await sleep(250);
   }
   const okBases = bases.filter((b) => !b.error);
@@ -113,12 +125,13 @@ async function evaluateModel(judge) {
   const probeJobs = fixtures.flatMap((f) => PROBES.map((probe) => ({ f, probe })));
   const probeResults = await mapLimit(probeJobs, CONCURRENCY, async ({ f, probe }) => {
     const base = okBases.find((b) => b.fixture === f.id);
-    if (!base) return { probe: probe.id, error: "no-base" };
+    if (!base) { tick("probe"); return { probe: probe.id, error: "no-base" }; }
     try {
       const v = await judge.fn(probe.fn(f.transcript));
       if (v.latencyMs != null) latencySamples.push(v.latencyMs);
       if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
       const flip = probe.mirrored ? v.winner !== mirror(base.winner) : v.winner !== base.winner;
+      tick("probes");
       return {
         probe: probe.id,
         flip,
@@ -127,6 +140,7 @@ async function evaluateModel(judge) {
         tokens: v.tokens ?? 0,
       };
     } catch (e) {
+      tick("probes");
       return { probe: probe.id, error: String(e?.message ?? e).slice(0, 100) };
     }
   });
@@ -136,13 +150,15 @@ async function evaluateModel(judge) {
     CONCURRENCY,
     async ({ t, f }) => {
       const base = okBases.find((b) => b.fixture === f.id)?.winner;
-      if (!base) return { id: t.id, error: true };
+      if (!base) { tick("audits"); return { id: t.id, error: true }; }
       try {
         const v = await judge.fn(t.fn(f.transcript));
         if (v.latencyMs != null) latencySamples.push(v.latencyMs);
         if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
+        tick("audits");
         return { id: t.id, flipped: v.winner !== base };
       } catch {
+        tick("audits");
         return { id: t.id, error: true };
       }
     },
