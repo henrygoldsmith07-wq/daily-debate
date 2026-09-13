@@ -103,11 +103,13 @@ export const PROVIDERS = [
     label: "openrouter",
     keyEnv: "OPENROUTER_API_KEY",
     url: "https://openrouter.ai/api/v1/chat/completions",
-    defaultModel: "nvidia/nemotron-3.5-lightning:free",
+    // Super first: live probes (2026-09-13) found the free Lightning/Ultra
+    // pools frequently stall; Super answers in ~1s. No non-existent
+    // ":free" slugs in the chain — they add only error noise.
+    defaultModel: "nvidia/nemotron-3-super-120b-a12b:free",
     fallbacks: [
-      "nvidia/nemotron-3-super-120b-a12b:free",
+      "nvidia/nemotron-3.5-lightning:free",
       "nvidia/nemotron-3-ultra-550b-a55b:free",
-      "deepseek/deepseek-v4-flash:free",
     ],
     extraHeaders: { "HTTP-Referer": "https://daily-debate.app" },
   },

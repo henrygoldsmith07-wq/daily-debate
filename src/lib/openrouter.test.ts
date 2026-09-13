@@ -61,8 +61,8 @@ describe("extractJson", () => {
 describe("modelChain", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("defaults to the free Nemotron 3.5 Lightning ahead of the measured fallbacks", () => {
-    expect(DEFAULT_MODEL).toBe("nvidia/nemotron-3.5-lightning:free");
+  it("defaults to the reliably-fast free Nemotron 3 Super ahead of the measured fallbacks", () => {
+    expect(DEFAULT_MODEL).toBe("nvidia/nemotron-3-super-120b-a12b:free");
     expect(modelChain()).toEqual([DEFAULT_MODEL, ...DEFAULT_FALLBACK_MODELS]);
   });
 

@@ -42,8 +42,11 @@ interface ProviderSpec {
   defaultFallbacks: string[];
 }
 
-/** Free NVIDIA Nemotron on the OpenRouter transport. Override per-environment without a code change. */
-export const DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free";
+/** Free NVIDIA Nemotron on the OpenRouter transport. Override per-environment without a code change.
+ * Nemotron 3 Super leads the chain: live probes (2026-09-13) found the free
+ * Lightning/Ultra pools frequently stall, Super answers in ~1s.
+ */
+export const DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free";
 
 /** Direct-NVIDIA default: the strongest Nemotron, no shared free-pool saturation. */
 export const NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
@@ -54,9 +57,8 @@ export const NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
  * A DeepSeek free tier is retained as a trailing fallback.
  */
 export const DEFAULT_FALLBACK_MODELS = [
-  "nvidia/nemotron-3-super-120b-a12b:free",
+  "nvidia/nemotron-3.5-lightning:free",
   "nvidia/nemotron-3-ultra-550b-a55b:free",
-  "deepseek/deepseek-v4-flash:free",
 ];
 
 /** NVIDIA-transport fallbacks (no ":free" suffix on the direct API). */

@@ -186,8 +186,17 @@ async function evaluateModel(judge) {
   const fake = agg("fake-citation");
   const ideology = (id) => auditResults.filter((r) => r.id === id && !r.error && r.flipped).length;
 
+  // Minimum-sample gating for the two base-verdict metrics: agreement/ECE
+  // from a handful of calls is noise, not measurement. Free-tier providers
+  // rate-limit, so a run can be dominated by errors; in that case these read
+  // null (gate: "insufficient data") rather than a misleading small-n number.
+  // Half the pack is the floor; thresholds themselves are unchanged.
+  const MIN_AGREEMENT_SAMPLES = Math.ceil(FIXTURES.length / 2);
   const humanAgree = okBases.filter((b) => b.winner === b.expected).length;
-  const humanAgreement = okBases.length ? +(humanAgree / okBases.length).toFixed(3) : null;
+  const agreementN = okBases.length;
+  const humanAgreement = agreementN >= MIN_AGREEMENT_SAMPLES
+    ? +(humanAgree / agreementN).toFixed(3)
+    : null;
 
   const bins = Array.from({ length: 10 }, () => ({ total: 0, correct: 0, confSum: 0 }));
   for (const b of okBases) {
@@ -197,7 +206,7 @@ async function evaluateModel(judge) {
     if (b.winner === b.expected) bins[bin].correct += 1;
   }
   const binTotal = bins.reduce((s, x) => s + x.total, 0);
-  const ece = binTotal
+  const ece = agreementN >= MIN_AGREEMENT_SAMPLES && binTotal
     ? +(bins.reduce((s, x) => (x.total ? s + (x.total / binTotal) * Math.abs(x.correct / x.total - x.confSum / x.total) : s), 0)).toFixed(3)
     : null;
 
@@ -228,6 +237,8 @@ async function evaluateModel(judge) {
     ideologicalAsymmetry: { leftFlips: ideology("ideology-left"), rightFlips: ideology("ideology-right") },
     politicalTopicFlips: auditResults.filter((r) => r.id === "political-topic" && r.flipped).length,
     humanAgreement,
+    agreementN,
+    minAgreementSamples: MIN_AGREEMENT_SAMPLES,
     ece,
     totalTokens: allTokens || null,
     promptTokens: promptTokens || null,
@@ -345,7 +356,7 @@ async function main() {
     `Judge configuration: temperature 0, prompt v4, scoring engine v1, graph schema v1 (benchmark verdict prompt aligned with the production judging policy; see src/lib/judgeVersioning.ts for the app's versioned judge).`,
     "Human agreement here is against fixture labels (small n) until the rated corpus supplies consensus.",
     "",
-    "| Model | Fixtures | Agreement | ECE | Position mirror | Verbosity stab. | Names stab. | Whitespace stab. | Fake-cit. | Ideology L/R flips | Political flips | Errors | Latency p50 | Tokens | Est. cost | PASS/FAIL |",
+    "| Model | Fixtures | Agreement (usable n) | ECE | Position mirror | Verbosity stab. | Names stab. | Whitespace stab. | Fake-cit. | Ideology L/R flips | Political flips | Errors | Latency p50 | Tokens | Est. cost | PASS/FAIL |",
     "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
   const existing = fs.existsSync(mdTarget) ? fs.readFileSync(mdTarget, "utf8").split(/\r?\n/) : [];
@@ -356,7 +367,7 @@ async function main() {
     if (cells.length > 2) priorRows.set(cells[1], line);
   }
   const newRow = (m) =>
-    `| ${m.model} | ${m.fixtures ?? LIMIT} | ${m.humanAgreement ?? "—"} | ${m.ece ?? "—"} | ${m.positionMirrorOk ?? "—"} | ${m.stability["verbosity-up"] ?? "—"} | ${m.stability.names ?? "—"} | ${m.stability.whitespace ?? "—"} | ${m.falseCitationInfluence ?? "—"} | ${m.ideologicalAsymmetry?.leftFlips ?? "—"}/${m.ideologicalAsymmetry?.rightFlips ?? "—"} | ${m.politicalTopicFlips ?? "—"} | ${m.errors} | ${m.latency ? `${m.latency.p50Ms}ms` : "—"} | ${m.totalTokens ?? "—"} | ${m.estimatedCostUsd != null ? `$${m.estimatedCostUsd}` : "—"} | ${passCells(m)} |`;
+    `| ${m.model} | ${m.fixtures ?? LIMIT} | ${m.humanAgreement ?? "—"} (n=${m.agreementN ?? 0}) | ${m.ece ?? "—"} | ${m.positionMirrorOk ?? "—"} | ${m.stability["verbosity-up"] ?? "—"} | ${m.stability.names ?? "—"} | ${m.stability.whitespace ?? "—"} | ${m.falseCitationInfluence ?? "—"} | ${m.ideologicalAsymmetry?.leftFlips ?? "—"}/${m.ideologicalAsymmetry?.rightFlips ?? "—"} | ${m.politicalTopicFlips ?? "—"} | ${m.errors} | ${m.latency ? `${m.latency.p50Ms}ms` : "—"} | ${m.totalTokens ?? "—"} | ${m.estimatedCostUsd != null ? `$${m.estimatedCostUsd}` : "—"} | ${passCells(m)} |`;
   for (const m of gated) priorRows.set(m.model, newRow(m));
   const body = [...priorRows.values()].sort().join("\n");
   fs.writeFileSync(mdTarget, [...header, body, "", `Gates: ${JSON.stringify(gates)}`, "", `Last run: ${allPass ? "PASS" : "FAIL"} (${at}). Gate status is per-row; a FAIL row means that model must not be trusted for competitive claims until it passes.`, ""].join("\n"));
