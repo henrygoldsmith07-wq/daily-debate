@@ -344,9 +344,10 @@ async function main() {
   const mdTarget = OUT_MD || path.join(process.cwd(), "docs", "judge-leaderboard.md");
   fs.mkdirSync(path.dirname(mdTarget), { recursive: true });
 
-  // Merge-by-model-row so repeated runs accumulate one comparison table.
-  // Historical gate status is preserved: rows whose gate results changed keep
-  // their own record in the JSON, not silently overwritten in the table.
+  // The leaderboard publishes the CURRENT validation state, one row per
+  // judge in this run. History lives in git and the JSON artifact;
+  // accumulating prior rows let superseded records (3-fixture packs,
+  // pre-minimum-sample numbers) linger as if still current.
   const passCells = (m) => (m.gates ?? []).every((c) => c.pass) ? "PASS" : "FAIL";
   const header = [
     "# Judge leaderboard (live benchmarks)",
@@ -359,17 +360,9 @@ async function main() {
     "| Model | Fixtures | Agreement (usable n) | ECE | Position mirror | Verbosity stab. | Names stab. | Whitespace stab. | Fake-cit. | Ideology L/R flips | Political flips | Errors | Latency p50 | Tokens | Est. cost | PASS/FAIL |",
     "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
-  const existing = fs.existsSync(mdTarget) ? fs.readFileSync(mdTarget, "utf8").split(/\r?\n/) : [];
-  const priorRows = new Map();
-  for (const line of existing) {
-    if (!/^\| (nvidia|openrouter|unorouter|kiraai|anthropic)/.test(line)) continue;
-    const cells = line.split("|").map((c) => c.trim());
-    if (cells.length > 2) priorRows.set(cells[1], line);
-  }
   const newRow = (m) =>
     `| ${m.model} | ${m.fixtures ?? LIMIT} | ${m.humanAgreement ?? "—"} (n=${m.agreementN ?? 0}) | ${m.ece ?? "—"} | ${m.positionMirrorOk ?? "—"} | ${m.stability["verbosity-up"] ?? "—"} | ${m.stability.names ?? "—"} | ${m.stability.whitespace ?? "—"} | ${m.falseCitationInfluence ?? "—"} | ${m.ideologicalAsymmetry?.leftFlips ?? "—"}/${m.ideologicalAsymmetry?.rightFlips ?? "—"} | ${m.politicalTopicFlips ?? "—"} | ${m.errors} | ${m.latency ? `${m.latency.p50Ms}ms` : "—"} | ${m.totalTokens ?? "—"} | ${m.estimatedCostUsd != null ? `$${m.estimatedCostUsd}` : "—"} | ${passCells(m)} |`;
-  for (const m of gated) priorRows.set(m.model, newRow(m));
-  const body = [...priorRows.values()].sort().join("\n");
+  const body = gated.map(newRow).sort().join("\n");
   fs.writeFileSync(mdTarget, [...header, body, "", `Gates: ${JSON.stringify(gates)}`, "", `Last run: ${allPass ? "PASS" : "FAIL"} (${at}). Gate status is per-row; a FAIL row means that model must not be trusted for competitive claims until it passes.`, ""].join("\n"));
 
   for (const m of gated) {
