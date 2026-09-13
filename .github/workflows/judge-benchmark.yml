@@ -56,6 +56,15 @@ jobs:
       - name: Commit refreshed validation record
         if: always()
         run: |
+          # Guard: never let a total provider outage overwrite the last real
+          # validation record. If NO judge produced usable base data (every
+          # humanAgreement null), the run reported infrastructure failure,
+          # not a measurement — keep the previous artifact and flag it.
+          usable=$(jq '[.results[] | select(.humanAgreement != null)] | length' docs/latest-judge-benchmark.json)
+          if [ "$usable" = "0" ]; then
+            echo "::warning::Live benchmark produced no usable data (provider outage) — previous validation record kept, not overwritten."
+            exit 0
+          fi
           git config user.name "judge-benchmark-bot"
           git config user.email "actions@users.noreply.github.com"
           git add docs/judge-leaderboard.md docs/latest-judge-benchmark.json
