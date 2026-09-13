@@ -107,3 +107,68 @@ jobs:
             playwright-report
             test-results
           if-no-files-found: ignore
+
+  # --- Topic pipeline end-to-end proof over ephemeral Postgres --------------
+  # Runs the REAL generation pipeline (not a mock): migrate, --check-config,
+  # two consecutive runs for the same target date, then SQL assertions that
+  # prove: exactly one topic row (ON CONFLICT, not a duplicate), fallback
+  # provenance recorded when no provider key is configured, and evidence
+  # storage within its cap (re-runs replace, never accumulate). The scheduled
+  # topic-generation workflow remains the production (Neon) runner.
+  topic-pipeline:
+    runs-on: ubuntu-latest
+    needs: verify
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: daily_debate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/daily_debate_test
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+
+      - name: Migrate ephemeral database
+        run: node scripts/migrate.mjs
+
+      - name: Config gate passes against a real (ephemeral) database
+        run: node scripts/generate-topics.mjs --check-config
+
+      - name: Run the pipeline twice for the same target date
+        run: |
+          node scripts/generate-topics.mjs | tee run1.json
+          node scripts/generate-topics.mjs | tee run2.json
+          grep -q '"outcome":"curated-fallback"' run1.json
+          grep -q '"outcome":"curated-fallback"' run2.json
+
+      - name: Assert idempotent storage (one topic row, provenance, bounded evidence)
+        run: |
+          date=$(jq -r .date run1.json)
+          echo "asserting target date $date"
+          rows=$(psql "$DATABASE_URL" -At -c "SELECT count(*) FROM daily_topics WHERE topic_date = '$date'::date")
+          echo "topic rows for target: $rows"
+          test "$rows" = "1"
+          src=$(psql "$DATABASE_URL" -At -c "SELECT generation_source FROM daily_topics WHERE topic_date = '$date'::date")
+          echo "generation_source: $src"
+          test "$src" = "fallback"
+          ev=$(psql "$DATABASE_URL" -At -c "SELECT count(*) FROM topic_evidence te JOIN daily_topics dt ON te.topic_id = dt.id WHERE dt.topic_date = '$date'::date")
+          echo "evidence cards: $ev"
+          test "$ev" -le 3

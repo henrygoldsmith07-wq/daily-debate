@@ -14,7 +14,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { neon } from "@neondatabase/serverless";
+import { createExecutor } from "./lib/sql-executor.mjs";
 import { generationChain, providerStatus as registryProviderStatus } from "./lib/judge-providers.mjs";
 
 function loadEnvLocal() {
@@ -71,7 +71,7 @@ export function providerStatus(env = process.env) {
  * Fail-fast configuration validation (no writes, no provider calls, no
  * secret values in output). Returns { ok, checks } and never throws.
  */
-export async function checkConfig(env = process.env, sqlFactory = neon) {
+export async function checkConfig(env = process.env, sqlFactory = createExecutor) {
   const checks = {};
   const databaseUrl = env.DATABASE_URL?.trim();
   checks.database_url_present = !!databaseUrl;
@@ -84,7 +84,7 @@ export async function checkConfig(env = process.env, sqlFactory = neon) {
   }
   let sql;
   try {
-    sql = sqlFactory(databaseUrl);
+    sql = await sqlFactory(databaseUrl);
   } catch (e) {
     return { ok: false, checks, reason: `config-failure: cannot create DB client (${String(e?.message ?? e).slice(0, 120)})` };
   }
@@ -94,7 +94,7 @@ export async function checkConfig(env = process.env, sqlFactory = neon) {
       new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
     ]);
   try {
-    await withTimeout(sql.query("SELECT 1"), 10_000, "database connectivity");
+    await withTimeout(sql("SELECT 1"), 10_000, "database connectivity");
     checks.database_reachable = true;
   } catch (e) {
     checks.database_reachable = false;
@@ -102,7 +102,7 @@ export async function checkConfig(env = process.env, sqlFactory = neon) {
   }
   try {
     const tables = await withTimeout(
-      sql.query(
+      sql(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('daily_topics', 'topic_evidence')",
       ),
       10_000,
@@ -115,7 +115,7 @@ export async function checkConfig(env = process.env, sqlFactory = neon) {
       return { ok: false, checks, reason: `db-failure: missing required tables (${missing.join(", ")}); run migrations` };
     }
     const unique = await withTimeout(
-      sql.query(
+      sql(
         `SELECT 1 FROM information_schema.table_constraints tc
          JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema)
          WHERE tc.table_name = 'daily_topics' AND tc.constraint_type = 'UNIQUE' AND kcu.column_name = 'topic_date'
@@ -141,11 +141,13 @@ if (isMainModule && !databaseUrl && !args.includes("--help") && !args.includes("
   process.exit(1);
 }
 
-const sql = databaseUrl ? neon(databaseUrl) : null;
-
-function requireSql() {
-  if (!sql) throw new Error("DATABASE_URL is required.");
-  return sql;
+let executorPromise = null;
+/** Same dual transport migrate.mjs uses: Neon HTTP or plain pg TCP. */
+async function defaultQuery(text, params) {
+  if (!databaseUrl) throw new Error("DATABASE_URL is required.");
+  if (!executorPromise) executorPromise = createExecutor(databaseUrl);
+  const executor = await executorPromise;
+  return executor(text, params ?? []);
 }
 
 async function getRecentTitles(query, limit = 14) {
@@ -421,7 +423,7 @@ export { pickFallback, scoreCandidate, scoreNovelty };
  * ai-generated | curated-fallback | provider-failure | db-failure.
  */
 export async function runGeneration(deps = {}) {
-  const query = deps.query ?? ((text, params) => requireSql().query(text, params));
+  const query = deps.query ?? defaultQuery;
   const generate = deps.generate ?? ((recent, count) => generateCandidates(recent, count, deps.env));
   const retrieve = deps.retrieve ?? retrieveEvidence;
   const env = deps.env ?? process.env;
