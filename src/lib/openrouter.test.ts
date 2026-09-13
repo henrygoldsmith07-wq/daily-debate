@@ -97,7 +97,6 @@ describe("provider registry", () => {
     vi.stubEnv("OPENROUTER_API_KEY", "");
     vi.stubEnv("UNOROUTER_API_KEY", "u");
     vi.stubEnv("KIRAAI_API_KEY", "k");
-    vi.stubEnv("BAI_API_KEY", "");
     expect(configuredProviders().map((p) => p.label)).toEqual(["unorouter", "kiraai"]);
   });
 
@@ -114,7 +113,7 @@ describe("provider registry", () => {
   });
 
   it("falls back to OpenRouter shape (no key) when nothing is configured", () => {
-    for (const k of ["NVIDIA_API_KEY", "OPENROUTER_API_KEY", "UNOROUTER_API_KEY", "KIRAAI_API_KEY", "BAI_API_KEY"]) {
+    for (const k of ["NVIDIA_API_KEY", "OPENROUTER_API_KEY", "UNOROUTER_API_KEY", "KIRAAI_API_KEY"]) {
       vi.stubEnv(k, "");
     }
     expect(configuredProviders()).toEqual([]);

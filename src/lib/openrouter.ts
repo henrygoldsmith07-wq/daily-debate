@@ -32,7 +32,7 @@ const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
  * comma-separated failover; an empty string pins to the single model).
  * NVIDIA/OpenRouter keep their historical env names.
  */
-export type ProviderLabel = "nvidia" | "openrouter" | "unorouter" | "kiraai" | "bai";
+export type ProviderLabel = "nvidia" | "openrouter" | "unorouter" | "kiraai";
 
 interface ProviderSpec {
   label: ProviderLabel;
@@ -65,9 +65,8 @@ export const NVIDIA_DEFAULT_FALLBACK_MODELS = ["nvidia/nemotron-3-super-120b-a12
 /**
  * Provider registry — verified 2026-09-11: each transport below answers an
  * OpenAI-style chat/completions request with its listed default model.
- * UnoRouter carries the same free Nemotron chain as OpenRouter without the
- * (currently invalid) OpenRouter key; Kirai and B.ai add independent free
- * Qwen/GLM families for failover diversity.
+ * UnoRouter carries the same free Nemotron chain as OpenRouter; Kirai adds an
+ * independent free Qwen/GLM family for failover diversity.
  */
 export const PROVIDERS: readonly ProviderSpec[] = [
   {
@@ -100,13 +99,6 @@ export const PROVIDERS: readonly ProviderSpec[] = [
     url: "https://kiraai.vn/api/v1/chat/completions",
     defaultModel: "qwen3.8-flash-free",
     defaultFallbacks: ["glm-5.3-free", "hy3-free", "mimo-v2.5-free"],
-  },
-  {
-    label: "bai",
-    keyEnv: "BAI_API_KEY",
-    url: "https://api.b.ai/v1/chat/completions",
-    defaultModel: "qwen3.8-flash",
-    defaultFallbacks: ["glm-5.3-flash", "deepseek-v4.1-flash"],
   },
 ];
 

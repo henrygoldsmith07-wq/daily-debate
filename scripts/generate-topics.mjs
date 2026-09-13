@@ -46,8 +46,9 @@ function printHelp() {
       "  --help         print this help",
       "",
       "Exit codes: 0 ok (fallback stored counts as ok); 1 config/db failure.",
-      "Required: DATABASE_URL. Optional: NVIDIA_API_KEY / OPENROUTER_API_KEY",
-      "(without any provider key the curated fallback is used).",
+      "Required: DATABASE_URL. Optional: NVIDIA_API_KEY / OPENROUTER_API_KEY /",
+      "UNOROUTER_API_KEY / KIRAAI_API_KEY (without any provider key the curated",
+      "fallback is used).",
       "",
     ].join("\n"),
   );

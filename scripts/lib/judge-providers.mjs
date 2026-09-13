@@ -4,8 +4,8 @@
 // benchmark validates the same providers production uses.
 //
 // Configured providers (in priority order): NVIDIA_API_KEY → OPENROUTER_API_KEY
-// → UNOROUTER_API_KEY → KIRAAI_API_KEY → BAI_API_KEY. Model overrides use
-// <LABEL>_MODEL and <LABEL>_FALLBACK_MODELS (comma-separated; empty pins one).
+// → UNOROUTER_API_KEY → KIRAAI_API_KEY. Model overrides use <LABEL>_MODEL and
+// <LABEL>_FALLBACK_MODELS (comma-separated; empty pins one).
 
 function extractJson(text) {
   const trimmed = String(text ?? "").trim();
@@ -127,13 +127,6 @@ export const PROVIDERS = [
     defaultModel: "qwen3.8-flash-free",
     fallbacks: ["glm-5.3-free", "hy3-free", "mimo-v2.5-free"],
   },
-  {
-    label: "bai",
-    keyEnv: "BAI_API_KEY",
-    url: "https://api.b.ai/v1/chat/completions",
-    defaultModel: "qwen3.8-flash",
-    fallbacks: ["glm-5.3-flash", "deepseek-v4.1-flash"],
-  },
 ];
 
 export function providerStatus(env = process.env) {
@@ -197,8 +190,7 @@ export function allJudgeProviders(env = process.env) {
       continue;
     }
     if (provider.label === "openrouter" && env.NVIDIA_API_KEY) continue; // already covered as direct nvidia
-    const models = chainFor(provider, env);
-    judges.push({
+    const models = chainFor(provider, env);    judges.push({
       id: `${provider.label}:${models[0]}`,
       fn: makeChainJudge({ url: provider.url, key, models, extraHeaders: provider.extraHeaders ?? {} }),
     });

@@ -37,7 +37,6 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           UNOROUTER_API_KEY: ${{ secrets.UNOROUTER_API_KEY }}
           KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
-          BAI_API_KEY: ${{ secrets.BAI_API_KEY }}
         run: node scripts/generate-topics.mjs --check-config
       - name: Pre-generate tomorrow's topic
         env:
@@ -46,7 +45,6 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           UNOROUTER_API_KEY: ${{ secrets.UNOROUTER_API_KEY }}
           KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
-          BAI_API_KEY: ${{ secrets.BAI_API_KEY }}
           NVIDIA_MODEL: ${{ secrets.NVIDIA_MODEL }}
           OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
         run: node scripts/generate-topics.mjs

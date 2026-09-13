@@ -36,10 +36,9 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           UNOROUTER_API_KEY: ${{ secrets.UNOROUTER_API_KEY }}
           KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
-          BAI_API_KEY: ${{ secrets.BAI_API_KEY }}
         run: |
-          if [ -z "$NVIDIA_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ] && [ -z "$UNOROUTER_API_KEY" ] && [ -z "$KIRAAI_API_KEY" ] && [ -z "$BAI_API_KEY" ]; then
-            echo "::error::No judge configured — set at least one of NVIDIA_API_KEY, OPENROUTER_API_KEY, UNOROUTER_API_KEY, KIRAAI_API_KEY, BAI_API_KEY as repository secrets. The live judge benchmark cannot run."
+          if [ -z "$NVIDIA_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ] && [ -z "$UNOROUTER_API_KEY" ] && [ -z "$KIRAAI_API_KEY" ]; then
+            echo "::error::No judge configured — set at least one of NVIDIA_API_KEY, OPENROUTER_API_KEY, UNOROUTER_API_KEY, KIRAAI_API_KEY as repository secrets. The live judge benchmark cannot run."
             exit 1
           fi
       - name: Run live judge benchmark (full pack, gated)
@@ -53,8 +52,6 @@ jobs:
           UNOROUTER_MODEL: ${{ secrets.UNOROUTER_MODEL }}
           KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
           KIRAAI_MODEL: ${{ secrets.KIRAAI_MODEL }}
-          BAI_API_KEY: ${{ secrets.BAI_API_KEY }}
-          BAI_MODEL: ${{ secrets.BAI_MODEL }}
         run: node scripts/judge-benchmark.mjs --concurrency 3 --enforce
       - name: Commit refreshed validation record
         if: always()

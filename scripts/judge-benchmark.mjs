@@ -303,7 +303,7 @@ async function main() {
     // reason so CI reports the true state.
     const allowSkip = args.includes("--allow-skip") || process.env.JUDGE_BENCHMARK_ALLOW_SKIP === "1";
     if (allowSkip) {
-      log("[judge-benchmark] skipped - no provider key set (OPENROUTER_API_KEY / UNOROUTER_API_KEY / KIRAAI_API_KEY / BAI_API_KEY / NVIDIA_API_KEY) (allowed)");
+      log("[judge-benchmark] skipped - no provider key set (OPENROUTER_API_KEY / UNOROUTER_API_KEY / KIRAAI_API_KEY / NVIDIA_API_KEY) (allowed)");
       process.stdout.write(JSON.stringify({ skipped: true, allowed: true }) + "\n");
       return;
     }
@@ -351,7 +351,7 @@ async function main() {
   const existing = fs.existsSync(mdTarget) ? fs.readFileSync(mdTarget, "utf8").split(/\r?\n/) : [];
   const priorRows = new Map();
   for (const line of existing) {
-    if (!/^\| (nvidia|openrouter|unorouter|kiraai|bai|anthropic)/.test(line)) continue;
+    if (!/^\| (nvidia|openrouter|unorouter|kiraai|anthropic)/.test(line)) continue;
     const cells = line.split("|").map((c) => c.trim());
     if (cells.length > 2) priorRows.set(cells[1], line);
   }

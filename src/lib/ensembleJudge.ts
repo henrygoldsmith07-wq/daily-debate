@@ -208,7 +208,7 @@ export async function liveEnsembleJudge(params: {
   const legs: Promise<JudgedVerdict>[] = [
     (async (): Promise<JudgedVerdict> => {
       // Primary chat transport: the first configured OpenAI-style provider in
-      // the registry (NVIDIA → OpenRouter → UnoRouter → Kirai → B.ai).
+      // the registry (NVIDIA → OpenRouter → UnoRouter → Kirai).
       const primary = await import("./openrouter");
       const { makeFingerprint } = await import("./judgeVersioning");
       const label = primary.activeProviderLabel();
