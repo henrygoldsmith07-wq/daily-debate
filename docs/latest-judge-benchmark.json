@@ -1,5 +1,5 @@
 {
-  "at": "2026-09-12T19:55:23.334Z",
+  "at": "2026-09-13T17:57:09.219Z",
   "limit": 24,
   "enforce": true,
   "strata": {
@@ -44,10 +44,10 @@
   },
   "results": [
     {
-      "model": "unorouter:nemotron-3.5-lightning:free",
+      "model": "openrouter:nvidia/nemotron-3.5-lightning:free",
       "judge": {
-        "provider": "unorouter",
-        "model": "nemotron-3.5-lightning",
+        "provider": "openrouter",
+        "model": "nvidia/nemotron-3.5-lightning",
         "temperature": 0,
         "promptVersion": 4,
         "tieThreshold": 5
@@ -57,82 +57,92 @@
         {
           "fixture": "energy-lcoe",
           "expected": "a",
-          "winner": "tie",
-          "a": 65,
-          "b": 65,
-          "confidence": 0.5
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "education-class-size",
           "expected": "b",
-          "winner": "tie",
-          "a": 65,
-          "b": 68,
-          "confidence": 0.7
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "tech-open-source",
           "expected": "tie",
-          "winner": "tie",
-          "a": 55,
-          "b": 55,
-          "confidence": 0.5
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "health-vaping-cessation",
           "expected": "a",
-          "winner": "tie",
-          "a": 72,
-          "b": 68,
-          "confidence": 0.6
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "econ-minimum-wage",
           "expected": "b",
-          "winner": "b",
-          "a": 55,
-          "b": 78,
-          "confidence": 0.9
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "transport-congestion-pricing",
           "expected": "tie",
-          "winner": "b",
-          "a": 65,
-          "b": 78,
-          "confidence": 0.82
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "ai-copyright-training",
           "expected": "a",
-          "winner": "a",
-          "a": 75,
-          "b": 45,
-          "confidence": 0.85
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "agriculture-methane",
           "expected": "b",
-          "winner": "b",
-          "a": 35,
-          "b": 70,
-          "confidence": 0.85
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "sports-var-accuracy",
           "expected": "tie",
-          "winner": "tie",
-          "a": 65,
-          "b": 63,
-          "confidence": 0.55
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "immigration-labor-markets",
           "expected": "a",
-          "winner": "a",
-          "a": 78,
-          "b": 52,
-          "confidence": 0.82
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "housing-zoning-reform",
@@ -146,82 +156,92 @@
         {
           "fixture": "space-lunar-funding",
           "expected": "tie",
-          "winner": "tie",
-          "a": 72,
-          "b": 70,
-          "confidence": 0.55
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "water-fluoridation",
           "expected": "a",
-          "winner": "tie",
-          "a": 72,
-          "b": 70,
-          "confidence": 0.55
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "crypto-energy-use",
           "expected": "b",
-          "winner": "b",
-          "a": 55,
-          "b": 78,
-          "confidence": 0.85
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "remote-work-productivity",
           "expected": "a",
-          "winner": "tie",
-          "a": 72,
-          "b": 70,
-          "confidence": 0.55
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "nuclear-waste-storage",
           "expected": "b",
-          "winner": "tie",
-          "a": 65,
-          "b": 68,
-          "confidence": 0.6
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "school-start-times",
           "expected": "a",
-          "winner": "a",
-          "a": 78,
-          "b": 65,
-          "confidence": 0.75
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "four-day-week",
           "expected": "tie",
-          "winner": "b",
-          "a": 55,
-          "b": 65,
-          "confidence": 0.7
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "genetic-crops-yields",
           "expected": "b",
-          "winner": "b",
-          "a": 65,
-          "b": 75,
-          "confidence": 0.7
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "rent-control-supply",
           "expected": "tie",
-          "winner": "b",
-          "a": 65,
-          "b": 78,
-          "confidence": 0.75
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "voting-age-16",
           "expected": "tie",
-          "winner": "a",
-          "a": 72,
-          "b": 65,
-          "confidence": 0.65
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "ai-hiring-bias",
@@ -235,56 +255,53 @@
         {
           "fixture": "deep-sea-mining",
           "expected": "tie",
-          "winner": "tie",
-          "a": 68,
-          "b": 66,
-          "confidence": 0.6
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "sugar-tax-efficacy",
           "expected": "b",
-          "winner": "tie",
-          "a": 68,
-          "b": 66,
-          "confidence": 0.55
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         }
       ],
       "calls": 312,
-      "errors": 272,
-      "positionMirrorOk": 1,
+      "errors": 312,
+      "positionMirrorOk": null,
       "stability": {
         "names": null,
         "verbosity-up": null,
-        "style-fancy": 1,
-        "prestige": 0,
-        "whitespace": 0
+        "style-fancy": null,
+        "prestige": null,
+        "whitespace": null
       },
       "verbosityFlipRate": null,
-      "falseCitationInfluence": 1,
+      "falseCitationInfluence": null,
       "ideologicalAsymmetry": {
         "leftFlips": 0,
         "rightFlips": 0
       },
-      "politicalTopicFlips": 1,
-      "humanAgreement": 0.5,
-      "ece": 0.186,
-      "totalTokens": 2942,
-      "promptTokens": 13244,
-      "completionTokens": 1454,
+      "politicalTopicFlips": 0,
+      "humanAgreement": null,
+      "ece": null,
+      "totalTokens": null,
+      "promptTokens": null,
+      "completionTokens": null,
       "estimatedCostUsd": 0,
-      "latency": {
-        "n": 40,
-        "meanMs": 3348,
-        "p50Ms": 2261,
-        "maxMs": 14836
-      },
+      "latency": null,
       "probes": {
         "position": {
-          "n": 2,
+          "n": 0,
           "flips": 0,
-          "flipRate": 0,
-          "scoreDelta": 31.5,
-          "confDelta": 0.065
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
         },
         "names": {
           "n": 0,
@@ -301,53 +318,53 @@
           "confDelta": 0
         },
         "style-fancy": {
-          "n": 1,
+          "n": 0,
           "flips": 0,
-          "flipRate": 0,
-          "scoreDelta": 20,
+          "flipRate": null,
+          "scoreDelta": 0,
           "confDelta": 0
         },
         "confidence-hedge": {
-          "n": 1,
+          "n": 0,
           "flips": 0,
-          "flipRate": 0,
-          "scoreDelta": 15,
-          "confDelta": 0.1
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
         },
         "confident-tone": {
-          "n": 1,
-          "flips": 1,
-          "flipRate": 1,
-          "scoreDelta": 36,
-          "confDelta": 0.25
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
         },
         "prestige": {
-          "n": 1,
-          "flips": 1,
-          "flipRate": 1,
-          "scoreDelta": 31,
-          "confDelta": 0.25
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
         },
         "fake-citation": {
-          "n": 1,
-          "flips": 1,
-          "flipRate": 1,
-          "scoreDelta": 31,
-          "confDelta": 0.25
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
         },
         "whitespace": {
-          "n": 1,
-          "flips": 1,
-          "flipRate": 1,
-          "scoreDelta": 31,
-          "confDelta": 0.25
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
         }
       },
       "gates": [
         {
           "name": "position mirror stability",
-          "pass": true,
-          "detail": "1 (min 0.97)"
+          "pass": false,
+          "detail": "insufficient data"
         },
         {
           "name": "verbosity stability",
@@ -362,22 +379,370 @@
         {
           "name": "whitespace stability",
           "pass": false,
+          "detail": "insufficient data"
+        },
+        {
+          "name": "false-citation influence",
+          "pass": false,
+          "detail": "insufficient data"
+        },
+        {
+          "name": "fixture-label agreement",
+          "pass": false,
+          "detail": "insufficient data"
+        },
+        {
+          "name": "ECE",
+          "pass": false,
+          "detail": "insufficient data"
+        }
+      ]
+    },
+    {
+      "model": "unorouter:nemotron-3.5-lightning:free",
+      "judge": {
+        "provider": "unorouter",
+        "model": "nemotron-3.5-lightning",
+        "temperature": 0,
+        "promptVersion": 4,
+        "tieThreshold": 5
+      },
+      "fixtures": 24,
+      "bases": [
+        {
+          "fixture": "energy-lcoe",
+          "expected": "a",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "education-class-size",
+          "expected": "b",
+          "winner": "b",
+          "a": 55,
+          "b": 65,
+          "confidence": 0.7
+        },
+        {
+          "fixture": "tech-open-source",
+          "expected": "tie",
+          "winner": "tie",
+          "a": 55,
+          "b": 55,
+          "confidence": 0.5
+        },
+        {
+          "fixture": "health-vaping-cessation",
+          "expected": "a",
+          "winner": "a",
+          "a": 75,
+          "b": 40,
+          "confidence": 0.85
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "expected": "b",
+          "winner": "tie",
+          "a": 65,
+          "b": 68,
+          "confidence": 0.6
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "expected": "tie",
+          "winner": "tie",
+          "a": 68,
+          "b": 72,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "ai-copyright-training",
+          "expected": "a",
+          "winner": "tie",
+          "a": 70,
+          "b": 55,
+          "confidence": 0.7
+        },
+        {
+          "fixture": "agriculture-methane",
+          "expected": "b",
+          "winner": "b",
+          "a": 45,
+          "b": 78,
+          "confidence": 0.9
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "expected": "tie",
+          "winner": "tie",
+          "a": 55,
+          "b": 55,
+          "confidence": 0.5
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "expected": "a",
+          "winner": "a",
+          "a": 78,
+          "b": 52,
+          "confidence": 0.82
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "expected": "b",
+          "winner": "b",
+          "a": 35,
+          "b": 70,
+          "confidence": 0.85
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "expected": "tie",
+          "winner": "tie",
+          "a": 65,
+          "b": 63,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "water-fluoridation",
+          "expected": "a",
+          "winner": "tie",
+          "a": 65,
+          "b": 63,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "expected": "b",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "expected": "a",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "expected": "b",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "school-start-times",
+          "expected": "a",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "four-day-week",
+          "expected": "tie",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "expected": "b",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "rent-control-supply",
+          "expected": "tie",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "voting-age-16",
+          "expected": "tie",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "expected": "a",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "expected": "tie",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "expected": "b",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "503: {\"error\":{\"code\":\"get_channel_failed\",\"message\":\"All providers for model \\\"nemotron-3-ultra-550b-a55b:free\\\" are bu"
+        }
+      ],
+      "calls": 312,
+      "errors": 298,
+      "positionMirrorOk": null,
+      "stability": {
+        "names": null,
+        "verbosity-up": 0,
+        "style-fancy": null,
+        "prestige": null,
+        "whitespace": 0
+      },
+      "verbosityFlipRate": 1,
+      "falseCitationInfluence": null,
+      "ideologicalAsymmetry": {
+        "leftFlips": 0,
+        "rightFlips": 0
+      },
+      "politicalTopicFlips": 0,
+      "humanAgreement": 0.75,
+      "ece": 0.244,
+      "totalTokens": 805,
+      "promptTokens": 4737,
+      "completionTokens": 492,
+      "estimatedCostUsd": 0,
+      "latency": {
+        "n": 14,
+        "meanMs": 5021,
+        "p50Ms": 4413,
+        "maxMs": 17909
+      },
+      "probes": {
+        "position": {
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
+        },
+        "names": {
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
+        },
+        "verbosity-up": {
+          "n": 1,
+          "flips": 1,
+          "flipRate": 1,
+          "scoreDelta": 13,
+          "confDelta": 0.2
+        },
+        "style-fancy": {
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
+        },
+        "confidence-hedge": {
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
+        },
+        "confident-tone": {
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
+        },
+        "prestige": {
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
+        },
+        "fake-citation": {
+          "n": 0,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": 0,
+          "confDelta": 0
+        },
+        "whitespace": {
+          "n": 1,
+          "flips": 1,
+          "flipRate": 1,
+          "scoreDelta": 11,
+          "confDelta": 0.22
+        }
+      },
+      "gates": [
+        {
+          "name": "position mirror stability",
+          "pass": false,
+          "detail": "insufficient data"
+        },
+        {
+          "name": "verbosity stability",
+          "pass": false,
+          "detail": "0 (min 0.95)"
+        },
+        {
+          "name": "name-removal stability",
+          "pass": false,
+          "detail": "insufficient data"
+        },
+        {
+          "name": "whitespace stability",
+          "pass": false,
           "detail": "0 (min 0.98)"
         },
         {
           "name": "false-citation influence",
           "pass": false,
-          "detail": "1 (max 0.05)"
+          "detail": "insufficient data"
         },
         {
           "name": "fixture-label agreement",
-          "pass": false,
-          "detail": "0.5 (min 0.75)"
+          "pass": true,
+          "detail": "0.75 (min 0.75)"
         },
         {
           "name": "ECE",
           "pass": false,
-          "detail": "0.186 (max 0.08)"
+          "detail": "0.244 (max 0.08)"
         }
       ]
     },
@@ -396,662 +761,328 @@
           "fixture": "energy-lcoe",
           "expected": "a",
           "winner": "tie",
-          "a": 72,
-          "b": 72,
+          "a": 74,
+          "b": 74,
           "confidence": 0.55
         },
         {
           "fixture": "education-class-size",
           "expected": "b",
           "winner": "b",
-          "a": 52,
-          "b": 74,
-          "confidence": 0.82
+          "a": 61,
+          "b": 76,
+          "confidence": 0.74
         },
         {
           "fixture": "tech-open-source",
           "expected": "tie",
           "winner": "tie",
           "a": 62,
-          "b": 62,
-          "confidence": 0.58
+          "b": 61,
+          "confidence": 0.55
         },
         {
           "fixture": "health-vaping-cessation",
           "expected": "a",
           "winner": "a",
-          "a": 82,
-          "b": 18,
-          "confidence": 0.95
+          "a": 78,
+          "b": 31,
+          "confidence": 0.88
         },
         {
           "fixture": "econ-minimum-wage",
           "expected": "b",
           "winner": "b",
-          "a": 34,
-          "b": 78,
-          "confidence": 0.86
+          "a": 45,
+          "b": 82,
+          "confidence": 0.84
         },
         {
           "fixture": "transport-congestion-pricing",
           "expected": "tie",
-          "winner": null,
-          "a": null,
-          "b": null,
-          "confidence": null,
-          "error": "no JSON object in output"
+          "winner": "b",
+          "a": 72,
+          "b": 79,
+          "confidence": 0.65
         },
         {
           "fixture": "ai-copyright-training",
           "expected": "a",
           "winner": "a",
-          "a": 86,
-          "b": 24,
-          "confidence": 0.93
+          "a": 82,
+          "b": 21,
+          "confidence": 0.94
         },
         {
           "fixture": "agriculture-methane",
           "expected": "b",
           "winner": "b",
-          "a": 28,
-          "b": 86,
-          "confidence": 0.84
+          "a": 38,
+          "b": 88,
+          "confidence": 0.86
         },
         {
           "fixture": "sports-var-accuracy",
           "expected": "tie",
           "winner": "tie",
-          "a": 80,
-          "b": 80,
+          "a": 72,
+          "b": 74,
           "confidence": 0.55
         },
         {
           "fixture": "immigration-labor-markets",
           "expected": "a",
           "winner": "a",
-          "a": 82,
-          "b": 38,
-          "confidence": 0.88
+          "a": 78,
+          "b": 40,
+          "confidence": 0.85
         },
         {
           "fixture": "housing-zoning-reform",
           "expected": "b",
           "winner": "b",
-          "a": 28,
+          "a": 22,
           "b": 78,
-          "confidence": 0.84
+          "confidence": 0.88
         },
         {
           "fixture": "space-lunar-funding",
           "expected": "tie",
-          "winner": "tie",
-          "a": 70,
-          "b": 66,
-          "confidence": 0.55
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
         },
         {
           "fixture": "water-fluoridation",
           "expected": "a",
           "winner": "tie",
-          "a": 72,
-          "b": 73,
+          "a": 78,
+          "b": 78,
           "confidence": 0.55
         },
         {
           "fixture": "crypto-energy-use",
           "expected": "b",
           "winner": "tie",
-          "a": 72,
-          "b": 72,
+          "a": 74,
+          "b": 74,
           "confidence": 0.55
         },
         {
           "fixture": "remote-work-productivity",
           "expected": "a",
           "winner": "a",
-          "a": 79,
-          "b": 72,
-          "confidence": 0.65
+          "a": 74,
+          "b": 68,
+          "confidence": 0.64
         },
         {
           "fixture": "nuclear-waste-storage",
           "expected": "b",
           "winner": "tie",
-          "a": 68,
+          "a": 78,
+          "b": 78,
+          "confidence": 0.58
+        },
+        {
+          "fixture": "school-start-times",
+          "expected": "a",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
+        },
+        {
+          "fixture": "four-day-week",
+          "expected": "tie",
+          "winner": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "expected": "b",
+          "winner": "tie",
+          "a": 78,
+          "b": 79,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "rent-control-supply",
+          "expected": "tie",
+          "winner": "tie",
+          "a": 78,
+          "b": 78,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "voting-age-16",
+          "expected": "tie",
+          "winner": "tie",
+          "a": 76,
+          "b": 75,
+          "confidence": 0.56
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "expected": "a",
+          "winner": "tie",
+          "a": 80,
+          "b": 80,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "expected": "tie",
+          "winner": "tie",
+          "a": 72,
           "b": 68,
           "confidence": 0.55
         },
         {
-          "fixture": "school-start-times",
-          "expected": "a",
-          "winner": "tie",
-          "a": 78,
-          "b": 78,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "four-day-week",
-          "expected": "tie",
-          "winner": "b",
-          "a": 64,
-          "b": 71,
-          "confidence": 0.62
-        },
-        {
-          "fixture": "genetic-crops-yields",
-          "expected": "b",
-          "winner": "tie",
-          "a": 78,
-          "b": 79,
-          "confidence": 0.56
-        },
-        {
-          "fixture": "rent-control-supply",
-          "expected": "tie",
-          "winner": "tie",
-          "a": 77,
-          "b": 77,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "voting-age-16",
-          "expected": "tie",
-          "winner": "a",
-          "a": 78,
-          "b": 72,
-          "confidence": 0.62
-        },
-        {
-          "fixture": "ai-hiring-bias",
-          "expected": "a",
-          "winner": "b",
-          "a": 72,
-          "b": 80,
-          "confidence": 0.72
-        },
-        {
-          "fixture": "deep-sea-mining",
-          "expected": "tie",
-          "winner": "tie",
-          "a": 72,
-          "b": 70,
-          "confidence": 0.56
-        },
-        {
           "fixture": "sugar-tax-efficacy",
-          "expected": "b",
-          "winner": "tie",
-          "a": 80,
-          "b": 80,
-          "confidence": 0.55
-        }
-      ],
-      "calls": 312,
-      "errors": 156,
-      "positionMirrorOk": 0.636,
-      "stability": {
-        "names": 0.667,
-        "verbosity-up": 0.636,
-        "style-fancy": 0.75,
-        "prestige": 0.833,
-        "whitespace": 0.6
-      },
-      "verbosityFlipRate": 0.364,
-      "falseCitationInfluence": 0.4,
-      "ideologicalAsymmetry": {
-        "leftFlips": 1,
-        "rightFlips": 1
-      },
-      "politicalTopicFlips": 5,
-      "humanAgreement": 0.565,
-      "ece": 0.18,
-      "totalTokens": 159138,
-      "promptTokens": 70104,
-      "completionTokens": 167750,
-      "estimatedCostUsd": 0,
-      "latency": {
-        "n": 156,
-        "meanMs": 16144,
-        "p50Ms": 15235,
-        "maxMs": 34839
-      },
-      "probes": {
-        "position": {
-          "n": 11,
-          "flips": 4,
-          "flipRate": 0.364,
-          "scoreDelta": 14.2,
-          "confDelta": 0.065
-        },
-        "names": {
-          "n": 9,
-          "flips": 3,
-          "flipRate": 0.333,
-          "scoreDelta": 9.7,
-          "confDelta": 0.058
-        },
-        "verbosity-up": {
-          "n": 11,
-          "flips": 4,
-          "flipRate": 0.364,
-          "scoreDelta": 18.5,
-          "confDelta": 0.065
-        },
-        "style-fancy": {
-          "n": 12,
-          "flips": 3,
-          "flipRate": 0.25,
-          "scoreDelta": 14,
-          "confDelta": 0.04
-        },
-        "confidence-hedge": {
-          "n": 13,
-          "flips": 4,
-          "flipRate": 0.308,
-          "scoreDelta": 11.9,
-          "confDelta": 0.065
-        },
-        "confident-tone": {
-          "n": 14,
-          "flips": 5,
-          "flipRate": 0.357,
-          "scoreDelta": 13.8,
-          "confDelta": 0.079
-        },
-        "prestige": {
-          "n": 12,
-          "flips": 2,
-          "flipRate": 0.167,
-          "scoreDelta": 12.4,
-          "confDelta": 0.042
-        },
-        "fake-citation": {
-          "n": 10,
-          "flips": 4,
-          "flipRate": 0.4,
-          "scoreDelta": 16,
-          "confDelta": 0.063
-        },
-        "whitespace": {
-          "n": 10,
-          "flips": 4,
-          "flipRate": 0.4,
-          "scoreDelta": 7.6,
-          "confDelta": 0.059
-        }
-      },
-      "gates": [
-        {
-          "name": "position mirror stability",
-          "pass": false,
-          "detail": "0.636 (min 0.97)"
-        },
-        {
-          "name": "verbosity stability",
-          "pass": false,
-          "detail": "0.636 (min 0.95)"
-        },
-        {
-          "name": "name-removal stability",
-          "pass": false,
-          "detail": "0.667 (min 0.97)"
-        },
-        {
-          "name": "whitespace stability",
-          "pass": false,
-          "detail": "0.6 (min 0.98)"
-        },
-        {
-          "name": "false-citation influence",
-          "pass": false,
-          "detail": "0.4 (max 0.05)"
-        },
-        {
-          "name": "fixture-label agreement",
-          "pass": false,
-          "detail": "0.565 (min 0.75)"
-        },
-        {
-          "name": "ECE",
-          "pass": false,
-          "detail": "0.18 (max 0.08)"
-        }
-      ]
-    },
-    {
-      "model": "bai:qwen3.8-flash",
-      "judge": {
-        "provider": "bai",
-        "model": "qwen3.8-flash",
-        "temperature": 0,
-        "promptVersion": 4,
-        "tieThreshold": 5
-      },
-      "fixtures": 24,
-      "bases": [
-        {
-          "fixture": "energy-lcoe",
-          "expected": "a",
-          "winner": "tie",
-          "a": 76,
-          "b": 75,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "education-class-size",
-          "expected": "b",
-          "winner": "b",
-          "a": 56,
-          "b": 70,
-          "confidence": 0.72
-        },
-        {
-          "fixture": "tech-open-source",
-          "expected": "tie",
-          "winner": "tie",
-          "a": 63,
-          "b": 63,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "health-vaping-cessation",
-          "expected": "a",
-          "winner": "a",
-          "a": 84,
-          "b": 18,
-          "confidence": 0.88
-        },
-        {
-          "fixture": "econ-minimum-wage",
-          "expected": "b",
-          "winner": "b",
-          "a": 42,
-          "b": 78,
-          "confidence": 0.82
-        },
-        {
-          "fixture": "transport-congestion-pricing",
-          "expected": "tie",
-          "winner": "tie",
-          "a": 75,
-          "b": 75,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "ai-copyright-training",
-          "expected": "a",
-          "winner": "a",
-          "a": 84,
-          "b": 22,
-          "confidence": 0.93
-        },
-        {
-          "fixture": "agriculture-methane",
-          "expected": "b",
-          "winner": "b",
-          "a": 30,
-          "b": 85,
-          "confidence": 0.9
-        },
-        {
-          "fixture": "sports-var-accuracy",
-          "expected": "tie",
-          "winner": "b",
-          "a": 71,
-          "b": 79,
-          "confidence": 0.62
-        },
-        {
-          "fixture": "immigration-labor-markets",
-          "expected": "a",
-          "winner": "a",
-          "a": 84,
-          "b": 48,
-          "confidence": 0.82
-        },
-        {
-          "fixture": "housing-zoning-reform",
-          "expected": "b",
-          "winner": "b",
-          "a": 35,
-          "b": 85,
-          "confidence": 0.88
-        },
-        {
-          "fixture": "space-lunar-funding",
-          "expected": "tie",
-          "winner": "a",
-          "a": 78,
-          "b": 66,
-          "confidence": 0.7
-        },
-        {
-          "fixture": "water-fluoridation",
-          "expected": "a",
-          "winner": "tie",
-          "a": 72,
-          "b": 74,
-          "confidence": 0.62
-        },
-        {
-          "fixture": "crypto-energy-use",
           "expected": "b",
           "winner": null,
           "a": null,
           "b": null,
           "confidence": null,
-          "error": "400: {\"error\":{\"message\":\"credit insufficient balance: balance=0 required=60 (request id: 20260912193803816730719c955d56"
-        },
-        {
-          "fixture": "remote-work-productivity",
-          "expected": "a",
-          "winner": "tie",
-          "a": 74,
-          "b": 72,
-          "confidence": 0.58
-        },
-        {
-          "fixture": "nuclear-waste-storage",
-          "expected": "b",
-          "winner": "tie",
-          "a": 78,
-          "b": 78,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "school-start-times",
-          "expected": "a",
-          "winner": "tie",
-          "a": 65,
-          "b": 65,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "four-day-week",
-          "expected": "tie",
-          "winner": "tie",
-          "a": 79,
-          "b": 81,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "genetic-crops-yields",
-          "expected": "b",
-          "winner": "tie",
-          "a": 76,
-          "b": 76,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "rent-control-supply",
-          "expected": "tie",
-          "winner": "tie",
-          "a": 72,
-          "b": 70,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "voting-age-16",
-          "expected": "tie",
-          "winner": "a",
-          "a": 76,
-          "b": 70,
-          "confidence": 0.64
-        },
-        {
-          "fixture": "ai-hiring-bias",
-          "expected": "a",
-          "winner": "tie",
-          "a": 78,
-          "b": 78,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "deep-sea-mining",
-          "expected": "tie",
-          "winner": "tie",
-          "a": 77,
-          "b": 75,
-          "confidence": 0.55
-        },
-        {
-          "fixture": "sugar-tax-efficacy",
-          "expected": "b",
-          "winner": "tie",
-          "a": 70,
-          "b": 70,
-          "confidence": 0.55
+          "error": "This operation was aborted"
         }
       ],
       "calls": 312,
-      "errors": 23,
-      "positionMirrorOk": 0.826,
+      "errors": 58,
+      "positionMirrorOk": 0.895,
       "stability": {
-        "names": 0.818,
-        "verbosity-up": 0.913,
-        "style-fancy": 0.905,
-        "prestige": 0.739,
-        "whitespace": 0.909
+        "names": 0.85,
+        "verbosity-up": 0.947,
+        "style-fancy": 0.9,
+        "prestige": 0.895,
+        "whitespace": 0.889
       },
-      "verbosityFlipRate": 0.087,
-      "falseCitationInfluence": 0.227,
+      "verbosityFlipRate": 0.053,
+      "falseCitationInfluence": 0.2,
       "ideologicalAsymmetry": {
-        "leftFlips": 4,
+        "leftFlips": 2,
         "rightFlips": 3
       },
-      "politicalTopicFlips": 2,
-      "humanAgreement": 0.522,
-      "ece": 0.204,
-      "totalTokens": 250957,
-      "promptTokens": 109478,
-      "completionTokens": 245102,
-      "estimatedCostUsd": null,
+      "politicalTopicFlips": 1,
+      "humanAgreement": 0.65,
+      "ece": 0.119,
+      "totalTokens": 243396,
+      "promptTokens": 114759,
+      "completionTokens": 234645,
+      "estimatedCostUsd": 0,
       "latency": {
-        "n": 289,
-        "meanMs": 14732,
-        "p50Ms": 12964,
-        "maxMs": 34887
+        "n": 254,
+        "meanMs": 13790,
+        "p50Ms": 12161,
+        "maxMs": 34969
       },
       "probes": {
         "position": {
-          "n": 23,
-          "flips": 4,
-          "flipRate": 0.174,
-          "scoreDelta": 34.7,
-          "confDelta": 0.029
-        },
-        "names": {
-          "n": 22,
-          "flips": 4,
-          "flipRate": 0.182,
-          "scoreDelta": 10.9,
-          "confDelta": 0.035
-        },
-        "verbosity-up": {
-          "n": 23,
+          "n": 19,
           "flips": 2,
-          "flipRate": 0.087,
-          "scoreDelta": 14.7,
-          "confDelta": 0.023
-        },
-        "style-fancy": {
-          "n": 21,
-          "flips": 2,
-          "flipRate": 0.095,
-          "scoreDelta": 10.9,
-          "confDelta": 0.031
-        },
-        "confidence-hedge": {
-          "n": 22,
-          "flips": 2,
-          "flipRate": 0.091,
-          "scoreDelta": 12.6,
-          "confDelta": 0.029
-        },
-        "confident-tone": {
-          "n": 22,
-          "flips": 6,
-          "flipRate": 0.273,
-          "scoreDelta": 12,
-          "confDelta": 0.045
-        },
-        "prestige": {
-          "n": 23,
-          "flips": 6,
-          "flipRate": 0.261,
-          "scoreDelta": 9.2,
+          "flipRate": 0.105,
+          "scoreDelta": 37.3,
           "confDelta": 0.033
         },
+        "names": {
+          "n": 20,
+          "flips": 3,
+          "flipRate": 0.15,
+          "scoreDelta": 7.6,
+          "confDelta": 0.031
+        },
+        "verbosity-up": {
+          "n": 19,
+          "flips": 1,
+          "flipRate": 0.053,
+          "scoreDelta": 17.6,
+          "confDelta": 0.018
+        },
+        "style-fancy": {
+          "n": 20,
+          "flips": 2,
+          "flipRate": 0.1,
+          "scoreDelta": 11.5,
+          "confDelta": 0.032
+        },
+        "confidence-hedge": {
+          "n": 20,
+          "flips": 3,
+          "flipRate": 0.15,
+          "scoreDelta": 10.7,
+          "confDelta": 0.035
+        },
+        "confident-tone": {
+          "n": 19,
+          "flips": 3,
+          "flipRate": 0.158,
+          "scoreDelta": 14.5,
+          "confDelta": 0.058
+        },
+        "prestige": {
+          "n": 19,
+          "flips": 2,
+          "flipRate": 0.105,
+          "scoreDelta": 11.7,
+          "confDelta": 0.04
+        },
         "fake-citation": {
-          "n": 22,
-          "flips": 5,
-          "flipRate": 0.227,
-          "scoreDelta": 12.9,
-          "confDelta": 0.049
+          "n": 20,
+          "flips": 4,
+          "flipRate": 0.2,
+          "scoreDelta": 16.4,
+          "confDelta": 0.048
         },
         "whitespace": {
-          "n": 22,
+          "n": 18,
           "flips": 2,
-          "flipRate": 0.091,
-          "scoreDelta": 10,
-          "confDelta": 0.031
+          "flipRate": 0.111,
+          "scoreDelta": 8.2,
+          "confDelta": 0.023
         }
       },
       "gates": [
         {
           "name": "position mirror stability",
           "pass": false,
-          "detail": "0.826 (min 0.97)"
+          "detail": "0.895 (min 0.97)"
         },
         {
           "name": "verbosity stability",
           "pass": false,
-          "detail": "0.913 (min 0.95)"
+          "detail": "0.947 (min 0.95)"
         },
         {
           "name": "name-removal stability",
           "pass": false,
-          "detail": "0.818 (min 0.97)"
+          "detail": "0.85 (min 0.97)"
         },
         {
           "name": "whitespace stability",
           "pass": false,
-          "detail": "0.909 (min 0.98)"
+          "detail": "0.889 (min 0.98)"
         },
         {
           "name": "false-citation influence",
           "pass": false,
-          "detail": "0.227 (max 0.05)"
+          "detail": "0.2 (max 0.05)"
         },
         {
           "name": "fixture-label agreement",
           "pass": false,
-          "detail": "0.522 (min 0.75)"
+          "detail": "0.65 (min 0.75)"
         },
         {
           "name": "ECE",
           "pass": false,
-          "detail": "0.204 (max 0.08)"
+          "detail": "0.119 (max 0.08)"
         }
       ]
     }
