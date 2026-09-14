@@ -182,3 +182,14 @@ jobs:
           ev=$(psql "$DATABASE_URL" -At -c "SELECT count(*) FROM topic_evidence te JOIN daily_topics dt ON te.topic_id = dt.id WHERE dt.topic_date = '$date'::date")
           echo "evidence cards: $ev"
           test "$ev" -le 3
+
+      - name: Freshness verifier passes on the real write / fails on absence
+        run: |
+          date=$(jq -r .date run1.json)
+          node scripts/verify-topic-stored.mjs --date "$date"
+          # The gate must actually gate: a date with no topic fails it.
+          if node scripts/verify-topic-stored.mjs --date 2099-01-01; then
+            echo "::error::freshness verifier accepted a nonexistent topic date"
+            exit 1
+          fi
+          echo "freshness verifier correctly rejected the absent date"

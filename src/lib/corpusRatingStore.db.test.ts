@@ -31,10 +31,12 @@ const userIds = new Map<string, string>();
 const itemIds: string[] = [];
 
 async function applyMigrations() {
+  await pool.query("SELECT pg_advisory_lock(727291)");
   const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
   for (const file of files) {
     await pool.query(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
   }
+  await pool.query("SELECT pg_advisory_unlock(727291)");
 }
 
 async function ensureUser(email: string): Promise<string> {

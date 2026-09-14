@@ -23,11 +23,13 @@ const userEmails = ["inv-a@test.local", "inv-b@test.local", "inv-c@test.local"];
 const userIds = new Map<string, string>();
 
 async function applyMigrations() {
+  await pool.query("SELECT pg_advisory_lock(727291)");
   const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
   for (const file of files) {
     const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
     await pool.query(sql);
   }
+  await pool.query("SELECT pg_advisory_unlock(727291)");
 }
 
 async function ensureUser(email: string): Promise<string> {

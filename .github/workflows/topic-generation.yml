@@ -48,3 +48,11 @@ jobs:
           NVIDIA_MODEL: ${{ secrets.NVIDIA_MODEL }}
           OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
         run: node scripts/generate-topics.mjs
+      - name: Verify the write landed (freshness postconditions)
+        # A green generation step only proves the script exited 0. Re-read
+        # the production database and fail if tomorrow's topic does not
+        # exist, is not unique, lacks valid provenance, or evidence escaped
+        # its cap / lost its topic reference.
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/verify-topic-stored.mjs

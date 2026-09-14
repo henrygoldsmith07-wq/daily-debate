@@ -6,19 +6,33 @@
 //   node scripts/repair-corpus-closure.mjs               # dry run (default)
 //   node scripts/repair-corpus-closure.mjs --apply       # repair + log
 //
-// Guarantees: dry-run by default; reports affected ids and counts; never
-// deletes or edits ratings; only changes status where the actual threshold is
-// met; re-running is a no-op once repaired.
+// Race safety: every candidate is re-decided inside its own transaction,
+// under the item row lock, with the count taken AFTER the lock (see
+// scripts/lib/corpus-repair.mjs). Counts from the pre-lock scan are never
+// written. Guarantees: dry-run default; reports affected ids; never deletes
+// or edits ratings; only flips open -> rated when the fresh count meets the
+// threshold; idempotent; transaction-capable DATABASE_URL required (plain
+// postgres:// TCP - Neon HTTP endpoints cannot run transactions and are
+// refused rather than silently degraded).
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createExecutor } from "./lib/sql-executor.mjs";
+import pg from "pg";
+import { isNeonHttpUrl } from "./lib/sql-executor.mjs";
+import { findCandidates, repairItemWithLock } from "./lib/corpus-repair.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!databaseUrl) {
   process.stderr.write("DATABASE_URL is required.\n");
+  process.exit(2);
+}
+if (isNeonHttpUrl(databaseUrl)) {
+  process.stderr.write(
+    "repair-corpus-closure requires a transaction-capable postgres:// (TCP, pooled is fine) DATABASE_URL;\n" +
+    "the Neon HTTP endpoint cannot hold a row lock across statements and is refused by design.\n",
+  );
   process.exit(2);
 }
 const APPLY = process.argv.includes("--apply");
@@ -40,53 +54,42 @@ if (!Number.isInteger(minRaters) || minRaters < 1) {
   process.exit(2);
 }
 
-const query = await createExecutor(databaseUrl);
-const at = new Date().toISOString();
+const log = (msg) => process.stdout.write(`[repair-corpus ${new Date().toISOString()} ${APPLY ? "APPLY" : "DRY-RUN"}] ${msg}\n`);
 
-// 1) Sync the persisted counter to reality (never touches ratings).
-const drift = await query(
-  `SELECT ci.id, ci.rating_count AS stored, count(cr.id)::int AS actual
-     FROM corpus_items ci LEFT JOIN corpus_ratings cr ON cr.corpus_id = ci.id
-    GROUP BY ci.id HAVING ci.rating_count <> count(cr.id)::int`,
-);
-// 2) Items open at/over the threshold: closure candidates.
-const closable = await query(
-  `SELECT ci.id, count(cr.id)::int AS ratings
-     FROM corpus_items ci LEFT JOIN corpus_ratings cr ON cr.corpus_id = ci.id
-    WHERE ci.status = 'open' GROUP BY ci.id HAVING count(cr.id) >= $1`,
-  [minRaters],
-);
+const admin = new pg.Client({ connectionString: databaseUrl });
+const reader = new pg.Client({ connectionString: databaseUrl });
+await admin.connect();
+await reader.connect();
+try {
+  // Scan is a hint list only: it widens to items one below threshold so a
+  // racing final rating is still re-checked under the lock. Stale scan
+  // numbers are NEVER used for writes.
+  const candidates = await repairCandidates(reader, admin, minRaters, APPLY, log);
+  log(`done: ${candidates.length} candidate(s) examined, ${candidates.filter((c) => c.changed).length} item(s) repaired.`);
+} finally {
+  await admin.end();
+  await reader.end();
+}
 
-const log = (msg) => process.stdout.write(`[repair-corpus ${at} ${APPLY ? "APPLY" : "DRY-RUN"}] ${msg}\n`);
-log(`threshold=${minRaters}; counter-drift=${drift.length}; open-at-threshold=${closable.length}`);
-for (const row of drift.slice(0, 50)) log(`  drift: item ${row.id} stored=${row.stored} actual=${row.actual}`);
-for (const row of closable.slice(0, 50)) log(`  closable: item ${row.id} ratings=${row.ratings}`);
-
-if (!APPLY) {
-  if (drift.length || closable.length) {
-    log("no changes made (dry run). Re-invoke with --apply to repair.");
-    process.exit(0);
+async function repairCandidates(reader, admin, minRaters, apply, log) {
+  const query = async (text, params) => (await reader.query(text, params)).rows;
+  const found = await findCandidates(query, minRaters);
+  log(`candidate scan: ${found.length} item(s) (decisions re-taken under lock)`);
+  const results = [];
+  for (const candidate of found) {
+    const res = await repairItemWithLock(admin, candidate.id, minRaters, { apply });
+    if (res.skipped) {
+      log(`  ${res.id}: ${res.skipped} (raced away) - untouched`);
+      continue;
+    }
+    if (res.wouldChange) {
+      log(
+        `  ${res.id}: stored=${res.before.stored} actual=${res.actual} status ${res.before.status} -> ${res.after.status}` +
+        `${res.before.status === "rated" && res.actual < minRaters ? " (rated-below-threshold: status left, count synced)" : ""}` +
+        `${apply ? "" : " [would change; dry run]"}`,
+      );
+    }
+    results.push(res);
   }
-  log("nothing to repair.");
-  process.exit(0);
+  return results;
 }
-
-let synced = 0;
-let closed = 0;
-for (const row of drift) {
-  await query("UPDATE corpus_items SET rating_count = $2 WHERE id = $1 AND rating_count <> $2", [row.id, row.actual]);
-  synced += 1;
-}
-for (const row of closable) {
-  // Guarded update: only flips while still open AND only at rows whose
-  // actual count still meets the threshold (idempotent, race-safe).
-  const res = await query(
-    `UPDATE corpus_items ci SET status = 'rated'
-      WHERE ci.id = $1 AND ci.status = 'open'
-        AND (SELECT count(*) FROM corpus_ratings cr WHERE cr.corpus_id = ci.id) >= $2
-      RETURNING ci.id`,
-    [row.id, minRaters],
-  );
-  if (res.length) closed += 1;
-}
-log(`done: rating_count synced on ${synced} item(s), status open->rated on ${closed} item(s). Ratings untouched.`);
