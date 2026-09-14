@@ -180,6 +180,51 @@ describe("corpus lifecycle facts", () => {
   });
 });
 
+describe("judge-vs-human slices (item 13)", () => {
+  const judged = (
+    id: string,
+    strata: Partial<MetricItem>,
+    svWinner: "a" | "b" | "tie",
+  ): MetricItem => ({ id, side_mapping: { system_verdict: { winner: svWinner } }, status: "rated", ...strata });
+
+  it("slices agreement by difficulty/ability/length/subject and categorises errors", () => {
+    const items: MetricItem[] = [
+      judged("d1", { dynamics_tier: "close", ability_band: "novice", length_bucket: "short", subject_category: "health" }, "a"),
+      judged("d2", { dynamics_tier: "close", ability_band: "novice", length_bucket: "short", subject_category: "health" }, "b"),
+      judged("d3", { dynamics_tier: "decisive", ability_band: "advanced", length_bucket: "long", subject_category: "tech" }, "tie"),
+    ];
+    const ratings: MetricRating[] = [
+      ...[
+        ["d1", "a"],
+        ["d2", "a"],
+        ["d3", "a"],
+      ].flatMap(([id, w]) => [
+        { corpus_id: id, rater_id: "x1", winner: w, confidence: null, scores_a: {}, scores_b: {} },
+        { corpus_id: id, rater_id: "x2", winner: w, confidence: null, scores_a: {}, scores_b: {} },
+      ]),
+    ];
+    const m = computeCorpusMetrics(items, ratings);
+    // d1 agree (a==a), d2 flip (b vs human a), d3 judge tie vs human winner.
+    expect(m.judgeVsHuman.slices.byDifficulty.close).toEqual({ n: 2, agree: 1, rate: 0.5 });
+    expect(m.judgeVsHuman.slices.byDifficulty.decisive).toEqual({ n: 1, agree: 0, rate: 0 });
+    expect(m.judgeVsHuman.slices.bySubject.health.rate).toBe(0.5);
+    expect(m.judgeVsHuman.slices.byLength.long.n).toBe(1);
+    expect(m.judgeVsHuman.slices.byAbility.novice).toEqual({ n: 2, agree: 1, rate: 0.5 });
+    expect(m.judgeVsHuman.errorCategories).toEqual({ judgeTieVsHumanWinner: 1, sideFlip: 1 });
+  });
+
+  it("excludes split-consensus items from slices (only strict majorities count)", () => {
+    const items: MetricItem[] = [judged("s1", { dynamics_tier: "close" }, "a")];
+    const ratings: MetricRating[] = [
+      { corpus_id: "s1", rater_id: "x1", winner: "a", confidence: null, scores_a: {}, scores_b: {} },
+      { corpus_id: "s1", rater_id: "x2", winner: "b", confidence: null, scores_a: {}, scores_b: {} },
+    ];
+    const m = computeCorpusMetrics(items, ratings);
+    expect(m.judgeVsHuman.slices.byDifficulty.close).toBeUndefined();
+    expect(m.judgeVsHuman.errorCategories.judgeTieVsHumanWinner + m.judgeVsHuman.errorCategories.sideFlip).toBe(0);
+  });
+});
+
 describe("humanGroundTruthReady thresholds", () => {
   it("flags each unmet bar explicitly (never a silent false)", async () => {
     const { humanGroundTruthReady } = await import("./corpus");

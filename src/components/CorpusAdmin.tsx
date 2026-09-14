@@ -20,6 +20,13 @@ interface ReliabilityReport {
     meanRaterConfidence: number | null;
     groundTruth: { ready: boolean; reasons: string[] };
   };
+  judgeVsHuman: {
+    errorCategories: { judgeTieVsHumanWinner: number; sideFlip: number };
+    slices: Record<
+      "byDifficulty" | "byAbility" | "byLength" | "bySubject",
+      Record<string, { n: number; agree: number; rate: number | null }>
+    >;
+  };
   perDimensionIcc: Record<string, number | null>;
   population: {
     targetItems: number;
@@ -213,6 +220,47 @@ export default function CorpusAdmin() {
             <p className="text-xs text-ink3">All canonical strata meet the minimum.</p>
           )}
         </div>
+      </section>
+
+      <section className="surface-card p-5">
+        <h2 className="text-sm font-semibold">Judge vs human — by disagreement slice</h2>
+        <p className="mt-1 text-xs text-ink3">
+          Only consensus-ready items that the production judge has also verdicted; slices are reported
+          separately and never collapsed into one headline number.
+        </p>
+        <p className="mt-2 text-xs">
+          Error categories: judge-tie-where-humans-picked-a-side{" "}
+          <span className="tabular">{report.judgeVsHuman.errorCategories.judgeTieVsHumanWinner}</span> · side
+          flips <span className="tabular">{report.judgeVsHuman.errorCategories.sideFlip}</span>
+        </p>
+        {(
+          [
+            ["Difficulty (dynamics tier)", "byDifficulty"],
+            ["Ability band", "byAbility"],
+            ["Transcript length", "byLength"],
+            ["Subject", "bySubject"],
+          ] as const
+        ).map(([label, key]) => {
+          const cells = Object.entries(report.judgeVsHuman.slices[key]).filter(([, v]) => v.n > 0);
+          return (
+            <div key={key} className="mt-3">
+              <p className="text-xs font-medium">{label}</p>
+              {cells.length ? (
+                <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {cells.map(([bucket, v]) => (
+                    <Stat
+                      key={bucket}
+                      label={`${bucket} (n=${v.n})`}
+                      value={v.rate === null ? "—" : `${Math.round(v.rate * 100)}% agree`}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-ink3">No judged consensus items in this dimension yet.</p>
+              )}
+            </div>
+          );
+        })}
       </section>
 
       <section className="surface-card flex flex-col gap-3 p-5">

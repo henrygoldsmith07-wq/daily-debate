@@ -27,6 +27,11 @@ export interface MetricItem {
   side_mapping: unknown;
   /** Lifecycle status (migration 001); may be absent in older callers. */
   status?: string;
+  /** Stratification fields for disagreement slices; may be absent. */
+  dynamics_tier?: string | null;
+  ability_band?: string | null;
+  length_bucket?: string | null;
+  subject_category?: string | null;
 }
 
 interface StoredSystemVerdict {
@@ -79,6 +84,14 @@ export interface CorpusMetricsResult {
   };
   humanConsensusUnanimous: GatedMetric;
   judgeVsConsensus: GatedMetric & { agree: number };
+  /** Judge-vs-human comparison once consensus exists: slices + error categories. */
+  judgeVsHuman: {
+    errorCategories: { judgeTieVsHumanWinner: number; sideFlip: number };
+    slices: Record<
+      "byDifficulty" | "byAbility" | "byLength" | "bySubject",
+      Record<string, { n: number; agree: number; rate: number | null }>
+    >;
+  };
   closeDebateAccuracy: GatedMetric & { closeN: number };
   positionSwapStability: GatedMetric;
   calibrationError: number | null;
@@ -137,16 +150,48 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
   let judged = 0, judgeAgree = 0, closeN = 0, closeAgree = 0;
   let swapN = 0, swapStable = 0, citedNodes = 0, flaggedNodes = 0;
   const calibBins = Array.from({ length: 10 }, () => ({ total: 0, correct: 0, confidenceSum: 0 }));
+  // Judge-vs-human slices (item 13): disagreement broken out by stratum, plus
+  // error categories - never collapsed into one headline number.
+  const sliceAcc = new Map<string, Map<string, { n: number; agree: number }>>(
+    ["difficulty", "ability", "length", "subject"].map((k) => [k, new Map<string, { n: number; agree: number }>()]),
+  );
+  const errorCategories = { judgeTieVsHumanWinner: 0, sideFlip: 0 };
 
   for (const item of items) {
     const list = ratingsByItem.get(item.id);
     if (!list || list.length < 2) continue;
     const consensus = majorityWinner(list.map((r) => r.winner));
 
+    // Consensus-ready for slicing: strict majority and not a split/tie,
+    // mirroring the humanValidation definition exactly.
+    const hVotes: Record<WinnerLabel, number> = { a: 0, b: 0, tie: 0 };
+    for (const w of list.map((r) => r.winner)) if (w === "a" || w === "b" || w === "tie") hVotes[w as WinnerLabel] += 1;
+    const hRanked = Object.values(hVotes).sort((x, y) => y - x);
+    const sliceReady = hRanked[0] > hRanked[1] && consensus !== "tie";
+
     const sv = readSV(item.side_mapping);
     if (sv?.winner === "a" || sv?.winner === "b" || sv?.winner === "tie") {
       judged++;
       if (sv.winner === consensus) judgeAgree++;
+      if (sliceReady) {
+        const agree = sv.winner === consensus;
+        for (const [dim, key] of [
+          ["difficulty", item.dynamics_tier ?? "unknown"],
+          ["ability", item.ability_band ?? "unknown"],
+          ["length", item.length_bucket ?? "unknown"],
+          ["subject", item.subject_category ?? "unknown"],
+        ] as const) {
+          const by = sliceAcc.get(dim)!;
+          const cell = by.get(key) ?? { n: 0, agree: 0 };
+          cell.n += 1;
+          if (agree) cell.agree += 1;
+          by.set(key, cell);
+        }
+        if (!agree) {
+          if (sv.winner === "tie") errorCategories.judgeTieVsHumanWinner += 1;
+          else errorCategories.sideFlip += 1;
+        }
+      }
 
       const gapCheck = Math.abs(
         list.reduce((s, r) => s + meanOverall(r.scores_a), 0) / list.length -
@@ -250,6 +295,14 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
 
   const binTotal = calibBins.reduce((s, b) => s + b.total, 0);
 
+  const finalizeSlices = (m: Map<string, { n: number; agree: number }>) => {
+    const out: Record<string, { n: number; agree: number; rate: number | null }> = {};
+    for (const [k, v] of [...m.entries()].sort()) {
+      out[k] = { n: v.n, agree: v.agree, rate: v.n ? +(v.agree / v.n).toFixed(3) : null };
+    }
+    return out;
+  };
+
   return {
     corpus: {
       items: items.length,
@@ -265,6 +318,15 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
     judgeVsConsensus: {
       ...gateBinomial(judgeAgree, judged, judgeGate),
       agree: judgeAgree,
+    },
+    judgeVsHuman: {
+      errorCategories,
+      slices: {
+        byDifficulty: finalizeSlices(sliceAcc.get("difficulty")!),
+        byAbility: finalizeSlices(sliceAcc.get("ability")!),
+        byLength: finalizeSlices(sliceAcc.get("length")!),
+        bySubject: finalizeSlices(sliceAcc.get("subject")!),
+      },
     },
     closeDebateAccuracy: {
       ...gateBinomial(closeAgree, closeN, closeGate),

@@ -18,9 +18,11 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { FIXTURES, STRATA } from "./lib/judge-fixtures.mjs";
 import { PROBES, AUDIT_TRANSFORMS } from "./lib/judge-transforms.mjs";
-import { allJudgeProviders, estimatedCost, VERDICT_PROMPT_VERSION } from "./lib/judge-providers.mjs";
+import { allJudgeProviders, estimatedCost, VERDICT_PROMPT_VERSION, buildVerdictSystem, verdictUser, RETRY_POLICY } from "./lib/judge-providers.mjs";
+import { EXPERIMENTS, experimentSystem } from "./lib/judge-experiments.mjs";
 import {
   GATE_DEFAULTS,
   PROVIDER_RELIABILITY_RATIONALE,
@@ -65,6 +67,23 @@ const argInt = (name, dflt, min, max) => {
 const LIMIT = argInt("limit", FIXTURES.length, 1, FIXTURES.length);
 const CONCURRENCY = argInt("concurrency", 3, 1, 8);
 const ENFORCE = args.includes("--enforce");
+const argVal = (name) => {
+  const eq = args.find((x) => x.startsWith(`--${name}=`));
+  if (eq !== undefined) return eq.split("=")[1];
+  const i = args.indexOf(`--${name}`);
+  return i === -1 ? undefined : args[i + 1];
+};
+// Experiment discipline (items 7-10): one controlled single-variable prompt
+// change per named experiment, repeatable runs saved raw WITHOUT touching the
+// published validation record, and per-judge versioning that makes every
+// metric attributable to an exact prompt/pack/gates/retry configuration.
+const EXPERIMENT = argVal("experiment") ?? "baseline";
+const MODELS = (argVal("models") ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean); // provider labels to restrict to (e.g. "kiraai") for repeat studies
+const RUNS_DIR = argVal("runs-dir"); // save raw run artifacts here; implies no-publish
+const NO_PUBLISH = args.includes("--no-publish") || RUNS_DIR !== undefined;
 const OUT_MD_ARG = args.find((a) => a.startsWith("--out="));
 const OUT_MD = OUT_MD_ARG ? OUT_MD_ARG.split("=")[1] : null;
 
@@ -333,6 +352,9 @@ async function main() {
         "  --limit N        fixtures to judge (1-24; default 24)",
         "  --concurrency N  parallel provider calls (1-8; default 3)",
         "  --enforce        exit non-zero when any gate fails",
+        "  --experiment NAME single-variable prompt experiment (see scripts/lib/judge-experiments.mjs)",
+        "  --runs-dir DIR   save the raw run artifact there and do NOT touch published records",
+        "  --no-publish     compute and print only; never write docs/ records",
         "  --pack-only      validate fixtures only; never calls providers",
         "  --allow-skip     allow a no-key run to exit 0 (deliberate key-less contexts only)",
         "",
@@ -346,7 +368,20 @@ async function main() {
     return;
   }
 
-  const judges = allJudgeProviders(process.env);
+  let system;
+  try {
+    system = experimentSystem(EXPERIMENT).system;
+  } catch (e) {
+    process.stderr.write(`[judge-benchmark] ${String(e?.message ?? e)}\n`);
+    process.exit(2);
+  }
+  const judges = allJudgeProviders(process.env, { system }).filter(
+    (j) => MODELS.length === 0 || MODELS.includes(j.id.split(":")[0]),
+  );
+  if (MODELS.length > 0 && judges.length === 0) {
+    process.stderr.write(`[judge-benchmark] --models ${MODELS.join(",")} matched no configured provider.\n`);
+    process.exit(2);
+  }
   if (!judges.length) {
     // A missing-key run must never masquerade as a green validation: the
     // workflow gate is --enforce, and skipping without failing would let a
@@ -362,7 +397,7 @@ async function main() {
     process.stdout.write(JSON.stringify({ skipped: true, error: "no judge configured" }) + "\n");
     process.exit(1);
   }
-  log(`[judge-benchmark] models=${judges.map((j) => j.id).join(", ")} limit=${LIMIT} concurrency=${CONCURRENCY}`);
+  log(`[judge-benchmark] models=${judges.map((j) => j.id).join(", ")} limit=${LIMIT} concurrency=${CONCURRENCY} experiment=${EXPERIMENT} publish=${NO_PUBLISH ? "off" : "on"}`);
 
   const results = [];
   for (const judge of judges) {
@@ -378,9 +413,31 @@ async function main() {
   const allPass = gated.every((m) => m.gates.every((c) => c.pass));
   const at = new Date().toISOString();
 
+  // Full attributability (item 10): every artifact records the EXACT prompt
+  // (hash), fixture pack, gates file and retry policy that produced it, so a
+  // metric movement maps to one controlled change, never to "a new prompt".
+  const sha = (s) => createHash("sha256").update(s).digest("hex").slice(0, 16);
+  const experimentMeta = EXPERIMENTS[EXPERIMENT]
+    ? { name: EXPERIMENT, hypothesis: EXPERIMENTS[EXPERIMENT].hypothesis, label: EXPERIMENTS[EXPERIMENT].label }
+    : { name: EXPERIMENT, hypothesis: null, label: null };
+  const versions = {
+    promptVersion: VERDICT_PROMPT_VERSION,
+    promptHash: sha(system + "\n---\n" + verdictUser("")),
+    defaultPromptHash: sha(buildVerdictSystem() + "\n---\n" + verdictUser("")),
+    experiment: experimentMeta,
+    fixturePackHash: sha(JSON.stringify(FIXTURES.map((f) => [f.id, f.expectedWinner, f.transcript]))),
+    fixturePackSize: FIXTURES.length,
+    scoringEngineVersion: 1,
+    graphSchemaVersion: 1,
+    retryPolicy: RETRY_POLICY,
+    gatesHash: sha(JSON.stringify(gates)),
+  };
+
   // State truthfulness: every attempt is logged (append-only, capped); the
   // "latest" artifact holds the last run with at least one usable judge. A
   // total outage is recorded as an attempt, never as current validation.
+  // Experiment/repeat runs (--no-publish or --runs-dir) save raw artifacts
+  // only - they never overwrite or append to the published record.
   const unusable = zeroUsableJudges(gated);
   const attemptEntry = attemptsLogEntry({
     at,
@@ -389,10 +446,26 @@ async function main() {
     outcome: unusable ? "insufficient-data" : allPass ? "pass" : "gate-failure",
     reason: unusable ? "no judge produced usable base data (provider outage?)" : null,
   });
-  const attemptsPath = appendAttemptsLog(fs, path, attemptEntry);
+  const attemptsPath = NO_PUBLISH ? null : appendAttemptsLog(fs, path, attemptEntry);
 
-  const payload = { at, limit: LIMIT, enforce: ENFORCE, strata: STRATA, allPass, gates, results: gated };
+  const payload = { at, limit: LIMIT, enforce: ENFORCE, strata: STRATA, allPass, gates, versions, results: gated };
   process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+
+  if (RUNS_DIR) {
+    fs.mkdirSync(RUNS_DIR, { recursive: true });
+    const slug = gated.map((m) => m.model.split(":")[0]).join("+");
+    const file = path.join(RUNS_DIR, `${at.replace(/[:.]/g, "")}-${slug}.json`);
+    fs.writeFileSync(file, JSON.stringify(payload, null, 2));
+    log(`[judge-benchmark] raw run saved to ${file} (published record untouched)`);
+  }
+  if (NO_PUBLISH) {
+    for (const m of gated) {
+      log(`--- ${m.model} (unpublished) ---`);
+      for (const c of m.gates) log(`  ${c.pass ? "PASS" : "FAIL"} ${c.name}: ${c.detail}`);
+    }
+    log(`[judge-benchmark] allPass=${allPass} (run not published)`);
+    return;
+  }
 
   if (unusable) {
     log(`[judge-benchmark] OUTAGE: no judge produced usable base data. Attempt recorded in ${attemptsPath}; last valid artifact NOT overwritten.`);

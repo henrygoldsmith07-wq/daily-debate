@@ -20,6 +20,7 @@ interface RatingRow {
   winner: string;
   confidence?: number | null;
   presented_first?: string | null;
+  corrections?: unknown;
 }
 
 export async function GET() {
@@ -34,7 +35,7 @@ export async function GET() {
 
   const service = createServiceClient();
   const [{ data: items }, { data: ratingRows }] = await Promise.all([
-    service.from("corpus_items").select("id, status, length_bucket, subject_category, ability_band"),
+    service.from("corpus_items").select("id, status, length_bucket, subject_category, ability_band, dynamics_tier"),
     service.from("corpus_ratings").select("corpus_id, rater_id, scores_a, scores_b, winner, confidence, presented_first, corrections"),
   ]);
 
@@ -87,6 +88,8 @@ export async function GET() {
       confidence: r.confidence ?? null,
       scores_a: r.scores_a,
       scores_b: r.scores_b,
+      presented_first: r.presented_first ?? null,
+      corrections: r.corrections,
     })),
   );
 
@@ -128,6 +131,7 @@ export async function GET() {
     },
     adjudicationQueue,
     humanValidation: metrics.humanValidation,
+    judgeVsHuman: metrics.judgeVsHuman,
     perDimensionIcc,
     strata: {
       byLength: progress.byLength,

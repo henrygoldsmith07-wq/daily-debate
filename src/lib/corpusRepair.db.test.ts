@@ -246,7 +246,8 @@ d("corpus closure repair (real Postgres)", () => {
         },
       });
       expect(res.changed).toBe(false); // fresh count 1 < 2, counter exact: no write
-      const outcome = await pendingRating;
+      expect(pendingRating).not.toBeNull(); // the hook ran and started the racing insert
+      const outcome = await pendingRating!;
       expect(outcome.result).toBe("accepted");
       expect(await state(item)).toEqual({ status: "rated", stored: 2, actual: 2 });
     } finally {
