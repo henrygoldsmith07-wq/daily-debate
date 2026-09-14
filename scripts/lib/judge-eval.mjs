@@ -39,11 +39,36 @@ const MIRROR = (w) => (w === "a" ? "b" : w === "b" ? "a" : "tie");
 // malformed responses, and an AbortError on the 35s timeout.
 export function classifyProviderError(message) {
   const m = String(message ?? "");
+  if (m === "no-base") return "upstream-failure"; // probe skipped: its base call failed
+  if (/^429:/.test(m)) return "rate-limit";
   if (/^4\d\d:/.test(m)) return "4xx";
   if (/^5\d\d:/.test(m)) return "5xx";
   if (/abort/i.test(m)) return "timeout";
   if (/empty content|no JSON|JSON\.parse|Unexpected token/i.test(m)) return "malformed";
   return "network";
+}
+
+/**
+ * Per-judge failure split (item 10): provider/transport problems must never
+ * be reported as model-quality failures and vice versa. Every failed gate
+ * lands in exactly one bucket: provider (transport), model-quality (the
+ * measured judge answered poorly on usable data), or insufficient-data
+ * (too few usable calls to answer either way).
+ */
+export function failureSummary(gates) {
+  const summary = {
+    provider: [],
+    quality: [],
+    insufficient: [],
+    allPass: gates.length > 0 && gates.every((c) => c.pass),
+  };
+  for (const c of gates) {
+    if (c.pass) continue;
+    if (c.kind === "insufficient-data") summary.insufficient.push(c.name);
+    else if (c.kind === "provider") summary.provider.push(c.name);
+    else summary.quality.push(c.name);
+  }
+  return summary;
 }
 
 /** Aggregate one probe with explicit sample accounting. */

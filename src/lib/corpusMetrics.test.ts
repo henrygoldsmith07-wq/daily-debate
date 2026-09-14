@@ -137,6 +137,49 @@ describe("computeCorpusMetrics with sample gates", () => {
   });
 });
 
+describe("corpus lifecycle facts", () => {
+  it("counts adjudicated items, corrected ratings and presentation balance", () => {
+    const items: MetricItem[] = [
+      { id: "i1", side_mapping: {}, status: "rated" },
+      { id: "i2", side_mapping: {}, status: "adjudicated" },
+      { id: "i3", side_mapping: {}, status: "open" },
+    ];
+    const r = (corpus_id: string, rater_id: string, extra: Partial<MetricRating>): MetricRating => ({
+      corpus_id, rater_id, winner: "a", confidence: null, scores_a: {}, scores_b: {}, ...extra,
+    });
+    const ratings: MetricRating[] = [
+      r("i1", "x1", { presented_first: "a" }),
+      r("i1", "x2", { presented_first: "a", corrections: [{ at: "t", actor: "adm", reason: "x", before: {}, after: {} }] }),
+      r("i2", "x3", { presented_first: "a" }),
+      r("i2", "x4", { presented_first: "b", corrections: [] }),
+      r("i3", "x5", {}), // pre-migration row without presented_first
+    ];
+    const m = computeCorpusMetrics(items, ratings);
+    expect(m.corpus.adjudicatedItems).toBe(1);
+    expect(m.corpus.correctedRatings).toBe(1); // empty corrections does not count
+    expect(m.corpus.presentation).toEqual({ firstA: 3, firstB: 1, unknown: 1, balance: 0.333 });
+  });
+
+  it("stays backward compatible when callers omit the new fields", () => {
+    const items = [item("i1"), item("i2")];
+    const ratings = [rating("i1", "r1", "a"), rating("i1", "r2", "b"), rating("i2", "r3", "a")];
+    const m = computeCorpusMetrics(items, ratings);
+    expect(m.corpus.adjudicatedItems).toBe(0);
+    expect(m.corpus.correctedRatings).toBe(0);
+    expect(m.corpus.presentation.balance).toBeNull();
+    expect(m.corpus.presentation.unknown).toBe(3);
+  });
+
+  it("perfect presentation balance is 1", () => {
+    const items = [item("i1")];
+    const ratings: MetricRating[] = [
+      { ...rating("i1", "r1", "a"), presented_first: "a" },
+      { ...rating("i1", "r2", "b"), presented_first: "b" },
+    ];
+    expect(computeCorpusMetrics(items, ratings).corpus.presentation.balance).toBe(1);
+  });
+});
+
 describe("humanGroundTruthReady thresholds", () => {
   it("flags each unmet bar explicitly (never a silent false)", async () => {
     const { humanGroundTruthReady } = await import("./corpus");

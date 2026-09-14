@@ -188,10 +188,10 @@ async function loadHumanSection(): Promise<EvidenceSection> {
   try {
     const service = createServiceClient();
     const [{ data: items }, { data: ratings }] = await Promise.all([
-      service.from("corpus_items").select("id, side_mapping"),
+      service.from("corpus_items").select("id, side_mapping, status"),
       service
         .from("corpus_ratings")
-        .select("corpus_id, rater_id, winner, confidence, scores_a, scores_b"),
+        .select("corpus_id, rater_id, winner, confidence, scores_a, scores_b, presented_first, corrections"),
     ]);
     const metrics = computeCorpusMetrics(
       (items ?? []) as MetricItem[],
@@ -205,6 +205,9 @@ async function loadHumanSection(): Promise<EvidenceSection> {
       unresolvedDisagreements: metrics.humanValidation.unresolvedDisagreements,
       meanWinnerKappa: metrics.humanValidation.meanWinnerKappa,
       canUseAsGroundTruth: metrics.humanValidation.groundTruth.ready,
+      adjudicatedItems: metrics.corpus.adjudicatedItems,
+      correctedRatings: metrics.corpus.correctedRatings,
+      presentationBalance: metrics.corpus.presentation.balance,
     });
   } catch {
     return {

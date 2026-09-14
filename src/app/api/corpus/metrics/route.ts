@@ -10,8 +10,10 @@ import { computeCorpusMetrics, type MetricItem, type MetricRating } from "@/lib/
 export async function GET() {
   const service = createServiceClient();
   const [{ data: items }, { data: ratings }] = await Promise.all([
-    service.from("corpus_items").select("id, side_mapping"),
-    service.from("corpus_ratings").select("corpus_id, rater_id, winner, confidence, scores_a, scores_b"),
+    service.from("corpus_items").select("id, side_mapping, status"),
+    service
+      .from("corpus_ratings")
+      .select("corpus_id, rater_id, winner, confidence, scores_a, scores_b, presented_first, corrections"),
   ]);
 
   const metrics = computeCorpusMetrics(

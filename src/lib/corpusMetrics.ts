@@ -16,11 +16,17 @@ export interface MetricRating {
   confidence: number | null;
   scores_a: unknown;
   scores_b: unknown;
+  /** Server-assigned presentation side (migration 010); may be absent. */
+  presented_first?: string | null;
+  /** Append-only correction audit trail (migration 012); may be absent. */
+  corrections?: unknown;
 }
 
 export interface MetricItem {
   id: string;
   side_mapping: unknown;
+  /** Lifecycle status (migration 001); may be absent in older callers. */
+  status?: string;
 }
 
 interface StoredSystemVerdict {
@@ -64,6 +70,12 @@ export interface CorpusMetricsResult {
     raters: number;
     itemsWithTwoPlusRatings: number;
     itemsWithThreePlusRatings: number;
+    /** Admin-adjudicated items (settled disagreements). */
+    adjudicatedItems: number;
+    /** Ratings carrying at least one correction audit event. */
+    correctedRatings: number;
+    /** Presentation-side distribution: balance=1 means perfectly even A/B first. */
+    presentation: { firstA: number; firstB: number; unknown: number; balance: number | null };
   };
   humanConsensusUnanimous: GatedMetric;
   judgeVsConsensus: GatedMetric & { agree: number };
@@ -209,6 +221,25 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
     meanWinnerKappa,
   });
 
+  // --- Corpus lifecycle facts (item 11 surfaces) ------------------------------
+  let adjudicatedItems = 0;
+  for (const item of items) if (item.status === "adjudicated") adjudicatedItems++;
+  let correctedRatings = 0;
+  let firstA = 0;
+  let firstB = 0;
+  let firstUnknown = 0;
+  for (const r of ratings) {
+    const c = r.corrections;
+    if (Array.isArray(c) ? c.length > 0 : false) correctedRatings++;
+    if (r.presented_first === "a") firstA++;
+    else if (r.presented_first === "b") firstB++;
+    else firstUnknown++;
+  }
+  const knownSides = firstA + firstB;
+  const presentationBalance = knownSides
+    ? +(Math.min(firstA, firstB) / Math.max(firstA, firstB)).toFixed(3)
+    : null;
+
   // Gated results
   const consensusGate = SAMPLE_GATES.humanConsensus;
   const judgeGate = SAMPLE_GATES.judgeVsConsensus;
@@ -226,6 +257,9 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
       raters: raters.size,
       itemsWithTwoPlusRatings: itemsWithTwo,
       itemsWithThreePlusRatings: itemsWithThree,
+      adjudicatedItems,
+      correctedRatings,
+      presentation: { firstA, firstB, unknown: firstUnknown, balance: presentationBalance },
     },
     humanConsensusUnanimous: gateBinomial(unanimous, multiRatedCount, consensusGate),
     judgeVsConsensus: {

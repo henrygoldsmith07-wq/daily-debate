@@ -57,3 +57,16 @@ Budgets are aspirational until request-timing instrumentation lands; the `ai_cal
   4. Redeploy with restored `DATABASE_URL`; spot-check Today, one replay, one PvP room.
 - **Schema recovery**: migrations are the source of truth; a fresh database plus `npm run db:migrate` reproduces the schema.
 - **Secrets**: none stored in the database; rotating provider keys requires no data work.
+
+## Corpus integrity runbook
+
+The blinded human corpus is the future ground truth for the judge, so its state is guarded by explicit invariants:
+
+- `npm run check:corpus` (`scripts/check-corpus-invariants.mjs`) fails on impossible states: open items at/over the rating threshold, closed items below it, `rating_count` drift, duplicate `(corpus_id, rater_id)`, contributor self-ratings, malformed `presented_first`/winner values, incomplete correction audit events, and broken correction chains. CI runs it against real Postgres after the DB suite and again after the E2E suite.
+- `npm run repair:corpus [-- --apply]` fixes historical closure drift safely: dry-run first (reports ids/counts), only flips `open -> rated` where the actual count meets the threshold, only syncs `rating_count` to reality, never deletes or edits ratings, idempotent.
+- Real-Postgres concurrency coverage lives in `src/lib/corpusRatingStore.db.test.ts` (runs in CI via `TEST_DATABASE_URL`): threshold closure, simultaneous final raters, post-closure rejects, rollback atomicity, correction audit chains.
+
+## Scheduled jobs
+
+- **Topic generation** (`topic-generation.yml`, daily 02:00 UTC): requires the `DATABASE_URL` repository secret; `--check-config` fails fast with `config-failure` when it is absent or unreachable (never a silent success). After configuration, verify with a manual `workflow_dispatch`, then confirm the next scheduled run; re-runs for the same target date are idempotent (one row per date, provenance stored, evidence bounded).
+- **Judge benchmark** (`judge-benchmark.yml`, weekly): needs at least one provider key secret. Free-tier providers enforce per-day request caps — a run landing on a depleted quota honestly reports `INSUFFICIENT DATA` / provider-reliability FAIL and is appended to `docs/judge-benchmark-attempts.json` without overwriting the last valid record.

@@ -17,6 +17,7 @@ import {
   reliabilityReport,
   reliabilityVerdict,
   allGateChecks,
+  failureSummary,
   buildDiagnostics,
   classifyProviderError,
   zeroUsableJudges,
@@ -232,17 +233,34 @@ test("buildDiagnostics groups accuracy, calibration, invariance and provider fai
   assert.equal(namesFlip.perturbedWinner, "b");
   assert.equal(namesFlip.scoreDelta, 30);
   const providerKinds = d.provider.map((p) => p.kind).sort();
-  assert.deepEqual(providerKinds, ["4xx", "5xx", "timeout"]);
+  assert.deepEqual(providerKinds, ["5xx", "rate-limit", "timeout"]);
   assert.equal(d.counts.provider, 3);
 });
 
 test("classifyProviderError buckets transport failures", () => {
-  assert.equal(classifyProviderError("429: rate limited"), "4xx");
+  assert.equal(classifyProviderError("429: rate limited"), "rate-limit");
+  assert.equal(classifyProviderError("400: bad request"), "4xx");
   assert.equal(classifyProviderError("503: upstream unavailable"), "5xx");
   assert.equal(classifyProviderError("This operation was aborted"), "timeout");
   assert.equal(classifyProviderError("empty content"), "malformed");
   assert.equal(classifyProviderError("no JSON object in output"), "malformed");
   assert.equal(classifyProviderError("fetch failed"), "network");
+  assert.equal(classifyProviderError("no-base"), "upstream-failure");
+});
+
+test("failureSummary keeps provider, quality and insufficient buckets separate", () => {
+  const checks = [
+    { name: "provider reliability", pass: false, kind: "provider" },
+    { name: "fixture-label agreement", pass: false, kind: "model-quality" },
+    { name: "Names removed [names]", pass: false, kind: "insufficient-data" },
+    { name: "ECE", pass: true, kind: "model-quality" },
+  ];
+  const f = failureSummary(checks);
+  assert.deepEqual(f.provider, ["provider reliability"]);
+  assert.deepEqual(f.quality, ["fixture-label agreement"]);
+  assert.deepEqual(f.insufficient, ["Names removed [names]"]);
+  assert.equal(f.allPass, false);
+  assert.equal(failureSummary([{ name: "x", pass: true, kind: "model-quality" }]).allPass, true);
 });
 
 test("zeroUsableJudges detects a full outage", () => {

@@ -139,6 +139,8 @@ export type CorpusItemRow = {
   evidence_density: string | null;
   style_bucket: string | null;
   split: string;
+  /** Accepted ratings (migration 013); authoritative for closure. */
+  rating_count: number;
   created_at: string;
 };
 

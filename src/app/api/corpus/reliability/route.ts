@@ -35,7 +35,7 @@ export async function GET() {
   const service = createServiceClient();
   const [{ data: items }, { data: ratingRows }] = await Promise.all([
     service.from("corpus_items").select("id, status, length_bucket, subject_category, ability_band"),
-    service.from("corpus_ratings").select("corpus_id, rater_id, scores_a, scores_b, winner, confidence, presented_first"),
+    service.from("corpus_ratings").select("corpus_id, rater_id, scores_a, scores_b, winner, confidence, presented_first, corrections"),
   ]);
 
   const ratings = (ratingRows ?? []) as RatingRow[];
@@ -120,8 +120,13 @@ export async function GET() {
     ratedItems: byItem.size,
     agreementReady,
     needsAdjudication,
+    adjudicatedItems: metrics.corpus.adjudicatedItems,
+    correctedRatings: metrics.corpus.correctedRatings,
+    presentationBalance: {
+      ...presentationBalance,
+      balance: metrics.corpus.presentation.balance,
+    },
     adjudicationQueue,
-    presentationBalance,
     humanValidation: metrics.humanValidation,
     perDimensionIcc,
     strata: {

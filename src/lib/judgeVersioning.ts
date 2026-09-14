@@ -10,7 +10,7 @@
 import type { JudgeId } from "./ensembleJudge";
 
 /** Bump when any prompt wording changes — even minor rewording shifts outputs. */
-export const PROMPT_VERSION = 3;
+export const PROMPT_VERSION = 4;
 
 /** Bump when observableAssessment.ts scoring weights/formula change. */
 export const SCORING_ENGINE_VERSION = 1;

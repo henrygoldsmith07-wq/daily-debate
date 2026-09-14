@@ -8,8 +8,10 @@ interface ReliabilityReport {
   ratedItems: number;
   agreementReady: number;
   needsAdjudication: number;
+  adjudicatedItems: number;
+  correctedRatings: number;
   adjudicationQueue: Array<{ id: string; verdicts: string[] }>;
-  presentationBalance: { aFirst: number; bFirst: number };
+  presentationBalance: { aFirst: number; bFirst: number; balance?: number | null };
   humanValidation: {
     consensusReadyItems: number;
     unresolvedDisagreements: number;
@@ -187,6 +189,10 @@ export default function CorpusAdmin() {
             label="Human ground truth"
             value={report.humanValidation.groundTruth.ready ? "READY" : "not yet"}
           />
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="Adjudicated items" value={report.adjudicatedItems} />
+          <Stat label="Corrected ratings (audited)" value={report.correctedRatings} />
         </div>
         {!report.humanValidation.groundTruth.ready && (
           <p className="mt-1 text-xs text-amber-700" role="note">

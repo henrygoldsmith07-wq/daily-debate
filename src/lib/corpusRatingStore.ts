@@ -5,13 +5,22 @@
 //
 // The insert and the item-closure flip run in ONE statement with a row lock
 // (SELECT ... FOR UPDATE on the item), so:
-//   - two simultaneous final raters serialise: both ratings land (both were
-//     legitimately submitted while the item was open), then the first flip
-//     closes the item;
-//   - a submission arriving AFTER closure finds status <> 'open' under the
-//     lock and is rejected at insert time — no TOCTOU window;
+//   - two simultaneous final raters serialise: the first closes the item, the
+//     second sees status <> 'open' under the lock and is rejected;
+//   - a submission arriving AFTER closure finds status <> 'open' at insert
+//     time — no TOCTOU window;
 //   - duplicate submissions are no-ops via ON CONFLICT DO NOTHING, reported
 //     back so the route can answer 409 instead of silently overwriting.
+//
+// Closure arithmetic (migration 013): a data-modifying CTE cannot observe
+// rows concurrent transactions committed after this statement's snapshot
+// began, so counting corpus_ratings here would under-close under load.
+// Instead the accepted insert increments corpus_items.rating_count inside
+// the same UPDATE that may close the item: the row is locked by `guard`, the
+// assignment reads the FRESHLY re-fetched row version (READ COMMITTED
+// lock-wait semantics), so before + this is exact and the item flips to
+// 'rated' immediately when the counter reaches the threshold. Works on both
+// SQL transports (no multi-statement transaction needed).
 
 import "server-only";
 import { queryRows } from "./backend/sql";
@@ -37,7 +46,7 @@ export async function insertImmutableRating(
   rating: ImmutableRating,
   minRaters: number,
 ): Promise<RatingInsertOutcome> {
-  const flags = await queryRows<{ inserted: number; flipped: number }>(
+  const flags = await queryRows<{ inserted: number; rated_now: boolean }>(
     `
     WITH guard AS (
       SELECT id FROM corpus_items
@@ -50,13 +59,16 @@ export async function insertImmutableRating(
       SELECT $1, $2, $3::jsonb, $4::jsonb, $5, $6::numeric, $7, $8 FROM guard
       ON CONFLICT (corpus_id, rater_id) DO NOTHING
       RETURNING id
-    ), flip AS (
-      UPDATE corpus_items SET status = 'rated'
-      WHERE id = $1 AND status = 'open'
-        AND (SELECT count(*) FROM corpus_ratings WHERE corpus_id = $1) >= $9
-      RETURNING id
     )
-    SELECT (SELECT count(*) FROM ins) AS inserted, (SELECT count(*) FROM flip) AS flipped
+    UPDATE corpus_items ci
+    SET rating_count = ci.rating_count + accepted.c,
+        status = CASE
+          WHEN ci.status = 'open' AND ci.rating_count + accepted.c >= $9 THEN 'rated'
+          ELSE ci.status
+        END
+    FROM (SELECT count(*)::int AS c FROM ins) accepted
+    WHERE ci.id = $1 AND accepted.c > 0
+    RETURNING accepted.c AS inserted, (ci.status = 'rated') AS rated_now
     `,
     [
       rating.corpusId,
@@ -73,7 +85,7 @@ export async function insertImmutableRating(
   const inserted = Number(flags[0]?.inserted ?? 0) > 0;
 
   if (inserted) {
-    return { result: "accepted", flippedToRated: Number(flags[0]?.flipped ?? 0) > 0 };
+    return { result: "accepted", flippedToRated: flags[0].rated_now === true };
   }
 
   // Not accepted: duplicate or closed/missing. Distinguish with one read.
@@ -94,13 +106,16 @@ export interface CorrectionEntry {
   at: string;
   actor: string;
   reason: string;
-  previous: { winner: unknown; scoresA: unknown; scoresB: unknown };
+  before: { winner: unknown; scoresA: unknown; scoresB: unknown };
+  after: { winner: unknown; scoresA: unknown; scoresB: unknown };
 }
 
 /**
- * Admin correction: overwrite the verdict while appending an immutable audit
- * entry. All SET expressions read the OLD row, so `previous` captures the
- * value before THIS correction, and the whole update is atomic.
+ * Admin correction: overwrite the verdict while appending a SELF-CONTAINED
+ * audit event — timestamp, actor, reason, the complete `before` state and
+ * the complete `after` state. All SET expressions read the OLD row, so
+ * `before` captures the value immediately prior to THIS correction even
+ * when corrections stack, and `||` keeps the history append-only.
  */
 export async function appendRatingCorrection(input: {
   corpusId: string;
@@ -116,8 +131,9 @@ export async function appendRatingCorrection(input: {
     `
     UPDATE corpus_ratings
     SET corrections = corrections || jsonb_build_array(jsonb_build_object(
-          'at', $3, 'actor', $4, 'reason', $5,
-          'previous', jsonb_build_object('winner', winner, 'scoresA', scores_a, 'scoresB', scores_b)
+          'at', $3::text, 'actor', $4::text, 'reason', $5::text,
+          'before', jsonb_build_object('winner', winner, 'scoresA', scores_a, 'scoresB', scores_b),
+          'after', jsonb_build_object('winner', $6::text, 'scoresA', $7::jsonb, 'scoresB', $8::jsonb)
         )),
         winner = $6,
         scores_a = $7::jsonb,

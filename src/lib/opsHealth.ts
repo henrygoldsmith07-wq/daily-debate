@@ -330,6 +330,9 @@ export interface HumanValidationInput {
   unresolvedDisagreements: number;
   meanWinnerKappa: number | null;
   canUseAsGroundTruth: boolean;
+  adjudicatedItems?: number;
+  correctedRatings?: number;
+  presentationBalance?: number | null;
 }
 
 export function assessHumanValidation(input: HumanValidationInput): EvidenceSection {
@@ -339,6 +342,14 @@ export function assessHumanValidation(input: HumanValidationInput): EvidenceSect
     { label: "Independently rated (≥2)", value: String(input.itemsWithTwoPlusRatings) },
     { label: "Consensus-ready", value: String(input.consensusReady) },
     { label: "Unresolved disagreements", value: String(input.unresolvedDisagreements) },
+    { label: "Adjudicated", value: String(input.adjudicatedItems ?? 0) },
+    { label: "Corrected ratings (audited)", value: String(input.correctedRatings ?? 0) },
+    {
+      label: "Presentation balance (A-first vs B-first)",
+      value: input.presentationBalance === null || input.presentationBalance === undefined
+        ? "—"
+        : input.presentationBalance.toFixed(2),
+    },
     { label: "Mean winner κ", value: input.meanWinnerKappa === null ? "—" : input.meanWinnerKappa.toFixed(3) },
   ];
   if (input.items === 0 || input.itemsWithTwoPlusRatings === 0) {

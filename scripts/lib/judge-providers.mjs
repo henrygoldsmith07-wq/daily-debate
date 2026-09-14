@@ -18,10 +18,17 @@ function extractJson(text) {
 }
 
 const VERDICT_SYSTEM =
-  "You are a neutral, rigorous debate judge. Analyse the observable argument structure only — never which side of the topic is 'correct'. Do not reward verbosity, fluency, or confidence by itself; credit grounded claims, direct engagement, and weighing that is supported.";
+  "You are a neutral, rigorous debate judge. Analyse the observable argument structure only — never which side of the topic is 'correct'. Judge only what is argued and shown: identical content earns identical scores regardless of which label (A or B) speaks it, and length, repetition, formatting, fluency or confident tone are not argument quality. Named sources, institutions and statistics count only where the argument makes the evidence usable (mechanism, figure, context); authoritative-sounding references without usable content are noise, not strength. Do not reward verbosity, fluency, or confidence by itself; credit grounded claims, direct engagement, and weighing that is supported.";
+
+/** Benchmark verdict-prompt wording. v5 (2026-09-14): fairness clauses added
+ *  against live diagnostic evidence (label/format flips, ungrounded-citation
+ *  influence, overconfidence) — general judge-policy wording only, never
+ *  fixture-specific tuning. Production's graph-extraction legs (openrouter.ts
+ *  / anthropic.ts judge_pvp) carry the same clauses at PROMPT_VERSION 4. */
+export const VERDICT_PROMPT_VERSION = 5;
 
 export function verdictUser(transcript) {
-  return `Debate transcript (Player A vs Player B):\n\n${transcript}\n\nScore both sides 0-100 on observable argument quality (grounded claims, rebuttals, impact weighing). Decide the winner strictly on that structure.\nIf the structural advantage is small or the sides trade comparable blows, return "tie". Confidence must reflect how clear that advantage is: 0.5-0.6 when genuinely balanced; above 0.8 only for a decisive, one-sided advantage.\nReturn JSON exactly: {"winner":"a|b|tie","playerAScore":<int>,"playerBScore":<int>,"confidence":<0..1>}`;
+  return `Debate transcript (Player A vs Player B):\n\n${transcript}\n\nScore both sides 0-100 on observable argument quality (grounded claims, rebuttals, impact weighing). Decide the winner strictly on that structure.\nIf the structural advantage is small or the sides trade comparable blows, return "tie". Confidence must reflect how clear that advantage is: 0.5-0.6 when genuinely balanced; above 0.8 only for a decisive, one-sided advantage; at or below 0.7 when your edge for the winner rests on a single claim that the exchange itself does not ground.\nReturn JSON exactly: {"winner":"a|b|tie","playerAScore":<int>,"playerBScore":<int>,"confidence":<0..1>}`;
 }
 
 function normaliseVerdict(parsed) {
@@ -70,7 +77,10 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
       if (disableReasoning && res.status === 400 && /reasoning/i.test(bodyText)) {
         return chat({ url, key, model, system, user, maxTokens, extraHeaders, timeoutMs, disableReasoning: false });
       }
-      throw new Error(`${res.status}: ${bodyText.slice(0, 160)}`);
+      const err = new Error(`${res.status}: ${bodyText.slice(0, 160)}`);
+      err.httpStatus = res.status;
+      err.retryAfterSec = Number(res.headers?.get?.("retry-after")) || null;
+      throw err;
     }
     const data = JSON.parse(bodyText);
     const content = data?.choices?.[0]?.message?.content;
@@ -157,18 +167,39 @@ export function generationChain(env = process.env) {
   };
 }
 
-/** Chain judge: tries each model in order; the judge id names the primary. */
+/** Chain judge: tries each model in order; the judge id names the primary.
+ *  One transport retry per model on 429/5xx/timeout/network (honouring small
+ *  Retry-After values) mirrors the app's own retry policy (src/lib/openrouter
+ *  .ts MAX_ATTEMPTS/RETRY_BUDGET), so the benchmark measures the reliability
+ *  production actually gets. Malformed model output is deterministic at
+ *  temperature 0 and is never retried — that is a model-quality signal. */
+const CHAIN_ATTEMPTS_PER_MODEL = 2;
+const CHAIN_RETRY_BUDGET_MS = 8_000;
+
+function isTransportError(e) {
+  const s = e?.httpStatus;
+  if (s === 429 || (s >= 500 && s <= 599)) return true;
+  return /abort|fetch failed|network|ETIMEDOUT|ECONN/i.test(String(e?.message ?? e));
+}
+
 function makeChainJudge({ url, key, models, extraHeaders = {} }) {
   return async (transcript) => {
     let lastError;
+    const started = Date.now();
     for (const model of models) {
-      try {
-        const { content, tokens, promptTokens, completionTokens, latencyMs } = await chat({
-          url, key, model, system: VERDICT_SYSTEM, user: verdictUser(transcript), maxTokens: 900, extraHeaders,
-        });
-        return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs };
-      } catch (e) {
-        lastError = e;
+      for (let attempt = 1; attempt <= CHAIN_ATTEMPTS_PER_MODEL; attempt++) {
+        try {
+          const { content, tokens, promptTokens, completionTokens, latencyMs } = await chat({
+            url, key, model, system: VERDICT_SYSTEM, user: verdictUser(transcript), maxTokens: 900, extraHeaders,
+          });
+          return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs };
+        } catch (e) {
+          lastError = e;
+          if (attempt >= CHAIN_ATTEMPTS_PER_MODEL || !isTransportError(e)) break;
+          const backoff = Math.min(e.retryAfterSec ? e.retryAfterSec * 1000 : 1200 * attempt, Math.max(0, CHAIN_RETRY_BUDGET_MS - (Date.now() - started)));
+          if (backoff <= 0) break;
+          await new Promise((r) => setTimeout(r, backoff));
+        }
       }
     }
     throw lastError ?? new Error("no models configured");

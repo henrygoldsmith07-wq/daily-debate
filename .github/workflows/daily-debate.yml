@@ -99,8 +99,15 @@ jobs:
       - name: Unit + DB invariant tests (migration 003 matchmaking runs for real)
         run: npm test
 
+      - name: Corpus consistency invariants (real Postgres)
+        run: node scripts/check-corpus-invariants.mjs
+
       - name: Run E2E (authenticated full-flow specs included)
         run: npx playwright test --reporter=github,html
+
+      - name: Corpus invariants still hold after the UI suite
+        if: always()
+        run: node scripts/check-corpus-invariants.mjs
 
       - uses: actions/upload-artifact@v4
         if: always()

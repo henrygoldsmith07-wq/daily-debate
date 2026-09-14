@@ -66,24 +66,6 @@ const h = vi.hoisted(() => {
       const item = (state.tables.corpus_items ?? []).find((i) => i.id === corpusId);
       return item ? [{ status: item.status }] : [];
     }
-    if (/update corpus_ratings/i.test(text)) {
-      const [corpusId, raterId, at, actor, reason, winner, scoresA, scoresB] = params as [
-        string, string, string, string, string, string, string, string,
-      ];
-      const row = (state.tables.corpus_ratings ?? []).find(
-        (r) => r.corpus_id === corpusId && r.rater_id === raterId,
-      );
-      if (!row) return [];
-      const previous = { winner: row.winner, scoresA: row.scores_a, scoresB: row.scores_b };
-      row.corrections = [
-        ...((row.corrections as Row[]) ?? []),
-        { at, actor, reason, previous },
-      ];
-      row.winner = winner;
-      row.scores_a = JSON.parse(scoresA as string);
-      row.scores_b = JSON.parse(scoresB as string);
-      return [{ id: row.id, corrections: row.corrections }];
-    }
     throw new Error(`unmocked SQL: ${text.slice(0, 80)}`);
   }
 

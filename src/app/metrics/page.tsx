@@ -24,8 +24,10 @@ function ciStr(g: { estimate: number | null; ciLower: number | null; ciUpper: nu
 export default async function MetricsPage() {
   const service = createServiceClient();
   const [{ data: items }, { data: ratings }] = await Promise.all([
-    service.from("corpus_items").select("id, side_mapping"),
-    service.from("corpus_ratings").select("corpus_id, rater_id, winner, confidence, scores_a, scores_b"),
+    service.from("corpus_items").select("id, side_mapping, status"),
+    service
+      .from("corpus_ratings")
+      .select("corpus_id, rater_id, winner, confidence, scores_a, scores_b, presented_first, corrections"),
   ]);
   const m = computeCorpusMetrics((items ?? []) as MetricItem[], (ratings ?? []) as unknown as MetricRating[]);
 
@@ -64,6 +66,13 @@ export default async function MetricsPage() {
           {m.humanValidation.consensusReadyItems} consensus-ready items · {m.humanValidation.unresolvedDisagreements} unresolved
           disagreements · mean winner κ {m.humanValidation.meanWinnerKappa ?? "—"} · score-gap dispersion (mean SD){" "}
           {m.humanValidation.meanScoreGapDispersion ?? "—"} · mean confidence {m.humanValidation.meanRaterConfidence ?? "—"}
+        </p>
+        <p className="mt-1 text-xs text-ink3">
+          {m.corpus.itemsWithTwoPlusRatings} independently rated (≥2) · {m.corpus.adjudicatedItems} adjudicated ·{" "}
+          {m.corpus.correctedRatings} corrected (audited) · presentation balance{" "}
+          {m.corpus.presentation.balance ?? "—"} (A-first {m.corpus.presentation.firstA} / B-first{" "}
+          {m.corpus.presentation.firstB}
+          {m.corpus.presentation.unknown ? ` / unknown ${m.corpus.presentation.unknown}` : ""})
         </p>
         {!m.humanValidation.groundTruth.ready && (
           <p className="mt-1 text-xs text-amber-700">

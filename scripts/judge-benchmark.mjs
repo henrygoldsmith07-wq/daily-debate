@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { FIXTURES, STRATA } from "./lib/judge-fixtures.mjs";
 import { PROBES, AUDIT_TRANSFORMS } from "./lib/judge-transforms.mjs";
-import { allJudgeProviders, estimatedCost } from "./lib/judge-providers.mjs";
+import { allJudgeProviders, estimatedCost, VERDICT_PROMPT_VERSION } from "./lib/judge-providers.mjs";
 import {
   GATE_DEFAULTS,
   PROVIDER_RELIABILITY_RATIONALE,
@@ -29,6 +29,7 @@ import {
   reliabilityReport,
   buildDiagnostics,
   allGateChecks,
+  failureSummary,
   zeroUsableJudges,
   attemptsLogEntry,
   appendAttemptsLog,
@@ -277,7 +278,7 @@ async function evaluateModel(judge) {
 
   return {
     model: judge.id,
-    judge: { provider: judge.id.split(":")[0], model: judge.id.split(":")[1] ?? judge.id, temperature: 0, promptVersion: 4, tieThreshold: 5 },
+    judge: { provider: judge.id.split(":")[0], model: judge.id.split(":")[1] ?? judge.id, temperature: 0, promptVersion: VERDICT_PROMPT_VERSION, tieThreshold: 5 },
     fixtures: fixtures.length,
     bases: bases.map((b) => ({ fixture: b.fixture, expected: b.expected, winner: b.winner ?? null, a: b.a ?? null, b: b.b ?? null, confidence: b.confidence ?? null, error: b.error ? String(b.error).slice(0, 120) : undefined })),
     calls: bases.length + probeRows.length + auditRows.length,
@@ -370,7 +371,10 @@ async function main() {
   }
 
   const gates = loadGates();
-  const gated = results.map((m) => ({ ...m, gates: allGateChecks(m, gates) }));
+  const gated = results.map((m) => {
+    const checks = allGateChecks(m, gates);
+    return { ...m, gates: checks, failures: failureSummary(checks) };
+  });
   const allPass = gated.every((m) => m.gates.every((c) => c.pass));
   const at = new Date().toISOString();
 
@@ -413,7 +417,7 @@ async function main() {
     "",
     `Last generated ${at} by \`scripts/judge-benchmark.mjs\` over ${LIMIT} labelled fixture debates.`,
     `Pack stratification: ${STRATA.size} fixtures, expected-winner ${JSON.stringify(STRATA.byExpectedWinner)}, ${Object.keys(STRATA.byDomain).length} domains, difficulty ${JSON.stringify(STRATA.byDifficulty)}.`,
-    `Judge configuration: temperature 0, prompt v4, scoring engine v1, graph schema v1 (benchmark verdict prompt aligned with the production judging policy; see src/lib/judgeVersioning.ts for the app's versioned judge).`,
+    `Judge configuration: temperature 0, prompt v${VERDICT_PROMPT_VERSION}, scoring engine v1, graph schema v1 (benchmark verdict prompt aligned with the production judging policy; see src/lib/judgeVersioning.ts for the app's versioned judge).`,
     `Provider reliability gate: successful/attempted calls ≥ ${gates.providerReliabilityMin} (${PROVIDER_RELIABILITY_RATIONALE}). A probe with fewer than half the pack's usable calls reports INSUFFICIENT DATA — it can never pass on a small surviving sample.`,
     "Human agreement here is against fixture labels (small n) until the rated corpus supplies consensus.",
     "",
@@ -430,6 +434,10 @@ async function main() {
   for (const m of gated) {
     detailLines.push("", `### ${m.model} — ${passCells(m)}`);
     for (const c of m.gates) detailLines.push(`- ${c.pass ? "PASS" : c.state === "INSUFFICIENT DATA" ? "INSUFFICIENT DATA" : "FAIL"} ${c.name}: ${c.detail}`);
+    const f = m.failures;
+    if (f && !(f.provider.length === 0 && f.quality.length === 0 && f.insufficient.length === 0)) {
+      detailLines.push(`- failure split: ${f.provider.length} provider-reliability, ${f.quality.length} model-quality, ${f.insufficient.length} insufficient-data (provider problems are never blamed on the model and vice versa)`);
+    }
     if (m.diagnostics?.counts) {
       const dc = m.diagnostics.counts;
       detailLines.push(`- diagnostics: ${dc.accuracy} accuracy issue(s), ${dc.calibration} calibration bin(s) flagged, ${dc.invariance} invariance flip(s), ${dc.provider} provider error call(s) — full detail in docs/latest-judge-benchmark.json`);

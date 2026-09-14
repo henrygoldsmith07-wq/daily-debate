@@ -25,11 +25,14 @@ const h = vi.hoisted(() => {
         (r) => r.corpus_id === corpusId && r.rater_id === raterId,
       );
       if (!row) return [];
-      const previous = { winner: row.winner, scoresA: row.scores_a, scoresB: row.scores_b };
-      row.corrections = [...((row.corrections as Row[]) ?? []), { at, actor, reason, previous }];
+      // Mirrors the SQL semantics: SET expressions read the OLD row (before),
+      // the event carries the NEW row (after), history is append-only.
+      const before = { winner: row.winner, scoresA: row.scores_a, scoresB: row.scores_b };
+      const after = { winner, scoresA: JSON.parse(scoresA as string), scoresB: JSON.parse(scoresB as string) };
+      row.corrections = [...((row.corrections as Row[]) ?? []), { at, actor, reason, before, after }];
       row.winner = winner;
-      row.scores_a = JSON.parse(scoresA as string);
-      row.scores_b = JSON.parse(scoresB as string);
+      row.scores_a = after.scoresA;
+      row.scores_b = after.scoresB;
       return [{ id: row.id, corrections: row.corrections }];
     }
     throw new Error(`unmocked SQL: ${text.slice(0, 80)}`);
@@ -144,7 +147,7 @@ describe("correction route", () => {
     expect((h.state.tables.corpus_ratings ?? [])[0].winner).toBe("b");
   });
 
-  it("a correction preserves the original values in the audit trail", async () => {
+  it("a correction preserves the original values in a self-contained audit event", async () => {
     const res = await postCorrect(correctBody());
     expect(res.status).toBe(200);
     const row = (h.state.tables.corpus_ratings ?? [])[0];
@@ -154,22 +157,79 @@ describe("correction route", () => {
     expect(trail).toHaveLength(1);
     expect(trail[0].actor).toBe("admin@example.com");
     expect(trail[0].reason).toContain("wrong frame");
-    expect(trail[0].previous).toEqual({
+    expect(typeof trail[0].at).toBe("string");
+    expect(trail[0].before).toEqual({
       winner: "b",
       scoresA: { evidenceQuality: 2 },
       scoresB: { evidenceQuality: 5 },
     });
-    expect(typeof trail[0].at).toBe("string");
+    expect(trail[0].after).toEqual({
+      winner: "a",
+      scoresA: { evidenceQuality: 5 },
+      scoresB: { evidenceQuality: 2 },
+    });
   });
 
-  it("repeated corrections append, never overwrite the audit history", async () => {
+  it("repeated corrections append; the first event is never rewritten", async () => {
     await postCorrect(correctBody());
+    const afterFirst = structuredClone(
+      ((h.state.tables.corpus_ratings ?? [])[0].corrections as Record<string, unknown>[])[0],
+    );
     await postCorrect(correctBody({ winner: "tie", reason: "Further review: sides actually comparable." }));
     const trail = (h.state.tables.corpus_ratings ?? [])[0].corrections as Array<Record<string, unknown>>;
     expect(trail).toHaveLength(2);
-    // Second entry's previous == the FIRST correction's values.
-    expect(trail[1].previous).toEqual({ winner: "a", scoresA: { evidenceQuality: 5 }, scoresB: { evidenceQuality: 2 } });
-    expect(trail[0].previous).toEqual({ winner: "b", scoresA: { evidenceQuality: 2 }, scoresB: { evidenceQuality: 5 } });
+    // First event intact, byte-for-byte.
+    expect(trail[0]).toEqual(afterFirst);
+    // Chain: each event's before == the previous event's after.
+    expect(trail[1].before).toEqual(trail[0].after);
+    expect((trail[1].after as Record<string, unknown>).winner).toBe("tie");
+  });
+
+  it("the full verdict history is reconstructable from the audit alone", async () => {
+    const original = structuredClone((h.state.tables.corpus_ratings ?? [])[0]);
+    await postCorrect(correctBody()); // b -> a
+    await postCorrect(correctBody({ winner: "tie", reason: "Review found the gap below threshold." })); // a -> tie
+    const row = (h.state.tables.corpus_ratings ?? [])[0];
+    const trail = row.corrections as Array<Record<string, unknown>>;
+    // Rebuild: first before == original values; chain links; last after == row.
+    expect(trail[0].before).toEqual({
+      winner: original.winner,
+      scoresA: original.scores_a,
+      scoresB: original.scores_b,
+    });
+    for (let i = 1; i < trail.length; i++) expect(trail[i].before).toEqual(trail[i - 1].after);
+    expect(trail[trail.length - 1].after).toEqual({
+      winner: row.winner,
+      scoresA: row.scores_a,
+      scoresB: row.scores_b,
+    });
+  });
+
+  it("concurrent corrections both land, history keeps complete events in commit order", async () => {
+    const p1 = postCorrect(correctBody({ winner: "a", reason: "First concurrent review of the frame issue." }));
+    const p2 = postCorrect(
+      correctBody({ winner: "tie", reason: "Second concurrent review reached a different call." }),
+    );
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    const trail = (h.state.tables.corpus_ratings ?? [])[0].corrections as Array<Record<string, unknown>>;
+    expect(trail).toHaveLength(2);
+    // No event lost, no interleaved partials: each has all five fields and
+    // the chain still holds in commit order.
+    for (const e of trail) {
+      expect(typeof e.at).toBe("string");
+      expect(typeof e.actor).toBe("string");
+      expect(typeof e.reason).toBe("string");
+      expect(e.before).toBeTruthy();
+      expect(e.after).toBeTruthy();
+    }
+    expect(trail[1].before).toEqual(trail[0].after);
+    expect(trail[1].after).toEqual({
+      winner: (h.state.tables.corpus_ratings ?? [])[0].winner,
+      scoresA: (h.state.tables.corpus_ratings ?? [])[0].scores_a,
+      scoresB: (h.state.tables.corpus_ratings ?? [])[0].scores_b,
+    });
   });
 
   it("requires a real reason and a valid payload", async () => {

@@ -411,6 +411,7 @@ Transcript:
 ${params.transcript}
 
 Analyze observable argument structure, not which side of the topic is "correct".
+Judge only what is argued and shown: identical content earns identical treatment regardless of which label (A or B) speaks it, and length, repetition, formatting, fluency or confident tone are not argument quality. Named sources, institutions and statistics count only where the argument makes the evidence usable (mechanism, figure, context); authoritative-sounding references without usable content are noise, never strength.
 Return a faithful argGraph with nodes (c1,e1,k1,r1,i1, text ≤18 words), edges, dropped arguments, contradictions, concessions, fallacies, evidenceStats, and impactComparison. Every cited/strong evidence node MUST include a citation object with a named source; never invent arguments or citations not present in the transcript. Also return a short rationale citing specific graph moments. Numeric scores and winner are computed by the application from the graph and must not be estimated here.`;
 
   const message = await createWithTelemetry("judge_pvp", {
