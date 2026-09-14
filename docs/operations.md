@@ -66,6 +66,27 @@ The blinded human corpus is the future ground truth for the judge, so its state 
 - `npm run repair:corpus [-- --apply]` fixes historical closure drift safely: dry-run first (reports ids/counts), only flips `open -> rated` where the actual count meets the threshold, only syncs `rating_count` to reality, never deletes or edits ratings, idempotent.
 - Real-Postgres concurrency coverage lives in `src/lib/corpusRatingStore.db.test.ts` (runs in CI via `TEST_DATABASE_URL`): threshold closure, simultaneous final raters, post-closure rejects, rollback atomicity, correction audit chains.
 
+## Branch protection (main)
+
+Enforced by repository ruleset `protect-main` (Settings → Rules → Rulesets, id 23355071), enforcement ACTIVE, **no bypass actors** — it applies to admins and owner accounts equally:
+
+```text
+main protection (ruleset protect-main)
+  ├─ require pull request before merge        (0 approving reviews; stale reviews dismissed on push)
+  ├─ required status checks (strict, pending counted):
+  │    verify          ← the "Daily Debate" workflow verify job (lint/type/unit+DB+scripts/build/audit)
+  │    e2e             ← authenticated Playwright over a production build + corpus invariants
+  │    topic-pipeline  ← real-Postgres generation idempotency + freshness verifier
+  ├─ block force pushes (non_fast_forward), branch deletion, branch creation/updates on main
+  └─ bypass: NONE for humans
+```
+
+The check contexts above are the actual job ids in `.github/workflows/daily-debate.yml` — GitHub enforces those names, not "the workflow usually runs". The merge path is squash/merge/rebase (all allowed).
+
+**Automated benchmark artifacts**: the weekly judge-benchmark workflow cannot push to main. It commits `docs/judge-*` refreshes to a `chore/judge-benchmark-*` branch, opens a PR, and merges it only after `verify` / `e2e` / `topic-pipeline` pass on that PR. A gate breach still marks the benchmark job red (weekly visibility) while the honest artifact PR flows through the same checks product code faces. Bot convenience goes through protection, never around it.
+
+Emergency changes: the repo owner edits or disables the ruleset in the web UI (deliberate, audited action), then re-enables.
+
 ## Scheduled jobs
 
 - **Topic generation** (`topic-generation.yml`, daily 02:00 UTC): requires the `DATABASE_URL` repository secret; `--check-config` fails fast with `config-failure` when it is absent or unreachable (never a silent success). After configuration, verify with a manual `workflow_dispatch`, then confirm the next scheduled run; re-runs for the same target date are idempotent (one row per date, provenance stored, evidence bounded).

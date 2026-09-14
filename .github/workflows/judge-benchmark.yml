@@ -5,10 +5,17 @@ name: judge-benchmark
 # regression cannot ship unnoticed. Results land in docs/judge-leaderboard.md
 # and docs/latest-judge-benchmark.json (last VALID run only), while every
 # attempt — including outages — is appended to docs/judge-benchmark-attempts.json.
-# Committed back to main so the checked-in validation record stays current.
+#
+# main is protected by the repository ruleset (PR + required checks verify /
+# e2e / topic-pipeline, no bypass actors). The safe automated path for
+# benchmark artifacts is therefore a PULL REQUEST: the artifact commit goes
+# to a chore branch, a PR is opened, and it merges only after the same
+# required application checks that gate product code pass over it. Bot
+# convenience never bypasses product safety - it goes through it.
 #
 # Requires repository secrets: OPENROUTER_API_KEY (free NVIDIA Nemotron chain)
-# and/or NVIDIA_API_KEY, plus the default GITHUB_TOKEN with contents:write.
+# and/or NVIDIA_API_KEY, plus the default GITHUB_TOKEN with contents:write
+# and pull-requests:write.
 
 on:
   workflow_dispatch:
@@ -17,10 +24,13 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.openpr.outputs.pr_number }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,6 +53,8 @@ jobs:
             exit 1
           fi
       - name: Run live judge benchmark (full pack, gated)
+        id: bench
+        continue-on-error: true
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           NVIDIA_MODEL: ${{ secrets.NVIDIA_MODEL }}
@@ -54,8 +66,11 @@ jobs:
           KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
           KIRAAI_MODEL: ${{ secrets.KIRAAI_MODEL }}
         run: node scripts/judge-benchmark.mjs --concurrency 3 --enforce
-      - name: Commit refreshed validation record
+      - name: Open a PR carrying the refreshed validation record
+        id: openpr
         if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # State truthfulness (enforced by the script itself): a run with NO
           # usable judge never overwrites docs/latest-judge-benchmark.json or
@@ -63,13 +78,22 @@ jobs:
           # zero-usable case is visible in the job log and the exit code.
           git config user.name "judge-benchmark-bot"
           git config user.email "actions@users.noreply.github.com"
+          branch="chore/judge-benchmark-$(date -u +%Y%m%d-%H%M%S)"
+          git checkout -b "$branch"
           git add docs/judge-leaderboard.md docs/latest-judge-benchmark.json docs/judge-benchmark-attempts.json
           if git diff --cached --quiet; then
-            echo "No changes to the validation record."
-          else
-            git commit -m "chore(judge): refresh live benchmark results [skip ci]"
-            git push
+            echo "No changes to the validation record; nothing to propose."
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          git commit -m "chore(judge): refresh live benchmark results"
+          git push origin "$branch"
+          number=$(gh pr create --base main --head "$branch" \
+            --title "chore(judge): refresh live benchmark results" \
+            --body "Automated weekly judge benchmark artifact refresh. Merges only after the required application checks (verify, e2e, topic-pipeline) pass; the ruleset has no bypass actors." \
+            | grep -oE '[0-9]+$')
+          echo "Opened validation-record PR #$number (branch $branch)"
+          echo "pr_number=$number" >> "$GITHUB_OUTPUT"
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
@@ -79,3 +103,29 @@ jobs:
             docs/judge-leaderboard.md
             docs/latest-judge-benchmark.json
             docs/judge-benchmark-attempts.json
+      - name: Fail the job when gates were breached
+        if: steps.bench.outcome == 'failure'
+        run: |
+          echo "::error::Live judge benchmark breached its gates. The artifact PR (if any) still passes through the same required checks product code faces."
+          exit 1
+
+  merge-artifact-pr:
+    needs: benchmark
+    if: always() && needs.benchmark.outputs.pr_number != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Wait for required checks, then merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          number="${{ needs.benchmark.outputs.pr_number }}"
+          # --watch blocks until every check on the PR concludes; a failed
+          # required check exits non-zero and leaves the PR unmerged, so the
+          # benchmark record can never land on main via a red application CI.
+          gh pr checks "$number" --watch --interval 30 || { echo "::error::Required checks did not pass for the artifact PR #$number; leaving it open for a human."; exit 1; }
+          gh pr merge "$number" --squash
+          echo "Merged validation-record PR #$number after green checks."
+
