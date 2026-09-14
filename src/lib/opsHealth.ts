@@ -372,37 +372,73 @@ export interface TrainingEvidenceInput {
   /** First-retest recurrence rate, or null below the minimum sample. */
   firstRetestRate: number | null;
   firstRetestN: number;
+  /** Repairs with ≥3 eligible retests (equal-exposure window); may be 0. */
+  firstThreeDenominator: number;
+  /** Median eligible retests until first recurrence; null when unmeasured. */
+  medianOpportunitiesToRecurrence: number | null;
+  /** Observed-but-not-recurring repairs (censored, never counted clean). */
+  censoredRepairs: number;
 }
 
-export function assessTrainingEvidence(input: TrainingEvidenceInput): EvidenceSection {
+/** Measurement readiness — never an outcome judgement. */
+export type MeasurementState = "insufficient" | "measurable" | "stale" | "invalid";
+
+export interface TrainingEvidence extends EvidenceSection {
+  /** Why data can (or cannot) support a metric — distinct from the metric itself. */
+  measurement: MeasurementState;
+  /** Observed values, reported as observations with denominators. */
+  outcomes: Array<{ label: string; value: string }>;
+}
+
+export function assessTrainingEvidence(input: TrainingEvidenceInput): TrainingEvidence {
   const facts = [
     { label: "Completed repairs", value: String(input.repairs) },
     { label: "First-eligible retests observed", value: String(input.retestsObserved) },
     { label: "Awaiting retest (pending, never counted clean)", value: String(input.retestsPending) },
-    { label: "First-retest recurrence", value: input.firstRetestRate === null ? "—" : `${Math.round(input.firstRetestRate * 100)}%` },
-    { label: "Denominator", value: String(input.firstRetestN) },
+    { label: "Censored (observed, no recurrence yet)", value: String(input.censoredRepairs) },
+    { label: "Equal-exposure denominator (≥3 retests)", value: String(input.firstThreeDenominator) },
   ];
+  // OBSERVED OUTCOMES — reported with denominators, never colour-coded.
+  const outcomes: Array<{ label: string; value: string }> = [
+    {
+      label: "Observed first-retest recurrence",
+      value: input.firstRetestRate === null ? "not measurable yet" : `${Math.round(input.firstRetestRate * 100)}% (n=${input.firstRetestN})`,
+    },
+    {
+      label: "Median opportunities to first recurrence",
+      value: input.medianOpportunitiesToRecurrence === null ? "not measurable yet" : String(input.medianOpportunitiesToRecurrence),
+    },
+  ];
+
+  // MEASUREMENT STATE — readiness only, independent of whether the observed
+  // numbers look good or bad.
   if (input.repairs === 0) {
     return {
       status: "blocked",
-      headline: "no completed repairs recorded yet",
+      headline: "no completed repairs recorded yet — measurement is impossible",
       facts,
-      note: "The loop cannot be measured until repairs exist. Observational only once it does.",
+      note: "Measurement: INSUFFICIENT. The loop cannot be measured until repairs exist.",
+      measurement: "insufficient",
+      outcomes,
     };
   }
   if (input.firstRetestRate === null) {
     return {
       status: "degraded",
-      headline: "insufficient retest sample for any outcome claim",
+      headline: "insufficient retest sample — outcome not measurable",
       facts,
-      note: "Below the minimum measurable sample: recurrence is not yet reportable.",
+      note: "Measurement: INSUFFICIENT. Below the minimum measurable sample; recurrence is not reportable.",
+      measurement: "insufficient",
+      outcomes,
     };
   }
   return {
     status: "healthy",
-    headline: "first-eligible-retest recurrence is measurable (observational)",
+    headline: "measurement is ready (outcomes below are observational)",
     facts,
-    note: "Association, not causation: users who repair differ in many ways.",
+    note: "Measurement: MEASURABLE. Observed outcomes are association, not causation: users who repair differ in many ways.",
+    measurement: "measurable",
+    outcomes,
   };
 }
 
@@ -413,7 +449,7 @@ export interface OpsHealthReport {
   database: DatabaseHealth;
   app: AppHealth;
   human?: EvidenceSection;
-  training?: EvidenceSection;
+  training?: TrainingEvidence;
   overall: HealthState;
   unknowns: string[];
   notes: string[];
@@ -426,7 +462,7 @@ export function buildOpsHealthReport(parts: {
   database: DatabaseHealth;
   app: AppHealth;
   human?: EvidenceSection;
-  training?: EvidenceSection;
+  training?: TrainingEvidence;
 }): OpsHealthReport {
   const unknowns: string[] = [];
   if (parts.app.status === "unknown") unknowns.push("app/ci");

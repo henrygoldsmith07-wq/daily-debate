@@ -4,7 +4,7 @@ import { isCorpusAdmin } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadOpsHealth } from "@/lib/opsHealthServer";
-import type { EvidenceSection, HealthState } from "@/lib/opsHealth";
+import type { EvidenceSection, HealthState, TrainingEvidence } from "@/lib/opsHealth";
 
 export const dynamic = "force-dynamic";
 
@@ -149,7 +149,7 @@ export default async function OpsHealthPage() {
       </section>
 
       {report.human && <EvidenceSectionCard id="human-heading" title="Human validation" section={report.human} />}
-      {report.training && <EvidenceSectionCard id="training-heading" title="Training effectiveness" section={report.training} />}
+      {report.training && <TrainingSectionCard section={report.training} />}
     </AppShell>
   );
 }
@@ -166,6 +166,41 @@ function EvidenceSectionCard({ id, title, section }: { id: string; title: string
         <div className="mt-2">
           {section.facts.map((fact) => (
             <Fact key={fact.label} label={fact.label} value={fact.value} />
+          ))}
+        </div>
+      )}
+      {section.note && <p className="mt-2 text-xs text-ink3">{section.note}</p>}
+    </section>
+  );
+}
+
+/**
+ * Training evidence: the badge is MEASUREMENT READINESS (can we compute a
+ * metric at all?) — never an outcome judgement. Observed outcomes are listed
+ * separately with denominators and carry no good/bad colour.
+ */
+function TrainingSectionCard({ section }: { section: TrainingEvidence }) {
+  return (
+    <section className="surface-card mt-4 p-5" aria-labelledby="training-heading">
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="training-heading" className="text-sm font-semibold">Training effectiveness</h2>
+        <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink3">
+          Measurement: {section.measurement}
+        </span>
+      </div>
+      <p className="mt-1 text-xs font-medium">{section.headline}</p>
+      {section.facts.length > 0 && (
+        <div className="mt-2">
+          {section.facts.map((fact) => (
+            <Fact key={fact.label} label={fact.label} value={fact.value} />
+          ))}
+        </div>
+      )}
+      {section.outcomes.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs uppercase tracking-wide text-ink3">Observed outcomes (not rated good/bad)</p>
+          {section.outcomes.map((o) => (
+            <Fact key={o.label} label={o.label} value={o.value} />
           ))}
         </div>
       )}

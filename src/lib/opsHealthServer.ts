@@ -13,6 +13,7 @@ import {
   buildOpsHealthReport,
   type EvidenceSection,
   type OpsHealthReport,
+  type TrainingEvidence,
   type WorkflowStatusInput,
 } from "./opsHealth";
 import { computeCorpusMetrics, type MetricItem, type MetricRating } from "./corpusMetrics";
@@ -218,9 +219,10 @@ async function loadHumanSection(): Promise<EvidenceSection> {
 /**
  * Training-loop evidence: repairs recorded, eligible retests observed, and
  * whether the primary first-retest recurrence rate is reportable yet. The
- * loop is observational; this section says so and stays honest about samples.
+ * section reports MEASUREMENT READINESS separately from observed outcomes,
+ * which are listed with denominators and never colour-coded.
  */
-async function loadTrainingSection(now: string): Promise<EvidenceSection> {
+async function loadTrainingSection(now: string): Promise<TrainingEvidence> {
   try {
     const { events, repairs, debateWeaknesses } = await loadFunnelData();
     const funnel = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { now });
@@ -230,6 +232,9 @@ async function loadTrainingSection(now: string): Promise<EvidenceSection> {
       retestsPending: funnel.retestsPending,
       firstRetestRate: funnel.firstRetestRecurrence.rate,
       firstRetestN: funnel.firstRetestRecurrence.denominator,
+      firstThreeDenominator: funnel.firstThreeExposure.denominator,
+      medianOpportunitiesToRecurrence: funnel.opportunitiesBeforeRecurrence.median,
+      censoredRepairs: funnel.timeToFirstRecurrence.censoredRepairs,
     });
   } catch {
     return {
@@ -237,6 +242,8 @@ async function loadTrainingSection(now: string): Promise<EvidenceSection> {
       headline: "training-loop data unreadable from this runtime",
       facts: [],
       note: "Could not load repair/event data — outcome status is unresolved, not green.",
+      measurement: "invalid" as const,
+      outcomes: [],
     };
   }
 }

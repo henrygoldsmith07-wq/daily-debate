@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { insertImmutableRating } from "@/lib/corpusRatingStore";
 import {
   MIN_RATERS_PER_ITEM,
   assignPresentationSide,
@@ -100,9 +101,9 @@ export async function POST(request: Request) {
 
   const service = createServiceClient();
 
-  // Contributor exclusion + item existence (metadata stays server-side).
-  const { data: item } = await service.from("corpus_items").select("id, contributor_id, status").eq("id", corpusId).single();
-  if (!item || item.status === "rejected") return NextResponse.json({ error: "Item not found." }, { status: 404 });
+  // Contributor exclusion (metadata stays server-side).
+  const { data: item } = await service.from("corpus_items").select("id, contributor_id").eq("id", corpusId).single();
+  if (!item) return NextResponse.json({ error: "Item not found." }, { status: 404 });
   if (item.contributor_id === user.id) {
     return NextResponse.json({ error: "You cannot rate your own debate." }, { status: 403 });
   }
@@ -114,30 +115,50 @@ export async function POST(request: Request) {
     { scores_a: body.scores_a, scores_b: body.scores_b, winner: body.winner },
     presentedFirst,
   );
-  const payload = {
-    corpus_id: corpusId,
-    rater_id: user.id,
-    scores_a: normalized.scores_a,
-    scores_b: normalized.scores_b,
-    winner: normalized.winner,
-    confidence: body.confidence ?? null,
-    rationale: (body.rationale ?? "").slice(0, 1000),
-    presented_first: presentedFirst,
-  };
-  // unique(corpus_id, rater_id) makes double-submission a no-op conflict.
-  const { error } = await service.from("corpus_ratings").upsert(payload, { onConflict: "corpus_id,rater_id" });
-  if (error) {
-    console.error("Failed to store rating:", error);
-    return NextResponse.json({ error: "Failed to store your rating." }, { status: 500 });
+
+  // Immutable append-once storage with transactional closure: the insert and
+  // the open->rated flip share one locked statement, so duplicate
+  // submissions are rejected (never overwritten), closed items refuse new
+  // ratings at insert time, and two simultaneous final raters serialise
+  // safely. See src/lib/corpusRatingStore.ts.
+  const outcome = await insertImmutableRating(
+    {
+      corpusId,
+      raterId: user.id,
+      scoresA: normalized.scores_a,
+      scoresB: normalized.scores_b,
+      winner: normalized.winner,
+      confidence: body.confidence ?? null,
+      rationale: (body.rationale ?? "").slice(0, 1000),
+      presentedFirst,
+    },
+    MIN_RATERS_PER_ITEM,
+  );
+
+  if (outcome.result === "duplicate") {
+    return NextResponse.json(
+      { error: "You already rated this item. Ratings are immutable; ask an admin if a correction is required." },
+      { status: 409 },
+    );
+  }
+  if (outcome.result === "item-closed") {
+    return NextResponse.json(
+      { error: `This item is no longer accepting ratings (status: ${outcome.status}).` },
+      { status: 409 },
+    );
+  }
+  if (outcome.result === "item-missing") {
+    return NextResponse.json({ error: "Item not found." }, { status: 404 });
   }
 
   const { count } = await service
     .from("corpus_ratings")
     .select("id", { count: "exact", head: true })
     .eq("corpus_id", corpusId);
-  if ((count ?? 0) >= MIN_RATERS_PER_ITEM) {
-    await service.from("corpus_items").update({ status: "rated" }).eq("id", corpusId).eq("status", "open");
-  }
 
-  return NextResponse.json({ ok: true, ratingsSoFar: count ?? 1 });
+  return NextResponse.json({
+    ok: true,
+    ratingsSoFar: count ?? 1,
+    itemClosed: outcome.flippedToRated,
+  });
 }

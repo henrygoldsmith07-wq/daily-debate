@@ -35,6 +35,9 @@ jobs:
       - name: Unit + regression tests
         run: npm test
 
+      - name: Script scoring tests (benchmark gates, reliability, diagnostics)
+        run: npm run test:scripts
+
       - name: Build
         run: npm run build
 

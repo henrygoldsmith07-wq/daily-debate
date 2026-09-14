@@ -3,7 +3,12 @@
   "verbosityStabilityMin": 0.95,
   "nameStabilityMin": 0.97,
   "whitespaceStabilityMin": 0.98,
+  "styleStabilityMin": 0.95,
+  "prestigeStabilityMin": 0.95,
+  "hedgingFlipMax": 0.25,
+  "confidentToneFlipMax": 0.25,
   "falseCitationInfluenceMax": 0.05,
   "humanAgreementMin": 0.75,
-  "eceMax": 0.08
+  "eceMax": 0.08,
+  "providerReliabilityMin": 0.75
 }

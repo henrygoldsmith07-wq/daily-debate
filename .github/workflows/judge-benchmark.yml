@@ -3,8 +3,9 @@ name: judge-benchmark
 # Continuous judge validation: the invariance/bias suite runs against real
 # model APIs weekly (and on demand). A gate breach fails the run, so a judge
 # regression cannot ship unnoticed. Results land in docs/judge-leaderboard.md
-# (merged per model) and docs/latest-judge-benchmark.json, and are committed
-# back to main so the checked-in validation record stays current.
+# and docs/latest-judge-benchmark.json (last VALID run only), while every
+# attempt — including outages — is appended to docs/judge-benchmark-attempts.json.
+# Committed back to main so the checked-in validation record stays current.
 #
 # Requires repository secrets: OPENROUTER_API_KEY (free NVIDIA Nemotron chain)
 # and/or NVIDIA_API_KEY, plus the default GITHUB_TOKEN with contents:write.
@@ -56,18 +57,13 @@ jobs:
       - name: Commit refreshed validation record
         if: always()
         run: |
-          # Guard: never let a total provider outage overwrite the last real
-          # validation record. If NO judge produced usable base data (every
-          # humanAgreement null), the run reported infrastructure failure,
-          # not a measurement — keep the previous artifact and flag it.
-          usable=$(jq '[.results[] | select(.humanAgreement != null)] | length' docs/latest-judge-benchmark.json)
-          if [ "$usable" = "0" ]; then
-            echo "::warning::Live benchmark produced no usable data (provider outage) — previous validation record kept, not overwritten."
-            exit 0
-          fi
+          # State truthfulness (enforced by the script itself): a run with NO
+          # usable judge never overwrites docs/latest-judge-benchmark.json or
+          # the leaderboard — it is only appended to the attempts log. The
+          # zero-usable case is visible in the job log and the exit code.
           git config user.name "judge-benchmark-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add docs/judge-leaderboard.md docs/latest-judge-benchmark.json
+          git add docs/judge-leaderboard.md docs/latest-judge-benchmark.json docs/judge-benchmark-attempts.json
           if git diff --cached --quiet; then
             echo "No changes to the validation record."
           else
@@ -82,3 +78,4 @@ jobs:
           path: |
             docs/judge-leaderboard.md
             docs/latest-judge-benchmark.json
+            docs/judge-benchmark-attempts.json

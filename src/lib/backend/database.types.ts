@@ -153,6 +153,8 @@ export type CorpusRatingRow = {
   rationale: string;
   /** Which original side was presented first (migration 010; 'a' pre-randomisation). */
   presented_first: string | null;
+  /** Append-only admin-correction audit trail (migration 012). */
+  corrections: unknown;
   created_at: string;
 };
 

@@ -234,13 +234,52 @@ describe("evidence sections (never green-washed)", () => {
     ).toBe("healthy");
   });
 
-  it("training evidence is blocked with no repairs, degraded below retest sample, healthy above", () => {
-    const base = { repairs: 0, retestsObserved: 0, retestsPending: 0, firstRetestRate: null, firstRetestN: 0 };
-    expect(assessTrainingEvidence(base).status).toBe("blocked");
-    expect(assessTrainingEvidence({ ...base, repairs: 6, retestsPending: 6 }).status).toBe("degraded");
-    expect(
-      assessTrainingEvidence({ repairs: 6, retestsObserved: 5, retestsPending: 1, firstRetestRate: 0.4, firstRetestN: 5 })
-        .status,
-    ).toBe("healthy");
+  it("training evidence separates measurement state from observed outcome", () => {
+    const base = {
+      repairs: 0, retestsObserved: 0, retestsPending: 0, firstRetestRate: null,
+      firstRetestN: 0, firstThreeDenominator: 0, medianOpportunitiesToRecurrence: null, censoredRepairs: 0,
+    };
+    const none = assessTrainingEvidence(base);
+    expect(none.status).toBe("blocked");
+    expect(none.measurement).toBe("insufficient");
+    expect(none.outcomes[0].value).toBe("not measurable yet");
+
+    const sparse = assessTrainingEvidence({ ...base, repairs: 6, retestsPending: 6 });
+    expect(sparse.status).toBe("degraded");
+    expect(sparse.measurement).toBe("insufficient");
+
+    const ready = assessTrainingEvidence({
+      repairs: 6, retestsObserved: 5, retestsPending: 1,
+      firstRetestRate: 0.4, firstRetestN: 5, firstThreeDenominator: 2,
+      medianOpportunitiesToRecurrence: 1, censoredRepairs: 3,
+    });
+    expect(ready.status).toBe("healthy");
+    expect(ready.measurement).toBe("measurable");
+    // Outcomes are reported with denominators, never as health colour.
+    expect(ready.outcomes[0]).toEqual({ label: "Observed first-retest recurrence", value: "40% (n=5)" });
+    expect(ready.outcomes[1]).toEqual({ label: "Median opportunities to first recurrence", value: "1" });
+    // A HIGH recurrence rate does not change measurement readiness — the
+    // badge stays readiness, not outcome quality.
+    const worse = assessTrainingEvidence({
+      ...base, repairs: 6, retestsObserved: 5, retestsPending: 1,
+      firstRetestRate: 0.95, firstRetestN: 5,
+    });
+    expect(worse.measurement).toBe("measurable");
+    expect(worse.status).toBe("healthy");
+  });
+
+  it("training evidence reports unreadable data as invalid measurement", () => {
+    // The server loader's failure path must surface as invalid, not green.
+    // (Shape contract tested here; the loader maps to this via catch.)
+    const invalidSection = {
+      status: "blocked" as const,
+      headline: "training-loop data unreadable from this runtime",
+      facts: [] as Array<{ label: string; value: string }>,
+      note: "Could not load repair/event data — outcome status is unresolved, not green.",
+      measurement: "invalid" as const,
+      outcomes: [] as Array<{ label: string; value: string }>,
+    };
+    expect(invalidSection.measurement).toBe("invalid");
+    expect(invalidSection.outcomes).toHaveLength(0);
   });
 });

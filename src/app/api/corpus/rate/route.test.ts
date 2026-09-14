@@ -6,7 +6,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
  * The server must be the ONLY source of truth for presentation order:
  * assignment is recomputed from (userId, corpusId) on submit, client
  * metadata is ignored, and contributor/duplicate protection stays intact.
- * These tests run the real handlers against an in-memory query builder.
+ * Ratings are IMMUTABLE: a second submission by the same rater is rejected
+ * (409), never overwritten. These tests run the real handlers against an
+ * in-memory query builder plus a faithful simulation of the atomic
+ * insert/lock statement used in production (src/lib/corpusRatingStore.ts).
  */
 
 const h = vi.hoisted(() => {
@@ -15,9 +18,78 @@ const h = vi.hoisted(() => {
     user: null as null | { id: string; email?: string },
     tables: {} as Record<string, Row[]>,
   };
+
+  /** Faithful simulation of the single locked CTE in corpusRatingStore. */
+  function runImmutableInsert(text: string, params: unknown[]): Row[] {
+    if (/with guard/i.test(text)) {
+      const [corpusId, raterId, scoresA, scoresB, winner, confidence, rationale, presentedFirst, minRaters] =
+        params as [string, string, string, string, string, number, string, string, number];
+      const items = state.tables.corpus_items ?? [];
+      const item = items.find((i) => i.id === corpusId);
+      const ratings = state.tables.corpus_ratings ?? [];
+      const duplicate = ratings.find((r) => r.corpus_id === corpusId && r.rater_id === raterId);
+      // FOR UPDATE semantics: the item must be open AT insert time, and a
+      // duplicate (corpus_id, rater_id) is a no-op. Both checks happen under
+      // the lock, so concurrent submissions serialise exactly like Postgres.
+      if (item && item.status === "open" && !duplicate) {
+        ratings.push({
+          id: `gen-rating-${ratings.length + 1}`,
+          corpus_id: corpusId,
+          rater_id: raterId,
+          scores_a: JSON.parse(scoresA as string),
+          scores_b: JSON.parse(scoresB as string),
+          winner,
+          confidence,
+          rationale,
+          presented_first: presentedFirst,
+          corrections: [],
+          created_at: "2026-01-01T00:00:00Z",
+        });
+        const count = ratings.filter((r) => r.corpus_id === corpusId).length;
+        if (count >= minRaters) {
+          item.status = "rated";
+          return [{ inserted: 1, flipped: 1 }];
+        }
+        return [{ inserted: 1, flipped: 0 }];
+      }
+      return [{ inserted: 0, flipped: 0 }];
+    }
+    if (/select id from corpus_ratings where corpus_id/i.test(text)) {
+      const [corpusId, raterId] = params as [string, string];
+      const found = (state.tables.corpus_ratings ?? []).find(
+        (r) => r.corpus_id === corpusId && r.rater_id === raterId,
+      );
+      return found ? [{ id: found.id }] : [];
+    }
+    if (/select status from corpus_items where id/i.test(text)) {
+      const [corpusId] = params as [string];
+      const item = (state.tables.corpus_items ?? []).find((i) => i.id === corpusId);
+      return item ? [{ status: item.status }] : [];
+    }
+    if (/update corpus_ratings/i.test(text)) {
+      const [corpusId, raterId, at, actor, reason, winner, scoresA, scoresB] = params as [
+        string, string, string, string, string, string, string, string,
+      ];
+      const row = (state.tables.corpus_ratings ?? []).find(
+        (r) => r.corpus_id === corpusId && r.rater_id === raterId,
+      );
+      if (!row) return [];
+      const previous = { winner: row.winner, scoresA: row.scores_a, scoresB: row.scores_b };
+      row.corrections = [
+        ...((row.corrections as Row[]) ?? []),
+        { at, actor, reason, previous },
+      ];
+      row.winner = winner;
+      row.scores_a = JSON.parse(scoresA as string);
+      row.scores_b = JSON.parse(scoresB as string);
+      return [{ id: row.id, corrections: row.corrections }];
+    }
+    throw new Error(`unmocked SQL: ${text.slice(0, 80)}`);
+  }
+
   function builder(table: string) {
     const filters: Array<{ kind: "eq" | "in"; col: string; val: unknown }> = [];
-    let mode: "select" | "upsert" | "update" = "select";
+    let mode: "select" | "update" = "select";
     let single = false;
     let wantCount = false;
     let payload: Row | null = null;
@@ -32,7 +104,6 @@ const h = vi.hoisted(() => {
       limit() { return b; },
       single() { single = true; return b; },
       maybeSingle() { single = true; return b; },
-      upsert(v: Row) { mode = "upsert"; payload = v; return b; },
       update(v: Row) { mode = "update"; payload = v; return b; },
       then(resolve: (value: unknown) => void) {
         const list = (state.tables[table] ??= []);
@@ -43,13 +114,6 @@ const h = vi.hoisted(() => {
               : (f.val as unknown[]).includes(row[f.col]),
           ),
         );
-        if (mode === "upsert") {
-          const p = payload as Row;
-          const existing = list.find((r) => r.corpus_id === p.corpus_id && r.rater_id === p.rater_id);
-          if (existing) Object.assign(existing, p);
-          else list.push({ id: `gen-${table}-${list.length + 1}`, created_at: "2026-01-01T00:00:00Z", ...p });
-          return resolve({ data: [], error: null, count: null });
-        }
         if (mode === "update") {
           for (const row of rows) Object.assign(row, payload);
           return resolve({ data: [], error: null, count: null });
@@ -66,6 +130,7 @@ const h = vi.hoisted(() => {
   }
   return {
     state,
+    query: runImmutableInsert,
     reset(rows: Record<string, Row[]>) {
       state.tables = structuredClone(rows);
     },
@@ -80,11 +145,12 @@ vi.mock("@/lib/backend/server", () => ({
   }),
   createServiceClient: () => ({ from: h.from }),
 }));
+vi.mock("@/lib/backend/sql", () => ({
+  queryRows: async (text: string, params: unknown[]) => h.query(text, params),
+}));
 
 import { GET, POST } from "./route";
 import { assignPresentationSide, swapTranscriptSides } from "@/lib/corpus";
-
-const NOW = "2026-06-15T12:00:00Z";
 
 const ITEM_A = {
   id: "item-1",
@@ -192,15 +258,88 @@ describe("POST integrity: presentation metadata is server-owned", () => {
     const stored = (h.state.tables.corpus_ratings ?? []).map((r) => r.winner);
     expect(stored).toEqual(["a", "a"]);
   });
+});
 
-  it("repeated submissions by one rater overwrite — never duplicate rows", async () => {
-    const res1 = await post(ratingBody());
-    expect(res1.status).toBe(200);
-    const res2 = await post(ratingBody({ winner: "b", rationale: "changed my mind" }));
-    expect(res2.status).toBe(200);
+describe("POST immutability and closure (append-once ratings)", () => {
+  it("a second submission by the same rater is rejected, the original preserved", async () => {
+    const user = userWithAssignment("a");
+    h.state.user = { id: user };
+    const first = await post(ratingBody());
+    expect(first.status).toBe(200);
+    const second = await post(ratingBody({ winner: "b", rationale: "changed my mind" }));
+    expect(second.status).toBe(409);
     const rows = h.state.tables.corpus_ratings ?? [];
     expect(rows).toHaveLength(1);
-    expect(rows[0].winner).toBe("b");
+    expect(rows[0].winner).toBe("a"); // ORIGINAL verdict untouched
+    expect(rows[0].rationale).toBe("Side A grounded every claim; Side B asserted.");
+  });
+
+  it("closure races: two simultaneous final raters produce exactly one closure, no overwrites", async () => {
+    // One rating already stored (min raters = 2): the next TWO submissions
+    // race for the final slot.
+    const firstUser = userWithAssignment("a");
+    h.reset({
+      corpus_items: [{ ...ITEM_A }],
+      corpus_ratings: [
+        {
+          id: "r0", corpus_id: "item-1", rater_id: firstUser,
+          scores_a: {}, scores_b: {}, winner: "a", confidence: 0.7,
+          rationale: "first", presented_first: "a", corrections: [],
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+    const raterB = userWithAssignment("b");
+    const raterA2 = ((): string => {
+      // a third distinct user (assignment irrelevant, must differ from raterB)
+      for (let i = 500; i < 1000; i++) {
+        const id = `rater-${i}`;
+        if (id !== raterB) return id;
+      }
+      return "rater-x";
+    })();
+    h.state.user = { id: raterB };
+    const p1 = post(ratingBody());
+    h.state.user = { id: raterA2 };
+    const p2 = post(ratingBody({ winner: "b" }));
+    const [res1, res2] = await Promise.all([p1, p2]);
+
+    const statuses = [res1.status, res2.status].sort();
+    const rows = h.state.tables.corpus_ratings ?? [];
+    // Exactly one of the two racing submissions lands; the item closes at
+    // the required rating count (2), never above it.
+    expect(statuses).toEqual([200, 409]);
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((r) => r.corpus_id === "item-1").length).toBe(2);
+    expect((h.state.tables.corpus_items ?? [])[0].status).toBe("rated");
+  });
+
+  it("closed items (rated/adjudicated/rejected) refuse new normal ratings", async () => {
+    for (const status of ["rated", "adjudicated", "rejected"] as const) {
+      h.reset({ corpus_items: [{ ...ITEM_A, status }], corpus_ratings: [] });
+      h.state.user = { id: userWithAssignment("a") };
+      const res = await post(ratingBody());
+      expect(res.status).toBe(409);
+      expect(h.state.tables.corpus_ratings ?? []).toHaveLength(0);
+    }
+  });
+
+  it("unknown items 404; item closes exactly when the required count is reached", async () => {
+    h.state.user = { id: userWithAssignment("a") };
+    const missing = await post({ ...ratingBody(), corpusId: "ghost" });
+    expect(missing.status).toBe(404);
+
+    await post(ratingBody());
+    expect((h.state.tables.corpus_items ?? [])[0].status).toBe("open");
+    h.state.user = { id: userWithAssignment("b") };
+    const res = await post(ratingBody({ winner: "a" }));
+    expect(res.status).toBe(200);
+    expect((h.state.tables.corpus_items ?? [])[0].status).toBe("rated");
+    // Late arrival after closure: rejected, not silently appended.
+    h.state.user = { id: userWithAssignment("a") === userWithAssignment("b") ? "x" : "late-rater" };
+    h.state.user = { id: `late-${userWithAssignment("a")}` };
+    const late = await post(ratingBody());
+    expect(late.status).toBe(409);
   });
 
   it("authors cannot rate their own debates", async () => {
@@ -216,17 +355,4 @@ describe("POST integrity: presentation metadata is server-owned", () => {
     expect(res.status).toBe(400);
     expect(h.state.tables.corpus_ratings ?? []).toHaveLength(0);
   });
-
-  it("unknown or rejected items 404; status flips to rated at two raters", async () => {
-    h.state.user = { id: userWithAssignment("a") };
-    const missing = await post({ ...ratingBody(), corpusId: "ghost" });
-    expect(missing.status).toBe(404);
-    await post(ratingBody());
-    expect((h.state.tables.corpus_items ?? [])[0].status).toBe("open");
-    h.state.user = { id: userWithAssignment("b") };
-    await post(ratingBody({ winner: "a" }));
-    expect((h.state.tables.corpus_items ?? [])[0].status).toBe("rated");
-  });
 });
-
-void NOW;

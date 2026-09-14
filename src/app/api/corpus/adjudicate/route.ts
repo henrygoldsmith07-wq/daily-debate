@@ -45,9 +45,22 @@ export async function POST(request: Request) {
     basis = "rater majority";
   }
 
+  // Merge the consensus into the existing side_mapping instead of replacing
+  // it — system_verdict and other provenance keys must survive adjudication.
+  const { data: currentItem } = await service
+    .from("corpus_items")
+    .select("id, side_mapping")
+    .eq("id", corpusId)
+    .single();
+  const mergedSideMapping = {
+    ...(currentItem?.side_mapping ?? {}),
+    consensus_winner: consensusWinner,
+    basis,
+  };
+
   await service
     .from("corpus_items")
-    .update({ status: "adjudicated", side_mapping: { consensus_winner: consensusWinner, basis } })
+    .update({ status: "adjudicated", side_mapping: mergedSideMapping })
     .eq("id", corpusId);
 
   return NextResponse.json({ ok: true, corpusId, consensusWinner, basis });

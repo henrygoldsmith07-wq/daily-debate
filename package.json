@@ -9,6 +9,7 @@
     "lint": "eslint",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
+    "test:scripts": "node --test \"scripts/lib/*.test.mjs\"",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
     "db:seed:e2e": "node --env-file-if-exists=.env.local scripts/e2e-seed.mjs",
     "benchmark:judges": "node scripts/judge-benchmark.mjs",

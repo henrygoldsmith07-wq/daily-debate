@@ -1,19 +1,38 @@
 #!/usr/bin/env node
-// LIVE judge benchmark. Dependency-free ESM: fixtures, transforms, providers,
-// metrics and gates are all plain JS so Node runs it directly (the previous
-// benchmark script silently no-op'd because Node cannot import .ts).
+// LIVE judge benchmark. Dependency-free ESM: fixtures, transforms, providers
+// and artifact writing live here; every scoring rule (sample gates, provider
+// reliability, diagnostics) lives in scripts/lib/judge-eval.mjs, which is
+// unit-tested. Node runs both directly (the previous benchmark script
+// silently no-op'd because Node cannot import .ts).
 //
 //   node scripts/judge-benchmark.mjs [--limit N] [--concurrency N] [--enforce]
 //        [--out docs/judge-leaderboard.md] [--pack-only] [--allow-skip] [--help]
 //
 // Gates live in config/judge-gates.json; --enforce exits non-zero on breach.
 // --pack-only validates fixture-pack stratification without calling providers.
+//
+// State truthfulness: docs/latest-judge-benchmark.json holds the LAST VALID
+// run only. Every run (including unusable ones) is appended to
+// docs/judge-benchmark-attempts.json. A run where no judge produced usable
+// base data is recorded there but never overwrites the last valid artifact.
 
 import fs from "node:fs";
 import path from "node:path";
 import { FIXTURES, STRATA } from "./lib/judge-fixtures.mjs";
 import { PROBES, AUDIT_TRANSFORMS } from "./lib/judge-transforms.mjs";
 import { allJudgeProviders, estimatedCost } from "./lib/judge-providers.mjs";
+import {
+  GATE_DEFAULTS,
+  PROVIDER_RELIABILITY_RATIONALE,
+  probeMinUsable,
+  probeReport,
+  reliabilityReport,
+  buildDiagnostics,
+  allGateChecks,
+  zeroUsableJudges,
+  attemptsLogEntry,
+  appendAttemptsLog,
+} from "./lib/judge-eval.mjs";
 
 function loadEnvLocal() {
   const p = path.join(process.cwd(), ".env.local");
@@ -50,7 +69,6 @@ const OUT_MD = OUT_MD_ARG ? OUT_MD_ARG.split("=")[1] : null;
 
 const log = (...a) => process.stderr.write(a.join(" ") + "\n");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const mirror = (w) => (w === "a" ? "b" : w === "b" ? "a" : "tie");
 
 // Pack integrity: the fixture pack must stay balanced and multi-domain, or the
 // agreement/ECE gates degenerate into small-n noise. Runs before any provider
@@ -123,9 +141,9 @@ async function evaluateModel(judge) {
   const okBases = bases.filter((b) => !b.error);
 
   const probeJobs = fixtures.flatMap((f) => PROBES.map((probe) => ({ f, probe })));
-  const probeResults = await mapLimit(probeJobs, CONCURRENCY, async ({ f, probe }) => {
+  const probeRows = await mapLimit(probeJobs, CONCURRENCY, async ({ f, probe }) => {
     const base = okBases.find((b) => b.fixture === f.id);
-    if (!base) { tick("probe"); return { probe: probe.id, error: "no-base" }; }
+    if (!base) { tick("probe"); return { fixture: f.id, probe: probe.id, mirrored: probe.mirrored === true, error: "no-base" }; }
     try {
       const v = await judge.fn(probe.fn(f.transcript));
       if (v.latencyMs != null) latencySamples.push(v.latencyMs);
@@ -133,72 +151,97 @@ async function evaluateModel(judge) {
       const flip = probe.mirrored ? v.winner !== mirror(base.winner) : v.winner !== base.winner;
       tick("probes");
       return {
+        fixture: f.id,
         probe: probe.id,
+        mirrored: probe.mirrored === true,
         flip,
+        winner: v.winner,
         scoreDelta: Math.abs(v.a - base.a) + Math.abs(v.b - base.b),
         confDelta: Math.abs(v.confidence - base.confidence),
         tokens: v.tokens ?? 0,
       };
     } catch (e) {
       tick("probes");
-      return { probe: probe.id, error: String(e?.message ?? e).slice(0, 100) };
+      return { fixture: f.id, probe: probe.id, mirrored: probe.mirrored === true, error: String(e?.message ?? e).slice(0, 100) };
     }
   });
 
-  const auditResults = await mapLimit(
+  const auditRows = await mapLimit(
     AUDIT_TRANSFORMS.flatMap((t) => fixtures.map((f) => ({ t, f }))),
     CONCURRENCY,
     async ({ t, f }) => {
-      const base = okBases.find((b) => b.fixture === f.id)?.winner;
-      if (!base) { tick("audits"); return { id: t.id, error: true }; }
+      const base = okBases.find((b) => b.fixture === f.id);
+      if (!base) { tick("audits"); return { id: t.id, fixture: f.id, error: "no-base" }; }
       try {
         const v = await judge.fn(t.fn(f.transcript));
         if (v.latencyMs != null) latencySamples.push(v.latencyMs);
         if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
         tick("audits");
-        return { id: t.id, flipped: v.winner !== base };
-      } catch {
+        return { id: t.id, fixture: f.id, winner: v.winner, flipped: v.winner !== base.winner };
+      } catch (e) {
         tick("audits");
-        return { id: t.id, error: true };
+        return { id: t.id, fixture: f.id, error: String(e?.message ?? e).slice(0, 100) };
       }
     },
   );
 
-  const agg = (pid) => {
-    const rows = probeResults.filter((r) => r.probe === pid && !r.error);
-    const flips = rows.filter((r) => r.flip).length;
-    return {
-      n: rows.length,
-      flips,
-      flipRate: rows.length ? +(flips / rows.length).toFixed(3) : null,
-      scoreDelta: +(rows.reduce((s, r) => s + (r.scoreDelta ?? 0), 0) / (rows.length || 1)).toFixed(1),
-      confDelta: +(rows.reduce((s, r) => s + (r.confDelta ?? 0), 0) / (rows.length || 1)).toFixed(3),
-    };
-  };
+  // --- Scoring: all rules live in judge-eval.mjs (unit-tested) ------------
+  const minUsable = probeMinUsable(fixtures.length);
+  const probeReports = {};
+  for (const p of PROBES) {
+    const rows = probeRows.filter((r) => r.probe === p.id);
+    probeReports[p.id] = probeReport({
+      id: p.id,
+      expected: fixtures.length,
+      rows,
+      minUsable,
+    });
+  }
+  const auditReports = {};
+  for (const t of AUDIT_TRANSFORMS) {
+    const rows = auditRows.filter((r) => r.id === t.id);
+    const report = probeReport({
+      id: t.id,
+      expected: fixtures.length,
+      rows: rows.map((r) => ({ ...r, flip: r.flipped })),
+      minUsable,
+    });
+    auditReports[t.id] = report;
+  }
+
+  // Provider reliability: actual calls issued vs calls that returned usable
+  // data. No-base rows issued no provider call, so they are excluded from
+  // the denominator here (their cause is already counted as a base failure)
+  // but surface in diagnostics as upstream failures.
+  const actualProbeCalls = probeRows.filter((r) => r.error !== "no-base");
+  const actualAuditCalls = auditRows.filter((r) => r.error !== "no-base");
+  const reliability = reliabilityReport({
+    attempted: bases.length + actualProbeCalls.length + actualAuditCalls.length,
+    successful:
+      okBases.length +
+      actualProbeCalls.filter((r) => !r.error).length +
+      actualAuditCalls.filter((r) => !r.error).length,
+  });
 
   const stability = {};
   for (const p of PROBES) {
-    if (p.mirrored || ["confidence-hedge", "confident-tone", "fake-citation"].includes(p.id)) continue;
-    const a = agg(p.id);
-    stability[p.id] = a.n ? +(1 - a.flipRate).toFixed(3) : null;
+    const report = probeReports[p.id];
+    if (p.mirrored) continue;
+    stability[p.id] = report.measurable ? +(1 - report.flipRate).toFixed(3) : null;
   }
-  const position = agg("position");
-  const fake = agg("fake-citation");
-  const ideology = (id) => auditResults.filter((r) => r.id === id && !r.error && r.flipped).length;
+  const position = probeReports.position;
 
   // Minimum-sample gating for the two base-verdict metrics: agreement/ECE
-  // from a handful of calls is noise, not measurement. Free-tier providers
-  // rate-limit, so a run can be dominated by errors; in that case these read
-  // null (gate: "insufficient data") rather than a misleading small-n number.
-  // Half the pack is the floor; thresholds themselves are unchanged.
-  const MIN_AGREEMENT_SAMPLES = Math.ceil(FIXTURES.length / 2);
+  // from a handful of calls is noise, not measurement. Half the pack is the
+  // floor; thresholds themselves are unchanged.
+  const MIN_AGREEMENT_SAMPLES = minUsable;
   const humanAgree = okBases.filter((b) => b.winner === b.expected).length;
   const agreementN = okBases.length;
   const humanAgreement = agreementN >= MIN_AGREEMENT_SAMPLES
     ? +(humanAgree / agreementN).toFixed(3)
     : null;
 
-  const bins = Array.from({ length: 10 }, () => ({ total: 0, correct: 0, confSum: 0 }));
+  const bins = Array.from({ length: 10 }, (_, i) => ({ lo: i / 10, hi: (i + 1) / 10, total: 0, correct: 0, confSum: 0 }));
   for (const b of okBases) {
     const bin = Math.min(9, Math.floor((b.confidence ?? 0) * 10));
     bins[bin].total += 1;
@@ -220,22 +263,32 @@ async function evaluateModel(judge) {
     : null;
   const promptTokens = tokenSamples.reduce((s, x) => s + (x.prompt || 0), 0);
   const completionTokens = tokenSamples.reduce((s, x) => s + (x.completion || 0), 0);
-  const allTokens = probeResults.reduce((s, r) => s + (r.tokens ?? 0), 0) || promptTokens + completionTokens;
+  const allTokens = promptTokens + completionTokens;
   const costUsd = estimatedCost(judge.id.slice(judge.id.indexOf(":") + 1), promptTokens, completionTokens);
+
+  const scoringModel = {
+    model: judge.id,
+    bases,
+    probeRows,
+    auditRows,
+    calibrationBins: bins,
+  };
+  const diagnostics = buildDiagnostics(scoringModel);
 
   return {
     model: judge.id,
     judge: { provider: judge.id.split(":")[0], model: judge.id.split(":")[1] ?? judge.id, temperature: 0, promptVersion: 4, tieThreshold: 5 },
     fixtures: fixtures.length,
     bases: bases.map((b) => ({ fixture: b.fixture, expected: b.expected, winner: b.winner ?? null, a: b.a ?? null, b: b.b ?? null, confidence: b.confidence ?? null, error: b.error ? String(b.error).slice(0, 120) : undefined })),
-    calls: bases.length + probeResults.length + auditResults.length,
-    errors: [...bases, ...probeResults, ...auditResults].filter((r) => r.error).length,
-    positionMirrorOk: position.n ? +(1 - position.flipRate).toFixed(3) : null,
+    calls: bases.length + probeRows.length + auditRows.length,
+    errors: [...bases, ...probeRows, ...auditRows].filter((r) => r.error).length,
+    reliability,
+    // legacy convenience fields (derived; gates read the reports below)
+    positionMirrorOk: position.measurable ? +(1 - (position.flipRate ?? 0)).toFixed(3) : null,
     stability,
-    verbosityFlipRate: agg("verbosity-up").flipRate,
-    falseCitationInfluence: fake.flipRate,
-    ideologicalAsymmetry: { leftFlips: ideology("ideology-left"), rightFlips: ideology("ideology-right") },
-    politicalTopicFlips: auditResults.filter((r) => r.id === "political-topic" && r.flipped).length,
+    falseCitationInfluence: probeReports["fake-citation"].flipRate,
+    ideologicalAsymmetry: { leftFlips: auditReports["ideology-left"].flips, rightFlips: auditReports["ideology-right"].flips },
+    politicalTopicFlips: auditReports["political-topic"].flips,
     humanAgreement,
     agreementN,
     minAgreementSamples: MIN_AGREEMENT_SAMPLES,
@@ -245,40 +298,26 @@ async function evaluateModel(judge) {
     completionTokens: completionTokens || null,
     estimatedCostUsd: costUsd,
     latency: latencies,
-    probes: Object.fromEntries(PROBES.map((p) => [p.id, agg(p.id)])),
+    probes: probeReports,
+    audits: auditReports,
+    diagnostics,
+    probeExceptions: probeRows
+      .filter((r) => r.error || r.flip)
+      .map((r) => ({ fixture: r.fixture, probe: r.probe, error: r.error, flip: r.flip ?? null, scoreDelta: r.scoreDelta ?? null, confDelta: r.confDelta ?? null })),
+    auditExceptions: auditRows
+      .filter((r) => r.error || r.flipped)
+      .map((r) => ({ fixture: r.fixture, audit: r.id, error: r.error ?? null })),
   };
+}
+
+function mirror(w) {
+  return w === "a" ? "b" : w === "b" ? "a" : "tie";
 }
 
 function loadGates() {
   const p = path.join(process.cwd(), "config", "judge-gates.json");
-  const defaults = {
-    positionMirrorMin: 0.97,
-    verbosityStabilityMin: 0.95,
-    nameStabilityMin: 0.97,
-    whitespaceStabilityMin: 0.98,
-    falseCitationInfluenceMax: 0.05,
-    humanAgreementMin: 0.75,
-    eceMax: 0.08,
-  };
-  if (!fs.existsSync(p)) return defaults;
-  return { ...defaults, ...JSON.parse(fs.readFileSync(p, "utf8")) };
-}
-
-function gateChecks(m, gates) {
-  const checks = [];
-  const add = (name, value, min, max) => {
-    if (value === null || value === undefined) checks.push({ name, pass: false, detail: "insufficient data" });
-    else if (min !== undefined) checks.push({ name, pass: value >= min, detail: `${value} (min ${min})` });
-    else checks.push({ name, pass: value <= max, detail: `${value} (max ${max})` });
-  };
-  add("position mirror stability", m.positionMirrorOk, gates.positionMirrorMin, undefined);
-  add("verbosity stability", m.stability["verbosity-up"], gates.verbosityStabilityMin, undefined);
-  add("name-removal stability", m.stability.names, gates.nameStabilityMin, undefined);
-  add("whitespace stability", m.stability.whitespace, gates.whitespaceStabilityMin, undefined);
-  add("false-citation influence", m.falseCitationInfluence, undefined, gates.falseCitationInfluenceMax);
-  add("fixture-label agreement", m.humanAgreement, gates.humanAgreementMin, undefined);
-  add("ECE", m.ece, undefined, gates.eceMax);
-  return checks;
+  if (!fs.existsSync(p)) return GATE_DEFAULTS;
+  return { ...GATE_DEFAULTS, ...JSON.parse(fs.readFileSync(p, "utf8")) };
 }
 
 async function main() {
@@ -331,12 +370,33 @@ async function main() {
   }
 
   const gates = loadGates();
-  const gated = results.map((m) => ({ ...m, gates: gateChecks(m, gates) }));
+  const gated = results.map((m) => ({ ...m, gates: allGateChecks(m, gates) }));
   const allPass = gated.every((m) => m.gates.every((c) => c.pass));
   const at = new Date().toISOString();
-  const payload = { at, limit: LIMIT, enforce: ENFORCE, strata: STRATA, allPass, gates, results: gated };
 
+  // State truthfulness: every attempt is logged (append-only, capped); the
+  // "latest" artifact holds the last run with at least one usable judge. A
+  // total outage is recorded as an attempt, never as current validation.
+  const unusable = zeroUsableJudges(gated);
+  const attemptEntry = attemptsLogEntry({
+    at,
+    limit: LIMIT,
+    results: gated,
+    outcome: unusable ? "insufficient-data" : allPass ? "pass" : "gate-failure",
+    reason: unusable ? "no judge produced usable base data (provider outage?)" : null,
+  });
+  const attemptsPath = appendAttemptsLog(fs, path, attemptEntry);
+
+  const payload = { at, limit: LIMIT, enforce: ENFORCE, strata: STRATA, allPass, gates, results: gated };
   process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+
+  if (unusable) {
+    log(`[judge-benchmark] OUTAGE: no judge produced usable base data. Attempt recorded in ${attemptsPath}; last valid artifact NOT overwritten.`);
+    process.stdout.write(JSON.stringify({ zeroUsable: true, at, attemptsFile: path.basename(attemptsPath) }) + "\n");
+    if (ENFORCE) process.exit(1);
+    return;
+  }
+
   const outPath = path.join(process.cwd(), "docs", "latest-judge-benchmark.json");
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(payload, null, 2));
@@ -345,9 +405,8 @@ async function main() {
   fs.mkdirSync(path.dirname(mdTarget), { recursive: true });
 
   // The leaderboard publishes the CURRENT validation state, one row per
-  // judge in this run. History lives in git and the JSON artifact;
-  // accumulating prior rows let superseded records (3-fixture packs,
-  // pre-minimum-sample numbers) linger as if still current.
+  // judge in this run. History lives in git, the JSON artifact and the
+  // attempts log; stale rows never accumulate into current validation.
   const passCells = (m) => (m.gates ?? []).every((c) => c.pass) ? "PASS" : "FAIL";
   const header = [
     "# Judge leaderboard (live benchmarks)",
@@ -355,15 +414,42 @@ async function main() {
     `Last generated ${at} by \`scripts/judge-benchmark.mjs\` over ${LIMIT} labelled fixture debates.`,
     `Pack stratification: ${STRATA.size} fixtures, expected-winner ${JSON.stringify(STRATA.byExpectedWinner)}, ${Object.keys(STRATA.byDomain).length} domains, difficulty ${JSON.stringify(STRATA.byDifficulty)}.`,
     `Judge configuration: temperature 0, prompt v4, scoring engine v1, graph schema v1 (benchmark verdict prompt aligned with the production judging policy; see src/lib/judgeVersioning.ts for the app's versioned judge).`,
+    `Provider reliability gate: successful/attempted calls ≥ ${gates.providerReliabilityMin} (${PROVIDER_RELIABILITY_RATIONALE}). A probe with fewer than half the pack's usable calls reports INSUFFICIENT DATA — it can never pass on a small surviving sample.`,
     "Human agreement here is against fixture labels (small n) until the rated corpus supplies consensus.",
     "",
-    "| Model | Fixtures | Agreement (usable n) | ECE | Position mirror | Verbosity stab. | Names stab. | Whitespace stab. | Fake-cit. | Ideology L/R flips | Political flips | Errors | Latency p50 | Tokens | Est. cost | PASS/FAIL |",
+    "| Model | Fixtures | Reliability (ok/att) | Agreement (usable n) | ECE | Position mirror | Verbosity stab. | Names stab. | Whitespace stab. | Fake-cit. | Ideology L/R flips | Political flips | Latency p50 | Tokens | Est. cost | PASS/FAIL |",
     "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
   const newRow = (m) =>
-    `| ${m.model} | ${m.fixtures ?? LIMIT} | ${m.humanAgreement ?? "—"} (n=${m.agreementN ?? 0}) | ${m.ece ?? "—"} | ${m.positionMirrorOk ?? "—"} | ${m.stability["verbosity-up"] ?? "—"} | ${m.stability.names ?? "—"} | ${m.stability.whitespace ?? "—"} | ${m.falseCitationInfluence ?? "—"} | ${m.ideologicalAsymmetry?.leftFlips ?? "—"}/${m.ideologicalAsymmetry?.rightFlips ?? "—"} | ${m.politicalTopicFlips ?? "—"} | ${m.errors} | ${m.latency ? `${m.latency.p50Ms}ms` : "—"} | ${m.totalTokens ?? "—"} | ${m.estimatedCostUsd != null ? `$${m.estimatedCostUsd}` : "—"} | ${passCells(m)} |`;
+    `| ${m.model} | ${m.fixtures ?? LIMIT} | ${m.reliability.successfulCalls}/${m.reliability.attemptedCalls} (${Math.round((m.reliability.successRatio ?? 0) * 100)}%) | ${m.humanAgreement ?? "—"} (n=${m.agreementN ?? 0}) | ${m.ece ?? "—"} | ${m.positionMirrorOk ?? "—"} | ${m.stability["verbosity-up"] ?? "—"} | ${m.stability.names ?? "—"} | ${m.stability.whitespace ?? "—"} | ${m.falseCitationInfluence ?? "—"} | ${m.ideologicalAsymmetry?.leftFlips ?? "—"}/${m.ideologicalAsymmetry?.rightFlips ?? "—"} | ${m.politicalTopicFlips ?? "—"} | ${m.latency ? `${m.latency.p50Ms}ms` : "—"} | ${m.totalTokens ?? "—"} | ${m.estimatedCostUsd != null ? `$${m.estimatedCostUsd}` : "—"} | ${passCells(m)} |`;
   const body = gated.map(newRow).sort().join("\n");
-  fs.writeFileSync(mdTarget, [...header, body, "", `Gates: ${JSON.stringify(gates)}`, "", `Last run: ${allPass ? "PASS" : "FAIL"} (${at}). Gate status is per-row; a FAIL row means that model must not be trusted for competitive claims until it passes.`, ""].join("\n"));
+
+  // Per-model gate detail: every check's state, including INSUFFICIENT DATA,
+  // is public. Thresholds live in config/judge-gates.json.
+  const detailLines = [];
+  for (const m of gated) {
+    detailLines.push("", `### ${m.model} — ${passCells(m)}`);
+    for (const c of m.gates) detailLines.push(`- ${c.pass ? "PASS" : c.state === "INSUFFICIENT DATA" ? "INSUFFICIENT DATA" : "FAIL"} ${c.name}: ${c.detail}`);
+    if (m.diagnostics?.counts) {
+      const dc = m.diagnostics.counts;
+      detailLines.push(`- diagnostics: ${dc.accuracy} accuracy issue(s), ${dc.calibration} calibration bin(s) flagged, ${dc.invariance} invariance flip(s), ${dc.provider} provider error call(s) — full detail in docs/latest-judge-benchmark.json`);
+    }
+  }
+  fs.writeFileSync(
+    mdTarget,
+    [
+      ...header,
+      body,
+      "",
+      "## Per-model gate detail",
+      ...detailLines,
+      "",
+      `Gates: ${JSON.stringify(gates)}`,
+      "",
+      `Last run: ${allPass ? "PASS" : "FAIL"} (${at}). Gate status is per-row; a FAIL row means that model must not be trusted for competitive claims until it passes. Run history: docs/judge-benchmark-attempts.json.`,
+      "",
+    ].join("\n"),
+  );
 
   for (const m of gated) {
     log(`--- ${m.model} ---`);
