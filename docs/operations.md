@@ -71,17 +71,18 @@ The blinded human corpus is the future ground truth for the judge, so its state 
 Enforced by repository ruleset `protect-main` (Settings → Rules → Rulesets, id 23355071), enforcement ACTIVE, **no bypass actors** — it applies to admins and owner accounts equally:
 
 ```text
-main protection (ruleset protect-main)
+main protection (ruleset protect-main, id 23355071, enforcement=active)
   ├─ require pull request before merge        (0 approving reviews; stale reviews dismissed on push)
   ├─ required status checks (strict, pending counted):
   │    verify          ← the "Daily Debate" workflow verify job (lint/type/unit+DB+scripts/build/audit)
   │    e2e             ← authenticated Playwright over a production build + corpus invariants
   │    topic-pipeline  ← real-Postgres generation idempotency + freshness verifier
-  ├─ block force pushes (non_fast_forward), branch deletion, branch creation/updates on main
-  └─ bypass: NONE for humans
+  ├─ no branch deletion, no force push (non_fast_forward), no creating refs matching main
+  └─ bypass: NONE for humans (admins and the owner included - the ruleset rejects direct pushes
+     to main with GH013, and rejects merges before the required checks conclude; both verified live)
 ```
 
-The check contexts above are the actual job ids in `.github/workflows/daily-debate.yml` — GitHub enforces those names, not "the workflow usually runs". The merge path is squash/merge/rebase (all allowed).
+The check contexts above are the actual job ids in `.github/workflows/daily-debate.yml` — GitHub enforces those names, not "the workflow usually runs". The merge path is squash/merge/rebase (all allowed). Deliberately NOT enabled: the ruleset "restrict updates" rule — it treats every merge as an update and would lock all PRs out of main; the PR requirement plus required checks already make direct mutation impossible.
 
 **Automated benchmark artifacts**: the weekly judge-benchmark workflow cannot push to main. It commits `docs/judge-*` refreshes to a `chore/judge-benchmark-*` branch, opens a PR, and merges it only after `verify` / `e2e` / `topic-pipeline` pass on that PR. A gate breach still marks the benchmark job red (weekly visibility) while the honest artifact PR flows through the same checks product code faces. Bot convenience goes through protection, never around it.
 
