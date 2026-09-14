@@ -15,6 +15,7 @@
     "check:corpus": "node --env-file-if-exists=.env.local scripts/check-corpus-invariants.mjs",
     "repair:corpus": "node --env-file-if-exists=.env.local scripts/repair-corpus-closure.mjs",
     "benchmark:judges": "node scripts/judge-benchmark.mjs",
+    "benchmark:variance": "node scripts/judge-variance.mjs",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ci": "playwright test --reporter=github"
