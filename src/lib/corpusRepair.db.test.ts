@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +27,7 @@ const MIGRATIONS_DIR = fileURLToPath(new URL("../../database/migrations", import
 let pool: pg.Pool;
 const emails = ["rp-a@test.local", "rp-b@test.local", "rp-contrib@test.local"];
 const userIds = new Map<string, string>();
+const itemIds: string[] = [];
 
 async function applyMigrations() {
   await pool.query("SELECT pg_advisory_lock(727291)");
@@ -59,6 +60,7 @@ async function makeItem(): Promise<string> {
      RETURNING id`,
     [userIds.get("rp-contrib@test.local")],
   );
+  itemIds.push(res.rows[0].id);
   return res.rows[0].id;
 }
 
@@ -111,14 +113,11 @@ beforeAll(async () => {
   for (const e of emails) userIds.set(e, await ensureUser(e));
 });
 
-beforeEach(async () => {
-  await pool.query("DELETE FROM corpus_ratings");
-  await pool.query("DELETE FROM corpus_items");
-});
-
 afterAll(async () => {
-  await pool.query("DELETE FROM corpus_ratings");
-  await pool.query("DELETE FROM corpus_items");
+  // Scoped to this file's items only (ratings cascade). The previous
+  // whole-table DELETE raced the parallel corpusRatingStore.db.test.ts
+  // fixtures whenever vitest scheduled both files at once.
+  await pool.query("DELETE FROM corpus_items WHERE id = ANY($1::uuid[])", [itemIds]);
   await pool.query("DELETE FROM profiles WHERE id = ANY($1::uuid[])", [[...userIds.values()]]);
   await pool.query("DELETE FROM app_users WHERE email = ANY($1::text[])", [emails]);
   await pool.end();

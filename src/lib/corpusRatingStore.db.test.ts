@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,14 +99,14 @@ beforeAll(async () => {
   for (const e of emails) userIds.set(e, await ensureUser(e));
 });
 
-beforeEach(async () => {
-  await pool.query("DELETE FROM corpus_ratings");
-  await pool.query("DELETE FROM corpus_items");
-});
+
 
 afterAll(async () => {
-  await pool.query("DELETE FROM corpus_ratings");
-  await pool.query("DELETE FROM corpus_items");
+  // Scoped to this file's own items (ratings cascade). A global DELETE here
+  // raced the OTHER corpus .db.test file's still-running fixtures when the
+  // two suites execute in parallel - the CI lesson from main@a68ce6a.
+  await pool.query("DELETE FROM corpus_items WHERE id = ANY($1::uuid[])", [itemIds]);
+  itemIds.length = 0;
   await pool.query("DELETE FROM profiles WHERE id = ANY($1::uuid[])", [[...userIds.values()]]);
   await pool.query("DELETE FROM app_users WHERE email = ANY($1::text[])", [emails]);
   await pool.end();
