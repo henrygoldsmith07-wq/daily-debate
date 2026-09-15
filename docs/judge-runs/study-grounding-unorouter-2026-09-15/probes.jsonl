@@ -1,0 +1,2 @@
+{"at":"2026-09-15T21:35:36.053Z","provider":"unorouter","ok":true,"detail":"PROBE-OK {\"winner\":\"tie\",\"a\":55,\"b\":55,\"confidence\":0.5,\"model\":\"nemotron-3.5-lightning:free\",\"tokens\":403,\"p"}
+{"at":"2026-09-15T22:01:27.925Z","provider":"unorouter","ok":false,"detail":"PROBE-FAIL This operation was aborted chain={\"nemotron-3.5-lightning:free\":\"429: {\\\"error\\\":{\\\"code\\\":\\\"\\\",\\\"message\\\":\\\"Too many requests. The free tier allows 5 request(s) e\",\"nemotron-3-super-120b-a12b:free\":\"429: {\\\""}

@@ -1,0 +1,73 @@
+{
+  "registrationHash": "247e205453283996",
+  "sealedAt": "2026-09-15T21:14:17.082Z",
+  "registration": {
+    "name": "grounding-two-pass-unorouter",
+    "status": "registered",
+    "registeredAt": "2026-09-15T20:44:24Z",
+    "kind": "architecture",
+    "registeredVia": "quota-probe PROBE-OK on nemotron-3.5-lightning:free at registration time",
+    "question": "No prompt wording tested so far moves the judge's fake-citation influence off the 0.14-0.38 noise band. Does an architecture that assesses evidence verifiability INDEPENDENTLY of rhetoric break the sensitivity?",
+    "hypothesis": "A two-pass judge (extract claims + classify each supplied evidence item supported/unsupported/unverifiable, then verdict on the grounded representation with unverifiable citations scoring nothing) reduces fake-citation influence to <= 0.15 mean without degrading verdict quality, accepting a measured latency/token cost.",
+    "singleVariable": "JUDGE ARCHITECTURE: single-pass v5 prompt vs two-pass grounding pipeline. Same model/provider/fixtures/gates/temperature=0/transport. Pass-2 system prompt is byte-identical to shipped v5; only the user framing and the extraction pass are new (the grounding rule is inherent to the architecture, not a wording tweak).",
+    "providerChangeNote": "This registration continues the kiraai study (sealed verdict INCONCLUSIVE due to provider death: all -free slugs retired mid-session 2026-09-15, wallet 0 VND). Provider change kiraai->unorouter is explicit registered provenance; arms, prompts, fixtures, gates and decision rule are identical.",
+    "arms": {
+      "baseline": {
+        "experiment": "baseline"
+      },
+      "candidate": {
+        "experiment": "grounding-two-pass"
+      }
+    },
+    "models": "unorouter",
+    "runsPerArm": 3,
+    "order": "serialized interleaved A,B,A,B,A,B; arms never run concurrently (provider budgets are shared and rate-limited)",
+    "minimumUsableReliability": 0.75,
+    "designNote": "unorouter's free-tier daily budget is bounded (~400 calls observed 2026-09-15); if the provider caps out mid-study, the registered reliability floor re-emits INCONCLUSIVE rather than a false verdict, and reps may be appended across days in the same study dir - the verdict is always recomputed from all preserved raw runs against this same sealed rule.",
+    "target": {
+      "metric": "fake-citation influence",
+      "direction": "down",
+      "minImprovement": 0.08,
+      "marginRationale": "observed spread of this metric across prior full-pack runs: 0.143-0.381 with run sd up to ~0.11; <0.08 mean improvement is not distinguishable from noise. Registered rule additionally requires the bootstrap 90% CI lower bound of the signed improvement to clear zero."
+    },
+    "protected": {
+      "provider reliability": {
+        "maxRegression": 0.05
+      },
+      "fixture agreement": {
+        "maxRegression": 0.05
+      },
+      "ECE": {
+        "maxRegression": 0.04
+      },
+      "position stability": {
+        "maxRegression": 0.08
+      },
+      "names stability": {
+        "maxRegression": 0.08
+      },
+      "verbosity stability": {
+        "maxRegression": 0.08
+      },
+      "style stability": {
+        "maxRegression": 0.08
+      },
+      "whitespace stability": {
+        "maxRegression": 0.08
+      },
+      "prestige stability": {
+        "maxRegression": 0.08
+      },
+      "latency p50 ms": {
+        "maxRegression": 25000
+      },
+      "prompt tokens": {
+        "maxRegression": 250000
+      }
+    },
+    "protectedRationale": "Caps exceed the largest per-arm run sd measured in the 2026-09-14/15 studies (typical 0.02-0.07) so noise cannot veto; a rejection requires worsening beyond BOTH cap and pooled sd. Latency/token budgets reflect the known ~2x cost of the second pass - the trade-off is admitted up front, and exceeding it is a legitimate rejection.",
+    "adoptionRule": "supported iff (signed improvement of target mean >= 0.08 AND bootstrap 90% CI lower bound of the signed improvement > 0 AND no protected metric regresses beyond its cap AND its pooled run sd AND usable runs >= 3/arm at reliability >= 0.75); inconclusive if usable runs < 2/arm; rejected otherwise. No threshold in config/judge-gates.json may change as part of adoption.",
+    "bootstrapSeed": 42,
+    "outcome": null
+  }
+}

@@ -1,6 +1,6 @@
 {
   "name": "grounding-two-pass-unorouter",
-  "status": "registered",
+  "status": "decided",
   "registeredAt": "2026-09-15T20:44:24Z",
   "kind": "architecture",
   "registeredVia": "quota-probe PROBE-OK on nemotron-3.5-lightning:free at registration time",
@@ -9,8 +9,12 @@
   "singleVariable": "JUDGE ARCHITECTURE: single-pass v5 prompt vs two-pass grounding pipeline. Same model/provider/fixtures/gates/temperature=0/transport. Pass-2 system prompt is byte-identical to shipped v5; only the user framing and the extraction pass are new (the grounding rule is inherent to the architecture, not a wording tweak).",
   "providerChangeNote": "This registration continues the kiraai study (sealed verdict INCONCLUSIVE due to provider death: all -free slugs retired mid-session 2026-09-15, wallet 0 VND). Provider change kiraai->unorouter is explicit registered provenance; arms, prompts, fixtures, gates and decision rule are identical.",
   "arms": {
-    "baseline": { "experiment": "baseline" },
-    "candidate": { "experiment": "grounding-two-pass" }
+    "baseline": {
+      "experiment": "baseline"
+    },
+    "candidate": {
+      "experiment": "grounding-two-pass"
+    }
   },
   "models": "unorouter",
   "runsPerArm": 3,
@@ -24,20 +28,51 @@
     "marginRationale": "observed spread of this metric across prior full-pack runs: 0.143-0.381 with run sd up to ~0.11; <0.08 mean improvement is not distinguishable from noise. Registered rule additionally requires the bootstrap 90% CI lower bound of the signed improvement to clear zero."
   },
   "protected": {
-    "provider reliability": { "maxRegression": 0.05 },
-    "fixture agreement": { "maxRegression": 0.05 },
-    "ECE": { "maxRegression": 0.04 },
-    "position stability": { "maxRegression": 0.08 },
-    "names stability": { "maxRegression": 0.08 },
-    "verbosity stability": { "maxRegression": 0.08 },
-    "style stability": { "maxRegression": 0.08 },
-    "whitespace stability": { "maxRegression": 0.08 },
-    "prestige stability": { "maxRegression": 0.08 },
-    "latency p50 ms": { "maxRegression": 25000 },
-    "prompt tokens": { "maxRegression": 250000 }
+    "provider reliability": {
+      "maxRegression": 0.05
+    },
+    "fixture agreement": {
+      "maxRegression": 0.05
+    },
+    "ECE": {
+      "maxRegression": 0.04
+    },
+    "position stability": {
+      "maxRegression": 0.08
+    },
+    "names stability": {
+      "maxRegression": 0.08
+    },
+    "verbosity stability": {
+      "maxRegression": 0.08
+    },
+    "style stability": {
+      "maxRegression": 0.08
+    },
+    "whitespace stability": {
+      "maxRegression": 0.08
+    },
+    "prestige stability": {
+      "maxRegression": 0.08
+    },
+    "latency p50 ms": {
+      "maxRegression": 25000
+    },
+    "prompt tokens": {
+      "maxRegression": 250000
+    }
   },
   "protectedRationale": "Caps exceed the largest per-arm run sd measured in the 2026-09-14/15 studies (typical 0.02-0.07) so noise cannot veto; a rejection requires worsening beyond BOTH cap and pooled sd. Latency/token budgets reflect the known ~2x cost of the second pass - the trade-off is admitted up front, and exceeding it is a legitimate rejection.",
   "adoptionRule": "supported iff (signed improvement of target mean >= 0.08 AND bootstrap 90% CI lower bound of the signed improvement > 0 AND no protected metric regresses beyond its cap AND its pooled run sd AND usable runs >= 3/arm at reliability >= 0.75); inconclusive if usable runs < 2/arm; rejected otherwise. No threshold in config/judge-gates.json may change as part of adoption.",
   "bootstrapSeed": 42,
-  "outcome": null
+  "outcome": null,
+  "decidedAt": "2026-09-15T22:01:27.930Z",
+  "registrationHash": "247e205453283996",
+  "studyDir": "docs\\judge-runs\\study-grounding-unorouter-2026-09-15",
+  "verdict": {
+    "status": "inconclusive",
+    "reasons": [
+      "registered requirement not met: usable runs baseline 1/3, candidate 0/3 (reliability >= 0.75); INCONCLUSIVE - fewer usable runs never proceed to inference"
+    ]
+  }
 }
