@@ -198,28 +198,40 @@ function isTransportError(e) {
   return /abort|fetch failed|network|ETIMEDOUT|ECONN/i.test(String(e?.message ?? e));
 }
 
-function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem() }) {
+function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem(), stats = null }) {
   return async (transcript) => {
     let lastError;
     const started = Date.now();
+    if (stats) stats.jobs += 1;
     for (const model of models) {
       for (let attempt = 1; attempt <= CHAIN_ATTEMPTS_PER_MODEL; attempt++) {
         try {
+          if (stats) {
+            stats.attempts += 1;
+            stats.byModel[model] = (stats.byModel[model] ?? 0) + 1;
+          }
           const { content, tokens, promptTokens, completionTokens, latencyMs } = await chat({
             url, key, model, system, user: verdictUser(transcript), maxTokens: 900, extraHeaders,
           });
+          if (stats) stats.succeeded += 1;
           return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs };
         } catch (e) {
+          if (stats) stats.errors += 1;
           lastError = e;
           if (attempt >= CHAIN_ATTEMPTS_PER_MODEL || !isTransportError(e)) break;
           const backoff = Math.min(e.retryAfterSec ? e.retryAfterSec * 1000 : 1200 * attempt, Math.max(0, CHAIN_RETRY_BUDGET_MS - (Date.now() - started)));
           if (backoff <= 0) break;
+          if (stats) stats.backoffMs += backoff;
           await new Promise((r) => setTimeout(r, backoff));
         }
       }
     }
     throw lastError ?? new Error("no models configured");
   };
+}
+
+export function newJudgeStats() {
+  return { jobs: 0, attempts: 0, succeeded: 0, errors: 0, backoffMs: 0, byModel: {} };
 }
 
 /**
@@ -235,14 +247,17 @@ export function allJudgeProviders(env = process.env, { system = buildVerdictSyst
     if (!key) continue;
     if (provider.label === "nvidia") {
       const models = chainFor(provider, env);
-      judges.push({ id: `nvidia:${models.join("/")}`, fn: makeChainJudge({ url: provider.url, key, models, system }) });
+      const nvidiaStats = newJudgeStats();
+      judges.push({ id: `nvidia:${models.join("/")}`, stats: nvidiaStats, fn: makeChainJudge({ url: provider.url, key, models, system, stats: nvidiaStats }) });
       continue;
     }
     if (provider.label === "openrouter" && env.NVIDIA_API_KEY) continue; // already covered as direct nvidia
     const models = chainFor(provider, env);
+    const stats = newJudgeStats();
     judges.push({
       id: `${provider.label}:${models[0]}`,
-      fn: makeChainJudge({ url: provider.url, key, models, extraHeaders: provider.extraHeaders ?? {}, system }),
+      stats,
+      fn: makeChainJudge({ url: provider.url, key, models, extraHeaders: provider.extraHeaders ?? {}, system, stats }),
     });
   }
   return judges;

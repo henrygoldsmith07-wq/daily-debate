@@ -299,10 +299,23 @@ async function evaluateModel(judge) {
     model: judge.id,
     judge: { provider: judge.id.split(":")[0], model: judge.id.split(":")[1] ?? judge.id, temperature: 0, promptVersion: VERDICT_PROMPT_VERSION, tieThreshold: 5 },
     fixtures: fixtures.length,
-    bases: bases.map((b) => ({ fixture: b.fixture, expected: b.expected, winner: b.winner ?? null, a: b.a ?? null, b: b.b ?? null, confidence: b.confidence ?? null, error: b.error ? String(b.error).slice(0, 120) : undefined })),
+    bases: bases.map((b) => ({ fixture: b.fixture, expected: b.expected, winner: b.winner ?? null, model: b.model ?? null, a: b.a ?? null, b: b.b ?? null, confidence: b.confidence ?? null, error: b.error ? String(b.error).slice(0, 120) : undefined })),
     calls: bases.length + probeRows.length + auditRows.length,
     errors: [...bases, ...probeRows, ...auditRows].filter((r) => r.error).length,
     reliability,
+    // Transport truthfulness (item 11): retries make the measurement match
+    // production behaviour, but the ATTEMPT counts below expose exactly how
+    // much retrying happened - systematic provider unreliability cannot hide
+    // behind successful retries.
+    transport: judge.stats ? {
+      jobs: judge.stats.jobs,
+      transportAttempts: judge.stats.attempts,
+      succeededAttempts: judge.stats.succeeded,
+      failedAttempts: judge.stats.errors,
+      retryOverheadAttempts: judge.stats.attempts - judge.stats.jobs,
+      backoffMsSpent: judge.stats.backoffMs,
+      attemptsByModel: judge.stats.byModel,
+    } : null,
     // legacy convenience fields (derived; gates read the reports below)
     positionMirrorOk: position.measurable ? +(1 - (position.flipRate ?? 0)).toFixed(3) : null,
     stability,
