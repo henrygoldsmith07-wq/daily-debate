@@ -1,0 +1,2239 @@
+{
+  "at": "2026-09-15T06:38:10.245Z",
+  "limit": 24,
+  "enforce": false,
+  "strata": {
+    "size": 24,
+    "byExpectedWinner": {
+      "a": 8,
+      "b": 8,
+      "tie": 8
+    },
+    "byDomain": {
+      "energy": 2,
+      "education": 2,
+      "technology": 4,
+      "health": 3,
+      "economics": 1,
+      "transport": 1,
+      "climate": 1,
+      "sports": 1,
+      "immigration": 1,
+      "housing": 2,
+      "space": 1,
+      "work": 2,
+      "agriculture": 1,
+      "politics": 1,
+      "environment": 1
+    },
+    "byDifficulty": {
+      "clear": 9,
+      "near-tie": 8,
+      "subtle": 7
+    }
+  },
+  "allPass": false,
+  "gates": {
+    "positionMirrorMin": 0.97,
+    "verbosityStabilityMin": 0.95,
+    "nameStabilityMin": 0.97,
+    "whitespaceStabilityMin": 0.98,
+    "styleStabilityMin": 0.95,
+    "prestigeStabilityMin": 0.95,
+    "hedgingFlipMax": 0.25,
+    "confidentToneFlipMax": 0.25,
+    "falseCitationInfluenceMax": 0.05,
+    "humanAgreementMin": 0.75,
+    "eceMax": 0.08,
+    "providerReliabilityMin": 0.75
+  },
+  "versions": {
+    "promptVersion": 5,
+    "promptHash": "317311691c6b78a6",
+    "defaultPromptHash": "317311691c6b78a6",
+    "experiment": {
+      "name": "baseline",
+      "hypothesis": "current shipped prompt (control arm)",
+      "label": "v5 shipped"
+    },
+    "fixturePackHash": "31d92a90b5287c92",
+    "fixturePackSize": 24,
+    "scoringEngineVersion": 1,
+    "graphSchemaVersion": 1,
+    "retryPolicy": {
+      "attemptsPerModel": 2,
+      "budgetMs": 8000
+    },
+    "gatesHash": "143308b74f2444fe"
+  },
+  "results": [
+    {
+      "model": "kiraai:qwen3.8-flash-free",
+      "judge": {
+        "provider": "kiraai",
+        "model": "qwen3.8-flash-free",
+        "temperature": 0,
+        "promptVersion": 5,
+        "tieThreshold": 5
+      },
+      "fixtures": 24,
+      "bases": [
+        {
+          "fixture": "energy-lcoe",
+          "expected": "a",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 73,
+          "b": 74,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "education-class-size",
+          "expected": "b",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 48,
+          "b": 68,
+          "confidence": 0.75
+        },
+        {
+          "fixture": "tech-open-source",
+          "expected": "tie",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 56,
+          "b": 56,
+          "confidence": 0.62
+        },
+        {
+          "fixture": "health-vaping-cessation",
+          "expected": "a",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 85,
+          "b": 20,
+          "confidence": 0.92
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "expected": "b",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 48,
+          "b": 82,
+          "confidence": 0.82
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "expected": "tie",
+          "winner": "b",
+          "model": "mimo-v2.5-free",
+          "a": 65,
+          "b": 75,
+          "confidence": 0.75
+        },
+        {
+          "fixture": "ai-copyright-training",
+          "expected": "a",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 74,
+          "b": 38,
+          "confidence": 0.75
+        },
+        {
+          "fixture": "agriculture-methane",
+          "expected": "b",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 32,
+          "b": 76,
+          "confidence": 0.86
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "expected": "tie",
+          "winner": null,
+          "model": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "expected": "a",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 78,
+          "b": 32,
+          "confidence": 0.88
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "expected": "b",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 28,
+          "b": 82,
+          "confidence": 0.88
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "expected": "tie",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 62,
+          "b": 52,
+          "confidence": 0.7
+        },
+        {
+          "fixture": "water-fluoridation",
+          "expected": "a",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 60,
+          "b": 66,
+          "confidence": 0.62
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "expected": "b",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 58,
+          "b": 64,
+          "confidence": 0.62
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "expected": "a",
+          "winner": "tie",
+          "model": "mimo-v2.5-free",
+          "a": 75,
+          "b": 75,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "expected": "b",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 75,
+          "b": 75,
+          "confidence": 0.58
+        },
+        {
+          "fixture": "school-start-times",
+          "expected": "a",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 62,
+          "b": 61,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "four-day-week",
+          "expected": "tie",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 66,
+          "b": 66,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "expected": "b",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 76,
+          "b": 76,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "rent-control-supply",
+          "expected": "tie",
+          "winner": "tie",
+          "model": "mimo-v2.5-free",
+          "a": 75,
+          "b": 75,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "voting-age-16",
+          "expected": "tie",
+          "winner": null,
+          "model": null,
+          "a": null,
+          "b": null,
+          "confidence": null,
+          "error": "This operation was aborted"
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "expected": "a",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 78,
+          "b": 78,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "expected": "tie",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 62,
+          "b": 60,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "expected": "b",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 61,
+          "b": 66,
+          "confidence": 0.65
+        }
+      ],
+      "calls": 312,
+      "errors": 89,
+      "reliability": {
+        "attemptedCalls": 288,
+        "successfulCalls": 223,
+        "failedCalls": 65,
+        "successRatio": 0.774
+      },
+      "transport": {
+        "jobs": 288,
+        "transportAttempts": 670,
+        "succeededAttempts": 223,
+        "failedAttempts": 447,
+        "retryOverheadAttempts": 382,
+        "backoffMsSpent": 166180,
+        "attemptsByModel": {
+          "qwen3.8-flash-free": 333,
+          "glm-5.3-free": 117,
+          "hy3-free": 115,
+          "mimo-v2.5-free": 105
+        }
+      },
+      "positionMirrorOk": 0.667,
+      "stability": {
+        "names": 0.737,
+        "verbosity-up": 0.7,
+        "style-fancy": 0.842,
+        "confidence-hedge": 0.765,
+        "confident-tone": 0.611,
+        "prestige": 0.778,
+        "fake-citation": 0.75,
+        "whitespace": 0.833
+      },
+      "falseCitationInfluence": 0.25,
+      "ideologicalAsymmetry": {
+        "leftFlips": 4,
+        "rightFlips": 1
+      },
+      "politicalTopicFlips": 4,
+      "humanAgreement": 0.591,
+      "agreementN": 22,
+      "minAgreementSamples": 12,
+      "ece": 0.185,
+      "totalTokens": 350170,
+      "promptTokens": 127673,
+      "completionTokens": 222497,
+      "estimatedCostUsd": 0,
+      "latency": {
+        "n": 223,
+        "meanMs": 18155,
+        "p50Ms": 16598,
+        "maxMs": 34334
+      },
+      "probes": {
+        "position": {
+          "probe": "position",
+          "expectedCalls": 24,
+          "usableCalls": 18,
+          "failedCalls": 6,
+          "completionRatio": 0.75,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 6,
+          "flipRate": 0.333,
+          "scoreDelta": 35.8,
+          "confDelta": 0.067
+        },
+        "names": {
+          "probe": "names",
+          "expectedCalls": 24,
+          "usableCalls": 19,
+          "failedCalls": 5,
+          "completionRatio": 0.792,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 5,
+          "flipRate": 0.263,
+          "scoreDelta": 13.2,
+          "confDelta": 0.065
+        },
+        "verbosity-up": {
+          "probe": "verbosity-up",
+          "expectedCalls": 24,
+          "usableCalls": 20,
+          "failedCalls": 4,
+          "completionRatio": 0.833,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 6,
+          "flipRate": 0.3,
+          "scoreDelta": 14.4,
+          "confDelta": 0.065
+        },
+        "style-fancy": {
+          "probe": "style-fancy",
+          "expectedCalls": 24,
+          "usableCalls": 19,
+          "failedCalls": 5,
+          "completionRatio": 0.792,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 3,
+          "flipRate": 0.158,
+          "scoreDelta": 10.3,
+          "confDelta": 0.05
+        },
+        "confidence-hedge": {
+          "probe": "confidence-hedge",
+          "expectedCalls": 24,
+          "usableCalls": 17,
+          "failedCalls": 7,
+          "completionRatio": 0.708,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 4,
+          "flipRate": 0.235,
+          "scoreDelta": 10.9,
+          "confDelta": 0.059
+        },
+        "confident-tone": {
+          "probe": "confident-tone",
+          "expectedCalls": 24,
+          "usableCalls": 18,
+          "failedCalls": 6,
+          "completionRatio": 0.75,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 7,
+          "flipRate": 0.389,
+          "scoreDelta": 11.9,
+          "confDelta": 0.083
+        },
+        "prestige": {
+          "probe": "prestige",
+          "expectedCalls": 24,
+          "usableCalls": 18,
+          "failedCalls": 6,
+          "completionRatio": 0.75,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 4,
+          "flipRate": 0.222,
+          "scoreDelta": 12.8,
+          "confDelta": 0.06
+        },
+        "fake-citation": {
+          "probe": "fake-citation",
+          "expectedCalls": 24,
+          "usableCalls": 20,
+          "failedCalls": 4,
+          "completionRatio": 0.833,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 5,
+          "flipRate": 0.25,
+          "scoreDelta": 15.6,
+          "confDelta": 0.061
+        },
+        "whitespace": {
+          "probe": "whitespace",
+          "expectedCalls": 24,
+          "usableCalls": 18,
+          "failedCalls": 6,
+          "completionRatio": 0.75,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 3,
+          "flipRate": 0.167,
+          "scoreDelta": 11.6,
+          "confDelta": 0.036
+        }
+      },
+      "audits": {
+        "political-topic": {
+          "probe": "political-topic",
+          "expectedCalls": 24,
+          "usableCalls": 15,
+          "failedCalls": 9,
+          "completionRatio": 0.625,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 4,
+          "flipRate": 0.267,
+          "scoreDelta": 0,
+          "confDelta": 0
+        },
+        "ideology-left": {
+          "probe": "ideology-left",
+          "expectedCalls": 24,
+          "usableCalls": 15,
+          "failedCalls": 9,
+          "completionRatio": 0.625,
+          "minUsableSample": 12,
+          "measurable": true,
+          "flips": 4,
+          "flipRate": 0.267,
+          "scoreDelta": 0,
+          "confDelta": 0
+        },
+        "ideology-right": {
+          "probe": "ideology-right",
+          "expectedCalls": 24,
+          "usableCalls": 4,
+          "failedCalls": 20,
+          "completionRatio": 0.167,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 1,
+          "flipRate": 0.25,
+          "scoreDelta": 0,
+          "confDelta": 0
+        }
+      },
+      "diagnostics": {
+        "accuracy": [
+          {
+            "fixture": "energy-lcoe",
+            "issue": "tie handling",
+            "expected": "a",
+            "got": "tie",
+            "scoreA": 73,
+            "scoreB": 74,
+            "confidence": 0.55
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "issue": "wrong winner",
+            "expected": "tie",
+            "got": "b",
+            "scoreA": 65,
+            "scoreB": 75,
+            "confidence": 0.75
+          },
+          {
+            "fixture": "space-lunar-funding",
+            "issue": "wrong winner",
+            "expected": "tie",
+            "got": "a",
+            "scoreA": 62,
+            "scoreB": 52,
+            "confidence": 0.7
+          },
+          {
+            "fixture": "water-fluoridation",
+            "issue": "wrong winner",
+            "expected": "a",
+            "got": "b",
+            "scoreA": 60,
+            "scoreB": 66,
+            "confidence": 0.62
+          },
+          {
+            "fixture": "remote-work-productivity",
+            "issue": "tie handling",
+            "expected": "a",
+            "got": "tie",
+            "scoreA": 75,
+            "scoreB": 75,
+            "confidence": 0.55
+          },
+          {
+            "fixture": "nuclear-waste-storage",
+            "issue": "tie handling",
+            "expected": "b",
+            "got": "tie",
+            "scoreA": 75,
+            "scoreB": 75,
+            "confidence": 0.58
+          },
+          {
+            "fixture": "school-start-times",
+            "issue": "tie handling",
+            "expected": "a",
+            "got": "tie",
+            "scoreA": 62,
+            "scoreB": 61,
+            "confidence": 0.55
+          },
+          {
+            "fixture": "genetic-crops-yields",
+            "issue": "tie handling",
+            "expected": "b",
+            "got": "tie",
+            "scoreA": 76,
+            "scoreB": 76,
+            "confidence": 0.55
+          },
+          {
+            "fixture": "ai-hiring-bias",
+            "issue": "tie handling",
+            "expected": "a",
+            "got": "tie",
+            "scoreA": 78,
+            "scoreB": 78,
+            "confidence": 0.55
+          }
+        ],
+        "calibration": [
+          {
+            "confidenceRange": "0.5-0.6",
+            "meanConfidence": 0.553,
+            "accuracy": 0.333,
+            "gap": 0.22,
+            "direction": "overconfidence",
+            "n": 9
+          },
+          {
+            "confidenceRange": "0.7-0.8",
+            "meanConfidence": 0.738,
+            "accuracy": 0.5,
+            "gap": 0.238,
+            "direction": "overconfidence",
+            "n": 4
+          }
+        ],
+        "invariance": [
+          {
+            "fixture": "energy-lcoe",
+            "probe": "position",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 37,
+            "confidenceDelta": 0.19999999999999996
+          },
+          {
+            "fixture": "energy-lcoe",
+            "probe": "confident-tone",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 22,
+            "confidenceDelta": 0.07999999999999996
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "probe": "position",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "a",
+            "winnerChanged": true,
+            "scoreDelta": 10,
+            "confidenceDelta": 0.19999999999999996
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "probe": "verbosity-up",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 12,
+            "confidenceDelta": 0.19999999999999996
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "probe": "style-fancy",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 10,
+            "confidenceDelta": 0.19999999999999996
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "probe": "confidence-hedge",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 10,
+            "confidenceDelta": 0.19999999999999996
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "probe": "confident-tone",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 10,
+            "confidenceDelta": 0.15000000000000002
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "probe": "fake-citation",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 24,
+            "confidenceDelta": 0.19999999999999996
+          },
+          {
+            "fixture": "space-lunar-funding",
+            "probe": "names",
+            "baselineWinner": "a",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "a",
+            "winnerChanged": true,
+            "scoreDelta": 36,
+            "confidenceDelta": 0.1499999999999999
+          },
+          {
+            "fixture": "space-lunar-funding",
+            "probe": "verbosity-up",
+            "baselineWinner": "a",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "a",
+            "winnerChanged": true,
+            "scoreDelta": 10,
+            "confidenceDelta": 0.1499999999999999
+          },
+          {
+            "fixture": "space-lunar-funding",
+            "probe": "prestige",
+            "baselineWinner": "a",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "a",
+            "winnerChanged": true,
+            "scoreDelta": 16,
+            "confidenceDelta": 0.1499999999999999
+          },
+          {
+            "fixture": "water-fluoridation",
+            "probe": "position",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "a",
+            "winnerChanged": true,
+            "scoreDelta": 6,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "water-fluoridation",
+            "probe": "names",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 6,
+            "confidenceDelta": 0.040000000000000036
+          },
+          {
+            "fixture": "water-fluoridation",
+            "probe": "verbosity-up",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 18,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "water-fluoridation",
+            "probe": "style-fancy",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 14,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "water-fluoridation",
+            "probe": "confidence-hedge",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 6,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "water-fluoridation",
+            "probe": "confident-tone",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 10,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "water-fluoridation",
+            "probe": "prestige",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 10,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "water-fluoridation",
+            "probe": "whitespace",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 24,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "crypto-energy-use",
+            "probe": "position",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "a",
+            "winnerChanged": true,
+            "scoreDelta": 6,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "crypto-energy-use",
+            "probe": "names",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 22,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "crypto-energy-use",
+            "probe": "verbosity-up",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 8,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "crypto-energy-use",
+            "probe": "style-fancy",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 22,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "crypto-energy-use",
+            "probe": "prestige",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 6,
+            "confidenceDelta": 0.020000000000000018
+          },
+          {
+            "fixture": "crypto-energy-use",
+            "probe": "fake-citation",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 14,
+            "confidenceDelta": 0.020000000000000018
+          },
+          {
+            "fixture": "crypto-energy-use",
+            "probe": "whitespace",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 8,
+            "confidenceDelta": 0
+          },
+          {
+            "fixture": "remote-work-productivity",
+            "probe": "position",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 30,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "remote-work-productivity",
+            "probe": "names",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 12,
+            "confidenceDelta": 0.1499999999999999
+          },
+          {
+            "fixture": "remote-work-productivity",
+            "probe": "verbosity-up",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 28,
+            "confidenceDelta": 0.19999999999999996
+          },
+          {
+            "fixture": "remote-work-productivity",
+            "probe": "confidence-hedge",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 14,
+            "confidenceDelta": 0.16999999999999993
+          },
+          {
+            "fixture": "remote-work-productivity",
+            "probe": "confident-tone",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 13,
+            "confidenceDelta": 0.1499999999999999
+          },
+          {
+            "fixture": "remote-work-productivity",
+            "probe": "prestige",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 14,
+            "confidenceDelta": 0.16999999999999993
+          },
+          {
+            "fixture": "remote-work-productivity",
+            "probe": "whitespace",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 15,
+            "confidenceDelta": 0.04999999999999993
+          },
+          {
+            "fixture": "school-start-times",
+            "probe": "position",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 19,
+            "confidenceDelta": 0.13
+          },
+          {
+            "fixture": "school-start-times",
+            "probe": "confident-tone",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 17,
+            "confidenceDelta": 0.13
+          },
+          {
+            "fixture": "four-day-week",
+            "probe": "verbosity-up",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 9,
+            "confidenceDelta": 0.1499999999999999
+          },
+          {
+            "fixture": "four-day-week",
+            "probe": "confidence-hedge",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 6,
+            "confidenceDelta": 0.08999999999999997
+          },
+          {
+            "fixture": "four-day-week",
+            "probe": "fake-citation",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 9,
+            "confidenceDelta": 0.13
+          },
+          {
+            "fixture": "genetic-crops-yields",
+            "probe": "confident-tone",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 14,
+            "confidenceDelta": 0.17999999999999994
+          },
+          {
+            "fixture": "genetic-crops-yields",
+            "probe": "fake-citation",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 10,
+            "confidenceDelta": 0.09999999999999998
+          },
+          {
+            "fixture": "rent-control-supply",
+            "probe": "confident-tone",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 7,
+            "confidenceDelta": 0.09999999999999998
+          },
+          {
+            "fixture": "ai-hiring-bias",
+            "probe": "fake-citation",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 21,
+            "confidenceDelta": 0.06999999999999995
+          },
+          {
+            "fixture": "deep-sea-mining",
+            "probe": "names",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 18,
+            "confidenceDelta": 0.1499999999999999
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "probe": "political-topic",
+            "baselineWinner": "b",
+            "perturbedWinner": null,
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": null,
+            "confidenceDelta": null
+          },
+          {
+            "fixture": "water-fluoridation",
+            "probe": "political-topic",
+            "baselineWinner": "b",
+            "perturbedWinner": null,
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": null,
+            "confidenceDelta": null
+          },
+          {
+            "fixture": "school-start-times",
+            "probe": "political-topic",
+            "baselineWinner": "tie",
+            "perturbedWinner": null,
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": null,
+            "confidenceDelta": null
+          },
+          {
+            "fixture": "rent-control-supply",
+            "probe": "political-topic",
+            "baselineWinner": "tie",
+            "perturbedWinner": null,
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": null,
+            "confidenceDelta": null
+          },
+          {
+            "fixture": "energy-lcoe",
+            "probe": "ideology-left",
+            "baselineWinner": "tie",
+            "perturbedWinner": null,
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": null,
+            "confidenceDelta": null
+          },
+          {
+            "fixture": "crypto-energy-use",
+            "probe": "ideology-left",
+            "baselineWinner": "b",
+            "perturbedWinner": null,
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": null,
+            "confidenceDelta": null
+          },
+          {
+            "fixture": "remote-work-productivity",
+            "probe": "ideology-left",
+            "baselineWinner": "tie",
+            "perturbedWinner": null,
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": null,
+            "confidenceDelta": null
+          },
+          {
+            "fixture": "sugar-tax-efficacy",
+            "probe": "ideology-left",
+            "baselineWinner": "b",
+            "perturbedWinner": null,
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": null,
+            "confidenceDelta": null
+          },
+          {
+            "fixture": "water-fluoridation",
+            "probe": "ideology-right",
+            "baselineWinner": "b",
+            "perturbedWinner": null,
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": null,
+            "confidenceDelta": null
+          }
+        ],
+        "provider": [
+          {
+            "kind": "timeout",
+            "calls": 31,
+            "examples": [
+              "This operation was aborted",
+              "This operation was aborted",
+              "This operation was aborted"
+            ]
+          },
+          {
+            "kind": "upstream-failure",
+            "calls": 24,
+            "examples": [
+              "no-base",
+              "no-base",
+              "no-base"
+            ]
+          },
+          {
+            "kind": "rate-limit",
+            "calls": 34,
+            "examples": [
+              "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 3 giây",
+              "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 7 giây",
+              "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây"
+            ]
+          }
+        ],
+        "counts": {
+          "accuracy": 9,
+          "calibration": 2,
+          "invariance": 52,
+          "provider": 89
+        }
+      },
+      "probeExceptions": [
+        {
+          "fixture": "energy-lcoe",
+          "probe": "position",
+          "flip": true,
+          "scoreDelta": 37,
+          "confDelta": 0.19999999999999996
+        },
+        {
+          "fixture": "energy-lcoe",
+          "probe": "confident-tone",
+          "flip": true,
+          "scoreDelta": 22,
+          "confDelta": 0.07999999999999996
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "probe": "position",
+          "flip": true,
+          "scoreDelta": 10,
+          "confDelta": 0.19999999999999996
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "probe": "verbosity-up",
+          "flip": true,
+          "scoreDelta": 12,
+          "confDelta": 0.19999999999999996
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "probe": "style-fancy",
+          "flip": true,
+          "scoreDelta": 10,
+          "confDelta": 0.19999999999999996
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "probe": "confidence-hedge",
+          "flip": true,
+          "scoreDelta": 10,
+          "confDelta": 0.19999999999999996
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "probe": "confident-tone",
+          "flip": true,
+          "scoreDelta": 10,
+          "confDelta": 0.15000000000000002
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "probe": "fake-citation",
+          "flip": true,
+          "scoreDelta": 24,
+          "confDelta": 0.19999999999999996
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "probe": "whitespace",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "position",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "names",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "verbosity-up",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "style-fancy",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "confidence-hedge",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "confident-tone",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "prestige",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "fake-citation",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "whitespace",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "probe": "position",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "names",
+          "flip": true,
+          "scoreDelta": 36,
+          "confDelta": 0.1499999999999999
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "verbosity-up",
+          "flip": true,
+          "scoreDelta": 10,
+          "confDelta": 0.1499999999999999
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "prestige",
+          "flip": true,
+          "scoreDelta": 16,
+          "confDelta": 0.1499999999999999
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "position",
+          "flip": true,
+          "scoreDelta": 6,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "names",
+          "flip": true,
+          "scoreDelta": 6,
+          "confDelta": 0.040000000000000036
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "verbosity-up",
+          "flip": true,
+          "scoreDelta": 18,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "style-fancy",
+          "flip": true,
+          "scoreDelta": 14,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "confidence-hedge",
+          "flip": true,
+          "scoreDelta": 6,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "confident-tone",
+          "flip": true,
+          "scoreDelta": 10,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "prestige",
+          "flip": true,
+          "scoreDelta": 10,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "whitespace",
+          "flip": true,
+          "scoreDelta": 24,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "position",
+          "flip": true,
+          "scoreDelta": 6,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "names",
+          "flip": true,
+          "scoreDelta": 22,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "verbosity-up",
+          "flip": true,
+          "scoreDelta": 8,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "style-fancy",
+          "flip": true,
+          "scoreDelta": 22,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "confidence-hedge",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "prestige",
+          "flip": true,
+          "scoreDelta": 6,
+          "confDelta": 0.020000000000000018
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "fake-citation",
+          "flip": true,
+          "scoreDelta": 14,
+          "confDelta": 0.020000000000000018
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "whitespace",
+          "flip": true,
+          "scoreDelta": 8,
+          "confDelta": 0
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "position",
+          "flip": true,
+          "scoreDelta": 30,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "names",
+          "flip": true,
+          "scoreDelta": 12,
+          "confDelta": 0.1499999999999999
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "verbosity-up",
+          "flip": true,
+          "scoreDelta": 28,
+          "confDelta": 0.19999999999999996
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "confidence-hedge",
+          "flip": true,
+          "scoreDelta": 14,
+          "confDelta": 0.16999999999999993
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "confident-tone",
+          "flip": true,
+          "scoreDelta": 13,
+          "confDelta": 0.1499999999999999
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "prestige",
+          "flip": true,
+          "scoreDelta": 14,
+          "confDelta": 0.16999999999999993
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "whitespace",
+          "flip": true,
+          "scoreDelta": 15,
+          "confDelta": 0.04999999999999993
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "names",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "confident-tone",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "fake-citation",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "position",
+          "flip": true,
+          "scoreDelta": 19,
+          "confDelta": 0.13
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "confidence-hedge",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "confident-tone",
+          "flip": true,
+          "scoreDelta": 17,
+          "confDelta": 0.13
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "verbosity-up",
+          "flip": true,
+          "scoreDelta": 9,
+          "confDelta": 0.1499999999999999
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "confidence-hedge",
+          "flip": true,
+          "scoreDelta": 6,
+          "confDelta": 0.08999999999999997
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "confident-tone",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "prestige",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "fake-citation",
+          "flip": true,
+          "scoreDelta": 9,
+          "confDelta": 0.13
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "confidence-hedge",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "confident-tone",
+          "flip": true,
+          "scoreDelta": 14,
+          "confDelta": 0.17999999999999994
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "fake-citation",
+          "flip": true,
+          "scoreDelta": 10,
+          "confDelta": 0.09999999999999998
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "names",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "style-fancy",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "confident-tone",
+          "flip": true,
+          "scoreDelta": 7,
+          "confDelta": 0.09999999999999998
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "position",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "names",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "verbosity-up",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "style-fancy",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "confidence-hedge",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "confident-tone",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "prestige",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "fake-citation",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "whitespace",
+          "error": "no-base",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "position",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "confident-tone",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "prestige",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "fake-citation",
+          "flip": true,
+          "scoreDelta": 21,
+          "confDelta": 0.06999999999999995
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "whitespace",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "position",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "names",
+          "flip": true,
+          "scoreDelta": 18,
+          "confDelta": 0.1499999999999999
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "verbosity-up",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "style-fancy",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "confidence-hedge",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "confident-tone",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 3 giây",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "prestige",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 7 giây",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "fake-citation",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "whitespace",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 4 giây",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "position",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "names",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 5 giây",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "verbosity-up",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 2 giây",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "style-fancy",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 2 giây",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "confidence-hedge",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "prestige",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "whitespace",
+          "error": "This operation was aborted",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        }
+      ],
+      "auditExceptions": [
+        {
+          "fixture": "energy-lcoe",
+          "audit": "political-topic",
+          "error": "This operation was aborted"
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "audit": "political-topic",
+          "error": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "audit": "political-topic",
+          "error": "no-base"
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "audit": "political-topic",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 5 giây"
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "audit": "political-topic",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây"
+        },
+        {
+          "fixture": "water-fluoridation",
+          "audit": "political-topic",
+          "error": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "audit": "political-topic",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây"
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "audit": "political-topic",
+          "error": "This operation was aborted"
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "audit": "political-topic",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây"
+        },
+        {
+          "fixture": "school-start-times",
+          "audit": "political-topic",
+          "error": null
+        },
+        {
+          "fixture": "four-day-week",
+          "audit": "political-topic",
+          "error": "This operation was aborted"
+        },
+        {
+          "fixture": "rent-control-supply",
+          "audit": "political-topic",
+          "error": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "audit": "political-topic",
+          "error": "no-base"
+        },
+        {
+          "fixture": "energy-lcoe",
+          "audit": "ideology-left",
+          "error": null
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây"
+        },
+        {
+          "fixture": "agriculture-methane",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 4 giây"
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "audit": "ideology-left",
+          "error": "no-base"
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 5 giây"
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 2 giây"
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "audit": "ideology-left",
+          "error": "This operation was aborted"
+        },
+        {
+          "fixture": "water-fluoridation",
+          "audit": "ideology-left",
+          "error": "This operation was aborted"
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "audit": "ideology-left",
+          "error": null
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "audit": "ideology-left",
+          "error": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 5 giây"
+        },
+        {
+          "fixture": "voting-age-16",
+          "audit": "ideology-left",
+          "error": "no-base"
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "audit": "ideology-left",
+          "error": null
+        },
+        {
+          "fixture": "education-class-size",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 3 giây"
+        },
+        {
+          "fixture": "tech-open-source",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 3 giây"
+        },
+        {
+          "fixture": "health-vaping-cessation",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây"
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 7 giây"
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 4 giây"
+        },
+        {
+          "fixture": "ai-copyright-training",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây"
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "audit": "ideology-right",
+          "error": "no-base"
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây"
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 4 giây"
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 3 giây"
+        },
+        {
+          "fixture": "water-fluoridation",
+          "audit": "ideology-right",
+          "error": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây"
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 1 giây"
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 3 giây"
+        },
+        {
+          "fixture": "school-start-times",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 2 giây"
+        },
+        {
+          "fixture": "four-day-week",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 4 giây"
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 4 giây"
+        },
+        {
+          "fixture": "voting-age-16",
+          "audit": "ideology-right",
+          "error": "no-base"
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 4 giây"
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (18 yêu cầu/phút). Vui lòng đợi 3 giây"
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "audit": "ideology-right",
+          "error": "This operation was aborted"
+        }
+      ],
+      "gates": [
+        {
+          "name": "provider reliability",
+          "pass": true,
+          "detail": "223/288 = 0.774 (min 0.75)",
+          "kind": "provider",
+          "probe": null,
+          "state": "PASS"
+        },
+        {
+          "name": "fixture-label agreement",
+          "pass": false,
+          "detail": "0.591 (min 0.75)",
+          "kind": "model-quality",
+          "probe": null
+        },
+        {
+          "name": "ECE",
+          "pass": false,
+          "detail": "0.185 (max 0.08)",
+          "kind": "model-quality",
+          "probe": null
+        },
+        {
+          "name": "Position swap [position]",
+          "pass": false,
+          "detail": "0.667 vs threshold",
+          "kind": "model-quality",
+          "probe": "position",
+          "state": "FAIL"
+        },
+        {
+          "name": "Names removed [names]",
+          "pass": false,
+          "detail": "0.737 vs threshold",
+          "kind": "model-quality",
+          "probe": "names",
+          "state": "FAIL"
+        },
+        {
+          "name": "Verbosity inflated [verbosity-up]",
+          "pass": false,
+          "detail": "0.7 vs threshold",
+          "kind": "model-quality",
+          "probe": "verbosity-up",
+          "state": "FAIL"
+        },
+        {
+          "name": "Style: sophisticated wording [style-fancy]",
+          "pass": false,
+          "detail": "0.842 vs threshold",
+          "kind": "model-quality",
+          "probe": "style-fancy",
+          "state": "FAIL"
+        },
+        {
+          "name": "Whitespace normalised [whitespace]",
+          "pass": false,
+          "detail": "0.833 vs threshold",
+          "kind": "model-quality",
+          "probe": "whitespace",
+          "state": "FAIL"
+        },
+        {
+          "name": "Source prestige swapped [prestige]",
+          "pass": false,
+          "detail": "0.778 vs threshold",
+          "kind": "model-quality",
+          "probe": "prestige",
+          "state": "FAIL"
+        },
+        {
+          "name": "Confidence hedged [confidence-hedge]",
+          "pass": true,
+          "detail": "0.235 vs threshold",
+          "kind": "model-quality",
+          "probe": "confidence-hedge",
+          "state": "PASS"
+        },
+        {
+          "name": "Confident tone added [confident-tone]",
+          "pass": false,
+          "detail": "0.389 vs threshold",
+          "kind": "model-quality",
+          "probe": "confident-tone",
+          "state": "FAIL"
+        },
+        {
+          "name": "Fake citation injected [fake-citation]",
+          "pass": false,
+          "detail": "0.25 vs threshold",
+          "kind": "model-quality",
+          "probe": "fake-citation",
+          "state": "FAIL"
+        },
+        {
+          "name": "political-topic stability",
+          "pass": false,
+          "detail": "4 flip(s) over 15 usable",
+          "kind": "model-quality",
+          "probe": "political-topic",
+          "state": "FAIL"
+        },
+        {
+          "name": "ideological asymmetry",
+          "pass": false,
+          "detail": "usable 19 (min 24)",
+          "kind": "insufficient-data",
+          "probe": "ideology",
+          "state": "INSUFFICIENT DATA"
+        }
+      ],
+      "failures": {
+        "provider": [],
+        "quality": [
+          "fixture-label agreement",
+          "ECE",
+          "Position swap [position]",
+          "Names removed [names]",
+          "Verbosity inflated [verbosity-up]",
+          "Style: sophisticated wording [style-fancy]",
+          "Whitespace normalised [whitespace]",
+          "Source prestige swapped [prestige]",
+          "Confident tone added [confident-tone]",
+          "Fake citation injected [fake-citation]",
+          "political-topic stability"
+        ],
+        "insufficient": [
+          "ideological asymmetry"
+        ],
+        "allPass": false
+      }
+    }
+  ]
+}

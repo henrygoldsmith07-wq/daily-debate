@@ -140,11 +140,13 @@ export function baseGateChecks(m, gates) {
   const checks = [];
   const add = (name, value, min, max, kind = "model-quality", probeId = null) => {
     if (value === null || value === undefined) {
-      checks.push({ name, pass: false, detail: "insufficient data", kind: "insufficient-data", probe: probeId });
+      checks.push({ name, pass: false, state: "INSUFFICIENT DATA", detail: "insufficient data", kind: "insufficient-data", probe: probeId });
     } else if (min !== undefined) {
-      checks.push({ name, pass: value >= min, detail: `${value} (min ${min})`, kind, probe: probeId });
+      const ok = value >= min;
+      checks.push({ name, pass: ok, state: ok ? "PASS" : "FAIL", detail: `${value} (min ${min})`, kind, probe: probeId });
     } else {
-      checks.push({ name, pass: value <= max, detail: `${value} (max ${max})`, kind, probe: probeId });
+      const ok = value <= max;
+      checks.push({ name, pass: ok, state: ok ? "PASS" : "FAIL", detail: `${value} (max ${max})`, kind, probe: probeId });
     }
   };
   add("fixture-label agreement", m.humanAgreement, gates.humanAgreementMin, undefined);
@@ -241,23 +243,19 @@ export function auditGateChecks(m) {
 
 export function allGateChecks(m, gates) {
   const reliability = m.reliability;
-  const checks = [
-    ...(reliability
-      ? [
-          {
-            name: "provider reliability",
-            pass: reliabilityVerdict(reliability, gates.providerReliabilityMin).pass,
-            detail: `${reliability.successfulCalls}/${reliability.attemptedCalls} = ${reliability.successRatio} (min ${gates.providerReliabilityMin})`,
-            kind: reliabilityVerdict(reliability, gates.providerReliabilityMin).state === "INSUFFICIENT DATA" ? "insufficient-data" : "provider",
-            probe: null,
-            state: reliabilityVerdict(reliability, gates.providerReliabilityMin).state,
-          },
-        ]
-      : []),
-    ...baseGateChecks(m, gates),
-    ...probeGateChecks(m, gates),
-    ...auditGateChecks(m),
-  ];
+  const checks = [];
+  if (reliability) {
+    const v = reliabilityVerdict(reliability, gates.providerReliabilityMin);
+    checks.push({
+      name: "provider reliability",
+      pass: v.pass,
+      state: v.state,
+      detail: `${reliability.successfulCalls}/${reliability.attemptedCalls} = ${reliability.successRatio} (min ${gates.providerReliabilityMin})`,
+      kind: v.state === "INSUFFICIENT DATA" ? "insufficient-data" : "provider",
+      probe: null,
+    });
+  }
+  checks.push(...baseGateChecks(m, gates), ...probeGateChecks(m, gates), ...auditGateChecks(m));
   return checks;
 }
 

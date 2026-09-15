@@ -32,7 +32,9 @@ if (!Number.isInteger(RUNS) || RUNS < 2 || RUNS > 8) {
 const EXPERIMENT = argVal("experiment", "baseline");
 const MODELS = argVal("models", "") || "";
 const SLUG = argVal("slug", EXPERIMENT.replace(/[^a-z0-9-]/gi, ""));
-const RUNS_DIR = path.join(process.cwd(), "docs", "judge-runs", `${SLUG}-${new Date().toISOString().slice(0, 10)}`);
+const RUNS_DIR = argVal("dir")
+  ? path.resolve(argVal("dir"))
+  : path.join(process.cwd(), "docs", "judge-runs", `${SLUG}-${new Date().toISOString().slice(0, 10)}`);
 fs.mkdirSync(RUNS_DIR, { recursive: true });
 
 const log = (m) => process.stderr.write(`[judge-variance] ${m}\n`);
@@ -47,7 +49,7 @@ for (let i = Number(runIdx); i <= RUNS; i++) {
 }
 
 // --- aggregate every raw run in the directory --------------------------------
-const files = fs.readdirSync(RUNS_DIR).filter((f) => f.endsWith(".json")).sort();
+const files = fs.readdirSync(RUNS_DIR).filter((f) => f.endsWith(".json") && f !== "summary.json").sort();
 const runs = files.map((f) => JSON.parse(fs.readFileSync(path.join(RUNS_DIR, f), "utf8")));
 if (!runs.length) {
   process.stderr.write("no raw run artifacts found; nothing to aggregate.\n");
@@ -106,7 +108,13 @@ for (const [model, entries] of byModel) {
   const gateNames = [...new Set(entries.flatMap((e) => e.m.gates.map((g) => g.name)))];
   md.push("", "Gate pass frequency (per run, never averaged):", "");
   for (const name of gateNames) {
-    const results = entries.map((e) => e.m.gates.find((g) => g.name === name)?.state ?? "MISSING");
+    const results = entries.map((e) => {
+      const g = e.m.gates.find((x) => x.name === name);
+      if (!g) return "MISSING";
+      // Older raw artifacts lack an explicit state on base gates; derive it
+      // from pass/kind so summaries re-aggregate faithfully.
+      return g.state ?? (g.pass ? "PASS" : g.kind === "insufficient-data" ? "INSUFFICIENT DATA" : "FAIL");
+    });
     const pass = results.filter((x) => x === "PASS").length;
     md.push(`- \`${name}\`: ${pass}/${entries.length} PASS (states: ${results.join(", ")})`);
     summary.models[model].gatesPassFrequency[name] = { pass, runs: entries.length, states: results };
