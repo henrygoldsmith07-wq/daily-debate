@@ -77,8 +77,25 @@ export function bootstrapDeltaCi(baseValues, candValues, { draws = 2000, alpha =
 }
 
 /**
- * Apply the pre-registered adoption rule. Returns
- * { status: supported|rejected|inconclusive, reasons[] }.
+ * A run is USABLE for inference iff its provider reliability clears the
+ * registered floor. Excluded runs stay in raw evidence and descriptive
+ * reporting; they never enter means, CIs or regression comparisons.
+ */
+export function runUsability(run, registration) {
+  const min = registration.minimumUsableReliability ?? 0.75;
+  const rel = run.reliability;
+  if (typeof rel !== "number" || !Number.isFinite(rel)) return { usable: false, reason: "reliability unreported" };
+  if (rel < min) return { usable: false, reason: `reliability ${rel} < registered minimum ${min}` };
+  return { usable: true, reason: null };
+}
+
+/**
+ * Apply the pre-registered adoption rule EXACTLY. Returns
+ * { status: supported|rejected|inconclusive, reasons[], audit }.
+ *
+ * Inference uses ONLY usable runs; the registered runsPerArm is a hard
+ * requirement, not advice: usable < runsPerArm on ANY arm => INCONCLUSIVE,
+ * always. No reduced-power inference.
  */
 export function decideFromRegistration(registration, armStats) {
   const reasons = [];
@@ -87,59 +104,113 @@ export function decideFromRegistration(registration, armStats) {
   const need = registration.runsPerArm ?? 3;
   const minRel = registration.minimumUsableReliability ?? 0.75;
 
-  const usableRuns = (arm) => (arm?.runs ?? []).filter((r) => (r.reliability ?? 0) >= minRel);
-  const bu = usableRuns(base);
-  const cu = usableRuns(cand);
-  if (bu.length < 2 || cu.length < 2) {
+  const classify = (arm) =>
+    (arm?.runs ?? []).map((r) => ({ ...r, ...runUsability(r, registration) }));
+  const baseClass = classify(base);
+  const candClass = classify(cand);
+  const bu = baseClass.filter((r) => r.usable);
+  const cu = candClass.filter((r) => r.usable);
+
+  const audit = {
+    minimumUsableReliability: minRel,
+    runsPerArmRequired: need,
+    baseline: {
+      totalRuns: baseClass.length,
+      usableRuns: bu.length,
+      excluded: baseClass
+        .filter((r) => !r.usable)
+        .map((r) => ({ file: r.file, at: r.at, reliability: r.reliability, reason: r.reason })),
+    },
+    candidate: {
+      totalRuns: candClass.length,
+      usableRuns: cu.length,
+      excluded: candClass
+        .filter((r) => !r.usable)
+        .map((r) => ({ file: r.file, at: r.at, reliability: r.reliability, reason: r.reason })),
+    },
+  };
+
+  if (bu.length < need || cu.length < need) {
     return {
       status: "inconclusive",
       reasons: [
-        `insufficient usable runs (reliability >= ${minRel}): baseline ${bu.length}/${base?.runs?.length ?? 0} usable, candidate ${cu.length}/${cand?.runs?.length ?? 0} usable (registration requires ${need} per arm)`,
+        `registered requirement not met: usable runs baseline ${bu.length}/${need}, candidate ${cu.length}/${need} (reliability >= ${minRel}); INCONCLUSIVE - fewer usable runs never proceed to inference`,
       ],
+      audit,
     };
-  }
-  if (bu.length < need || cu.length < need) {
-    reasons.push(`below registered repetitions (${need}): usable baseline ${bu.length}, usable candidate ${cu.length} - verdict treats power as reduced`);
   }
 
   const target = registration.target;
+  if (!target?.metric) {
+    return { status: "inconclusive", reasons: ["registration declares no target metric"], audit };
+  }
   const dir = METRIC_DIRECTION[target.metric] ?? "up";
-  const bStat = basicStats(base.runs.map((r) => r.metrics[target.metric]));
-  const cStat = basicStats(cand.runs.map((r) => r.metrics[target.metric]));
-  if (!bStat || !cStat) return { status: "inconclusive", reasons: ["target metric missing data on at least one arm"] };
+  // Usable-only values, in stable order.
+  const bVals = bu.map((r) => r.metrics?.[target.metric] ?? null);
+  const cVals = cu.map((r) => r.metrics?.[target.metric] ?? null);
+  const bStat = basicStats(bVals);
+  const cStat = basicStats(cVals);
+  if (!bStat || !cStat) {
+    return { status: "inconclusive", reasons: [`target metric ${target.metric} missing on at least one usable arm`], audit };
+  }
+  // usable RUNS is not enough - the target metric needs registered-count
+  // usable VALUES, or the comparison is thinner than the seal allows.
+  if (bStat.n < need || cStat.n < need) {
+    return {
+      status: "inconclusive",
+      reasons: [`target ${target.metric}: usable values baseline ${bStat.n}/${need}, candidate ${cStat.n}/${need}`],
+      audit,
+    };
+  }
   const rawDelta = cStat.mean - bStat.mean;
   const signedDelta = dir === "up" ? rawDelta : -rawDelta;
-  const ci = bootstrapDeltaCi(
-    base.runs.map((r) => r.metrics[target.metric]),
-    cand.runs.map((r) => r.metrics[target.metric]),
-    { seed: registration.bootstrapSeed ?? 42 },
-  );
+  const ci = bootstrapDeltaCi(bVals, cVals, { seed: registration.bootstrapSeed ?? 42 });
   const marginOk = signedDelta >= (target.minImprovement ?? 0.05);
-  // "exceeds predefined noise margin": with >=2 runs/arm the bootstrap lower
-  // bound of the signed improvement must be > 0 (no overlap with no-effect).
   const lowerBoundSigned = ci ? (dir === "up" ? ci.ciLower : -ci.ciUpper) : null;
   const ciOk = lowerBoundSigned !== null && lowerBoundSigned > 0;
   if (!marginOk) reasons.push(`target ${target.metric}: improvement ${signedDelta.toFixed(3)} < registered minimum ${target.minImprovement}`);
-  if (ci && !ciOk) reasons.push(`target ${target.metric}: bootstrap ${((1 - 0.1) * 100).toFixed(0)}% CI lower bound ${lowerBoundSigned.toFixed(3)} includes zero - improvement not distinguishable from noise`);
-  if (!ci) reasons.push(`target ${target.metric}: bootstrap CI unavailable (empty arm)`);
+  if (ci && !ciOk) reasons.push(`target ${target.metric}: bootstrap 90% CI lower bound ${lowerBoundSigned.toFixed(3)} includes zero - improvement indistinguishable from run noise`);
+  if (!ci) reasons.push(`target ${target.metric}: bootstrap CI unavailable`);
 
   const regressions = [];
   for (const [metric, rule] of Object.entries(registration.protected ?? {})) {
     if (metric === target.metric) continue;
-    const pb = basicStats(base.runs.map((r) => r.metrics[metric]));
-    const pc = basicStats(cand.runs.map((r) => r.metrics[metric]));
+    const pb = basicStats(bu.map((r) => r.metrics?.[metric] ?? null));
+    const pc = basicStats(cu.map((r) => r.metrics?.[metric] ?? null));
     if (!pb || !pc) continue;
     const d = pc.mean - pb.mean;
     const worsened = (METRIC_DIRECTION[metric] ?? "up") === "up" ? -d : d;
     const maxTolerated = rule.maxRegression;
     const pooledSd = Math.max(pb.sd, pc.sd);
     if (worsened > maxTolerated && worsened > pooledSd) {
-      regressions.push(`${metric}: regressed by ${worsened.toFixed(3)} beyond max ${maxTolerated} (pooled sd ${pooledSd.toFixed(3)})`);
+      regressions.push(`${metric}: usable-run mean regressed by ${worsened.toFixed(3)} beyond max ${maxTolerated} and pooled sd ${pooledSd.toFixed(3)}`);
     } else if (worsened > maxTolerated) {
-      reasons.push(`${metric}: mean regression ${worsened.toFixed(3)} beyond max ${maxTolerated} but within run noise - noted, not disqualifying`);
+      reasons.push(`${metric}: mean regression ${worsened.toFixed(3)} beyond max ${maxTolerated} but within usable-run noise - noted, not disqualifying`);
     }
   }
-  if (regressions.length) return { status: "rejected", reasons: [...regressions, ...reasons.filter((r) => r.startsWith("target"))] };
-  if (marginOk && ciOk) return { status: "supported", reasons: [`target improved ${signedDelta.toFixed(3)} >= ${target.minImprovement}, CI lower bound ${lowerBoundSigned.toFixed(3)} > 0, no protected regression beyond noise`, ...reasons.map((r) => `(note) ${r}`)] };
-  return { status: "rejected", reasons: reasons.length ? reasons : ["adoption rule not satisfied"] };
+  const decision = { status: "rejected", reasons, audit };
+  if (regressions.length) return { ...decision, reasons: [...regressions, ...reasons] };
+  if (marginOk && ciOk) {
+    return { status: "supported", reasons: [`target ${target.metric} improved ${signedDelta.toFixed(3)} >= ${target.minImprovement}, CI lower bound ${lowerBoundSigned.toFixed(3)} > 0, no protected regression beyond usable-run noise`], audit };
+  }
+  return { ...decision, reasons: reasons.length ? reasons : ["adoption rule not satisfied"] };
+}
+
+/**
+ * Balanced interleave planner for (re)sumed studies: returns the exact arm
+ * sequence that keeps A/B alternation and per-arm counts within one of each
+ * other while both approach `reps`. Completed counts resume mid-study; the
+ * plan never runs two reps of one arm while the other trails (item 5).
+ */
+export function nextArmPlan(baselineCount, candidateCount, reps) {
+  const plan = [];
+  let b = baselineCount;
+  let c = candidateCount;
+  while (b < reps || c < reps) {
+    if (b <= c && b < reps) { plan.push("baseline"); b += 1; }
+    else if (c < reps) { plan.push("candidate"); c += 1; }
+    else { plan.push("baseline"); b += 1; }
+    if (plan.length > reps * 2 + 2) break; // paranoia against drift
+  }
+  return plan;
 }

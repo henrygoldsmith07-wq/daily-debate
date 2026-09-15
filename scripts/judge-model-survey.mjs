@@ -58,11 +58,13 @@ for (const model of models) {
 }
 
 const rows = [];
+const MIN_REL = 0.75;
 for (const model of models) {
   const dir = path.join(surveyDir, model.replace(/[^a-z0-9.]/gi, "_"));
   if (!fs.existsSync(dir)) continue;
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
   let runs = 0;
+  let usableRuns = 0;
   let relSum = 0;
   let agreementSum = 0;
   let eceSum = 0;
@@ -72,7 +74,12 @@ for (const model of models) {
     const p = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
     for (const m of p.results ?? []) {
       runs += 1;
-      relSum += m.reliability?.successRatio ?? 0;
+      const rel = m.reliability?.successRatio ?? 0;
+      relSum += rel;
+      // Item 14: a dead/capped provider is an AVAILABILITY finding, never a
+      // quality conclusion - quality stats use only usable runs.
+      if (rel < MIN_REL) continue;
+      usableRuns += 1;
       agreementSum += metricValue("fixture agreement", m) ?? 0;
       eceSum += metricValue("ECE", m) ?? 0;
       fakeSum += metricValue("fake-citation influence", m) ?? 0;
@@ -83,19 +90,20 @@ for (const model of models) {
     rows.push({
       model,
       runs,
+      usableRuns,
       providerReliability: +(relSum / runs).toFixed(3),
-      agreement: +(agreementSum / runs).toFixed(3),
-      ece: +(eceSum / runs).toFixed(3),
-      fakeCitation: +(fakeSum / runs).toFixed(3),
-      qualityGatePassesPerRun: +(qualityPassSum / runs).toFixed(2),
+      agreement: usableRuns ? +(agreementSum / usableRuns).toFixed(3) : null,
+      ece: usableRuns ? +(eceSum / usableRuns).toFixed(3) : null,
+      fakeCitation: usableRuns ? +(fakeSum / usableRuns).toFixed(3) : null,
+      qualityGatePassesPerRun: usableRuns ? +(qualityPassSum / usableRuns).toFixed(2) : null,
     });
   }
 }
 // Rank by provider-reliability-filtered quality: runs below the reliability
 // gate (0.75) still appear but sort last on quality, clearly separated.
-rows.sort((a, b) => (b.providerReliability >= 0.75) - (a.providerReliability >= 0.75)
-  || b.qualityGatePassesPerRun - a.qualityGatePassesPerRun
-  || a.ece - b.ece);
+rows.sort((a, b) => (b.providerReliability >= MIN_REL) - (a.providerReliability >= MIN_REL)
+  || (b.qualityGatePassesPerRun ?? -1) - (a.qualityGatePassesPerRun ?? -1)
+  || (a.ece ?? 9) - (b.ece ?? 9));
 const out = {
   at: new Date().toISOString(),
   provider: providerLabel,

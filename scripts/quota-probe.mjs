@@ -9,7 +9,6 @@
 //   -> "PROBE-OK ..." exit 0 | "PROBE-FAIL ..." exit 4 | "NO-KEY" exit 3
 
 import fs from "node:fs";
-import path from "node:path";
 import { allJudgeProviders } from "./lib/judge-providers.mjs";
 
 for (const line of (fs.existsSync(".env.local") ? fs.readFileSync(".env.local", "utf8") : "").split(/\r?\n/)) {

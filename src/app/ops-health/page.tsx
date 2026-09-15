@@ -104,16 +104,24 @@ export default async function OpsHealthPage() {
 
       <section className="surface-card mt-4 p-5" aria-labelledby="topic-slo-heading">
         <div className="flex items-center justify-between gap-3">
-          <h2 id="topic-slo-heading" className="text-sm font-semibold">Topic production SLO (scheduler, not CI)</h2>
+          <h2 id="topic-slo-heading" className="text-sm font-semibold">Topic production SLO (scheduler + availability, not CI)</h2>
           <StateBadge state={report.topicSlo.status} />
         </div>
+        <div className="mt-2 flex gap-2 text-xs">
+          <span className="rounded-full bg-surface-2 px-2 py-0.5 font-medium">
+            Scheduler: <span className="uppercase">{report.topicSlo.scheduler.state}</span>
+          </span>
+          <span className="rounded-full bg-surface-2 px-2 py-0.5 font-medium">
+            Availability: <span className="uppercase">{report.topicSlo.availability.state}</span>
+          </span>
+        </div>
         <div className="mt-2">
-          <Fact label="SLO deadline (tomorrow&apos;s topic stored by)" value={`${report.topicSlo.deadlineUtc} UTC daily`} />
+          <Fact label="Deadline (tomorrow&apos;s topic stored by)" value={`${report.topicSlo.availability.deadlineUtc} UTC daily`} />
           <Fact
             label="Last scheduled run"
             value={
-              report.topicSlo.lastScheduledRunAt
-                ? `${fmtDate(report.topicSlo.lastScheduledRunAt)} (${report.topicSlo.lastScheduledRunConclusion ?? "?"})`
+              report.topicSlo.scheduler.lastScheduledRunAt
+                ? `${fmtDate(report.topicSlo.scheduler.lastScheduledRunAt)} (${report.topicSlo.scheduler.lastScheduledRunConclusion ?? "?"})`
                 : "never"
             }
           />
@@ -125,7 +133,13 @@ export default async function OpsHealthPage() {
                 : "none"
             }
           />
-          <Fact label="Consecutive scheduled failures" value={String(report.topicSlo.consecutiveScheduledFailures)} />
+          <Fact label="Consecutive scheduled failures" value={String(report.topicSlo.scheduler.consecutiveScheduledFailures)} />
+          <Fact
+            label="Production proofs (manual + later scheduled success)"
+            value={`${report.topicSlo.proofs.manualSuccess ? "manual ✓" : "manual ✗"} / ${
+              report.topicSlo.proofs.scheduledSuccessAfterManual ? "scheduled ✓" : "scheduled ✗"
+            }`}
+          />
         </div>
         {report.topicSlo.note && <p className="mt-2 text-xs text-ink3">{report.topicSlo.note}</p>}
       </section>
