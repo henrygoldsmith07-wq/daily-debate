@@ -1,0 +1,183 @@
+{
+  "at": "2026-09-15T07:02:02.550Z",
+  "experiment": "citation-zero-weight",
+  "runs": 2,
+  "files": [
+    "2026-09-15T065940721Z-kiraai.json",
+    "2026-09-15T070202525Z-kiraai.json"
+  ],
+  "models": {
+    "kiraai:qwen3.8-flash-free": {
+      "perRun": {
+        "2026-09-15T06:59:40.721Z": {
+          "reliability": 0.434,
+          "agreement": 0.529,
+          "ece": 0.187,
+          "fakeCitation": 0.143,
+          "promptHash": "c3675bd73e6b2fcc",
+          "allPassRun": false
+        },
+        "2026-09-15T07:02:02.525Z": {
+          "reliability": 0,
+          "agreement": null,
+          "ece": null,
+          "fakeCitation": null,
+          "promptHash": "c3675bd73e6b2fcc",
+          "allPassRun": false
+        }
+      },
+      "gatesPassFrequency": {
+        "provider reliability": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "FAIL"
+          ]
+        },
+        "fixture-label agreement": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "MISSING",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "ECE": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "MISSING",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "Position swap [position]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "Names removed [names]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "Verbosity inflated [verbosity-up]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "Style: sophisticated wording [style-fancy]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "Whitespace normalised [whitespace]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "Source prestige swapped [prestige]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "Confidence hedged [confidence-hedge]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "Confident tone added [confident-tone]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "Fake citation injected [fake-citation]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "political-topic stability": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        },
+        "ideological asymmetry": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "INSUFFICIENT DATA"
+          ]
+        }
+      },
+      "provider reliability": {
+        "n": 2,
+        "mean": 0.217,
+        "median": 0.217,
+        "min": 0,
+        "max": 0.434,
+        "sd": 0.307
+      },
+      "fixture agreement": {
+        "n": 1,
+        "mean": 0.529,
+        "median": 0.529,
+        "min": 0.529,
+        "max": 0.529,
+        "sd": 0
+      },
+      "ECE": {
+        "n": 1,
+        "mean": 0.187,
+        "median": 0.187,
+        "min": 0.187,
+        "max": 0.187,
+        "sd": 0
+      },
+      "fake-citation influence": {
+        "n": 1,
+        "mean": 0.143,
+        "median": 0.143,
+        "min": 0.143,
+        "max": 0.143,
+        "sd": 0
+      },
+      "position stability": null,
+      "names stability": null,
+      "verbosity stability": null,
+      "style stability": null,
+      "whitespace stability": null,
+      "prestige stability": null
+    }
+  }
+}

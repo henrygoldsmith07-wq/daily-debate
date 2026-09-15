@@ -1,0 +1,225 @@
+{
+  "at": "2026-09-15T12:02:24.926Z",
+  "experiment": "citation-zero-weight",
+  "runs": 2,
+  "files": [
+    "2026-09-15T081039238Z-kiraai.json",
+    "2026-09-15T120224903Z-kiraai.json"
+  ],
+  "models": {
+    "kiraai:qwen3.8-flash-free": {
+      "perRun": {
+        "2026-09-15T08:10:39.238Z": {
+          "reliability": 0.88,
+          "agreement": 0.5,
+          "ece": 0.256,
+          "fakeCitation": 0.25,
+          "promptHash": "c3675bd73e6b2fcc",
+          "allPassRun": false
+        },
+        "2026-09-15T12:02:24.903Z": {
+          "reliability": 0.97,
+          "agreement": 0.652,
+          "ece": 0.087,
+          "fakeCitation": 0.261,
+          "promptHash": "c3675bd73e6b2fcc",
+          "allPassRun": false
+        }
+      },
+      "gatesPassFrequency": {
+        "provider reliability": {
+          "pass": 2,
+          "runs": 2,
+          "states": [
+            "PASS",
+            "PASS"
+          ]
+        },
+        "fixture-label agreement": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "FAIL"
+          ]
+        },
+        "ECE": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "FAIL"
+          ]
+        },
+        "Position swap [position]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "FAIL"
+          ]
+        },
+        "Names removed [names]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "FAIL"
+          ]
+        },
+        "Verbosity inflated [verbosity-up]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "FAIL"
+          ]
+        },
+        "Style: sophisticated wording [style-fancy]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "FAIL"
+          ]
+        },
+        "Whitespace normalised [whitespace]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "FAIL"
+          ]
+        },
+        "Source prestige swapped [prestige]": {
+          "pass": 1,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "PASS"
+          ]
+        },
+        "Confidence hedged [confidence-hedge]": {
+          "pass": 1,
+          "runs": 2,
+          "states": [
+            "INSUFFICIENT DATA",
+            "PASS"
+          ]
+        },
+        "Confident tone added [confident-tone]": {
+          "pass": 2,
+          "runs": 2,
+          "states": [
+            "PASS",
+            "PASS"
+          ]
+        },
+        "Fake citation injected [fake-citation]": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "FAIL"
+          ]
+        },
+        "political-topic stability": {
+          "pass": 0,
+          "runs": 2,
+          "states": [
+            "FAIL",
+            "FAIL"
+          ]
+        },
+        "ideological asymmetry": {
+          "pass": 2,
+          "runs": 2,
+          "states": [
+            "PASS",
+            "PASS"
+          ]
+        }
+      },
+      "provider reliability": {
+        "n": 2,
+        "mean": 0.925,
+        "median": 0.925,
+        "min": 0.88,
+        "max": 0.97,
+        "sd": 0.064
+      },
+      "fixture agreement": {
+        "n": 2,
+        "mean": 0.576,
+        "median": 0.576,
+        "min": 0.5,
+        "max": 0.652,
+        "sd": 0.107
+      },
+      "ECE": {
+        "n": 2,
+        "mean": 0.171,
+        "median": 0.171,
+        "min": 0.087,
+        "max": 0.256,
+        "sd": 0.12
+      },
+      "fake-citation influence": {
+        "n": 2,
+        "mean": 0.256,
+        "median": 0.256,
+        "min": 0.25,
+        "max": 0.261,
+        "sd": 0.008
+      },
+      "position stability": {
+        "n": 2,
+        "mean": 0.802,
+        "median": 0.802,
+        "min": 0.692,
+        "max": 0.913,
+        "sd": 0.156
+      },
+      "names stability": {
+        "n": 2,
+        "mean": 0.82,
+        "median": 0.82,
+        "min": 0.769,
+        "max": 0.87,
+        "sd": 0.071
+      },
+      "verbosity stability": {
+        "n": 2,
+        "mean": 0.829,
+        "median": 0.829,
+        "min": 0.826,
+        "max": 0.833,
+        "sd": 0.005
+      },
+      "style stability": {
+        "n": 2,
+        "mean": 0.885,
+        "median": 0.885,
+        "min": 0.857,
+        "max": 0.913,
+        "sd": 0.04
+      },
+      "whitespace stability": {
+        "n": 2,
+        "mean": 0.918,
+        "median": 0.918,
+        "min": 0.913,
+        "max": 0.923,
+        "sd": 0.007
+      },
+      "prestige stability": {
+        "n": 2,
+        "mean": 0.901,
+        "median": 0.901,
+        "min": 0.846,
+        "max": 0.957,
+        "sd": 0.078
+      }
+    }
+  }
+}
