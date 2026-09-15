@@ -30,7 +30,7 @@ if (!argVal("registration") || !fs.existsSync(regPath) || !fs.statSync(regPath).
   process.stderr.write("usage: node scripts/judge-study.mjs --registration docs/judge-experiments/registrations/<name>.json\n");
   process.exit(2);
 }
-const registrationText = fs.readFileSync(regPath, "utf8");
+const registrationText = fs.readFileSync(regPath, "utf8").replace(/^\uFEFF/, "");
 const reg = JSON.parse(registrationText);
 const regHash = createHash("sha256").update(registrationText).digest("hex").slice(0, 16);
 for (const arm of ["baseline", "candidate"]) {
