@@ -151,8 +151,14 @@ export const PROVIDERS = [
     label: "kiraai",
     keyEnv: "KIRAAI_API_KEY",
     url: "https://kiraai.vn/api/v1/chat/completions",
-    defaultModel: "qwen3.8-flash-free",
-    fallbacks: ["glm-5.3-free", "hy3-free", "mimo-v2.5-free"],
+    // 2026-09-15: kiraai retired ALL "-free" slugs mid-session (hard 404 -
+    // they powered the day's studies and vanished from the catalog; mimo was
+    // the first to go). Base slugs exist but bill against the account
+    // wallet (402 at 0 VND). Chain points at surviving slugs; the provider
+    // is unusable until the wallet or a free tier returns - scripts/quota-probe.mjs
+    // documents that live state instead of assuming.
+    defaultModel: "qwen3.8-flash",
+    fallbacks: ["glm-5.3", "hy3"],
   },
 ];
 
@@ -201,6 +207,7 @@ function isTransportError(e) {
 function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem(), userFn = verdictUser, maxTokens = 900, stats = null }) {
   return async (input) => {
     let lastError;
+    const chainErrors = {};
     const started = Date.now();
     if (stats) stats.jobs += 1;
     for (const model of models) {
@@ -217,6 +224,7 @@ function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVer
           return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs };
         } catch (e) {
           if (stats) stats.errors += 1;
+          chainErrors[model] = String(e?.message ?? e).slice(0, 90);
           lastError = e;
           if (attempt >= CHAIN_ATTEMPTS_PER_MODEL || !isTransportError(e)) break;
           const backoff = Math.min(e.retryAfterSec ? e.retryAfterSec * 1000 : 1200 * attempt, Math.max(0, CHAIN_RETRY_BUDGET_MS - (Date.now() - started)));
@@ -225,6 +233,11 @@ function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVer
           await new Promise((r) => setTimeout(r, backoff));
         }
       }
+    }
+    if (lastError) {
+      // Attach (do not replace) so error classification keeps the real status
+      // line while probes and diagnostics can see the whole chain.
+      lastError.chainErrors = chainErrors;
     }
     throw lastError ?? new Error("no models configured");
   };
