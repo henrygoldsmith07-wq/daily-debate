@@ -48,6 +48,7 @@ const rows = await query(
 );
 
 // 1+2: exactly one complete row for the target date.
+checks.topicRows = rows.length;
 if (rows.length !== 1) {
   failures.push(`expected exactly 1 topic row for ${targetDate}, found ${rows.length}`);
   checks.topic_row = { count: rows.length };

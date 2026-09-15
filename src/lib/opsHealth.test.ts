@@ -222,77 +222,94 @@ describe("buildOpsHealthReport", () => {
   });
 });
 
-describe("assessTopicSlo (production scheduler, not CI)", () => {
-  const now = "2026-09-15T12:00:00Z";
-  const run = (event: string, conclusion: string | null, createdAt = now, status = "completed") => ({
+describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
+  const run = (event: string, conclusion: string | null, createdAt: string, status = "completed") => ({
     event, status, conclusion, createdAt,
   });
+  const schedOk = [run("schedule", "success", "2026-09-15T02:00:00Z")];
 
-  it("healthy only with a succeeded schedule run AND tomorrow's topic in the production store", () => {
-    const s = assessTopicSlo({ runs: [run("schedule", "success")], productionDbReadable: true, tomorrowReady: true }, now);
+  it("healthy requires BOTH a clean scheduler AND ready availability", () => {
+    const s = assessTopicSlo(
+      { runs: schedOk, productionDbReadable: true, tomorrowReady: true },
+      "2026-09-15T12:00:00Z",
+    );
+    expect(s.scheduler.state).toBe("healthy");
+    expect(s.availability.state).toBe("ready");
     expect(s.status).toBe("healthy");
-    expect(s.lastScheduledRunAt).toBe(now);
   });
 
-  it("CI-equivalent success (push/dispatch) alone is never healthy", () => {
-    const dispatchOnly = assessTopicSlo(
-      { runs: [run("workflow_dispatch", "success")], productionDbReadable: true, tomorrowReady: true },
-      now,
-    );
-    expect(dispatchOnly.status).toBe("unknown"); // scheduler never fired
-    const pushOnly = assessTopicSlo(
-      { runs: [run("push", "success")], productionDbReadable: true, tomorrowReady: true },
-      now,
-    );
-    expect(pushOnly.status).toBe("unknown");
+  it("missing topic BEFORE 03:00 UTC is pending, after it is an S1 breach (failed)", () => {
+    const before = assessTopicSlo({ runs: schedOk, productionDbReadable: true, tomorrowReady: false }, "2026-09-15T02:30:00Z");
+    expect(before.availability.state).toBe("pending-before-deadline");
+    expect(before.status).toBe("healthy"); // scheduler clean; pending is normal pre-deadline
+    const after = assessTopicSlo({ runs: schedOk, productionDbReadable: true, tomorrowReady: false }, "2026-09-15T03:00:00Z");
+    expect(after.availability.state).toBe("missed-deadline");
+    expect(after.status).toBe("failed"); // enforced at the deadline, not at 36h
   });
 
-  it("unreadable production store makes the SLO unknown regardless of run history", () => {
-    const s = assessTopicSlo(
-      { runs: [run("schedule", "success"), run("schedule", "success")], productionDbReadable: false, tomorrowReady: false },
-      now,
-    );
-    expect(s.status).toBe("unknown");
+  it("scheduler failures degrade the scheduler dimension independently of content", () => {
+    const failedRun = [run("schedule", "failure", "2026-09-15T02:00:00Z")];
+    const withContent = assessTopicSlo({ runs: failedRun, productionDbReadable: true, tomorrowReady: true }, "2026-09-15T12:00:00Z");
+    expect(withContent.scheduler.state).toBe("degraded");
+    expect(withContent.availability.state).toBe("ready");
+    expect(withContent.status).toBe("degraded");
+    const noContent = assessTopicSlo({ runs: failedRun, productionDbReadable: true, tomorrowReady: false }, "2026-09-15T12:00:00Z");
+    expect(noContent.scheduler.state).toBe("degraded");
+    expect(noContent.availability.state).toBe("missed-deadline");
+    expect(noContent.status).toBe("failed"); // worst-of derivation
   });
 
-  it("one schedule success but missing tomorrow = degraded, never healthy", () => {
-    const s = assessTopicSlo(
-      { runs: [run("schedule", "success")], productionDbReadable: true, tomorrowReady: false },
-      now,
-    );
-    expect(s.status).toBe("degraded");
-  });
-
-  it("escalates consecutive scheduled failures: 1-2 degraded-with-missing-data-failed, 3+ failed", () => {
-    const runs = [run("schedule", "failure"), run("schedule", "failure")];
-    expect(assessTopicSlo({ runs, productionDbReadable: true, tomorrowReady: true }, now).status).toBe("degraded");
-    expect(assessTopicSlo({ runs, productionDbReadable: true, tomorrowReady: false }, now).status).toBe("failed");
-    const many = [run("schedule", "failure"), run("schedule", "failure"), run("schedule", "failure")];
-    const s = assessTopicSlo({ runs: many, productionDbReadable: true, tomorrowReady: true }, now);
+  it("three consecutive scheduled failures fail the scheduler dimension", () => {
+    const bad = [
+      run("schedule", "failure", "2026-09-15T02:00:00Z"),
+      run("schedule", "failure", "2026-09-14T02:00:00Z"),
+      run("schedule", "failure", "2026-09-13T02:00:00Z"),
+    ];
+    const s = assessTopicSlo({ runs: bad, productionDbReadable: true, tomorrowReady: true }, "2026-09-15T12:00:00Z");
+    expect(s.scheduler.consecutiveScheduledFailures).toBe(3);
     expect(s.status).toBe("failed");
-    expect(s.consecutiveScheduledFailures).toBe(3);
   });
 
-  it("a success older than the stall window with no topic = stale (scheduler not firing)", () => {
-    const old = "2026-09-12T02:00:00Z";
+  it("unreadable production store = availability unknown; content alone never healthy", () => {
+    const s = assessTopicSlo({ runs: schedOk, productionDbReadable: false, tomorrowReady: false }, "2026-09-15T12:00:00Z");
+    expect(s.availability.state).toBe("unknown");
+    expect(s.status).toBe("unknown");
+    const s2 = assessTopicSlo({ runs: [], productionDbReadable: true, tomorrowReady: true }, "2026-09-15T12:00:00Z");
+    expect(s2.scheduler.state).toBe("unknown");
+    expect(s2.status).toBe("unknown"); // CI-like states can't green-wash a silent scheduler
+  });
+
+  it("freshness verification failure on a present row = invalid availability", () => {
     const s = assessTopicSlo(
-      { runs: [run("schedule", "success", old)], productionDbReadable: true, tomorrowReady: false },
-      now,
+      { runs: schedOk, productionDbReadable: true, tomorrowReady: true, latestRunVerified: false },
+      "2026-09-15T12:00:00Z",
     );
+    expect(s.availability.state).toBe("invalid");
+    expect(s.status).toBe("failed");
+  });
+
+  it("production proofs track manual + subsequent scheduled success (item 12)", () => {
+    const dispatch = run("workflow_dispatch", "success", "2026-09-15T10:00:00Z");
+    const laterSchedule = run("schedule", "success", "2026-09-16T02:00:00Z");
+    const both = assessTopicSlo(
+      { runs: [laterSchedule, dispatch, ...schedOk.map((r) => run("schedule", r.conclusion, "2026-09-14T02:00:00Z"))], productionDbReadable: true, tomorrowReady: true },
+      "2026-09-16T12:00:00Z",
+    );
+    expect(both.proofs.manualSuccess).toBe(true);
+    expect(both.proofs.scheduledSuccessAfterManual).toBe(true);
+    const manualOnly = assessTopicSlo(
+      { runs: [dispatch, ...schedOk], productionDbReadable: true, tomorrowReady: true },
+      "2026-09-15T12:00:00Z",
+    );
+    expect(manualOnly.proofs.manualSuccess).toBe(true);
+    expect(manualOnly.proofs.scheduledSuccessAfterManual).toBe(false);
+  });
+
+  it("stalled scheduler (>36h since last schedule attempt) is stale", () => {
+    const old = run("schedule", "success", "2026-09-12T02:00:00Z");
+    const s = assessTopicSlo({ runs: [old], productionDbReadable: true, tomorrowReady: true }, "2026-09-15T12:00:00Z");
+    expect(s.scheduler.state).toBe("stale");
     expect(s.status).toBe("stale");
-  });
-
-  it("intermittent pattern (failure then success) resets the failure streak", () => {
-    const s = assessTopicSlo(
-      {
-        runs: [run("schedule", "success"), run("schedule", "failure"), run("schedule", "failure")],
-        productionDbReadable: true,
-        tomorrowReady: true,
-      },
-      now,
-    );
-    expect(s.consecutiveScheduledFailures).toBe(0);
-    expect(s.status).toBe("healthy");
   });
 });
 

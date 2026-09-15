@@ -90,20 +90,38 @@ Emergency changes: the repo owner edits or disables the ruleset in the web UI (d
 
 ## Topic production SLO
 
-Operational expectations, assessed in ops health (`assessTopicSlo`) from the
-REAL scheduler and the PRODUCTION store — CI topic-pipeline success is never
-counted as production evidence:
+Two INDEPENDENT dimensions, reported separately and combined by worst-of into
+the ops-health status (`assessTopicSlo`):
 
-- **S1** Tomorrow's topic exists by **03:00 UTC** daily (schedule fires 02:00).
-- **S2** Exactly one valid topic per date (`UNIQUE(topic_date)` + post-write verifier).
-- **S3** No orphan evidence rows; evidence bounded by the pipeline cap.
-- **S4** Provider/AI failure landing on a stored fallback is ACCEPTABLE (outcome `curated-fallback` / provenance `fallback`), not an SLO breach.
-- **S5** Repeated scheduled failures escalate status: 1–2 → degraded, ≥3 consecutive → failed; a >36h gap with no current topic → stale; no scheduler runs ever, or unreadable production store → unknown (never healthy).
+**Scheduler reliability** (run history of topic-generation.yml; CI never counts):
+healthy / degraded (1–2 consecutive scheduled failures) / failed (≥3
+consecutive) / stale (>36h without any scheduled attempt finishing) /
+unknown (never executed here).
 
-State vocabulary: **healthy / degraded / stale / failed / unknown**. Each
-successful scheduled or manual run additionally persists structured evidence
-(run type, target date, generator outcome, freshness verification) to the run
-summary and a `topic-run-evidence-*` artifact.
+**Topic availability** (production store content, deadline-enforced):
+ready / pending-before-deadline (before 03:00 UTC, absence is NORMAL, not a
+breach) / **missed-deadline (S1 BREACH after 03:00 UTC — immediate failed,
+not waiting for the 36h stall detector)** / invalid (row exists but freshness
+verification failed) / unknown (production store unreadable).
+
+Overall = worst of the two severities. Example: one failed run with tomorrow
+missing at 12:00 UTC reports `Scheduler: DEGRADED`, `Availability:
+MISSED-DEADLINE`, overall FAILED — run history and content state stay
+separable.
+
+Definitions: **S1** tomorrow's topic stored by 03:00 UTC; **S2** exactly one
+valid row per date (`UNIQUE(topic_date)` + post-write verifier); **S3** no
+orphan evidence, bounded count; **S4** AI-failure-with-stored-fallback is
+acceptable, not a breach; **S5** repeated scheduled failures escalate the
+scheduler dimension as above.
+
+Ops health also reports the **production proofs**: a successful manual
+(`workflow_dispatch`) run and a subsequent successful **scheduled** run after
+it — production scheduling is proven only when both exist. Each run persists
+structured evidence (run id, event, target date, generator outcome,
+provenance, topic count, evidence count, freshness verification, duration,
+final result) to its step summary and a `topic-run-evidence-*` artifact, so
+SLO state is auditable rather than inferred from the current DB row alone.
 
 ## Scheduled jobs
 

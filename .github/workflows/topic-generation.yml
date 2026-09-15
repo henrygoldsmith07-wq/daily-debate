@@ -63,17 +63,26 @@ jobs:
           grep -q '"ok": true' verify.json
       - name: Persist operational evidence
         # Structured proof of this run for audits and the ops-health SLO:
-        # run type, target date, source, topic/evidence counts, freshness.
+        # run id/type, target date, source, topic/evidence counts, freshness,
+        # duration inputs and final result.
         env:
           EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+          ATTEMPT: ${{ github.run_attempt }}
+          STARTED: ${{ github.run_started_at }}
         run: |
           {
             echo '## Topic generation evidence'
             echo '```json'
-            jq -s --arg rt "$EVENT" '{runType: $rt, generator: .[0], freshness: .[1]}' gen-result.json verify.json
+            jq -s --arg rt "$EVENT" --arg id "$RUN_ID" --arg at "$ATTEMPT" --arg st "$STARTED" \
+              '{runId: $id, runAttempt: $at, runType: $rt, startedAt: $st, generator: .[0], freshness: .[1], result: "pass"}' \
+              gen-result.json verify.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          jq -s --arg rt "$EVENT" '{runType: $rt, generator: .[0], freshness: .[1]}' gen-result.json verify.json > topic-run-evidence.json
+          jq -s --arg rt "$EVENT" --arg id "$RUN_ID" --arg at "$ATTEMPT" --arg st "$STARTED" \
+            '{runId: $id, runAttempt: $at, runType: $rt, startedAt: $st, generator: .[0], freshness: .[1], result: "pass"}' \
+            gen-result.json verify.json > topic-run-evidence.json
+          echo "run=${RUN_ID} event=${EVENT} target=$(jq -r .generator.date gen-result.json) source=$(jq -r .generator.source gen-result.json) evidence=$(jq -r .freshness.checks.evidenceCards verify.json)"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
