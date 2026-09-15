@@ -134,19 +134,29 @@ export function assessTopicHealth(latest: TopicRowInput | null, nowIso: string):
 
 // --- Topic production SLO ---------------------------------------------------
 //
-// Operational expectations (see docs/operations.md § Topic SLO):
-//   S1  Tomorrow's topic is stored before 03:00 UTC (schedule fires 02:00).
-//   S2  Exactly one valid topic per date (UNIQUE + workflow verifier).
-//   S3  No orphan evidence; evidence bounded by the cap (verifier gate).
-//   S4  AI failure with a stored fallback outcome is ACCEPTABLE.
-//   S5  Repeated scheduled failures escalate ops status (degraded -> failed).
-//
-// Critically: CI topic-pipeline success is NOT production evidence. Only the
-// real scheduler (GitHub "schedule" runs of topic-generation.yml) plus a
-// readable production database can move this section to healthy.
+// Two INDEPENDENT dimensions answer two different questions (item 9):
+//   Scheduler reliability    - did the job run, and did it run cleanly?
+//   Topic availability       - is tomorrow's valid topic actually there?
+// Overall status is the deterministic worst of the two. The 03:00 UTC
+// deadline is ENFORCED, not documentation: before it, absence is
+// pending-before-deadline; after it, absence is a missed-deadline breach.
+// CI evidence never counts: availability reads the production store and
+// scheduler reads the real workflow run history.
 
 export const TOPIC_SLO_DEADLINE_UTC = "03:00";
 export const TOPIC_SLO_STALL_HOURS = 36;
+
+export type SchedulerState = "healthy" | "degraded" | "stale" | "failed" | "unknown";
+export type AvailabilityState = "ready" | "pending-before-deadline" | "missed-deadline" | "invalid" | "unknown";
+
+const SCHEDULER_SEVERITY: Record<SchedulerState, number> = { healthy: 0, degraded: 2, stale: 3, failed: 5, unknown: 1 };
+const AVAILABILITY_SEVERITY: Record<AvailabilityState, number> = {
+  ready: 0,
+  "pending-before-deadline": 0,
+  unknown: 1,
+  "missed-deadline": 5,
+  invalid: 5,
+};
 
 export interface TopicScheduledRun {
   event: string; // "schedule" | "workflow_dispatch" | "push"...
@@ -161,15 +171,30 @@ export interface TopicSloInput {
   productionDbReadable: boolean;
   /** Does the production store hold tomorrow's (or later) topic? */
   tomorrowReady: boolean;
+  /**
+   * Did the most recent run's post-write freshness verification pass?
+   * null/undefined = unknown (older runs pre-verifier, or fetch failure).
+   */
+  latestRunVerified?: boolean | null;
 }
 
 export interface TopicSlo {
-  status: HealthState; // healthy | degraded | stale | failed | unknown
-  deadlineUtc: string;
+  scheduler: {
+    state: SchedulerState;
+    consecutiveScheduledFailures: number;
+    lastScheduledRunAt: string | null;
+    lastScheduledRunConclusion: string | null;
+  };
+  availability: {
+    state: AvailabilityState;
+    deadlineUtc: string;
+    note: string | null;
+  };
+  /** Deterministic overall: worst of the two dimensions. */
+  status: HealthState;
   lastSuccessfulRun: { at: string; event: string } | null;
-  lastScheduledRunAt: string | null;
-  lastScheduledRunConclusion: string | null;
-  consecutiveScheduledFailures: number;
+  /** Production proofs (item 12): manual run + a LATER successful schedule. */
+  proofs: { manualSuccess: boolean; scheduledSuccessAfterManual: boolean };
   note: string | null;
 }
 
@@ -177,83 +202,84 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
   const scheduled = input.runs
     .filter((r) => r.event === "schedule")
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  const all = input.runs
+  const successBy = (r: TopicScheduledRun) => r.status === "completed" && r.conclusion === "success";
+  const newestSuccessFirst = input.runs
     .slice()
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  const successOf = (r: TopicScheduledRun) => r.status === "completed" && r.conclusion === "success";
-  const anySuccess = all.filter(successOf)[0] ?? null;
-  const lastSuccessfulRun = anySuccess
-    ? { at: anySuccess.createdAt, event: anySuccess.event }
-    : null;
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .find(successBy) ?? null;
 
+  // -- scheduler dimension (run history only; content-agnostic) --------------
   let consecutiveScheduledFailures = 0;
   for (const r of scheduled) {
-    if (r.status !== "completed") continue; // still running: don't count, don't clear
+    if (r.status !== "completed") continue;
     if (r.conclusion === "success") break;
     consecutiveScheduledFailures += 1;
   }
+  let scheduler: SchedulerState;
+  if (!scheduled.length) scheduler = "unknown";
+  else if (consecutiveScheduledFailures >= 3) scheduler = "failed";
+  else if (consecutiveScheduledFailures >= 1) scheduler = "degraded";
+  else if (
+    (Date.parse(nowIso) - Date.parse(scheduled[0].createdAt)) / 3_600_000 > TOPIC_SLO_STALL_HOURS &&
+    scheduled[0].status !== "in_progress"
+  ) scheduler = "stale";
+  else scheduler = "healthy";
 
-  const base = {
-    deadlineUtc: TOPIC_SLO_DEADLINE_UTC,
-    lastSuccessfulRun,
-    lastScheduledRunAt: scheduled[0]?.createdAt ?? null,
-    lastScheduledRunConclusion: scheduled[0]?.status === "completed" ? scheduled[0].conclusion ?? null : "running",
-    consecutiveScheduledFailures,
-  };
-
-  // No production database access at this runtime: S1-S3 are UNVERIFIABLE,
-  // regardless of what CI or workflow history shows. Never healthy.
+  // -- availability dimension (production content; deadline-enforced) --------
+  const hourUtc = new Date(nowIso).getUTCHours();
+  const pastDeadline = hourUtc >= Number(TOPIC_SLO_DEADLINE_UTC.slice(0, 2)); // deadline 03:00 local UTC day
+  let availability: AvailabilityState;
+  let availabilityNote: string | null = null;
   if (!input.productionDbReadable) {
-    return {
-      ...base,
-      status: "unknown",
-      note: "Production topic store unreadable from this runtime - SLO unverifiable; CI success is not production evidence.",
-    };
+    availability = "unknown";
+    availabilityNote = "Production topic store unreadable from this runtime - availability unverifiable; CI never substitutes.";
+  } else if (input.tomorrowReady && input.latestRunVerified === false) {
+    availability = "invalid";
+    availabilityNote = "Tomorrow's row exists but the latest run's freshness verification failed.";
+  } else if (input.tomorrowReady) {
+    availability = "ready";
+  } else if (pastDeadline) {
+    availability = "missed-deadline";
+    availabilityNote = `S1 BREACH: tomorrow's topic absent after ${TOPIC_SLO_DEADLINE_UTC} UTC.`;
+  } else {
+    availability = "pending-before-deadline";
+    availabilityNote = `Tomorrow's topic not yet stored; deadline ${TOPIC_SLO_DEADLINE_UTC} UTC has not passed.`;
   }
-  if (!scheduled.length) {
-    return {
-      ...base,
-      status: "unknown",
-      note: "No scheduled topic-generation runs on record: the production scheduler has never executed.",
-    };
-  }
-  const ageHours = (Date.parse(nowIso) - Date.parse(scheduled[0].createdAt)) / 3_600_000;
-  if (ageHours > TOPIC_SLO_STALL_HOURS && scheduled[0].status !== "in_progress" && !input.tomorrowReady) {
-    return {
-      ...base,
-      status: "stale",
-      note: `Last scheduled run is ${Math.round(ageHours)}h old (> ${TOPIC_SLO_STALL_HOURS}h) and tomorrow's topic is missing - the scheduler is not firing.`,
-    };
-  }
-  if (consecutiveScheduledFailures >= 3) {
-    return {
-      ...base,
-      status: "failed",
-      note: `${consecutiveScheduledFailures} consecutive scheduled failures - production topic generation is broken, not just late.`,
-    };
-  }
-  if (consecutiveScheduledFailures >= 1) {
-    return {
-      ...base,
-      status: input.tomorrowReady ? "degraded" : "failed",
-      note: input.tomorrowReady
-        ? `${consecutiveScheduledFailures} scheduled failure(s), but the store is current (manual/retry recovered) - investigate the failures.`
-        : `${consecutiveScheduledFailures} consecutive scheduled failure(s) and tomorrow's topic is missing.`,
-    };
-  }
-  // Latest scheduled run succeeded: healthy only with the production write proven.
-  if (input.tomorrowReady) {
-    return {
-      ...base,
-      status: "healthy",
-      note: null,
-    };
-  }
+
+  // -- deterministic overall --------------------------------------------------
+  const SEVERITY_STATES: HealthState[] = ["healthy", "unknown", "degraded", "stale", "blocked", "failed"];
+  const sev = Math.max(SCHEDULER_SEVERITY[scheduler], AVAILABILITY_SEVERITY[availability]);
+  const status: HealthState = SEVERITY_STATES[sev] ?? "unknown";
+
+  const dispatchSuccess = input.runs
+    .filter((r) => r.event === "workflow_dispatch" && successBy(r))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] ?? null;
+  const scheduledSuccessAfterManual = dispatchSuccess
+    ? scheduled.some((r) => successBy(r) && Date.parse(r.createdAt) > Date.parse(dispatchSuccess.createdAt))
+    : false;
+
+  const notes = [availabilityNote, schedulerNote(scheduler, consecutiveScheduledFailures, scheduled, nowIso)].filter(Boolean);
   return {
-    ...base,
-    status: "degraded",
-    note: "Latest scheduled run reported success but tomorrow's topic is absent in the production store - post-write verification would have failed the run.",
+    scheduler: {
+      state: scheduler,
+      consecutiveScheduledFailures,
+      lastScheduledRunAt: scheduled[0]?.createdAt ?? null,
+      lastScheduledRunConclusion: scheduled[0] ? (scheduled[0].status === "completed" ? scheduled[0].conclusion ?? null : "running") : null,
+    },
+    availability: { state: availability, deadlineUtc: TOPIC_SLO_DEADLINE_UTC, note: availabilityNote },
+    status,
+    lastSuccessfulRun: newestSuccessFirst ? { at: newestSuccessFirst.createdAt, event: newestSuccessFirst.event } : null,
+    proofs: { manualSuccess: Boolean(dispatchSuccess), scheduledSuccessAfterManual },
+    note: notes.length ? notes.join(" ") : null,
   };
+}
+
+function schedulerNote(state: SchedulerState, failures: number, scheduled: TopicScheduledRun[], nowIso: string): string | null {
+  if (state === "unknown") return "No scheduled topic-generation runs on record - the production scheduler has never executed.";
+  if (state === "failed") return `${failures} consecutive scheduled failures.`;
+  if (state === "degraded") return `${failures} consecutive scheduled failure(s).`;
+  if (state === "stale") return `Last scheduled run is ${Math.round((Date.parse(nowIso) - Date.parse(scheduled[0].createdAt)) / 3_600_000)}h old - the scheduler is not firing.`;
+  return null;
 }
 
 // --- Judge validation -------------------------------------------------------
