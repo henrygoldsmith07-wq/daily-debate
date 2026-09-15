@@ -382,13 +382,15 @@ async function main() {
   }
 
   let system;
+  let kind = "single-prompt";
   try {
     system = experimentSystem(EXPERIMENT).system;
+    kind = EXPERIMENTS[EXPERIMENT]?.kind ?? "single-prompt";
   } catch (e) {
     process.stderr.write(`[judge-benchmark] ${String(e?.message ?? e)}\n`);
     process.exit(2);
   }
-  const judges = allJudgeProviders(process.env, { system }).filter(
+  const judges = allJudgeProviders(process.env, { system, kind }).filter(
     (j) => MODELS.length === 0 || MODELS.includes(j.id.split(":")[0]),
   );
   if (MODELS.length > 0 && judges.length === 0) {
@@ -431,8 +433,13 @@ async function main() {
   // metric movement maps to one controlled change, never to "a new prompt".
   const sha = (s) => createHash("sha256").update(s).digest("hex").slice(0, 16);
   const experimentMeta = EXPERIMENTS[EXPERIMENT]
-    ? { name: EXPERIMENT, hypothesis: EXPERIMENTS[EXPERIMENT].hypothesis, label: EXPERIMENTS[EXPERIMENT].label }
-    : { name: EXPERIMENT, hypothesis: null, label: null };
+    ? {
+        name: EXPERIMENT,
+        hypothesis: EXPERIMENTS[EXPERIMENT].hypothesis,
+        label: EXPERIMENTS[EXPERIMENT].label,
+        kind: EXPERIMENTS[EXPERIMENT].kind ?? "single-prompt",
+      }
+    : { name: EXPERIMENT, hypothesis: null, label: null, kind: "unknown" };
   const versions = {
     promptVersion: VERDICT_PROMPT_VERSION,
     promptHash: sha(system + "\n---\n" + verdictUser("")),

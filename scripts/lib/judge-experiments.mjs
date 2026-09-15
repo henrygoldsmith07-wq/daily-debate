@@ -14,7 +14,20 @@ import { CITATION_CLAUSE_DEFAULT, buildVerdictSystem } from "./judge-providers.m
 export const EXPERIMENTS = {
   "baseline": {
     label: "v5 shipped",
+    kind: "single-prompt",
     hypothesis: "current shipped prompt (control arm)",
+    citationClause: CITATION_CLAUSE_DEFAULT,
+  },
+  "grounding-two-pass": {
+    label: "evidence-grounding architecture",
+    kind: "two-pass-grounding",
+    // Architecture experiment (item 6-7): the controlled variable is the
+    // JUDGE PIPELINE, not wording - pass 1 classifies every evidence item as
+    // supported / unsupported / unverifiable from the supplied material, pass
+    // 2 judges from that grounded representation with a hard rule that
+    // unverifiable citation strings add neither score nor confidence.
+    hypothesis:
+      "assessing evidence verifiability independently from rhetoric will cut fake-citation influence far below any prompt-only arm, at a measurable latency/token cost",
     citationClause: CITATION_CLAUSE_DEFAULT,
   },
   "citation-zero-weight": {

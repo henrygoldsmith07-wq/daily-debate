@@ -132,6 +132,130 @@ export function assessTopicHealth(latest: TopicRowInput | null, nowIso: string):
   };
 }
 
+// --- Topic production SLO ---------------------------------------------------
+//
+// Operational expectations (see docs/operations.md § Topic SLO):
+//   S1  Tomorrow's topic is stored before 03:00 UTC (schedule fires 02:00).
+//   S2  Exactly one valid topic per date (UNIQUE + workflow verifier).
+//   S3  No orphan evidence; evidence bounded by the cap (verifier gate).
+//   S4  AI failure with a stored fallback outcome is ACCEPTABLE.
+//   S5  Repeated scheduled failures escalate ops status (degraded -> failed).
+//
+// Critically: CI topic-pipeline success is NOT production evidence. Only the
+// real scheduler (GitHub "schedule" runs of topic-generation.yml) plus a
+// readable production database can move this section to healthy.
+
+export const TOPIC_SLO_DEADLINE_UTC = "03:00";
+export const TOPIC_SLO_STALL_HOURS = 36;
+
+export interface TopicScheduledRun {
+  event: string; // "schedule" | "workflow_dispatch" | "push"...
+  status: string; // "completed" | "in_progress" | "queued"...
+  conclusion: string | null; // success | failure | cancelled | ...
+  createdAt: string;
+}
+
+export interface TopicSloInput {
+  runs: TopicScheduledRun[];
+  /** Can this runtime read the production topic store at all? */
+  productionDbReadable: boolean;
+  /** Does the production store hold tomorrow's (or later) topic? */
+  tomorrowReady: boolean;
+}
+
+export interface TopicSlo {
+  status: HealthState; // healthy | degraded | stale | failed | unknown
+  deadlineUtc: string;
+  lastSuccessfulRun: { at: string; event: string } | null;
+  lastScheduledRunAt: string | null;
+  lastScheduledRunConclusion: string | null;
+  consecutiveScheduledFailures: number;
+  note: string | null;
+}
+
+export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
+  const scheduled = input.runs
+    .filter((r) => r.event === "schedule")
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const all = input.runs
+    .slice()
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const successOf = (r: TopicScheduledRun) => r.status === "completed" && r.conclusion === "success";
+  const anySuccess = all.filter(successOf)[0] ?? null;
+  const lastSuccessfulRun = anySuccess
+    ? { at: anySuccess.createdAt, event: anySuccess.event }
+    : null;
+
+  let consecutiveScheduledFailures = 0;
+  for (const r of scheduled) {
+    if (r.status !== "completed") continue; // still running: don't count, don't clear
+    if (r.conclusion === "success") break;
+    consecutiveScheduledFailures += 1;
+  }
+
+  const base = {
+    deadlineUtc: TOPIC_SLO_DEADLINE_UTC,
+    lastSuccessfulRun,
+    lastScheduledRunAt: scheduled[0]?.createdAt ?? null,
+    lastScheduledRunConclusion: scheduled[0]?.status === "completed" ? scheduled[0].conclusion ?? null : "running",
+    consecutiveScheduledFailures,
+  };
+
+  // No production database access at this runtime: S1-S3 are UNVERIFIABLE,
+  // regardless of what CI or workflow history shows. Never healthy.
+  if (!input.productionDbReadable) {
+    return {
+      ...base,
+      status: "unknown",
+      note: "Production topic store unreadable from this runtime - SLO unverifiable; CI success is not production evidence.",
+    };
+  }
+  if (!scheduled.length) {
+    return {
+      ...base,
+      status: "unknown",
+      note: "No scheduled topic-generation runs on record: the production scheduler has never executed.",
+    };
+  }
+  const ageHours = (Date.parse(nowIso) - Date.parse(scheduled[0].createdAt)) / 3_600_000;
+  if (ageHours > TOPIC_SLO_STALL_HOURS && scheduled[0].status !== "in_progress" && !input.tomorrowReady) {
+    return {
+      ...base,
+      status: "stale",
+      note: `Last scheduled run is ${Math.round(ageHours)}h old (> ${TOPIC_SLO_STALL_HOURS}h) and tomorrow's topic is missing - the scheduler is not firing.`,
+    };
+  }
+  if (consecutiveScheduledFailures >= 3) {
+    return {
+      ...base,
+      status: "failed",
+      note: `${consecutiveScheduledFailures} consecutive scheduled failures - production topic generation is broken, not just late.`,
+    };
+  }
+  if (consecutiveScheduledFailures >= 1) {
+    return {
+      ...base,
+      status: input.tomorrowReady ? "degraded" : "failed",
+      note: input.tomorrowReady
+        ? `${consecutiveScheduledFailures} scheduled failure(s), but the store is current (manual/retry recovered) - investigate the failures.`
+        : `${consecutiveScheduledFailures} consecutive scheduled failure(s) and tomorrow's topic is missing.`,
+    };
+  }
+  // Latest scheduled run succeeded: healthy only with the production write proven.
+  if (input.tomorrowReady) {
+    return {
+      ...base,
+      status: "healthy",
+      note: null,
+    };
+  }
+  return {
+    ...base,
+    status: "degraded",
+    note: "Latest scheduled run reported success but tomorrow's topic is absent in the production store - post-write verification would have failed the run.",
+  };
+}
+
 // --- Judge validation -------------------------------------------------------
 
 export interface JudgeArtifactInput {
@@ -456,6 +580,8 @@ export function assessTrainingEvidence(input: TrainingEvidenceInput): TrainingEv
 export interface OpsHealthReport {
   generatedAt: string;
   topic: TopicHealth;
+  /** Production scheduler SLO - independent of CI evidence. */
+  topicSlo: TopicSlo;
   judge: JudgeHealth;
   database: DatabaseHealth;
   app: AppHealth;
@@ -469,6 +595,7 @@ export interface OpsHealthReport {
 export function buildOpsHealthReport(parts: {
   generatedAt: string;
   topic: TopicHealth;
+  topicSlo: TopicSlo;
   judge: JudgeHealth;
   database: DatabaseHealth;
   app: AppHealth;
@@ -477,15 +604,17 @@ export function buildOpsHealthReport(parts: {
 }): OpsHealthReport {
   const unknowns: string[] = [];
   if (parts.app.status === "unknown") unknowns.push("app/ci");
+  if (parts.topicSlo.status === "unknown") unknowns.push("topic-slo");
   const notes = [
     parts.topic.note,
+    parts.topicSlo.note,
     parts.judge.note,
     parts.database.note,
     parts.app.note,
   ].filter((n): n is string => !!n);
   return {
     ...parts,
-    overall: rollupOverall([parts.topic.status, parts.judge.status, parts.database.status, parts.app.status]),
+    overall: rollupOverall([parts.topic.status, parts.topicSlo.status, parts.judge.status, parts.database.status, parts.app.status]),
     unknowns,
     notes,
   };

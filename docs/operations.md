@@ -88,6 +88,23 @@ The check contexts above are the actual job ids in `.github/workflows/daily-deba
 
 Emergency changes: the repo owner edits or disables the ruleset in the web UI (deliberate, audited action), then re-enables.
 
+## Topic production SLO
+
+Operational expectations, assessed in ops health (`assessTopicSlo`) from the
+REAL scheduler and the PRODUCTION store — CI topic-pipeline success is never
+counted as production evidence:
+
+- **S1** Tomorrow's topic exists by **03:00 UTC** daily (schedule fires 02:00).
+- **S2** Exactly one valid topic per date (`UNIQUE(topic_date)` + post-write verifier).
+- **S3** No orphan evidence rows; evidence bounded by the pipeline cap.
+- **S4** Provider/AI failure landing on a stored fallback is ACCEPTABLE (outcome `curated-fallback` / provenance `fallback`), not an SLO breach.
+- **S5** Repeated scheduled failures escalate status: 1–2 → degraded, ≥3 consecutive → failed; a >36h gap with no current topic → stale; no scheduler runs ever, or unreadable production store → unknown (never healthy).
+
+State vocabulary: **healthy / degraded / stale / failed / unknown**. Each
+successful scheduled or manual run additionally persists structured evidence
+(run type, target date, generator outcome, freshness verification) to the run
+summary and a `topic-run-evidence-*` artifact.
+
 ## Scheduled jobs
 
 - **Topic generation** (`topic-generation.yml`, daily 02:00 UTC): requires the `DATABASE_URL` repository secret; `--check-config` fails fast with `config-failure` when it is absent or unreachable (never a silent success). After configuration, verify with a manual `workflow_dispatch`, then confirm the next scheduled run; re-runs for the same target date are idempotent (one row per date, provenance stored, evidence bounded).

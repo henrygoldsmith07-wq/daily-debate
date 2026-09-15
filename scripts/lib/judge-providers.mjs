@@ -198,8 +198,8 @@ function isTransportError(e) {
   return /abort|fetch failed|network|ETIMEDOUT|ECONN/i.test(String(e?.message ?? e));
 }
 
-function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem(), stats = null }) {
-  return async (transcript) => {
+function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem(), userFn = verdictUser, maxTokens = 900, stats = null }) {
+  return async (input) => {
     let lastError;
     const started = Date.now();
     if (stats) stats.jobs += 1;
@@ -211,7 +211,7 @@ function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVer
             stats.byModel[model] = (stats.byModel[model] ?? 0) + 1;
           }
           const { content, tokens, promptTokens, completionTokens, latencyMs } = await chat({
-            url, key, model, system, user: verdictUser(transcript), maxTokens: 900, extraHeaders,
+            url, key, model, system, user: userFn(input), maxTokens, extraHeaders,
           });
           if (stats) stats.succeeded += 1;
           return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs };
@@ -230,6 +230,64 @@ function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVer
   };
 }
 
+// --- Architecture arms (item 6-7): evidence-grounding pass, then verdict ----
+// ONE controlled architecture change: pass 1 extracts each side's claims and
+// classifies every piece of supplied evidence as supported / unsupported /
+// unverifiable FROM THE TRANSCRIPT ALONE; pass 2 judges the standard verdict
+// question from that grounded representation plus the transcript, under an
+// explicit rule that a citation string with unverifiable content raises
+// neither score nor confidence. Latency and tokens now cover BOTH calls, so
+// the trade-off is measured, not assumed.
+
+export const EXTRACT_SYSTEM =
+  "You extract argument structure from debate transcripts with zero interpretation. For each side list its main claims and, for each claim, the evidence supplied FOR it in the transcript. Classify every evidence item as: supported (the transcript conveys the source's content or mechanism), unsupported (claim with no cited source at all), or unverifiable (a source/statistic is named but the transcript does not show its content). Return JSON only: {\"sides\":[{\"side\":\"a\",\"claims\":[{\"claim\":\"<=20 words\",\"evidence\":[{\"text\":\"<=20 words\",\"status\":\"supported|unsupported|unverifiable\"}]}]},{\"side\":\"b\",\"claims\":[...]}]}";
+
+export function groundingVerdictUser(grounded) {
+  return (transcript) =>
+    `Grounded evidence representation (extracted by a prior pass; statuses are the transcript's own verifiability, not the sources' real truth):\n${JSON.stringify(grounded)}\n\nDebate transcript (Player A vs Player B):\n\n${transcript}\n\nScore both sides 0-100 on observable argument quality using the grounded representation: credit supported evidence, treat unsupported assertions equally on both sides, and let unverifiable citation strings add NOTHING to score or confidence - a named source whose content cannot be checked from the material is rhetorical decoration, not evidence. Decide the winner strictly on structure; if the structural advantage is small or the sides trade comparable blows, return "tie". Confidence must reflect how clear the advantage is: 0.5-0.6 when balanced, above 0.8 only for decisive one-sided structure, and never above 0.75 when the leading side's edge depends on unverifiable evidence.\nReturn JSON exactly: {"winner":"a|b|tie","playerAScore":<int>,"playerBScore":<int>,"confidence":<0..1>}`;
+}
+
+function makeGroundingJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem(), stats = null }) {
+  // Pass 1: extract + classify evidence verifiability. One attempt per chain
+  // model (no verdict parsing); failures surface as ordinary call errors, so
+  // the arm's reliability is measured honestly, not flattered by retries.
+  async function extractPass(transcript) {
+    let lastError;
+    for (const model of models) {
+      if (stats) stats.jobs += 1;
+      try {
+        if (stats) { stats.attempts += 1; stats.byModel[model] = (stats.byModel[model] ?? 0) + 1; }
+        const { content, tokens, promptTokens, completionTokens, latencyMs } = await chat({
+          url, key, model, system: EXTRACT_SYSTEM, user: `Transcript:\n\n${transcript}\n\nReturn only the JSON.`,
+          maxTokens: 1_200, extraHeaders,
+        });
+        if (stats) stats.succeeded += 1;
+        return { grounding: extractJson(content), tokens, promptTokens, completionTokens, latencyMs };
+      } catch (e) {
+        if (stats) stats.errors += 1;
+        lastError = e;
+      }
+    }
+    throw lastError ?? new Error("extraction failed");
+  }
+  return async (transcript) => {
+    const g = await extractPass(transcript);
+    const judge = makeChainJudge({
+      url, key, models, extraHeaders, stats,
+      system,
+      userFn: groundingVerdictUser(g.grounding),
+    });
+    const v = await judge(transcript);
+    return {
+      ...v,
+      tokens: (g.tokens ?? 0) + (v.tokens ?? 0),
+      promptTokens: (g.promptTokens ?? 0) + (v.promptTokens ?? 0),
+      completionTokens: (g.completionTokens ?? 0) + (v.completionTokens ?? 0),
+      latencyMs: (g.latencyMs ?? 0) + (v.latencyMs ?? 0),
+    };
+  };
+}
+
 export function newJudgeStats() {
   return { jobs: 0, attempts: 0, succeeded: 0, errors: 0, backoffMs: 0, byModel: {} };
 }
@@ -240,7 +298,8 @@ export function newJudgeStats() {
  * NVIDIA appears only via its direct key (its models also ride the OpenRouter
  * chain as ":free" variants when that key exists).
  */
-export function allJudgeProviders(env = process.env, { system = buildVerdictSystem() } = {}) {
+export function allJudgeProviders(env = process.env, { system = buildVerdictSystem(), kind = "single-prompt" } = {}) {
+  const build = kind === "two-pass-grounding" ? makeGroundingJudge : makeChainJudge;
   const judges = [];
   for (const provider of PROVIDERS) {
     const key = (env[provider.keyEnv] ?? "").trim();
@@ -248,7 +307,7 @@ export function allJudgeProviders(env = process.env, { system = buildVerdictSyst
     if (provider.label === "nvidia") {
       const models = chainFor(provider, env);
       const nvidiaStats = newJudgeStats();
-      judges.push({ id: `nvidia:${models.join("/")}`, stats: nvidiaStats, fn: makeChainJudge({ url: provider.url, key, models, system, stats: nvidiaStats }) });
+      judges.push({ id: `nvidia:${models.join("/")}`, stats: nvidiaStats, fn: build({ url: provider.url, key, models, system, stats: nvidiaStats }) });
       continue;
     }
     if (provider.label === "openrouter" && env.NVIDIA_API_KEY) continue; // already covered as direct nvidia
@@ -257,7 +316,7 @@ export function allJudgeProviders(env = process.env, { system = buildVerdictSyst
     judges.push({
       id: `${provider.label}:${models[0]}`,
       stats,
-      fn: makeChainJudge({ url: provider.url, key, models, extraHeaders: provider.extraHeaders ?? {}, system, stats }),
+      fn: build({ url: provider.url, key, models, extraHeaders: provider.extraHeaders ?? {}, system, stats }),
     });
   }
   return judges;
