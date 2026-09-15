@@ -27,6 +27,13 @@ npm run build
 node scripts/check-corpus-invariants.mjs   # needs DATABASE_URL
 ```
 
+Judge experiments: NEVER edit gate thresholds to make something pass;
+pre-register (`docs/judge-experiments/registrations/`), then
+`npm run benchmark:study -- --registration <file>`. Arms must run serialized
+and interleaved - two arms against the same rate-limited provider at once
+contaminate both (documented in docs/judge-runs/README.md). Model surveys:
+`npm run benchmark:survey -- --provider <label> --models a,b`.
+
 Real-Postgres DB suites (`*.db.test.ts`) auto-skip unless `TEST_DATABASE_URL`
 and `DATABASE_URL` are set; CI runs them in the `e2e` job, including the corpus
 closure-race and repair-race suites. Never convert those to mocks.

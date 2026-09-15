@@ -1,0 +1,243 @@
+{
+  "name": "grounding-two-pass",
+  "registrationHash": "b8dd1fdfdd5a76e5",
+  "registration": {
+    "name": "grounding-two-pass",
+    "status": "registered",
+    "registeredAt": "2026-09-15T13:20:00Z",
+    "kind": "architecture",
+    "question": "No prompt wording tested so far moves kiraai's fake-citation influence off the 0.14-0.38 noise band. Does an architecture that assesses evidence verifiability INDEPENDENTLY of rhetoric break the sensitivity?",
+    "hypothesis": "A two-pass judge (extract claims + classify each supplied evidence item supported/unsupported/unverifiable, then verdict on the grounded representation with unverifiable citations scoring nothing) reduces fake-citation influence to <= 0.15 mean without degrading verdict quality, accepting a measured latency/token cost.",
+    "singleVariable": "JUDGE ARCHITECTURE: single-pass v5 prompt vs two-pass grounding pipeline. Same model/provider/fixtures/gates/temperature=0/transport. Pass-2 system prompt is byte-identical to shipped v5; only the user framing and the extraction pass are new (the grounding rule is inherent to the architecture, not a wording tweak).",
+    "arms": {
+      "baseline": {
+        "experiment": "baseline"
+      },
+      "candidate": {
+        "experiment": "grounding-two-pass"
+      }
+    },
+    "models": "kiraai",
+    "runsPerArm": 3,
+    "order": "serialized interleaved A,B,A,B,A,B; arms never run concurrently (provider budgets are shared and rate-limited)",
+    "minimumUsableReliability": 0.75,
+    "target": {
+      "metric": "fake-citation influence",
+      "direction": "down",
+      "minImprovement": 0.08,
+      "marginRationale": "observed spread of this metric across prior single-prompt runs: v4 0.143, v5 0.381/0.217/0.25 (run sd up to ~0.11). Anything smaller than 0.08 mean improvement is not distinguishable from the study-to-study noise this property has shown; the registered rule additionally requires the bootstrap CI lower bound of the signed improvement to clear zero."
+    },
+    "protected": {
+      "provider reliability": {
+        "maxRegression": 0.05
+      },
+      "fixture agreement": {
+        "maxRegression": 0.05
+      },
+      "ECE": {
+        "maxRegression": 0.04
+      },
+      "position stability": {
+        "maxRegression": 0.08
+      },
+      "names stability": {
+        "maxRegression": 0.08
+      },
+      "verbosity stability": {
+        "maxRegression": 0.08
+      },
+      "style stability": {
+        "maxRegression": 0.08
+      },
+      "whitespace stability": {
+        "maxRegression": 0.08
+      },
+      "prestige stability": {
+        "maxRegression": 0.08
+      },
+      "latency p50 ms": {
+        "maxRegression": 25000
+      },
+      "prompt tokens": {
+        "maxRegression": 250000
+      }
+    },
+    "protectedRationale": "Caps exceed the largest per-arm run sd measured in the 2026-09-14/15 studies (agreement 0.107, whitespace 0.097, ECE 0.12 seen only in contaminated data; typical 0.02-0.07) so noise cannot veto; the rule still requires worsening beyond BOTH cap and pooled sd. Latency/token budgets reflect the known ~2x cost of the second pass - the trade-off is admitted up front, and exceeding it is a legitimate rejection ('complete trade-off better' or not).",
+    "adoptionRule": "supported iff (signed improvement of target mean >= 0.08 AND bootstrap 90% CI lower bound of the signed improvement > 0 AND no protected metric regresses beyond its cap AND its pooled run sd AND usable runs >= 3/arm at reliability >= 0.75); inconclusive if usable runs < 2/arm; rejected otherwise. No threshold in config/judge-gates.json may change as part of adoption.",
+    "bootstrapSeed": 42,
+    "outcome": null
+  },
+  "verdict": {
+    "status": "inconclusive",
+    "reasons": [
+      "insufficient usable runs (reliability >= 0.75): baseline 1/3 usable, candidate 0/3 usable (registration requires 3 per arm)"
+    ]
+  },
+  "armStats": {
+    "baseline": {
+      "runs": [
+        {
+          "at": "2026-09-15T16:04:28.396Z",
+          "file": "2026-09-15T160428396Z-kiraai.json",
+          "model": "kiraai:qwen3.8-flash-free",
+          "reliability": 0.987,
+          "metrics": {
+            "fake-citation influence": 0.292,
+            "provider reliability": 0.987,
+            "fixture agreement": 0.583,
+            "ECE": 0.107,
+            "position stability": 0.783,
+            "names stability": 0.826,
+            "verbosity stability": 0.87,
+            "style stability": 0.792,
+            "whitespace stability": 0.792,
+            "prestige stability": 0.708,
+            "latency p50 ms": 15945,
+            "prompt tokens": 146591
+          },
+          "gateSummary": {
+            "provider": 0,
+            "quality": 12,
+            "insufficient": 0
+          },
+          "allPassRun": false
+        },
+        {
+          "at": "2026-09-15T17:04:45.880Z",
+          "file": "2026-09-15T170445880Z-kiraai.json",
+          "model": "kiraai:qwen3.8-flash-free",
+          "reliability": 0,
+          "metrics": {
+            "fake-citation influence": null,
+            "provider reliability": 0,
+            "fixture agreement": null,
+            "ECE": null,
+            "position stability": null,
+            "names stability": null,
+            "verbosity stability": null,
+            "style stability": null,
+            "whitespace stability": null,
+            "prestige stability": null,
+            "latency p50 ms": null,
+            "prompt tokens": null
+          },
+          "gateSummary": {
+            "provider": 1,
+            "quality": 0,
+            "insufficient": 13
+          },
+          "allPassRun": false
+        },
+        {
+          "at": "2026-09-15T17:05:52.923Z",
+          "file": "2026-09-15T170552923Z-kiraai.json",
+          "model": "kiraai:qwen3.8-flash-free",
+          "reliability": 0,
+          "metrics": {
+            "fake-citation influence": null,
+            "provider reliability": 0,
+            "fixture agreement": null,
+            "ECE": null,
+            "position stability": null,
+            "names stability": null,
+            "verbosity stability": null,
+            "style stability": null,
+            "whitespace stability": null,
+            "prestige stability": null,
+            "latency p50 ms": null,
+            "prompt tokens": null
+          },
+          "gateSummary": {
+            "provider": 1,
+            "quality": 0,
+            "insufficient": 13
+          },
+          "allPassRun": false
+        }
+      ]
+    },
+    "candidate": {
+      "runs": [
+        {
+          "at": "2026-09-15T17:04:03.904Z",
+          "file": "2026-09-15T170403904Z-kiraai.json",
+          "model": "kiraai:qwen3.8-flash-free",
+          "reliability": 0.285,
+          "metrics": {
+            "fake-citation influence": 0.286,
+            "provider reliability": 0.285,
+            "fixture agreement": 0.625,
+            "ECE": 0.075,
+            "position stability": null,
+            "names stability": null,
+            "verbosity stability": null,
+            "style stability": null,
+            "whitespace stability": null,
+            "prestige stability": null,
+            "latency p50 ms": 27164,
+            "prompt tokens": 93011
+          },
+          "gateSummary": {
+            "provider": 1,
+            "quality": 1,
+            "insufficient": 11
+          },
+          "allPassRun": false
+        },
+        {
+          "at": "2026-09-15T17:05:20.531Z",
+          "file": "2026-09-15T170520531Z-kiraai.json",
+          "model": "kiraai:qwen3.8-flash-free",
+          "reliability": 0,
+          "metrics": {
+            "fake-citation influence": null,
+            "provider reliability": 0,
+            "fixture agreement": null,
+            "ECE": null,
+            "position stability": null,
+            "names stability": null,
+            "verbosity stability": null,
+            "style stability": null,
+            "whitespace stability": null,
+            "prestige stability": null,
+            "latency p50 ms": null,
+            "prompt tokens": null
+          },
+          "gateSummary": {
+            "provider": 1,
+            "quality": 0,
+            "insufficient": 13
+          },
+          "allPassRun": false
+        },
+        {
+          "at": "2026-09-15T17:06:26.513Z",
+          "file": "2026-09-15T170626513Z-kiraai.json",
+          "model": "kiraai:qwen3.8-flash-free",
+          "reliability": 0,
+          "metrics": {
+            "fake-citation influence": null,
+            "provider reliability": 0,
+            "fixture agreement": null,
+            "ECE": null,
+            "position stability": null,
+            "names stability": null,
+            "verbosity stability": null,
+            "style stability": null,
+            "whitespace stability": null,
+            "prestige stability": null,
+            "latency p50 ms": null,
+            "prompt tokens": null
+          },
+          "gateSummary": {
+            "provider": 1,
+            "quality": 0,
+            "insufficient": 13
+          },
+          "allPassRun": false
+        }
+      ]
+    }
+  },
+  "at": "2026-09-15T17:06:26.582Z"
+}

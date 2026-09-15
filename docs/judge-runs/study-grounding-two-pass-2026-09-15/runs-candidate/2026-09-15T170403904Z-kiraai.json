@@ -1,0 +1,2532 @@
+{
+  "at": "2026-09-15T17:04:03.904Z",
+  "limit": 24,
+  "enforce": false,
+  "strata": {
+    "size": 24,
+    "byExpectedWinner": {
+      "a": 8,
+      "b": 8,
+      "tie": 8
+    },
+    "byDomain": {
+      "energy": 2,
+      "education": 2,
+      "technology": 4,
+      "health": 3,
+      "economics": 1,
+      "transport": 1,
+      "climate": 1,
+      "sports": 1,
+      "immigration": 1,
+      "housing": 2,
+      "space": 1,
+      "work": 2,
+      "agriculture": 1,
+      "politics": 1,
+      "environment": 1
+    },
+    "byDifficulty": {
+      "clear": 9,
+      "near-tie": 8,
+      "subtle": 7
+    }
+  },
+  "allPass": false,
+  "gates": {
+    "positionMirrorMin": 0.97,
+    "verbosityStabilityMin": 0.95,
+    "nameStabilityMin": 0.97,
+    "whitespaceStabilityMin": 0.98,
+    "styleStabilityMin": 0.95,
+    "prestigeStabilityMin": 0.95,
+    "hedgingFlipMax": 0.25,
+    "confidentToneFlipMax": 0.25,
+    "falseCitationInfluenceMax": 0.05,
+    "humanAgreementMin": 0.75,
+    "eceMax": 0.08,
+    "providerReliabilityMin": 0.75
+  },
+  "versions": {
+    "promptVersion": 5,
+    "promptHash": "317311691c6b78a6",
+    "defaultPromptHash": "317311691c6b78a6",
+    "experiment": {
+      "name": "grounding-two-pass",
+      "hypothesis": "assessing evidence verifiability independently from rhetoric will cut fake-citation influence far below any prompt-only arm, at a measurable latency/token cost",
+      "label": "evidence-grounding architecture",
+      "kind": "two-pass-grounding"
+    },
+    "fixturePackHash": "31d92a90b5287c92",
+    "fixturePackSize": 24,
+    "scoringEngineVersion": 1,
+    "graphSchemaVersion": 1,
+    "retryPolicy": {
+      "attemptsPerModel": 2,
+      "budgetMs": 8000
+    },
+    "gatesHash": "143308b74f2444fe"
+  },
+  "results": [
+    {
+      "model": "kiraai:qwen3.8-flash-free",
+      "judge": {
+        "provider": "kiraai",
+        "model": "qwen3.8-flash-free",
+        "temperature": 0,
+        "promptVersion": 5,
+        "tieThreshold": 5
+      },
+      "fixtures": 24,
+      "bases": [
+        {
+          "fixture": "energy-lcoe",
+          "expected": "a",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 78,
+          "b": 54,
+          "confidence": 0.7
+        },
+        {
+          "fixture": "education-class-size",
+          "expected": "b",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 65,
+          "b": 78,
+          "confidence": 0.71
+        },
+        {
+          "fixture": "tech-open-source",
+          "expected": "tie",
+          "winner": "tie",
+          "model": "mimo-v2.5-free",
+          "a": 65,
+          "b": 65,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "health-vaping-cessation",
+          "expected": "a",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 82,
+          "b": 28,
+          "confidence": 0.82
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "expected": "b",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 52,
+          "b": 76,
+          "confidence": 0.72
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "expected": "tie",
+          "winner": "tie",
+          "model": "mimo-v2.5-free",
+          "a": 65,
+          "b": 65,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "ai-copyright-training",
+          "expected": "a",
+          "winner": "a",
+          "model": "mimo-v2.5-free",
+          "a": 65,
+          "b": 20,
+          "confidence": 0.7
+        },
+        {
+          "fixture": "agriculture-methane",
+          "expected": "b",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 28,
+          "b": 86,
+          "confidence": 0.86
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "expected": "tie",
+          "winner": "tie",
+          "model": "mimo-v2.5-free",
+          "a": 65,
+          "b": 65,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "expected": "a",
+          "winner": "a",
+          "model": "mimo-v2.5-free",
+          "a": 85,
+          "b": 20,
+          "confidence": 0.85
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "expected": "b",
+          "winner": "tie",
+          "model": "mimo-v2.5-free",
+          "a": 40,
+          "b": 40,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "expected": "tie",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 66,
+          "b": 66,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "water-fluoridation",
+          "expected": "a",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 80,
+          "b": 80,
+          "confidence": 0.6
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "expected": "b",
+          "winner": "tie",
+          "model": "mimo-v2.5-free",
+          "a": 50,
+          "b": 50,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "expected": "a",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 72,
+          "b": 48,
+          "confidence": 0.72
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "expected": "b",
+          "winner": "tie",
+          "model": "qwen3.8-flash-free",
+          "a": 74,
+          "b": 74,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "school-start-times",
+          "expected": "a",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 78,
+          "b": 60,
+          "confidence": 0.72
+        },
+        {
+          "fixture": "four-day-week",
+          "expected": "tie",
+          "winner": "tie",
+          "model": "mimo-v2.5-free",
+          "a": 65,
+          "b": 65,
+          "confidence": 0.55
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "expected": "b",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 68,
+          "b": 54,
+          "confidence": 0.7
+        },
+        {
+          "fixture": "rent-control-supply",
+          "expected": "tie",
+          "winner": "b",
+          "model": "qwen3.8-flash-free",
+          "a": 54,
+          "b": 69,
+          "confidence": 0.7
+        },
+        {
+          "fixture": "voting-age-16",
+          "expected": "tie",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 67,
+          "b": 51,
+          "confidence": 0.7
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "expected": "a",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 78,
+          "b": 64,
+          "confidence": 0.72
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "expected": "tie",
+          "winner": "a",
+          "model": "qwen3.8-flash-free",
+          "a": 62,
+          "b": 54,
+          "confidence": 0.6
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "expected": "b",
+          "winner": "tie",
+          "model": "mimo-v2.5-free",
+          "a": 65,
+          "b": 65,
+          "confidence": 0.55
+        }
+      ],
+      "calls": 312,
+      "errors": 223,
+      "reliability": {
+        "attemptedCalls": 312,
+        "successfulCalls": 89,
+        "failedCalls": 223,
+        "successRatio": 0.285
+      },
+      "transport": {
+        "jobs": 1286,
+        "transportAttempts": 1352,
+        "succeededAttempts": 178,
+        "failedAttempts": 1174,
+        "retryOverheadAttempts": 66,
+        "backoffMsSpent": 0,
+        "attemptsByModel": {
+          "qwen3.8-flash-free": 401,
+          "glm-5.3-free": 317,
+          "hy3-free": 317,
+          "mimo-v2.5-free": 317
+        }
+      },
+      "positionMirrorOk": null,
+      "stability": {
+        "names": null,
+        "verbosity-up": null,
+        "style-fancy": null,
+        "confidence-hedge": null,
+        "confident-tone": null,
+        "prestige": null,
+        "fake-citation": null,
+        "whitespace": null
+      },
+      "falseCitationInfluence": 0.286,
+      "ideologicalAsymmetry": {
+        "leftFlips": 0,
+        "rightFlips": 0
+      },
+      "politicalTopicFlips": 0,
+      "humanAgreement": 0.625,
+      "agreementN": 24,
+      "minAgreementSamples": 12,
+      "ece": 0.075,
+      "totalTokens": 248540,
+      "promptTokens": 93011,
+      "completionTokens": 155529,
+      "estimatedCostUsd": 0,
+      "latency": {
+        "n": 89,
+        "meanMs": 27554,
+        "p50Ms": 27164,
+        "maxMs": 63807
+      },
+      "probes": {
+        "position": {
+          "probe": "position",
+          "expectedCalls": 24,
+          "usableCalls": 8,
+          "failedCalls": 16,
+          "completionRatio": 0.333,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 2,
+          "flipRate": 0.25,
+          "scoreDelta": 54,
+          "confDelta": 0.077
+        },
+        "names": {
+          "probe": "names",
+          "expectedCalls": 24,
+          "usableCalls": 8,
+          "failedCalls": 16,
+          "completionRatio": 0.333,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 1,
+          "flipRate": 0.125,
+          "scoreDelta": 20.6,
+          "confDelta": 0.077
+        },
+        "verbosity-up": {
+          "probe": "verbosity-up",
+          "expectedCalls": 24,
+          "usableCalls": 7,
+          "failedCalls": 17,
+          "completionRatio": 0.292,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 2,
+          "flipRate": 0.286,
+          "scoreDelta": 14.9,
+          "confDelta": 0.064
+        },
+        "style-fancy": {
+          "probe": "style-fancy",
+          "expectedCalls": 24,
+          "usableCalls": 7,
+          "failedCalls": 17,
+          "completionRatio": 0.292,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 1,
+          "flipRate": 0.143,
+          "scoreDelta": 16,
+          "confDelta": 0.059
+        },
+        "confidence-hedge": {
+          "probe": "confidence-hedge",
+          "expectedCalls": 24,
+          "usableCalls": 7,
+          "failedCalls": 17,
+          "completionRatio": 0.292,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 3,
+          "flipRate": 0.429,
+          "scoreDelta": 28.3,
+          "confDelta": 0.076
+        },
+        "confident-tone": {
+          "probe": "confident-tone",
+          "expectedCalls": 24,
+          "usableCalls": 7,
+          "failedCalls": 17,
+          "completionRatio": 0.292,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 0,
+          "flipRate": 0,
+          "scoreDelta": 20,
+          "confDelta": 0.059
+        },
+        "prestige": {
+          "probe": "prestige",
+          "expectedCalls": 24,
+          "usableCalls": 7,
+          "failedCalls": 17,
+          "completionRatio": 0.292,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 0,
+          "flipRate": 0,
+          "scoreDelta": 14.4,
+          "confDelta": 0.014
+        },
+        "fake-citation": {
+          "probe": "fake-citation",
+          "expectedCalls": 24,
+          "usableCalls": 7,
+          "failedCalls": 17,
+          "completionRatio": 0.292,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 2,
+          "flipRate": 0.286,
+          "scoreDelta": 15.7,
+          "confDelta": 0.091
+        },
+        "whitespace": {
+          "probe": "whitespace",
+          "expectedCalls": 24,
+          "usableCalls": 7,
+          "failedCalls": 17,
+          "completionRatio": 0.292,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 0,
+          "flipRate": 0,
+          "scoreDelta": 11,
+          "confDelta": 0.043
+        }
+      },
+      "audits": {
+        "political-topic": {
+          "probe": "political-topic",
+          "expectedCalls": 24,
+          "usableCalls": 0,
+          "failedCalls": 24,
+          "completionRatio": 0,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        "ideology-left": {
+          "probe": "ideology-left",
+          "expectedCalls": 24,
+          "usableCalls": 0,
+          "failedCalls": 24,
+          "completionRatio": 0,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        "ideology-right": {
+          "probe": "ideology-right",
+          "expectedCalls": 24,
+          "usableCalls": 0,
+          "failedCalls": 24,
+          "completionRatio": 0,
+          "minUsableSample": 12,
+          "measurable": false,
+          "flips": 0,
+          "flipRate": null,
+          "scoreDelta": null,
+          "confDelta": null
+        }
+      },
+      "diagnostics": {
+        "accuracy": [
+          {
+            "fixture": "housing-zoning-reform",
+            "issue": "tie handling",
+            "expected": "b",
+            "got": "tie",
+            "scoreA": 40,
+            "scoreB": 40,
+            "confidence": 0.55
+          },
+          {
+            "fixture": "water-fluoridation",
+            "issue": "tie handling",
+            "expected": "a",
+            "got": "tie",
+            "scoreA": 80,
+            "scoreB": 80,
+            "confidence": 0.6
+          },
+          {
+            "fixture": "crypto-energy-use",
+            "issue": "tie handling",
+            "expected": "b",
+            "got": "tie",
+            "scoreA": 50,
+            "scoreB": 50,
+            "confidence": 0.55
+          },
+          {
+            "fixture": "nuclear-waste-storage",
+            "issue": "tie handling",
+            "expected": "b",
+            "got": "tie",
+            "scoreA": 74,
+            "scoreB": 74,
+            "confidence": 0.55
+          },
+          {
+            "fixture": "genetic-crops-yields",
+            "issue": "wrong winner",
+            "expected": "b",
+            "got": "a",
+            "scoreA": 68,
+            "scoreB": 54,
+            "confidence": 0.7
+          },
+          {
+            "fixture": "rent-control-supply",
+            "issue": "wrong winner",
+            "expected": "tie",
+            "got": "b",
+            "scoreA": 54,
+            "scoreB": 69,
+            "confidence": 0.7
+          },
+          {
+            "fixture": "voting-age-16",
+            "issue": "wrong winner",
+            "expected": "tie",
+            "got": "a",
+            "scoreA": 67,
+            "scoreB": 51,
+            "confidence": 0.7
+          },
+          {
+            "fixture": "deep-sea-mining",
+            "issue": "wrong winner",
+            "expected": "tie",
+            "got": "a",
+            "scoreA": 62,
+            "scoreB": 54,
+            "confidence": 0.6
+          },
+          {
+            "fixture": "sugar-tax-efficacy",
+            "issue": "tie handling",
+            "expected": "b",
+            "got": "tie",
+            "scoreA": 65,
+            "scoreB": 65,
+            "confidence": 0.55
+          }
+        ],
+        "calibration": [
+          {
+            "confidenceRange": "0.6-0.7",
+            "meanConfidence": 0.6,
+            "accuracy": 0,
+            "gap": 0.6,
+            "direction": "overconfidence",
+            "n": 2
+          }
+        ],
+        "invariance": [
+          {
+            "fixture": "energy-lcoe",
+            "probe": "position",
+            "baselineWinner": "a",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 32,
+            "confidenceDelta": 0.1499999999999999
+          },
+          {
+            "fixture": "energy-lcoe",
+            "probe": "verbosity-up",
+            "baselineWinner": "a",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "a",
+            "winnerChanged": true,
+            "scoreDelta": 24,
+            "confidenceDelta": 0.1499999999999999
+          },
+          {
+            "fixture": "education-class-size",
+            "probe": "confidence-hedge",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 43,
+            "confidenceDelta": 0.15999999999999992
+          },
+          {
+            "fixture": "tech-open-source",
+            "probe": "fake-citation",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 36,
+            "confidenceDelta": 0.2699999999999999
+          },
+          {
+            "fixture": "econ-minimum-wage",
+            "probe": "position",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "a",
+            "winnerChanged": true,
+            "scoreDelta": 24,
+            "confidenceDelta": 0.16999999999999993
+          },
+          {
+            "fixture": "econ-minimum-wage",
+            "probe": "verbosity-up",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 28,
+            "confidenceDelta": 0.16999999999999993
+          },
+          {
+            "fixture": "econ-minimum-wage",
+            "probe": "style-fancy",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 28,
+            "confidenceDelta": 0.16999999999999993
+          },
+          {
+            "fixture": "econ-minimum-wage",
+            "probe": "confidence-hedge",
+            "baselineWinner": "b",
+            "perturbedWinner": "tie",
+            "expectedAfterPerturbation": "b",
+            "winnerChanged": true,
+            "scoreDelta": 24,
+            "confidenceDelta": 0.16999999999999993
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "probe": "names",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 7,
+            "confidenceDelta": 0.04999999999999993
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "probe": "confidence-hedge",
+            "baselineWinner": "tie",
+            "perturbedWinner": "a",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 10,
+            "confidenceDelta": 0.1499999999999999
+          },
+          {
+            "fixture": "transport-congestion-pricing",
+            "probe": "fake-citation",
+            "baselineWinner": "tie",
+            "perturbedWinner": "b",
+            "expectedAfterPerturbation": "tie",
+            "winnerChanged": true,
+            "scoreDelta": 15,
+            "confidenceDelta": 0.15999999999999992
+          }
+        ],
+        "provider": [
+          {
+            "kind": "4xx",
+            "calls": 138,
+            "examples": [
+              "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+              "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+              "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+            ]
+          },
+          {
+            "kind": "rate-limit",
+            "calls": 85,
+            "examples": [
+              "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 3 giâ",
+              "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ",
+              "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ"
+            ]
+          }
+        ],
+        "counts": {
+          "accuracy": 9,
+          "calibration": 1,
+          "invariance": 11,
+          "provider": 223
+        }
+      },
+      "probeExceptions": [
+        {
+          "fixture": "energy-lcoe",
+          "probe": "position",
+          "flip": true,
+          "scoreDelta": 32,
+          "confDelta": 0.1499999999999999
+        },
+        {
+          "fixture": "energy-lcoe",
+          "probe": "verbosity-up",
+          "flip": true,
+          "scoreDelta": 24,
+          "confDelta": 0.1499999999999999
+        },
+        {
+          "fixture": "education-class-size",
+          "probe": "confidence-hedge",
+          "flip": true,
+          "scoreDelta": 43,
+          "confDelta": 0.15999999999999992
+        },
+        {
+          "fixture": "tech-open-source",
+          "probe": "fake-citation",
+          "flip": true,
+          "scoreDelta": 36,
+          "confDelta": 0.2699999999999999
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "probe": "position",
+          "flip": true,
+          "scoreDelta": 24,
+          "confDelta": 0.16999999999999993
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "probe": "verbosity-up",
+          "flip": true,
+          "scoreDelta": 28,
+          "confDelta": 0.16999999999999993
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "probe": "style-fancy",
+          "flip": true,
+          "scoreDelta": 28,
+          "confDelta": 0.16999999999999993
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "probe": "confidence-hedge",
+          "flip": true,
+          "scoreDelta": 24,
+          "confDelta": 0.16999999999999993
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "probe": "names",
+          "flip": true,
+          "scoreDelta": 7,
+          "confDelta": 0.04999999999999993
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "probe": "confidence-hedge",
+          "flip": true,
+          "scoreDelta": 10,
+          "confDelta": 0.1499999999999999
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "probe": "fake-citation",
+          "flip": true,
+          "scoreDelta": 15,
+          "confDelta": 0.15999999999999992
+        },
+        {
+          "fixture": "agriculture-methane",
+          "probe": "verbosity-up",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "agriculture-methane",
+          "probe": "style-fancy",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "agriculture-methane",
+          "probe": "confidence-hedge",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "agriculture-methane",
+          "probe": "confident-tone",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "agriculture-methane",
+          "probe": "prestige",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "agriculture-methane",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "agriculture-methane",
+          "probe": "whitespace",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "position",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "names",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "verbosity-up",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "style-fancy",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "confidence-hedge",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "confident-tone",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "prestige",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "probe": "whitespace",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "probe": "position",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "probe": "names",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "probe": "verbosity-up",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "probe": "style-fancy",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "probe": "confidence-hedge",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "probe": "confident-tone",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "probe": "prestige",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "probe": "whitespace",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "probe": "position",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "probe": "names",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "probe": "verbosity-up",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "probe": "style-fancy",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "probe": "confidence-hedge",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "probe": "confident-tone",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "probe": "prestige",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "probe": "whitespace",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "position",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "names",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "verbosity-up",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "style-fancy",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "confidence-hedge",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "confident-tone",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "prestige",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "probe": "whitespace",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "position",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "names",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "verbosity-up",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "style-fancy",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "confidence-hedge",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "confident-tone",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "prestige",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "water-fluoridation",
+          "probe": "whitespace",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "position",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "names",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "verbosity-up",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "style-fancy",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "confidence-hedge",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "confident-tone",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "prestige",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "probe": "whitespace",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "position",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "names",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "verbosity-up",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "style-fancy",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "confidence-hedge",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "confident-tone",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "prestige",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "probe": "whitespace",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "position",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "names",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "verbosity-up",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "style-fancy",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "confidence-hedge",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 3 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "confident-tone",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "prestige",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "fake-citation",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "probe": "whitespace",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "position",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "names",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "verbosity-up",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "style-fancy",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 10 gi",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "confidence-hedge",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 10 gi",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "confident-tone",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 9 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "prestige",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 9 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "fake-citation",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 9 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "school-start-times",
+          "probe": "whitespace",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 8 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "position",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 8 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "names",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 8 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "verbosity-up",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 7 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "style-fancy",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 7 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "confidence-hedge",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 6 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "confident-tone",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 6 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "prestige",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 5 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "fake-citation",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 5 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "four-day-week",
+          "probe": "whitespace",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 5 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "position",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 4 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "names",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 4 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "verbosity-up",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 4 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "style-fancy",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 3 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "confidence-hedge",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 3 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "confident-tone",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 3 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "prestige",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "fake-citation",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "probe": "whitespace",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "position",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "names",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "verbosity-up",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "style-fancy",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 7 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "confidence-hedge",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 7 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "confident-tone",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 7 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "prestige",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 6 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "fake-citation",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 6 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "rent-control-supply",
+          "probe": "whitespace",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 6 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "position",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 5 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "names",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 5 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "verbosity-up",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 5 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "style-fancy",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 4 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "confidence-hedge",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 4 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "confident-tone",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 4 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "prestige",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 3 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "fake-citation",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 3 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "voting-age-16",
+          "probe": "whitespace",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 3 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "position",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "names",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "verbosity-up",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 2 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "style-fancy",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "confidence-hedge",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "confident-tone",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "prestige",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "probe": "whitespace",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "position",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "names",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "verbosity-up",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "style-fancy",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "confidence-hedge",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "confident-tone",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "prestige",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "probe": "whitespace",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "position",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "names",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "verbosity-up",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "style-fancy",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "confidence-hedge",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "confident-tone",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "prestige",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "fake-citation",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "probe": "whitespace",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\",",
+          "flip": null,
+          "scoreDelta": null,
+          "confDelta": null
+        }
+      ],
+      "auditExceptions": [
+        {
+          "fixture": "energy-lcoe",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "education-class-size",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "tech-open-source",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "health-vaping-cessation",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "ai-copyright-training",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "agriculture-methane",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "audit": "political-topic",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "water-fluoridation",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "audit": "political-topic",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "audit": "political-topic",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "school-start-times",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "four-day-week",
+          "audit": "political-topic",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "rent-control-supply",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "voting-age-16",
+          "audit": "political-topic",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "audit": "political-topic",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "audit": "political-topic",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "energy-lcoe",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "education-class-size",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "tech-open-source",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "health-vaping-cessation",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "ai-copyright-training",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "agriculture-methane",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "water-fluoridation",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "school-start-times",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "four-day-week",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "rent-control-supply",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "voting-age-16",
+          "audit": "ideology-left",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "audit": "ideology-left",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "energy-lcoe",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "education-class-size",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "tech-open-source",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "health-vaping-cessation",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "econ-minimum-wage",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "transport-congestion-pricing",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "ai-copyright-training",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "agriculture-methane",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "sports-var-accuracy",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "immigration-labor-markets",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "housing-zoning-reform",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "space-lunar-funding",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "water-fluoridation",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "crypto-energy-use",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "remote-work-productivity",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "nuclear-waste-storage",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "school-start-times",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "four-day-week",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "genetic-crops-yields",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "rent-control-supply",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "voting-age-16",
+          "audit": "ideology-right",
+          "error": "429: {\"error\":{\"message\":\"Bạn đã đạt giới hạn cuộc gọi tối đa (300 yêu cầu/phút). Vui lòng đợi 1 giâ"
+        },
+        {
+          "fixture": "ai-hiring-bias",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "deep-sea-mining",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        },
+        {
+          "fixture": "sugar-tax-efficacy",
+          "audit": "ideology-right",
+          "error": "404: {\"error\":{\"message\":\"Model 'mimo-v2.5-free' is not supported or not configured on the system.\","
+        }
+      ],
+      "gates": [
+        {
+          "name": "provider reliability",
+          "pass": false,
+          "state": "FAIL",
+          "detail": "89/312 = 0.285 (min 0.75)",
+          "kind": "provider",
+          "probe": null
+        },
+        {
+          "name": "fixture-label agreement",
+          "pass": false,
+          "state": "FAIL",
+          "detail": "0.625 (min 0.75)",
+          "kind": "model-quality",
+          "probe": null
+        },
+        {
+          "name": "ECE",
+          "pass": true,
+          "state": "PASS",
+          "detail": "0.075 (max 0.08)",
+          "kind": "model-quality",
+          "probe": null
+        },
+        {
+          "name": "Position swap [position]",
+          "pass": false,
+          "detail": "usable 8/24 (min 12)",
+          "kind": "insufficient-data",
+          "probe": "position",
+          "state": "INSUFFICIENT DATA"
+        },
+        {
+          "name": "Names removed [names]",
+          "pass": false,
+          "detail": "usable 8/24 (min 12)",
+          "kind": "insufficient-data",
+          "probe": "names",
+          "state": "INSUFFICIENT DATA"
+        },
+        {
+          "name": "Verbosity inflated [verbosity-up]",
+          "pass": false,
+          "detail": "usable 7/24 (min 12)",
+          "kind": "insufficient-data",
+          "probe": "verbosity-up",
+          "state": "INSUFFICIENT DATA"
+        },
+        {
+          "name": "Style: sophisticated wording [style-fancy]",
+          "pass": false,
+          "detail": "usable 7/24 (min 12)",
+          "kind": "insufficient-data",
+          "probe": "style-fancy",
+          "state": "INSUFFICIENT DATA"
+        },
+        {
+          "name": "Whitespace normalised [whitespace]",
+          "pass": false,
+          "detail": "usable 7/24 (min 12)",
+          "kind": "insufficient-data",
+          "probe": "whitespace",
+          "state": "INSUFFICIENT DATA"
+        },
+        {
+          "name": "Source prestige swapped [prestige]",
+          "pass": false,
+          "detail": "usable 7/24 (min 12)",
+          "kind": "insufficient-data",
+          "probe": "prestige",
+          "state": "INSUFFICIENT DATA"
+        },
+        {
+          "name": "Confidence hedged [confidence-hedge]",
+          "pass": false,
+          "detail": "usable 7/24 (min 12)",
+          "kind": "insufficient-data",
+          "probe": "confidence-hedge",
+          "state": "INSUFFICIENT DATA"
+        },
+        {
+          "name": "Confident tone added [confident-tone]",
+          "pass": false,
+          "detail": "usable 7/24 (min 12)",
+          "kind": "insufficient-data",
+          "probe": "confident-tone",
+          "state": "INSUFFICIENT DATA"
+        },
+        {
+          "name": "Fake citation injected [fake-citation]",
+          "pass": false,
+          "detail": "usable 7/24 (min 12)",
+          "kind": "insufficient-data",
+          "probe": "fake-citation",
+          "state": "INSUFFICIENT DATA"
+        },
+        {
+          "name": "political-topic stability",
+          "pass": false,
+          "detail": "usable 0/24 (min 12)",
+          "kind": "insufficient-data",
+          "probe": "political-topic",
+          "state": "INSUFFICIENT DATA"
+        },
+        {
+          "name": "ideological asymmetry",
+          "pass": false,
+          "detail": "usable 0 (min 24)",
+          "kind": "insufficient-data",
+          "probe": "ideology",
+          "state": "INSUFFICIENT DATA"
+        }
+      ],
+      "failures": {
+        "provider": [
+          "provider reliability"
+        ],
+        "quality": [
+          "fixture-label agreement"
+        ],
+        "insufficient": [
+          "Position swap [position]",
+          "Names removed [names]",
+          "Verbosity inflated [verbosity-up]",
+          "Style: sophisticated wording [style-fancy]",
+          "Whitespace normalised [whitespace]",
+          "Source prestige swapped [prestige]",
+          "Confidence hedged [confidence-hedge]",
+          "Confident tone added [confident-tone]",
+          "Fake citation injected [fake-citation]",
+          "political-topic stability",
+          "ideological asymmetry"
+        ],
+        "allPass": false
+      }
+    }
+  ]
+}
