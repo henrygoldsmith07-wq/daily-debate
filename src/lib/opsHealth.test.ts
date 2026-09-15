@@ -5,6 +5,7 @@ import {
   assessHumanValidation,
   assessJudgeHealth,
   assessTopicHealth,
+  assessTopicSlo,
   assessTrainingEvidence,
   buildOpsHealthReport,
   rollupOverall,
@@ -138,10 +139,21 @@ describe("assessAppHealth", () => {
 });
 
 describe("buildOpsHealthReport", () => {
+  const sloOk = (now: string) =>
+    assessTopicSlo(
+      {
+        runs: [{ event: "schedule", status: "completed", conclusion: "success", createdAt: now }],
+        productionDbReadable: true,
+        tomorrowReady: true,
+      },
+      now,
+    );
+
   it("rolls up the worst state and lists unknowns separately", () => {
     const r = buildOpsHealthReport({
       generatedAt: "2026-09-11T10:00:00Z",
       topic: assessTopicHealth(null, "2026-09-11T10:00:00Z"),
+      topicSlo: sloOk("2026-09-11T10:00:00Z"),
       judge: assessJudgeHealth(null, "2026-09-11T10:00:00Z"),
       database: assessDatabaseHealth({ reachable: true, latencyMs: 30 }),
       app: assessAppHealth(null, "https://example.invalid/actions"),
@@ -159,6 +171,7 @@ describe("buildOpsHealthReport", () => {
         { topic_date: "2026-09-12", title: "T", generation_source: "ai", evidence_cards: 2 },
         now,
       ),
+      topicSlo: sloOk(now),
       judge: assessJudgeHealth(
         { at: "2026-09-10T10:00:00Z", limit: 24, allPass: true, models: ["nvidia:m"] },
         now,
@@ -175,6 +188,7 @@ describe("buildOpsHealthReport", () => {
       buildOpsHealthReport({
         generatedAt: now,
         topic: assessTopicHealth({ topic_date: "2026-11-02", title: "T", generation_source: "ai", evidence_cards: 1 }, now),
+        topicSlo: sloOk(now),
         judge: assessJudgeHealth(
           { at: "2026-09-10T10:00:00Z", limit: 24, allPass: true, models: ["nvidia:m"] },
           now,
@@ -205,6 +219,80 @@ describe("buildOpsHealthReport", () => {
     });
     expect(multi.overall).toBe("failed");
     expect(multi.notes.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("assessTopicSlo (production scheduler, not CI)", () => {
+  const now = "2026-09-15T12:00:00Z";
+  const run = (event: string, conclusion: string | null, createdAt = now, status = "completed") => ({
+    event, status, conclusion, createdAt,
+  });
+
+  it("healthy only with a succeeded schedule run AND tomorrow's topic in the production store", () => {
+    const s = assessTopicSlo({ runs: [run("schedule", "success")], productionDbReadable: true, tomorrowReady: true }, now);
+    expect(s.status).toBe("healthy");
+    expect(s.lastScheduledRunAt).toBe(now);
+  });
+
+  it("CI-equivalent success (push/dispatch) alone is never healthy", () => {
+    const dispatchOnly = assessTopicSlo(
+      { runs: [run("workflow_dispatch", "success")], productionDbReadable: true, tomorrowReady: true },
+      now,
+    );
+    expect(dispatchOnly.status).toBe("unknown"); // scheduler never fired
+    const pushOnly = assessTopicSlo(
+      { runs: [run("push", "success")], productionDbReadable: true, tomorrowReady: true },
+      now,
+    );
+    expect(pushOnly.status).toBe("unknown");
+  });
+
+  it("unreadable production store makes the SLO unknown regardless of run history", () => {
+    const s = assessTopicSlo(
+      { runs: [run("schedule", "success"), run("schedule", "success")], productionDbReadable: false, tomorrowReady: false },
+      now,
+    );
+    expect(s.status).toBe("unknown");
+  });
+
+  it("one schedule success but missing tomorrow = degraded, never healthy", () => {
+    const s = assessTopicSlo(
+      { runs: [run("schedule", "success")], productionDbReadable: true, tomorrowReady: false },
+      now,
+    );
+    expect(s.status).toBe("degraded");
+  });
+
+  it("escalates consecutive scheduled failures: 1-2 degraded-with-missing-data-failed, 3+ failed", () => {
+    const runs = [run("schedule", "failure"), run("schedule", "failure")];
+    expect(assessTopicSlo({ runs, productionDbReadable: true, tomorrowReady: true }, now).status).toBe("degraded");
+    expect(assessTopicSlo({ runs, productionDbReadable: true, tomorrowReady: false }, now).status).toBe("failed");
+    const many = [run("schedule", "failure"), run("schedule", "failure"), run("schedule", "failure")];
+    const s = assessTopicSlo({ runs: many, productionDbReadable: true, tomorrowReady: true }, now);
+    expect(s.status).toBe("failed");
+    expect(s.consecutiveScheduledFailures).toBe(3);
+  });
+
+  it("a success older than the stall window with no topic = stale (scheduler not firing)", () => {
+    const old = "2026-09-12T02:00:00Z";
+    const s = assessTopicSlo(
+      { runs: [run("schedule", "success", old)], productionDbReadable: true, tomorrowReady: false },
+      now,
+    );
+    expect(s.status).toBe("stale");
+  });
+
+  it("intermittent pattern (failure then success) resets the failure streak", () => {
+    const s = assessTopicSlo(
+      {
+        runs: [run("schedule", "success"), run("schedule", "failure"), run("schedule", "failure")],
+        productionDbReadable: true,
+        tomorrowReady: true,
+      },
+      now,
+    );
+    expect(s.consecutiveScheduledFailures).toBe(0);
+    expect(s.status).toBe("healthy");
   });
 });
 

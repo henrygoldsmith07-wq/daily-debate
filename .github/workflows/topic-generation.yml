@@ -47,7 +47,10 @@ jobs:
           KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
           NVIDIA_MODEL: ${{ secrets.NVIDIA_MODEL }}
           OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
-        run: node scripts/generate-topics.mjs
+        run: |
+          node scripts/generate-topics.mjs | tee gen.json
+          # Persist the machine-readable generator outcome as a run log.
+          grep -o '{.*}' gen.json | tail -n 1 | tee gen-result.json
       - name: Verify the write landed (freshness postconditions)
         # A green generation step only proves the script exited 0. Re-read
         # the production database and fail if tomorrow's topic does not
@@ -55,4 +58,25 @@ jobs:
         # its cap / lost its topic reference.
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: node scripts/verify-topic-stored.mjs
+        run: |
+          node scripts/verify-topic-stored.mjs | tee verify.json
+          grep -q '"ok": true' verify.json
+      - name: Persist operational evidence
+        # Structured proof of this run for audits and the ops-health SLO:
+        # run type, target date, source, topic/evidence counts, freshness.
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          {
+            echo '## Topic generation evidence'
+            echo '```json'
+            jq -s --arg rt "$EVENT" '{runType: $rt, generator: .[0], freshness: .[1]}' gen-result.json verify.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          jq -s --arg rt "$EVENT" '{runType: $rt, generator: .[0], freshness: .[1]}' gen-result.json verify.json > topic-run-evidence.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topic-run-evidence-${{ github.run_id }}
+          path: topic-run-evidence.json
+          if-no-files-found: warn

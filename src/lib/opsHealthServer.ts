@@ -9,10 +9,12 @@ import {
   assessHumanValidation,
   assessJudgeHealth,
   assessTopicHealth,
+  assessTopicSlo,
   assessTrainingEvidence,
   buildOpsHealthReport,
   type EvidenceSection,
   type OpsHealthReport,
+  type TopicScheduledRun,
   type TrainingEvidence,
   type WorkflowStatusInput,
 } from "./opsHealth";
@@ -65,6 +67,41 @@ async function fetchWorkflowRuns(token: string): Promise<WorkflowStatusInput[] |
       });
     }
     return runs;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Production scheduler truth: the last several runs of topic-generation.yml,
+ * with their trigger event. `schedule` events are the ONLY runs that can
+ * prove the production SLO; workflow_dispatch proves a manual run; CI runs
+ * of the app workflow prove neither.
+ */
+async function fetchTopicGenerationRuns(token?: string): Promise<TopicScheduledRun[] | null> {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${REPO}/actions/workflows/topic-generation.yml/runs?per_page=8&branch=main`,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        signal: AbortSignal.timeout(8000),
+      },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      workflow_runs?: Array<{ event?: string; status?: string; conclusion?: string | null; created_at?: string }>;
+    };
+    return (data.workflow_runs ?? [])
+      .filter((r) => r.created_at)
+      .map((r) => ({
+        event: r.event ?? "unknown",
+        status: r.status ?? "unknown",
+        conclusion: r.conclusion ?? null,
+        createdAt: r.created_at as string,
+      }));
   } catch {
     return null;
   }
@@ -130,6 +167,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
 
   // --- Topic pipeline: latest rows, provenance, evidence -------------------
   let topic;
+  let topicStoreReadable = true;
   try {
     const rows = await service
       .from("daily_topics")
@@ -162,6 +200,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       );
     }
   } catch {
+    topicStoreReadable = false;
     topic = {
       ...assessTopicHealth(null, now),
       status: "blocked" as const,
@@ -176,7 +215,21 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   const token = process.env.GITHUB_TOKEN?.trim();
   const app = assessAppHealth(token ? await fetchWorkflowRuns(token) : null, CI_ACTIONS_URL);
 
-  return buildOpsHealthReport({ generatedAt: now, topic, judge, database, app, human, training });
+  // --- Topic production SLO: real scheduler runs + production store --------
+  // Deliberately independent of CI: topic-pipeline job success is NOT counted
+  // here; only schedule/dispatch runs of topic-generation.yml plus a readable
+  // production topic store can mark this healthy.
+  const topicRuns = await fetchTopicGenerationRuns(token);
+  const topicSlo = assessTopicSlo(
+    {
+      runs: topicRuns ?? [],
+      productionDbReadable: topicStoreReadable,
+      tomorrowReady: topic.tomorrowReady,
+    },
+    now,
+  );
+
+  return buildOpsHealthReport({ generatedAt: now, topic, topicSlo, judge, database, app, human, training });
 }
 
 /**

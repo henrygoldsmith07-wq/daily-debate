@@ -102,6 +102,34 @@ export default async function OpsHealthPage() {
         {report.topic.note && <p className="mt-2 text-xs text-ink3">{report.topic.note}</p>}
       </section>
 
+      <section className="surface-card mt-4 p-5" aria-labelledby="topic-slo-heading">
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="topic-slo-heading" className="text-sm font-semibold">Topic production SLO (scheduler, not CI)</h2>
+          <StateBadge state={report.topicSlo.status} />
+        </div>
+        <div className="mt-2">
+          <Fact label="SLO deadline (tomorrow&apos;s topic stored by)" value={`${report.topicSlo.deadlineUtc} UTC daily`} />
+          <Fact
+            label="Last scheduled run"
+            value={
+              report.topicSlo.lastScheduledRunAt
+                ? `${fmtDate(report.topicSlo.lastScheduledRunAt)} (${report.topicSlo.lastScheduledRunConclusion ?? "?"})`
+                : "never"
+            }
+          />
+          <Fact
+            label="Last successful run (any trigger)"
+            value={
+              report.topicSlo.lastSuccessfulRun
+                ? `${fmtDate(report.topicSlo.lastSuccessfulRun.at)} (${report.topicSlo.lastSuccessfulRun.event})`
+                : "none"
+            }
+          />
+          <Fact label="Consecutive scheduled failures" value={String(report.topicSlo.consecutiveScheduledFailures)} />
+        </div>
+        {report.topicSlo.note && <p className="mt-2 text-xs text-ink3">{report.topicSlo.note}</p>}
+      </section>
+
       <section className="surface-card mt-4 p-5" aria-labelledby="judge-heading">
         <div className="flex items-center justify-between gap-3">
           <h2 id="judge-heading" className="text-sm font-semibold">Judge validation</h2>
