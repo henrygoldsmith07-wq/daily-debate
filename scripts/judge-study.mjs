@@ -22,9 +22,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { EXPERIMENTS } from "./lib/judge-experiments.mjs";
+import { canonicalHash, deriveAdoptionRule, validateRegistration } from "./lib/judge-registration.mjs";
+import { estimateCapacity } from "./judge-capacity.mjs";
 import {
   basicStats,
   bootstrapDeltaCi,
@@ -51,7 +52,13 @@ if (!argVal("registration") || !fs.existsSync(regPath) || !fs.statSync(regPath).
 }
 const registrationText = fs.readFileSync(regPath, "utf8").replace(/^\uFEFF/, "");
 const reg = JSON.parse(registrationText);
-const regHash = createHash("sha256").update(registrationText).digest("hex").slice(0, 16);
+const regHash = canonicalHash(reg);
+const validation = validateRegistration(reg, { experiments: EXPERIMENTS });
+if (!validation.ok) {
+  process.stderr.write(`[judge-study] registration INVALID - refusing to seal or execute:\n  - ${validation.errors.join("\n  - ")}\n`);
+  process.exit(2);
+}
+for (const w of validation.warnings ?? []) process.stderr.write(`[judge-study] note: ${w}\n`);
 for (const armName of ["baseline", "candidate"]) {
   const exp = reg.arms?.[armName]?.experiment;
   if (!exp || !EXPERIMENTS[exp]) {
@@ -79,22 +86,48 @@ fs.mkdirSync(dirs.candidate, { recursive: true });
 
 const log = (m) => process.stderr.write(`[judge-study] ${m}\n`);
 
-// --- Seal: snapshot registration + hash; refuse drift (item 4) ---------------
+// --- Capacity gate (items 12-13): estimate before burning anything -----------
+const budgetRaw = argVal("budget-calls") ?? process.env.JUDGE_DAILY_CALL_BUDGET ?? "";
+const capacity = estimateCapacity(reg, Number(budgetRaw) || null);
+fs.writeFileSync(path.join(studyDir, "capacity.json"), JSON.stringify(capacity, null, 2) + "\n");
+if (capacity.decision !== "GO" && !REANALYZE) {
+  log(`BLOCKED - INSUFFICIENT PROVIDER CAPACITY: ${capacity.rationale}`);
+  process.stdout.write(JSON.stringify({ status: "blocked", capacity, studyDir }) + "\n");
+  process.exit(3);
+}
+log(`capacity ${capacity.decision}: ${capacity.rationale}`);
+
+// --- Seal: canonical registration hash; refuse drift (items 4, 8, 10) --------
+// The snapshot stores the CANONICAL hash (bookkeeping fields excluded), so a
+// completed-study verdict write-back never fakes "drift". Studies sealed by
+// the older raw-text hash can be re-sealed only with an explicit, logged
+// justification (--reseal) - historical snapshots are never rewritten
+// silently.
+const RESEAL = argVal("reseal");
 const snapshotPath = path.join(studyDir, "registration-snapshot.json");
 let sealedHash = regHash;
 if (fs.existsSync(snapshotPath)) {
   const snap = JSON.parse(fs.readFileSync(snapshotPath, "utf8"));
   sealedHash = snap.registrationHash;
   if (sealedHash !== regHash && !REANALYZE) {
-    process.stderr.write(
-      `[judge-study] registration file (hash ${regHash}) differs from this study's seal (${sealedHash}).\n` +
-      `A changed registration is a NEW study: choose a new --study-dir and register again.\n`,
+    if (!RESEAL) {
+      process.stderr.write(
+        `[judge-study] registration file (canonical hash ${regHash}) differs from this study's seal (${sealedHash}).\n` +
+        `A changed registration is a NEW study; resuming under a re-seal needs --reseal "<justification>".\n`,
+      );
+      process.exit(3);
+    }
+    fs.appendFileSync(
+      path.join(studyDir, "reseals.jsonl"),
+      JSON.stringify({ at: new Date().toISOString(), from: sealedHash, to: regHash, justification: RESEAL }) + "\n",
     );
-    process.exit(3);
+    sealedHash = regHash;
+    log(`re-sealed under justification: ${RESEAL}`);
   }
-} else {
-  fs.writeFileSync(snapshotPath, JSON.stringify({ registrationHash: regHash, sealedAt: new Date().toISOString(), registration: reg }, null, 2));
-  log(`sealed registration ${reg.name} hash=${regHash}`);
+}
+if (!fs.existsSync(snapshotPath) || sealedHash !== JSON.parse(fs.readFileSync(snapshotPath, "utf8")).registrationHash) {
+  fs.writeFileSync(snapshotPath, JSON.stringify({ registrationHash: sealedHash, sealedAt: new Date().toISOString(), adoptionRule: deriveAdoptionRule(reg), registration: reg }, null, 2));
+  log(`sealed registration ${reg.name} canonical hash=${sealedHash}`);
 }
 
 const METRICS = [...new Set([reg.target.metric, ...Object.keys(reg.protected ?? {}), "provider reliability"])];
@@ -168,6 +201,9 @@ const md = [
   `- hypothesis: ${reg.hypothesis}`,
   `- variable: ${reg.singleVariable}`,
   `- design: registered runs/arm=${reg.runsPerArm}, probe-gated serialized interleave, provider=${reg.models ?? "any"}`,
+  `- capacity plan: ${capacity.decision} - ${capacity.rationale} (expected ${capacity.expectedCalls} calls of budget ${capacity.budgetCalls ?? "none declared"}; see capacity.json)`,
+  `- executable rule (generated from structured fields; structured fields are authoritative): ${deriveAdoptionRule(reg)}`,
+  `- prose adoption rule: ${reg.adoptionRule ? (String(reg.adoptionRule).trim() === deriveAdoptionRule(reg) ? "matches generated rule" : "LEGACY (non-authoritative; structured fields govern)") : "none (generated governs)"}`,
   `- provider: ${stoppedEarly ? `stopped early - ${stoppedEarly}` : "all planned arms executed"}`,
   `- verdict: **${verdict.status.toUpperCase()}**`,
   "",
@@ -222,16 +258,17 @@ fs.writeFileSync(
   ),
 );
 
-// Update the live registration only while it still matches the seal.
-if (!REANALYZE && sealedHash === regHash) {
+// Update the live registration ONLY on a completed plan: a study that
+// stopped early (probe/capacity) stays resumable and honestly un-decided.
+if (!REANALYZE && stoppedEarly === null && sealedHash === regHash) {
   reg.status = "decided";
   reg.decidedAt = new Date().toISOString();
   reg.registrationHash = sealedHash;
   reg.studyDir = path.relative(process.cwd(), studyDir);
   reg.verdict = { status: verdict.status, reasons: verdict.reasons };
   fs.writeFileSync(regPath, JSON.stringify(reg, null, 2) + "\n");
-} else if (!REANALYZE) {
-  log("registration drifted from seal - not writing verdict back; open a NEW registration + study dir");
+} else if (!REANALYZE && sealedHash !== regHash) {
+  log("registration drifted from seal - not writing verdict back; use --reseal <justification> or a new study dir");
 }
 log(`verdict ${verdict.status} -> ${path.join(studyDir, "study.md")}`);
 process.stdout.write(JSON.stringify({ status: verdict.status, stoppedEarly, studyDir }) + "\n");

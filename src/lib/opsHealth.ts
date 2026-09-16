@@ -165,6 +165,17 @@ export interface TopicScheduledRun {
   createdAt: string;
 }
 
+export interface TopicRunTelemetryRow {
+  event: string; // "schedule" | "workflow_dispatch" | ...
+  at: string; // started/created ISO
+  result: string; // "success" | "failure" | ...
+  delayMs: number | null; // platform start lateness for schedule rows
+  targetDate: string | null; // ISO date the run generated for
+  completedBeforeDeadline: boolean | null; // availability S1 held for that run
+}
+
+export const TOPIC_MISSED_START_THRESHOLD_MS = 90 * 60_000;
+
 export interface TopicSloInput {
   runs: TopicScheduledRun[];
   /** Can this runtime read the production topic store at all? */
@@ -176,6 +187,8 @@ export interface TopicSloInput {
    * null/undefined = unknown (older runs pre-verifier, or fetch failure).
    */
   latestRunVerified?: boolean | null;
+  /** Persisted per-run telemetry (topic_run_log); newest first or any order. */
+  telemetry?: TopicRunTelemetryRow[];
 }
 
 export interface TopicSlo {
@@ -190,15 +203,61 @@ export interface TopicSlo {
     deadlineUtc: string;
     note: string | null;
   };
-  /** Deterministic overall: worst of the two dimensions. */
+  /**
+   * Platform-scheduling health, deliberately SEPARATE from both dimensions:
+   * GitHub cron can start a run hours late without any app being wrong, and
+   * that must not read as generator failure (or hide as success).
+   */
+  scheduling: {
+    latestDelayMs: number | null;
+    medianDelayMs: number | null;
+    p95DelayMs: number | null;
+    missedStarts: number;
+    thresholdMs: number;
+    note: string | null;
+  };
+  /** Deterministic overall: worst of scheduler + availability. */
   status: HealthState;
   lastSuccessfulRun: { at: string; event: string } | null;
-  /** Production proofs (item 12): manual run + a LATER successful schedule. */
-  proofs: { manualSuccess: boolean; scheduledSuccessAfterManual: boolean };
+  /** Production proofs (item 7): the four things scheduling-complete means. */
+  proofs: {
+    manualSuccess: boolean;
+    scheduledSuccessAfterManual: boolean;
+    idempotenceRerun: boolean;
+    onTimeBeforeDeadline: boolean;
+  };
   note: string | null;
 }
 
+function quantile(sorted: number[], q: number): number | null {
+  if (!sorted.length) return null;
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.round(q * (sorted.length - 1))));
+  return sorted[idx];
+}
+
+function assessScheduling(telemetry: TopicRunTelemetryRow[]): TopicSlo["scheduling"] {
+  const delays = telemetry
+    .filter((r) => r.event === "schedule" && typeof r.delayMs === "number" && Number.isFinite(r.delayMs))
+    .map((r) => r.delayMs as number);
+  const sorted = delays.slice().sort((a, b) => a - b);
+  const latest = telemetry
+    .filter((r) => r.event === "schedule" && typeof r.delayMs === "number")
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+  const missedStarts = sorted.filter((d) => d > TOPIC_MISSED_START_THRESHOLD_MS).length;
+  return {
+    latestDelayMs: latest?.delayMs ?? null,
+    medianDelayMs: quantile(sorted, 0.5),
+    p95DelayMs: quantile(sorted, 0.95),
+    missedStarts,
+    thresholdMs: TOPIC_MISSED_START_THRESHOLD_MS,
+    note: sorted.length
+      ? `${sorted.length} scheduled runs measured; ${missedStarts} started later than the ${Math.round(TOPIC_MISSED_START_THRESHOLD_MS / 60000)}-min missed-start threshold`
+      : null,
+  };
+}
+
 export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
+  const telemetry = input.telemetry ?? [];
   const scheduled = input.runs
     .filter((r) => r.event === "schedule")
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
@@ -258,6 +317,18 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
     ? scheduled.some((r) => successBy(r) && Date.parse(r.createdAt) > Date.parse(dispatchSuccess.createdAt))
     : false;
 
+  // The four production proofs (item 7), from run history + telemetry:
+  const successfulTargets = telemetry.filter((r) => r.result === "success" && r.targetDate);
+  const idempotenceRerun =
+    new Set(successfulTargets.map((r) => `${r.targetDate}|${r.event}`)).size > 0 &&
+    successfulTargets.some((r1) => successfulTargets.some((r2) => r1 !== r2 && r1.targetDate === r2.targetDate));
+  const tomorrowIso = addDaysUtc(todayIsoUtc(nowIso), 1);
+  const onTimeBeforeDeadline =
+    input.tomorrowReady &&
+    telemetry.some((r) => r.targetDate === tomorrowIso && r.completedBeforeDeadline === true);
+
+  const scheduling = assessScheduling(telemetry);
+
   const notes = [availabilityNote, schedulerNote(scheduler, consecutiveScheduledFailures, scheduled, nowIso)].filter(Boolean);
   return {
     scheduler: {
@@ -267,9 +338,15 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
       lastScheduledRunConclusion: scheduled[0] ? (scheduled[0].status === "completed" ? scheduled[0].conclusion ?? null : "running") : null,
     },
     availability: { state: availability, deadlineUtc: TOPIC_SLO_DEADLINE_UTC, note: availabilityNote },
+    scheduling,
     status,
     lastSuccessfulRun: newestSuccessFirst ? { at: newestSuccessFirst.createdAt, event: newestSuccessFirst.event } : null,
-    proofs: { manualSuccess: Boolean(dispatchSuccess), scheduledSuccessAfterManual },
+    proofs: {
+      manualSuccess: Boolean(dispatchSuccess),
+      scheduledSuccessAfterManual,
+      idempotenceRerun,
+      onTimeBeforeDeadline,
+    },
     note: notes.length ? notes.join(" ") : null,
   };
 }

@@ -311,6 +311,47 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     expect(s.scheduler.state).toBe("stale");
     expect(s.status).toBe("stale");
   });
+
+  it("platform scheduler DELAY is telemetry, never a generator failure", () => {
+    const late = run("schedule", "success", "2026-09-15T02:00:00Z");
+    const telemetry = [
+      { event: "schedule", at: "2026-09-15T07:00:00Z", result: "success", delayMs: 5 * 3_600_000, targetDate: "2026-09-16", completedBeforeDeadline: true },
+      { event: "schedule", at: "2026-09-14T02:20:00Z", result: "success", delayMs: 20 * 60_000, targetDate: "2026-09-15", completedBeforeDeadline: true },
+    ];
+    const s = assessTopicSlo(
+      { runs: [late], productionDbReadable: true, tomorrowReady: true, telemetry },
+      "2026-09-15T12:00:00Z",
+    );
+    expect(s.scheduler.state).toBe("healthy"); // ran, succeeded
+    expect(s.scheduling.latestDelayMs).toBe(5 * 3_600_000);
+    expect(s.scheduling.missedStarts).toBe(1); // >90min threshold counted
+    expect(s.status).toBe("healthy"); // delay alone never degrades app status
+  });
+
+  it("all four production proofs computed from runs + telemetry", () => {
+    const dispatch = run("workflow_dispatch", "success", "2026-09-15T10:00:00Z");
+    const schedule = run("schedule", "success", "2026-09-15T20:00:00Z");
+    const telemetry = [
+      { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-16", completedBeforeDeadline: true },
+      { event: "schedule", at: "2026-09-15T20:02:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-16", completedBeforeDeadline: true },
+    ];
+    const s = assessTopicSlo(
+      { runs: [schedule, dispatch, ...schedOk], productionDbReadable: true, tomorrowReady: true, telemetry },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(s.proofs).toEqual({
+      manualSuccess: true,
+      scheduledSuccessAfterManual: true,
+      idempotenceRerun: true, // two successes for 2026-09-16
+      onTimeBeforeDeadline: true,
+    });
+    const partial = assessTopicSlo(
+      { runs: [dispatch], productionDbReadable: true, tomorrowReady: true, telemetry: [telemetry[0]] },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(partial.proofs.scheduledSuccessAfterManual).toBe(false);
+    expect(partial.proofs.idempotenceRerun).toBe(false);
+  });
 });
 
 describe("evidence sections (never green-washed)", () => {

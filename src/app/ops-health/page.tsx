@@ -135,9 +135,21 @@ export default async function OpsHealthPage() {
           />
           <Fact label="Consecutive scheduled failures" value={String(report.topicSlo.scheduler.consecutiveScheduledFailures)} />
           <Fact
-            label="Production proofs (manual + later scheduled success)"
-            value={`${report.topicSlo.proofs.manualSuccess ? "manual ✓" : "manual ✗"} / ${
+            label="Scheduler delay (latest / median / p95)"
+            value={
+              report.topicSlo.scheduling.latestDelayMs === null
+                ? "no telemetry"
+                : `${Math.round(report.topicSlo.scheduling.latestDelayMs / 60000)}m / ${
+                    report.topicSlo.scheduling.medianDelayMs === null ? "—" : `${Math.round(report.topicSlo.scheduling.medianDelayMs / 60000)}m`
+                  } / ${report.topicSlo.scheduling.p95DelayMs === null ? "—" : `${Math.round(report.topicSlo.scheduling.p95DelayMs / 60000)}m`} (late>${Math.round(report.topicSlo.scheduling.thresholdMs / 60000)}m: ${report.topicSlo.scheduling.missedStarts})`
+            }
+          />
+          <Fact
+            label="Production proofs (manual / later-scheduled / idempotence / on-time)"
+            value={`${report.topicSlo.proofs.manualSuccess ? "manual ✓" : "manual ✗"} · ${
               report.topicSlo.proofs.scheduledSuccessAfterManual ? "scheduled ✓" : "scheduled ✗"
+            } · ${report.topicSlo.proofs.idempotenceRerun ? "idempotent ✓" : "idempotent ✗"} · ${
+              report.topicSlo.proofs.onTimeBeforeDeadline ? "on-time ✓" : "on-time ✗"
             }`}
           />
         </div>
