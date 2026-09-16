@@ -1,15 +1,26 @@
 name: topic-generation
 
-# Pre-generates TOMORROW's debate topic, four times through the evening:
-# 20:00, 21:30, 22:45 and 23:40 UTC - ALL pre-midnight, so every slot
-# targets the SAME date (a post-midnight run would generate the day AFTER,
-# which is the next cycle, not a retry). Why so early and so many: GitHub
-# scheduled runs have been observed starting 4-5+ hours late, and the hard
-# availability SLO stays 'tomorrow's topic stored by 03:00 UTC'. Every
-# slot is the same idempotent pipeline (one row per date, replaced
-# evidence, post-write verification), so retries cost nothing and buy
-# recovery margin under platform delay. A late PLATFORM start is
-# scheduler delay, recorded as such - never counted as a generator failure.
+# Pre-generates TOMORROW's debate topic on a six-slot retry ladder that all
+# targets the SAME date:
+#
+#   20:00  primary generation (previous evening)
+#   21:30  retry 1 (later evening)
+#   22:45  retry 2 (later evening)
+#   23:40  last pre-midnight attempt
+#   00:15  post-midnight recovery (SAME target date via the 15:00 UTC cycle
+#          boundary in resolveTargetDate)
+#   02:15  final availability verification before the 03:00 UTC deadline
+#
+# Why so early and so many: GitHub scheduled runs have been observed starting
+# 4-5+ hours late, and the hard availability SLO stays 'tomorrow's topic
+# stored by 03:00 UTC'. Every slot is the same idempotent pipeline (one row
+# per date, replaced evidence, post-write verification), so retries cost
+# nothing and buy recovery margin under platform delay; the 02:15 slot
+# doubles as the last-chance write AND the deadline re-verification. If a
+# delayed slot slips past midnight, the cycle-boundary date rule keeps it on
+# the SAME target date until 15:00 UTC instead of silently generating the
+# next cycle. A late PLATFORM start is scheduler delay, recorded as such -
+# never counted as a generator failure.
 #
 # If this workflow still fails, the app serves curated fallbacks - the
 # pipeline failing is degraded, not broken, until the 03:00 deadline passes.
@@ -19,7 +30,9 @@ on:
     - cron: "0 20 * * *"   # primary: previous evening
     - cron: "30 21 * * *"  # retry 1 (same target date)
     - cron: "45 22 * * *"  # retry 2 (same target date)
-    - cron: "40 23 * * *"  # last same-target attempt before midnight
+    - cron: "40 23 * * *"  # last pre-midnight attempt (same target date)
+    - cron: "15 0 * * *"   # post-midnight recovery (same target date)
+    - cron: "15 2 * * *"   # final availability verification before 03:00 UTC
   workflow_dispatch:
 
 permissions:
@@ -101,9 +114,13 @@ jobs:
             gen-result.json verify.json > topic-run-evidence.json
           echo "run=${RUN_ID} event=${EVENT} target=$(jq -r .generator.date gen-result.json) source=$(jq -r .generator.source gen-result.json) evidence=$(jq -r .freshness.checks.evidenceCards verify.json)"
       - name: Record durable run telemetry (best-effort, never fails the run)
+        if: always()
         # Scheduler delay vs generator failure vs availability - persisted to
         # topic_run_log so ops health can prove each dimension from data,
-        # not from the current DB row alone.
+        # not from the current DB row alone. Runs on FAILURE too: a run that
+        # died in config validation still has a scheduledFor + actualStart,
+        # and item 4 wants the delay of every scheduled run measured -
+        # TARGET_DATE/OUTCOME simply record as null for the failed path.
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EVENT: ${{ github.event_name }}
@@ -116,7 +133,13 @@ jobs:
           OUTCOME: ${{ steps.gen.outputs.outcome }}
           RESULT: ${{ job.status }}
           FRESHNESS: ${{ steps.verify.outcome == 'success' && 'pass' || 'fail' }}
-        run: node scripts/record-topic-run.mjs || true
+        # GitHub exposes no run_completed_at context while the job is still
+        # running, so capture the wall clock here: completedAt and durationMs
+        # (item 4) become real persisted data instead of permanent nulls in
+        # topic_run_log.
+        run: |
+          export RUN_COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node scripts/record-topic-run.mjs || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

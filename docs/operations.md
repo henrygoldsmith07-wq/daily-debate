@@ -123,8 +123,17 @@ provenance, topic count, evidence count, freshness verification, duration,
 final result) to its step summary and a `topic-run-evidence-*` artifact, so
 SLO state is auditable rather than inferred from the current DB row alone.
 
+The target date is resolved from the **15:00 UTC cycle boundary**
+(`resolveTargetDate` in `scripts/generate-topics.mjs`), not a raw clock+24h:
+all four evening slots (and any dispatch before 15:00) target the day after
+the most recent boundary. This is what makes a delayed slot recover: a 23:40
+slot that starts at 02:00 still targets the same tomorrow — inside the
+recovery window ahead of the 03:00 deadline — instead of silently advancing
+to the next cycle. The freshness verifier's default date follows the same
+rule, so a bare re-verification during a delayed run checks the right date.
+
 ## Scheduled jobs
 
-- **Topic generation** (`topic-generation.yml`): four pre-midnight attempts - 20:00, 21:30, 22:45, 23:40 UTC - all generating the SAME tomorrow-date, because GitHub scheduled starts have been observed 4-5+ hours late and the 03:00 UTC availability SLO must survive that. Every attempt is the same idempotent pipeline (one row per date, replaced bounded evidence, post-write freshness verification); post-midnight slots would target the NEXT day, which is the next cycle, not a retry. Requires the `DATABASE_URL` repository secret; `--check-config` fails fast with `config-failure` when it is absent or unreachable. Each run records durable telemetry to `topic_run_log` (scheduledFor, actual start, scheduler delay, duration, target date, generator outcome, freshness, result) - scheduler delay, generator failure and availability failure are three separately-reported facts; a late platform start is never counted as a generator failure.
+- **Topic generation** (`topic-generation.yml`): six attempts on one retry ladder - 20:00, 21:30, 22:45, 23:40 UTC the previous evening, then 00:15 and 02:15 UTC post-midnight - all generating the SAME tomorrow-date, because GitHub scheduled starts have been observed 4-5+ hours late and the 03:00 UTC availability SLO must survive that. The 02:15 slot doubles as the final availability verification before the deadline. Every attempt is the same idempotent pipeline (one row per date, replaced bounded evidence, post-write freshness verification); the 15:00 UTC cycle boundary keeps post-midnight slots on the SAME date until the deadline passes, then the next evening slot advances to the next cycle. Requires the `DATABASE_URL` repository secret; `--check-config` fails fast with `config-failure` when it is absent or unreachable. Each run records durable telemetry to `topic_run_log` (scheduledFor, actual start, scheduler delay, completedAt, duration, target date, generator outcome, freshness, result) - scheduler delay, generator failure and availability failure are three separately-reported facts; a late platform start is never counted as a generator failure.
 - **Production proofs** (all four on ops health, required before "scheduling works"): successful manual run, later successful scheduled run, same-date idempotence rerun, and one on-time freshness-verified write before the deadline.
 - **Judge benchmark** (`judge-benchmark.yml`, weekly): needs at least one provider key secret. Free-tier providers enforce per-day request caps — a run landing on a depleted quota honestly reports `INSUFFICIENT DATA` / provider-reliability FAIL and is appended to `docs/judge-benchmark-attempts.json` without overwriting the last valid record.

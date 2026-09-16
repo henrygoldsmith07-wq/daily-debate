@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   pickFallback,
+  resolveTargetDate,
   runGeneration,
   scoreCandidate,
   scoreNovelty,
@@ -245,5 +246,41 @@ describe("runGeneration pipeline (injected query)", () => {
     expect(result.outcome).toBe("curated-fallback");
     expect(result.evidenceCards).toBe(0);
     expect(db.topics.size).toBe(1);
+  });
+
+  it("a 23:40 slot that slips past midnight still targets the same date (recovery, not next cycle)", async () => {
+    const db = fakeDb();
+    const onTime = await runGeneration({ query: db.query, env: {}, retrieve: async () => [], now: new Date("2026-09-16T23:40:00Z"), ...silent });
+    const late = await runGeneration({ query: db.query, env: {}, retrieve: async () => [], now: new Date("2026-09-17T00:55:00Z"), ...silent });
+    expect(onTime.date).toBe("2026-09-17");
+    // The delayed rerun must land on the SAME row (idempotent recovery),
+    // never silently advance to the next cycle's date.
+    expect(late.date).toBe("2026-09-17");
+    expect(db.topics.size).toBe(1);
+  });
+});
+
+describe("resolveTargetDate (cycle-boundary rule)", () => {
+  it("on-time evening slots target tomorrow", () => {
+    for (const at of ["2026-09-16T20:00:00Z", "2026-09-16T21:30:00Z", "2026-09-16T22:45:00Z", "2026-09-16T23:40:00Z"]) {
+      expect(resolveTargetDate(new Date(at))).toBe("2026-09-17");
+    }
+  });
+
+  it("executions that slip past midnight still target the previous cycle's tomorrow (today)", () => {
+    // GitHub scheduled starts observed 4-5h late: a 23:40 slot starting at
+    // 04:00 must still recover 2026-09-17, not abandon it for 09-18.
+    for (const at of ["2026-09-17T00:10:00Z", "2026-09-17T02:00:00Z", "2026-09-17T04:00:00Z", "2026-09-17T14:59:00Z"]) {
+      expect(resolveTargetDate(new Date(at))).toBe("2026-09-17");
+    }
+  });
+
+  it("flips to the next cycle exactly at the 15:00 UTC boundary", () => {
+    expect(resolveTargetDate(new Date("2026-09-17T15:00:00Z"))).toBe("2026-09-18");
+  });
+
+  it("midday manual dispatches (15:00-23:59) target tomorrow", () => {
+    expect(resolveTargetDate(new Date("2026-09-16T15:00:00Z"))).toBe("2026-09-17");
+    expect(resolveTargetDate(new Date("2026-09-16T18:00:00Z"))).toBe("2026-09-17");
   });
 });

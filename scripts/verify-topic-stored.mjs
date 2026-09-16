@@ -13,9 +13,13 @@
 //
 //   DATABASE_URL=... node scripts/verify-topic-stored.mjs [--date YYYY-MM-DD] [--max-cards N]
 //
-// Default target date is tomorrow UTC, matching the generator.
+// Default target date follows the generator's cycle-boundary rule (the day
+// after the most recent 15:00 UTC boundary), NOT a raw tomorrow: during a
+// delayed pre-midnight slot that slips past midnight, the generator still
+// targets today, so the verifier's default must agree.
 
 import { createExecutor } from "./lib/sql-executor.mjs";
+import { resolveTargetDate } from "./generate-topics.mjs";
 
 const args = process.argv.slice(2);
 const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -24,7 +28,7 @@ if (!databaseUrl) {
   process.exit(2);
 }
 const dateIdx = args.indexOf("--date");
-const tomorrowUtc = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const tomorrowUtc = resolveTargetDate(new Date());
 const targetDate = dateIdx !== -1 ? String(args[dateIdx + 1] ?? "") : tomorrowUtc;
 if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
   process.stderr.write(`verify-topic-stored: bad --date "${targetDate}" (expected YYYY-MM-DD).\n`);

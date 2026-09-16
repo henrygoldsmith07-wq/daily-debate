@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// Pre-generation pipeline: runs at ~02:00 UTC daily (GitHub Actions cron).
+// Pre-generation pipeline: runs six times daily via GitHub Actions cron —
+// 20:00, 21:30, 22:45, 23:40, then 00:15 and 02:15 UTC post-midnight — and
+// every slot targets the SAME date (see resolveTargetDate).
 //
 //   1. Generate 3-5 candidate topics via the AI provider chain
 //   2. Score each on 9 dimensions (debatable balance, evidence availability,
@@ -8,6 +10,12 @@
 //   3. Pick the strongest candidate
 //   4. Store for TOMORROW's date (so it publishes at midnight)
 //   5. If all AI providers fail, store a curated fallback topic
+//
+// The target date is resolved from the 15:00 UTC cycle boundary, not the raw
+// execution clock (see resolveTargetDate below) — scheduler delay must not
+// move the target to the next cycle, so the 00:15/02:15 slots are true
+// retries for the SAME tomorrow inside the recovery window ahead of the
+// 03:00 UTC availability deadline.
 //
 // Dependency-free ESM — same pattern as judge-benchmark.mjs.
 
@@ -418,6 +426,30 @@ function scoreCandidate(topic, recentTitles) {
 export { pickFallback, scoreCandidate, scoreNovelty };
 
 /**
+ * Resolve which date a generation run targets.
+ *
+ * The evening retry slots (20:00–23:40 UTC) all target TOMORROW's date, so a
+ * slot that starts on time and one that starts hours late (GitHub scheduled
+ * starts have been observed 4–5h late) must resolve the SAME date — otherwise
+ * a 23:40 slot starting after midnight would silently generate the NEXT
+ * cycle's date and abandon the date it was meant to protect.
+ *
+ * Rule: the target is the calendar day AFTER the most recent 15:00 UTC cycle
+ * boundary. Pre-midnight executions (15:00–23:59) target tomorrow; an
+ * execution that slips past midnight into the 00:00–15:00 window still
+ * targets TODAY — exactly the recovery behaviour the 03:00 UTC availability
+ * SLO needs. (The 15:00 boundary is also safely clear of any realistic
+ * delayed start, so late runs always land in the recovery window.)
+ */
+export function resolveTargetDate(now) {
+  const CYCLE_BOUNDARY_UTC_HOUR = 15;
+  const cycleStart = new Date(now.getTime());
+  cycleStart.setUTCHours(CYCLE_BOUNDARY_UTC_HOUR, 0, 0, 0);
+  if (cycleStart.getTime() > now.getTime()) cycleStart.setUTCDate(cycleStart.getUTCDate() - 1);
+  return new Date(cycleStart.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
  * The generation pipeline, dependency-injected so every branch — AI success,
  * provider failure → fallback, DB failure, idempotent re-run — is testable
  * against an in-memory query double. Outcomes are explicit:
@@ -431,7 +463,7 @@ export async function runGeneration(deps = {}) {
   const now = deps.now ?? new Date();
   const emit = deps.log ?? log;
 
-  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const tomorrow = resolveTargetDate(now);
   emit(`[generate-topics] Pre-generating for ${tomorrow}`);
 
   let recentTitles;
