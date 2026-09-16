@@ -1,12 +1,25 @@
 name: topic-generation
 
-# Pre-generates tomorrow's debate topic at ~02:00 UTC daily. The dashboard
-# never calls AI — it just reads the pre-stored topic. If this pipeline
-# fails, the app falls back to a curated local motion (topicFallbacks.ts).
+# Pre-generates TOMORROW's debate topic, four times through the evening:
+# 20:00, 21:30, 22:45 and 23:40 UTC - ALL pre-midnight, so every slot
+# targets the SAME date (a post-midnight run would generate the day AFTER,
+# which is the next cycle, not a retry). Why so early and so many: GitHub
+# scheduled runs have been observed starting 4-5+ hours late, and the hard
+# availability SLO stays 'tomorrow's topic stored by 03:00 UTC'. Every
+# slot is the same idempotent pipeline (one row per date, replaced
+# evidence, post-write verification), so retries cost nothing and buy
+# recovery margin under platform delay. A late PLATFORM start is
+# scheduler delay, recorded as such - never counted as a generator failure.
+#
+# If this workflow still fails, the app serves curated fallbacks - the
+# pipeline failing is degraded, not broken, until the 03:00 deadline passes.
 
 on:
   schedule:
-    - cron: "0 2 * * *" # 02:00 UTC daily
+    - cron: "0 20 * * *"   # primary: previous evening
+    - cron: "30 21 * * *"  # retry 1 (same target date)
+    - cron: "45 22 * * *"  # retry 2 (same target date)
+    - cron: "40 23 * * *"  # last same-target attempt before midnight
   workflow_dispatch:
 
 permissions:
@@ -19,6 +32,9 @@ concurrency:
 jobs:
   generate:
     runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.gen.outcome }}
+      target_date: ${{ steps.gen.target }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,6 +55,7 @@ jobs:
           KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
         run: node scripts/generate-topics.mjs --check-config
       - name: Pre-generate tomorrow's topic
+        id: gen
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -49,22 +66,22 @@ jobs:
           OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
         run: |
           node scripts/generate-topics.mjs | tee gen.json
-          # Persist the machine-readable generator outcome as a run log.
           grep -o '{.*}' gen.json | tail -n 1 | tee gen-result.json
+          echo "outcome=$(jq -r .outcome gen-result.json)" >> "$GITHUB_OUTPUT"
+          echo "target=$(jq -r .date gen-result.json)" >> "$GITHUB_OUTPUT"
       - name: Verify the write landed (freshness postconditions)
         # A green generation step only proves the script exited 0. Re-read
         # the production database and fail if tomorrow's topic does not
         # exist, is not unique, lacks valid provenance, or evidence escaped
         # its cap / lost its topic reference.
+        id: verify
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          node scripts/verify-topic-stored.mjs | tee verify.json
+          node scripts/verify-topic-stored.mjs --date "${{ steps.gen.target }}" | tee verify.json
           grep -q '"ok": true' verify.json
       - name: Persist operational evidence
-        # Structured proof of this run for audits and the ops-health SLO:
-        # run id/type, target date, source, topic/evidence counts, freshness,
-        # duration inputs and final result.
+        # Structured proof of this run for audits and the ops-health SLO.
         env:
           EVENT: ${{ github.event_name }}
           RUN_ID: ${{ github.run_id }}
@@ -83,6 +100,23 @@ jobs:
             '{runId: $id, runAttempt: $at, runType: $rt, startedAt: $st, generator: .[0], freshness: .[1], result: "pass"}' \
             gen-result.json verify.json > topic-run-evidence.json
           echo "run=${RUN_ID} event=${EVENT} target=$(jq -r .generator.date gen-result.json) source=$(jq -r .generator.source gen-result.json) evidence=$(jq -r .freshness.checks.evidenceCards verify.json)"
+      - name: Record durable run telemetry (best-effort, never fails the run)
+        # Scheduler delay vs generator failure vs availability - persisted to
+        # topic_run_log so ops health can prove each dimension from data,
+        # not from the current DB row alone.
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EVENT: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+          RUN_ID: ${{ github.run_id }}
+          ATTEMPT: ${{ github.run_attempt }}
+          RUN_CREATED_AT: ${{ github.run_created_at }}
+          RUN_STARTED_AT: ${{ github.run_started_at }}
+          TARGET_DATE: ${{ steps.gen.outputs.target_date }}
+          OUTCOME: ${{ steps.gen.outputs.outcome }}
+          RESULT: ${{ job.status }}
+          FRESHNESS: ${{ steps.verify.outcome == 'success' && 'pass' || 'fail' }}
+        run: node scripts/record-topic-run.mjs || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

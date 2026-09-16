@@ -30,6 +30,24 @@ export const EXPERIMENTS = {
       "assessing evidence verifiability independently from rhetoric will cut fake-citation influence far below any prompt-only arm, at a measurable latency/token cost",
     citationClause: CITATION_CLAUSE_DEFAULT,
   },
+  "ensemble-two-model": {
+    label: "dual-model ensemble with deterministic aggregation",
+    kind: "ensemble-two-model",
+    // PRE-REGISTERED 2026-09-16, chosen from AGGREGATE weakness (items 14):
+    // the two largest gaps to gate in every honest run are verdict accuracy
+    // (agreement ~0.5-0.65 vs 0.75) and calibration (ECE ~0.09-0.2 vs 0.08)
+    // - one root cause: single-model judgment variance. The single variable
+    // is the AGGREGATION ARCHITECTURE: two different models judge the SAME
+    // transcript with the SAME shipped v5 prompt; the ensemble verdict is
+    // deterministic (mean scores, production tie rule on the mean gap,
+    // confidence = mean confidence discounted when the models disagree on
+    // the winner). No prompt changes; the study may not start until the
+    // arm is implemented AND capacity is declared (validator enforces both).
+    implementationPending: true,
+    hypothesis:
+      "averaging two independent model verdicts under the existing deterministic tie policy raises fixture agreement >= 0.08 and lowers ECE without regressing any invariance metric",
+    citationClause: CITATION_CLAUSE_DEFAULT,
+  },
   "citation-zero-weight": {
     label: "v5.1 citation-zero-weight",
     status:

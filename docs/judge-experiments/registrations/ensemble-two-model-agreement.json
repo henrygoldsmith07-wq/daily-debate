@@ -1,0 +1,65 @@
+{
+  "name": "ensemble-two-model-agreement",
+  "schemaVersion": 2,
+  "status": "registered",
+  "registeredAt": "2026-09-16T07:44:15.002Z",
+  "kind": "architecture",
+  "question": "Across every honest full-pack run the two largest gate gaps are verdict accuracy (agreement 0.48-0.65 vs 0.75) and calibration (ECE 0.09-0.2 vs 0.08). Is single-model judgment variance the shared cause, and does deterministic dual-model aggregation fix both?",
+  "hypothesis": "averaging two independent model verdicts (same v5 prompt, different models) under the existing deterministic tie policy raises fixture agreement >= 0.08 and lowers ECE without regressing invariance or reliability",
+  "singleVariable": "AGGREGATION ARCHITECTURE: single judge vs two-model ensemble with deterministic score-mean verdict + disagreement-discounted confidence. Prompts, fixtures, gates, temperature, tie threshold identical. Arm is implementation-pending; validator refuses execution until it exists.",
+  "arms": {
+    "baseline": {
+      "experiment": "baseline"
+    },
+    "candidate": {
+      "experiment": "ensemble-two-model"
+    }
+  },
+  "models": "unorouter,openrouter",
+  "runsPerArm": 3,
+  "minimumUsableReliability": 0.75,
+  "target": {
+    "metric": "fixture agreement",
+    "direction": "up",
+    "minImprovement": 0.08
+  },
+  "protected": {
+    "ECE": {
+      "maxRegression": 0.03
+    },
+    "fake-citation influence": {
+      "maxRegression": 0.05
+    },
+    "position stability": {
+      "maxRegression": 0.08
+    },
+    "names stability": {
+      "maxRegression": 0.08
+    },
+    "verbosity stability": {
+      "maxRegression": 0.08
+    },
+    "style stability": {
+      "maxRegression": 0.08
+    },
+    "whitespace stability": {
+      "maxRegression": 0.08
+    },
+    "prestige stability": {
+      "maxRegression": 0.08
+    },
+    "provider reliability": {
+      "maxRegression": 0.1
+    },
+    "latency p50 ms": {
+      "maxRegression": 40000
+    },
+    "prompt tokens": {
+      "maxRegression": 400000
+    }
+  },
+  "bootstrapSeed": 42,
+  "executionStatus": "BLOCKED - INSUFFICIENT PROVIDER CAPACITY (no declared call budget; ensemble arm also implementation-pending). Do not start until both are resolved.",
+  "adoptionRule": "supported iff usable runs >= 3/arm at reliability >= 0.75 AND target \"fixture agreement\" moves up by >= 0.08 AND the bootstrap 90% CI lower bound of the signed improvement is > 0 AND no protected metric regresses beyond its cap AND pooled run sd. Fewer usable runs, any unmet condition or missing data => INCONCLUSIVE. Gate thresholds are untouchable.",
+  "providerNote": "baseline arm runs on unorouter; the ensemble arm adds openrouter as the second independent judge (same v5 prompt, separate model families)"
+}

@@ -14,6 +14,7 @@ import {
   buildOpsHealthReport,
   type EvidenceSection,
   type OpsHealthReport,
+  type TopicRunTelemetryRow,
   type TopicScheduledRun,
   type TrainingEvidence,
   type WorkflowStatusInput,
@@ -218,18 +219,64 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   // --- Topic production SLO: real scheduler runs + production store --------
   // Deliberately independent of CI: topic-pipeline job success is NOT counted
   // here; only schedule/dispatch runs of topic-generation.yml plus a readable
-  // production topic store can mark this healthy.
+  // production topic store can mark this healthy. The durable topic_run_log
+  // (migration 014) supplies scheduler-delay/availability telemetry; missing
+  // table or unreadable rows degrade to "no telemetry", never to errors.
   const topicRuns = await fetchTopicGenerationRuns(token);
+  const telemetry = await loadTopicRunTelemetry();
   const topicSlo = assessTopicSlo(
     {
       runs: topicRuns ?? [],
       productionDbReadable: topicStoreReadable,
       tomorrowReady: topic.tomorrowReady,
+      telemetry,
     },
     now,
   );
 
   return buildOpsHealthReport({ generatedAt: now, topic, topicSlo, judge, database, app, human, training });
+}
+
+/**
+ * Per-run durable telemetry from topic_run_log. completedBeforeDeadline is
+ * derived, not stored: a run for target date T "hit the deadline" iff it
+ * completed by T's date-boundary + SLO clock (03:00 UTC of the day the topic
+ * serves - i.e. T 00:00 is when it becomes today; 03:00 is the hard cap).
+ */
+async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
+  try {
+    const { queryRows } = await import("./backend/sql");
+    const rows = await queryRows<{
+      event: string;
+      started_at: string;
+      scheduled_for: string | null;
+      completed_at: string | null;
+      delay_ms: string | number | null;
+      target_date: string | null;
+      result: string;
+      freshness_ok: boolean | null;
+    }>(
+      `SELECT event, started_at, scheduled_for, completed_at, delay_ms, target_date, result, freshness_ok
+         FROM topic_run_log ORDER BY started_at DESC LIMIT 60`,
+    );
+    return rows.map((r) => {
+      let beforeDeadline: boolean | null = null;
+      if (r.completed_at && r.target_date) {
+        const deadline = Date.parse(`${r.target_date.slice(0, 10)}T00:00:00Z`) + 3 * 3_600_000;
+        beforeDeadline = Date.parse(r.completed_at) <= deadline && r.freshness_ok !== false;
+      }
+      return {
+        event: r.event,
+        at: r.started_at,
+        result: r.result,
+        delayMs: r.delay_ms === null ? null : Number(r.delay_ms),
+        targetDate: r.target_date ? r.target_date.slice(0, 10) : null,
+        completedBeforeDeadline: beforeDeadline,
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 /**
