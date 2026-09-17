@@ -7,8 +7,8 @@ const initialState: AuthState = { error: null };
 
 /**
  * Forgot-password form. On success it tells the user to check their email
- * (or the server console in dev mode) without ever confirming whether the
- * address exists — the same non-enumeration rule as the backend.
+ * without ever confirming whether the address exists — the same
+ * non-enumeration rule as the backend.
  */
 export default function ForgotPasswordForm() {
   const [state, action, pending] = useActionState(requestPasswordReset, initialState);
@@ -20,9 +20,6 @@ export default function ForgotPasswordForm() {
         <h2 className="font-semibold">Check your inbox</h2>
         <p className="text-sm text-ink3">
           If an account exists for that email, a reset link is on its way. The link is valid for 30 minutes.
-        </p>
-        <p className="text-xs text-ink3">
-          Running locally without email configured? The reset token is printed in the dev server console.
         </p>
       </div>
     );

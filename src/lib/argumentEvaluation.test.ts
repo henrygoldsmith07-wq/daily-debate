@@ -102,7 +102,10 @@ describe("steelman quality scoring", () => {
   it("credits steelman markers and concessions, penalises strawmen", () => {
     const base = {
       ...emptyGraph(),
-      nodes: [{ id: "c1", kind: "claim" as const, owner: "a" as const, text: "Even if grid costs rise, the strongest version of their argument fails on storage trends.", round: 1 }],
+      nodes: [
+        { id: "o1", kind: "counterclaim" as const, owner: "b" as const, text: "Grid costs rise faster than storage can offset.", round: 1 },
+        { id: "c1", kind: "claim" as const, owner: "a" as const, text: "Even if grid costs rise, the strongest version of their argument fails on storage trends.", round: 2 },
+      ],
       concessions: [{ nodeId: "c1", by: "a" as const, note: "grants the cost premise" }],
       fallacies: [],
     };
@@ -114,6 +117,23 @@ describe("steelman quality scoring", () => {
       fallacies: [{ nodeId: "c1", fallacy: "strawman" as const, note: "" }],
     };
     expect(scoreSteelmanQuality(strawman, "a").score).toBeLessThan(good.score);
+  });
+
+  it("does not credit generic steelman phrases with no opponent engagement", () => {
+    const gamed = {
+      ...emptyGraph(),
+      nodes: [
+        { id: "o1", kind: "counterclaim" as const, owner: "b" as const, text: "Zoning reform increases housing supply near transit.", round: 1 },
+        { id: "c1", kind: "claim" as const, owner: "a" as const, text: "To be fair, this is complex.", round: 2 },
+        { id: "c2", kind: "claim" as const, owner: "a" as const, text: "Admittedly, there are trade-offs.", round: 2 },
+        { id: "c3", kind: "claim" as const, owner: "a" as const, text: "The strongest version deserves consideration.", round: 3 },
+      ],
+      concessions: [],
+      fallacies: [],
+    };
+    const gamedScore = scoreSteelmanQuality(gamed, "a");
+    expect(gamedScore.markers).toBe(0);
+    expect(gamedScore.score).toBe(0);
   });
 });
 

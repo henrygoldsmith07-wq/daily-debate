@@ -56,11 +56,14 @@ export interface ArgumentSkillProfile {
 export function computeSkillProfile(points: SkillMetricPoint[]): ArgumentSkillProfile {
   const dims: ProfileDimension[] = PROFILE_DIMENSIONS.map(({ key, label, sources }) => {
     const allValues: number[] = [];
+    let sampleSize = 0;
     for (const point of points) {
+      const previousLength = allValues.length;
       for (const src of sources) {
         const g = goodness(point.metrics[src], src);
         if (g !== null) allValues.push(g);
       }
+      if (allValues.length > previousLength) sampleSize++;
     }
     if (!allValues.length) {
       return { key, label, score: null, lowConfidence: true, sampleSize: 0 };
@@ -70,8 +73,8 @@ export function computeSkillProfile(points: SkillMetricPoint[]): ArgumentSkillPr
       key,
       label,
       score: Math.max(0, Math.min(100, mean)),
-      lowConfidence: points.length < MIN_PROFILE_DEBATES,
-      sampleSize: points.length,
+      lowConfidence: sampleSize < MIN_PROFILE_DEBATES,
+      sampleSize,
     };
   });
 

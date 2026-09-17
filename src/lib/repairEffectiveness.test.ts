@@ -405,6 +405,19 @@ describe("opportunity filter (no-opportunity debates are invisible)", () => {
     expect(detail.afterDebates).toBe(0);
   });
 
+  it("does not infer improvement from missing opportunity metadata", () => {
+    const r = repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r");
+    const later = debate("u1", daysAfter(r.created_at, 1), {}, "legacy");
+    delete later.opps;
+    const detail = classifyRepair(r, [
+      debate("u1", daysBefore(r.created_at, 2), { evidence: 1 }),
+      later,
+    ]);
+    expect(detail.outcome).toBe("not-yet-measurable");
+    expect(detail.afterDebates).toBe(0);
+    expect(detail.firstRetest).toBeNull();
+  });
+
   it("requires opponent moves for rebuttal repairs", () => {
     const r = repair("u1", "rebuttal", "2026-06-10T12:00:00Z", "d-r");
     const debates = [

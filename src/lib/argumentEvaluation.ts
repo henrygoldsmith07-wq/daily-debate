@@ -199,15 +199,33 @@ export interface SteelmanQualityScore {
 
 const STEELMAN_FALLACIES = new Set(["strawman", "ad_hominem"]);
 
+function substantiveTokens(text: string): Set<string> {
+  return new Set(
+    (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((token) => token.length > 3),
+  );
+}
+
 export function scoreSteelmanQuality(graph: ArgGraph, owner: ArgNode["owner"]): SteelmanQualityScore {
-  const ownTexts = graph.nodes
-    .filter((n) => n.owner === owner && n.text)
-    .map((n) => n.text);
+  const opponentVocab = new Set<string>();
+  for (const node of graph.nodes) {
+    if (node.owner === owner || !node.text) continue;
+    for (const token of substantiveTokens(node.text)) opponentVocab.add(token);
+  }
 
   let markers = 0;
-  for (const text of ownTexts) {
+  for (const node of graph.nodes) {
+    if (node.owner !== owner || !node.text) continue;
     STEELMAN_MARKER_RE.lastIndex = 0;
-    if (STEELMAN_MARKER_RE.test(text)) markers += 1;
+    if (!STEELMAN_MARKER_RE.test(node.text)) continue;
+    // A marker only counts when it engages the opponent's actual position:
+    // shared substantive vocabulary with opponent moves, or a rebuttal with
+    // a valid opponent target. Bare "to be fair / admittedly" with no
+    // engagement is decoration, not steelmanning.
+    const shared = [...substantiveTokens(node.text)].filter((token) => opponentVocab.has(token)).length;
+    const validTarget =
+      node.kind === "rebuttal" &&
+      (node.targets ?? []).some((target) => isValidRebuttalTarget(graph, target, owner, node.round));
+    if (shared >= 2 || validTarget) markers += 1;
     if (markers >= 3) break;
   }
 

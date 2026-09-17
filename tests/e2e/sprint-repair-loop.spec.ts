@@ -64,6 +64,7 @@ test.describe("daily sprint repair loop", () => {
     // so it scores high regardless of which weakness got flagged.
     const repairBox = page.getByLabel("Improved argument move");
     await expect(repairBox).toBeVisible();
+    await expect(repairBox).toBeFocused();
     await repairBox.fill(
       "However, according to NREL data, utility-scale solar LCOE fell below gas because deployment scaled; this matters more than the reliability objection because storage costs are falling too."
     );

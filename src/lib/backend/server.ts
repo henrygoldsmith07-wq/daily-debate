@@ -5,9 +5,9 @@ import { BackendClient } from "./client";
 import type { CookieStore, ResetTokenSender } from "./auth";
 
 /**
- * Password-reset token delivery. Wire a real email transport here when one
- * is available; returning undefined keeps AuthApi in dev mode, which logs
- * the reset token to the server console instead of emailing it.
+ * Password-reset token delivery. Wire a real email transport here — while
+ * this returns undefined, reset tokens are generated and stored but never
+ * delivered, so password reset cannot complete.
  */
 function resolveResetTokenSender(): ResetTokenSender | undefined {
   return undefined;

@@ -75,6 +75,29 @@ function goodness(value: number | null, metric: MetricKey): number | null {
   return HIGHER_IS_BETTER[metric] ? value : 1 - value;
 }
 
+const WEAKNESS_METRIC_DIMENSION: Partial<Record<MetricKey, string>> = {
+  evidenceGrounding: "evidence",
+  rebuttalCoverage: "rebuttal",
+  fallacyRate: "logic",
+  clarity: "clarity",
+  impactHandling: "impact",
+  steelmanQuality: "steelmanning",
+  droppedArguments: "structure",
+};
+
+function weakestDimension(
+  trajectories: Record<string, { last: number | null; improved: boolean | null }>,
+): string | null {
+  let weakest: { metric: MetricKey; goodness: number } | null = null;
+  for (const [metric, t] of Object.entries(trajectories)) {
+    if (!(metric in WEAKNESS_METRIC_DIMENSION) || t.last === null) continue;
+    const g = goodness(t.last, metric as MetricKey);
+    if (g === null) continue;
+    if (!weakest || g < weakest.goodness) weakest = { metric: metric as MetricKey, goodness: g };
+  }
+  return weakest ? WEAKNESS_METRIC_DIMENSION[weakest.metric] ?? null : null;
+}
+
 /**
  * Extract dimension-specific timeline points from ledger points.
  * Returns goodness-normalised values sorted chronologically.
@@ -181,10 +204,9 @@ export function computeLoopStatuses(
       summary = `${label} drill attempted.`;
       drillAttemptScore = assignment.attemptScore ?? null;
 
-      // Stage: improved in drill (attempt score > before score)
-      const before = assignment.beforeScore ?? 0;
-      const attempt = assignment.attemptScore ?? 0;
-      if (attempt > before) {
+      const before = assignment.beforeScore;
+      const attempt = assignment.attemptScore;
+      if (before !== null && attempt !== null && attempt > before) {
         stage = "improved_in_drill";
         summary = `${label} drill scored ${attempt}/100 (up from ${Math.round(before)}).`;
       }
@@ -286,16 +308,12 @@ export function formatCoachPrompt(
     };
   }
 
-  // Find the weakest dimension
-  const weakest = ledger.regressions[0] ??
-    Object.entries(ledger.trajectories)
-      .filter(([, t]) => t.last !== null)
-      .sort(([, a], [, b]) => (a.last ?? 100) - (b.last ?? 100))[0]?.[0];
+  // Find the weakest drill-backed dimension from measured goodness values
+  const weakest = ledger.regressions.find((r) => r in DIMENSION_METRIC) ?? weakestDimension(ledger.trajectories);
 
   if (!weakest) return base;
 
-  const dimKey = weakest as keyof typeof DIMENSION_METRIC;
-  const label = DIMENSION_LABELS[dimKey] ?? weakest;
+  const label = DIMENSION_LABELS[weakest] ?? weakest;
 
   return {
     ...base,

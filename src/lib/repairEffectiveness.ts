@@ -42,7 +42,6 @@ export interface DebateWeaknessRow {
   userId: string;
   completedAt: string;
   kinds: Record<string, number>;
-  /** Opportunity volume; absent on legacy rows (treated as having opportunity). */
   opps?: { majorClaims: number; opponentMoves: number };
 }
 
@@ -156,8 +155,7 @@ export function weaknessKindsFor(kind: string): string[] {
  * user (or opponent) gave it a chance to express. Evidence/structure/logic/
  * impact weaknesses need the user to have made claims; rebuttal needs
  * ELIGIBLE opponent opportunities (canonical definition from
- * opportunity.ts) to answer. Rows without `opps` (legacy) are treated as
- * having opportunity so historical data still measures.
+ * opportunity.ts) to answer.
  */
 export function debateOpportunities(graph: ArgGraph, owner: Owner): { majorClaims: number; opponentMoves: number } {
   return {
@@ -168,7 +166,7 @@ export function debateOpportunities(graph: ArgGraph, owner: Owner): { majorClaim
 
 export function hasOpportunity(repairKind: string, debate: DebateWeaknessRow): boolean {
   const opps = debate.opps;
-  if (!opps) return true; // legacy rows: assume opportunity (conservative = may measure)
+  if (!opps) return false;
   if (repairKind === "rebuttal") return opps.opponentMoves > 0;
   // evidence, structure, logic, impact: need user claims to evaluate.
   return opps.majorClaims > 0;

@@ -45,7 +45,7 @@ Honest labels for what is shipped, provisional, or gated:
 
 **Gated / future**
 
-- Ranked play, Elo expansion, tournaments: stay behind `eloGate` (judge invariance + ≥70% human agreement on a real corpus).
+- Ranked play, Elo expansion, tournaments: stay behind `eloGate` (judge invariance + ≥75% human agreement on a real corpus, matching `config/judge-gates.json`).
 - Judge validation on live models: weekly benchmark runs (`npm run benchmark:judges`), gates in `config/judge-gates.json`.
 
 ## Documentation

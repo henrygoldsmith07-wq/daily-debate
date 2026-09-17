@@ -36,6 +36,8 @@ export default function ArgumentRepair({
   if (!target) return null;
 
   async function checkRepair() {
+    if (submitting) return;
+    setPersisted(null);
     const local = scoreRepair(target!, draft);
     setResult(local);
     if (!debateId) return;
@@ -96,6 +98,8 @@ export default function ArgumentRepair({
           if (persisted) setPersisted(null);
         }}
         rows={4}
+        disabled={submitting}
+        maxLength={2000}
         placeholder="Write your improved move here…"
         aria-label="Improved argument move"
         className="field resize-none text-sm leading-6"
@@ -130,7 +134,7 @@ export default function ArgumentRepair({
           <ul className="mt-1 list-inside list-disc text-xs leading-5 text-ink3">
             {shown.signals.map((signal) => <li key={signal}>{signal}</li>)}
           </ul>
-          <p className="mt-2 text-xs text-ink3">Use the signals as a next move, not as a verdict on your ability. Your next debates will test whether the fix sticks.</p>
+          <p className="mt-2 text-xs text-ink3">Use the signals as a next move, not as a verdict on your ability. This check does not verify sources or prove mastery. Test the reasoning move on a different example, then use it without a reminder in a later debate.</p>
         </div>
       )}
     </section>

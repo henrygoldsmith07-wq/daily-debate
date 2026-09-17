@@ -863,8 +863,13 @@ function citationFromText(text: string): Array<{ sourceName: string; homepage: s
     Reuters: "https://www.reuters.com",
     Nature: "https://www.nature.com",
   };
+  const disambiguated: Partial<Record<string, RegExp>> = {
+    WHO: /\bWHO\b|\bWorld Health Organization\b/,
+    Nature: /\b(?:published in|journal|according to) Nature\b|\bNature (?:journal|reports?|study|article)\b/,
+  };
   for (const [display, pattern] of known) {
-    if (!new RegExp(`\\b(?:${pattern})\\b`, "i").test(text) || seen.has(display)) continue;
+    const regex = disambiguated[display] ?? new RegExp(`\\b(?:${pattern})\\b`, "i");
+    if (!regex.test(text) || seen.has(display)) continue;
     seen.add(display);
     out.push({ sourceName: display, homepage: homepages[display] });
   }
