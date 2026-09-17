@@ -76,6 +76,18 @@ describe("argument repair targets", () => {
     expect(target?.sourceNodeId).toBe("ai1");
   });
 
+  it.each([
+    "The policy helps because access improves. Therefore it deserves consideration for the families currently excluded from services.",
+    "  THE POLICY HELPS BECAUSE ACCESS IMPROVES! Therefore it deserves consideration for the families currently excluded from services?  ",
+  ])("does not credit copying the original move: %s", (rewrite) => {
+    const target = {
+      kind: "logic" as const, label: "Logic", title: "Repair", prompt: "",
+      sourceText: "The policy helps because access improves. Therefore it deserves consideration for the families currently excluded from services.",
+    };
+    expect(scoreRepair(target, rewrite).score).toBe(0);
+    expect(scoreRepair(target, rewrite).signals.join(" ")).toMatch(/change|revise/i);
+  });
+
   it("gives actionable signals when a repair is missing its key move", () => {
     const target = { kind: "impact" as const, label: "Impact", title: "Name what changes", prompt: "", sourceText: "The policy changes access." };
     const result = scoreRepair(target, "The policy changes access.");

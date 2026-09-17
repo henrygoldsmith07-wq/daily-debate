@@ -124,6 +124,21 @@ describe("computeLoopStatuses", () => {
     expect(statuses[0].stage).toBe("improved_in_drill");
   });
 
+  it("does not claim improved_in_drill without a recorded baseline", () => {
+    const statuses = computeLoopStatuses([], [
+      { ...assignment(), beforeScore: null, attemptScore: 70 },
+    ]);
+    expect(statuses[0].stage).toBe("practised");
+    expect(statuses[0].summary).not.toMatch(/up from/);
+  });
+
+  it("does not claim improved_in_drill for an unscored attempt", () => {
+    const statuses = computeLoopStatuses([], [
+      { ...assignment(), beforeScore: 40, attemptScore: null },
+    ]);
+    expect(statuses[0].stage).toBe("practised");
+  });
+
   it("stays at detected for open assignments without attempts", () => {
     const points = [pt(0, { impactHandling: 0.3 })];
     const assignments = [{ ...assignment(), status: "open" as const, attemptText: null, attemptScore: null }];
@@ -159,5 +174,30 @@ describe("formatCoachPrompt", () => {
   it("hides prompt with insufficient data", () => {
     const p = formatCoachPrompt({ regressions: [], trajectories: {}, minimumForClaims: 10, debates: 1 });
     expect(p.show).toBe(false);
+  });
+
+  it("never names a lower-is-better metric the current weakness", () => {
+    const p = formatCoachPrompt({
+      regressions: [],
+      trajectories: {
+        fallacyRate: { last: 0, improved: true },
+        impactHandling: { last: 0.55, improved: false },
+      },
+      minimumForClaims: 10,
+      debates: 5,
+    });
+    expect(p.show).toBe(true);
+    expect(p.headline).not.toMatch(/fallacyRate/i);
+    expect(p.headline).toBe("Impact is your current weakness");
+  });
+
+  it("labels the named dimension with its display name", () => {
+    const p = formatCoachPrompt({
+      regressions: [],
+      trajectories: { evidenceGrounding: { last: 0.4, improved: false } },
+      minimumForClaims: 10,
+      debates: 5,
+    });
+    expect(p.headline).toBe("Evidence is your current weakness");
   });
 });

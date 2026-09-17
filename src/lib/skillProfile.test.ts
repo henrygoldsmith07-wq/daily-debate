@@ -51,6 +51,20 @@ describe("computeSkillProfile", () => {
     expect(rebuttal?.lowConfidence).toBe(false);
   });
 
+  it("does not count unobservable debates toward dimension confidence", () => {
+    const p = computeSkillProfile([
+      point({ rebuttalCoverage: 0.8 }),
+      point({}),
+      point({}),
+      point({}),
+    ]);
+    const rebuttal = p.dimensions.find((d) => d.key === "rebuttal");
+    expect(rebuttal?.score).toBe(80);
+    expect(rebuttal?.sampleSize).toBe(1);
+    expect(rebuttal?.lowConfidence).toBe(true);
+    expect(p.debatesAnalysed).toBe(4);
+  });
+
   it("inverts lower-is-better metrics correctly", () => {
     // fallacyRate = 0.1 → goodness = 0.9 → score = 90
     const p = computeSkillProfile([point({ fallacyRate: 0.1 })]);

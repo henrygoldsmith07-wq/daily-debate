@@ -13,11 +13,6 @@ export const PASSWORD_RESET_TTL_SECONDS = 60 * 30;
 export type AppUser = { id: string; email: string };
 export type AuthError = { message: string };
 
-/**
- * Delivery sink for password-reset tokens. Production wires an email sender;
- * dev mode (no sender configured) surfaces the token directly so the flow is
- * testable without mail infrastructure.
- */
 export type ResetTokenSender = (email: string, token: string) => void | Promise<void>;
 
 export type CookieStore = {
@@ -172,8 +167,6 @@ export class AuthApi {
   /**
    * Request a password reset. Always reports success — whether or not the
    * email exists — so the endpoint cannot be used to enumerate accounts.
-   * The raw token is only delivered via the configured sender (or returned
-   * to dev mode callers through the sendDevTokenToConsole default).
    */
   async requestPasswordReset(email: string): Promise<{ error: AuthError | null }> {
     const normalized = normalizeEmail(email);
@@ -198,12 +191,6 @@ export class AuthApi {
         );
         if (this.resetTokenSender) {
           await this.resetTokenSender(normalized, token);
-        } else {
-          // Dev mode: no mail infrastructure configured. Log the reset link
-          // material so the flow is completable locally.
-          console.info(
-            `[auth] password reset token for ${normalized} (dev mode, 30 min validity): ${token}`,
-          );
         }
       }
       return { error: null };

@@ -174,6 +174,7 @@ export default function DebateRoom({
     // Analysis is only for users who explicitly ask for it.
     requestAnimationFrame(() => {
       repairRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      repairRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
     });
   }
 

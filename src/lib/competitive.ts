@@ -6,7 +6,7 @@
 export interface EloGate { reliable: boolean; reason?: string; }
 export function eloGate({ invarianceOk, humanAgreement }: { invarianceOk: boolean; humanAgreement: number }): EloGate {
   if (!invarianceOk) return { reliable: false, reason: "Judge invariance not yet proven — ranked play paused." };
-  if (humanAgreement < 0.7) return { reliable: false, reason: `Human agreement ${(humanAgreement*100).toFixed(0)}% below 70% threshold.` };
+  if (humanAgreement < 0.75) return { reliable: false, reason: `Human agreement ${(humanAgreement*100).toFixed(0)}% below 75% threshold.` };
   return { reliable: true };
 }
 
@@ -74,4 +74,4 @@ export function pickOpponent(queue: Array<{ userId: string; rating: number }>, s
 
 // Do not prioritise competitive ranking until judging validity is demonstrated.
 // Gate message for UI: ranking is provisional until corpus + invariance prove the judge.
-export const RANKING_STATUS_NOTE = "Ranking is provisional: judge validity must be demonstrated on a 1k+ human corpus with ≥70% agreement and measured invariance before ordinal ranking is meaningful." as const;
+export const RANKING_STATUS_NOTE = "Ranking is provisional: judge validity must be demonstrated on a 1k+ human corpus with ≥75% agreement and measured invariance before ordinal ranking is meaningful." as const;

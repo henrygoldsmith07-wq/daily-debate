@@ -76,14 +76,13 @@ describe("requestPasswordReset validation", () => {
     expect(String(mockQueryRows.mock.calls[2]?.[1]?.[1])).toBe(sha256(sent[0]?.token));
   });
 
-  it("falls back to dev mode (console) when no sender is configured", async () => {
+  it("never logs reset tokens when no sender is configured", async () => {
     mockQueryRows.mockReset();
     mockQueryRows.mockResolvedValue([{ id: "u-1" }]);
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const api = new AuthApi(null);
     await api.requestPasswordReset("user@example.com");
-    expect(info).toHaveBeenCalledTimes(1);
-    expect(info.mock.calls[0][0]).toContain("dev mode");
+    expect(info).not.toHaveBeenCalled();
     info.mockRestore();
   });
 });

@@ -105,7 +105,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
       kind: "rebuttal",
       label: "Unanswered opposing move",
       title: "Close the rebuttal loop",
-      prompt: "Answer this opposing move directly. Name what they got right, target the key assumption, and explain why your case still wins.",
+      prompt: "Answer this opposing move directly. Identify its strongest point, test the key assumption, and explain what follows. Revise your position if the objection is sound.",
       sourceText: unansweredOpportunity.text,
       sourceNodeId: unansweredOpportunity.id,
     };
@@ -140,6 +140,10 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
 
 function sentenceCount(text: string): number {
   return text.split(/[.!?]+/).map((part) => part.trim()).filter(Boolean).length;
+}
+
+function normalised(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /** Score only observable repair moves; this is practice feedback, not a new debate verdict. */
@@ -246,5 +250,8 @@ export function scoreRepair(target: RepairTarget, text: string): RepairScore {
       break;
   }
 
+  if (normalised(clean) === normalised(target.sourceText)) {
+    return { score: 0, signals: ["The rewrite repeats the original move — change or add the reasoning itself.", ...signals] };
+  }
   return { score: Math.min(100, score), signals };
 }

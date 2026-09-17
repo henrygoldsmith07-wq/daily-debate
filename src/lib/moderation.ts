@@ -4,6 +4,10 @@
 // scores only argument structure. Moderation can hide/block a message but does not add/subtract points.
 
 const BANNED_RE = /\b(kill yourself|kys|you should die)\b/i;
+// Direct violent threats against the other person — never legitimate debate content.
+const THREAT_RE = /\b(i will|i'll|i shall|gonna)\s+(kill|murder|hurt|harm|beat|stab|shoot)\s+you\b/i;
+// Doxxing: SSN and phone-number shapes never belong in a debate turn.
+const DOXX_RE = /\b\d{3}-\d{2}-\d{4}\b|(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}/;
 const SPAM_RE = /(.)\1{12,}/; // 13+ repeated char
 const GENERATED_RE = /\b(as an ai|as a language model)\b/i;
 const MALICIOUS_URL_RE = /(https?:\/\/[^\s]+)/gi;
@@ -47,6 +51,8 @@ export function isLikelyMaliciousUrl(url: string): boolean {
 export function moderateMessage(text: string): ModerationFlag[] {
   const out: ModerationFlag[] = [];
   if (BANNED_RE.test(text)) out.push({ kind: "harassment", note: "Harassment language detected.", severity: "high" });
+  if (THREAT_RE.test(text)) out.push({ kind: "harassment", note: "Violent threat detected.", severity: "high" });
+  if (DOXX_RE.test(text)) out.push({ kind: "harassment", note: "Possible personal data (doxxing) detected.", severity: "high" });
   if (SPAM_RE.test(text)) out.push({ kind: "spam", note: "Repeated characters — likely spam.", severity: "low" });
   if (text.length > 30 && text === text.toUpperCase()) out.push({ kind: "excessive_caps", note: "All caps.", severity: "low" });
   if (/ignore previous instructions|you are now|jailbreak/i.test(text)) out.push({ kind: "injected_instruction", note: "Instruction injection attempt.", severity: "high" });

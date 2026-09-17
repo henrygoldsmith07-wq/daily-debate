@@ -172,6 +172,14 @@ export function buildResultSnapshot(
       repair,
       kind: weaknessKind,
     };
+  } else if (repair && repair.kind !== "rebuttal") {
+    weaknessKind = repair.kind;
+    weakness = {
+      headline: repair.label.toLowerCase(),
+      whyItMatters: WEAKNESS_WHY[repair.kind],
+      repair,
+      kind: weaknessKind,
+    };
   } else if (unanswered.length > 0) {
     weaknessKind = "rebuttal";
     weakness = {

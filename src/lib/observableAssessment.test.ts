@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ArgGraph } from "./argGraph";
 import {
   assessArgumentGraph,
+  assessTurn,
   enrichObservableGraph,
   swapGraphSides,
 } from "./observableAssessment";
@@ -138,6 +139,34 @@ describe("observable assessment", () => {
     const assessment = assessArgumentGraph(groundedGraph(), { extractionSource: "llm" });
     expect(assessment.graph.impactComparison?.a).not.toBe(90);
     expect(assessment.extraction.uncertainty.some((item) => /LLM/i.test(item))).toBe(true);
+  });
+
+  it.each([
+    ["Nature provides clean water.", false],
+    ["The Nature of this decision is political.", false],
+    ["The study published in Nature measured water quality.", true],
+    ["Nature reports declining water quality.", true],
+  ])("requires journal context for Nature: %s", (userMessage, cited) => {
+    const graph = assessTurn({ userMessage, opponentMessage: "", round: 1 }).graph;
+    expect(graph.nodes.some((node) => node.citations?.some((citation) => citation.sourceName === "Nature"))).toBe(cited);
+  });
+
+  it("does not fabricate citations from ordinary words like who or nature", () => {
+    const graph = assessTurn({
+      userMessage: "Who pays for climate adaptation? People who exercise live longer; human nature resists change.",
+      opponentMessage: "Adaptation costs are real and rising.",
+      round: 1,
+    }).graph;
+    const citations = graph.nodes.flatMap((node) => node.citations ?? []);
+    expect(citations).toEqual([]);
+
+    const genuine = assessTurn({
+      userMessage: "The WHO reports malaria vaccine rollouts cut child mortality.",
+      opponentMessage: "Rollout costs remain prohibitive.",
+      round: 1,
+    }).graph;
+    const whoCitations = genuine.nodes.flatMap((node) => node.citations ?? []);
+    expect(whoCitations.some((citation) => citation.sourceName === "WHO")).toBe(true);
   });
 });
 

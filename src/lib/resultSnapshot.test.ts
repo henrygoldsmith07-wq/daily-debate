@@ -65,6 +65,17 @@ describe("buildResultSnapshot", () => {
     expect(snapshot.weakness!.repair?.sourceText).toMatch(/Tuition caps/);
   });
 
+  it("keeps the headline and repair on the same weakness when failures compete", () => {
+    const assessment = assess(SUPPORTED_GRAPH);
+    assessment.graph.nodes = assessment.graph.nodes.filter((node) => node.id !== "r2");
+    assessment.graph.nodes.push({ id: "later", kind: "impact", owner: "a", text: "Access matters for families.", round: 4 });
+    assessment.graph.fallacies = [{ nodeId: "c1", fallacy: "false_dilemma", note: "Alternatives excluded." }];
+    const snapshot = buildResultSnapshot(assessment, { format: "full" });
+    expect(snapshot.weakness?.repair?.kind).toBe("logic");
+    expect(snapshot.weakness?.kind).toBe(snapshot.weakness?.repair?.kind);
+    expect(snapshot.weakness?.headline).not.toMatch(/unanswered/);
+  });
+
   it("marks sprint sessions with reduced confidence", () => {
     const snapshot = buildResultSnapshot(assess(SUPPORTED_GRAPH), { format: "sprint" });
     expect(snapshot.honesty.confidence).toBe("reduced");
