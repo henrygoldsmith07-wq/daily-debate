@@ -17,6 +17,13 @@ export interface AiOpsRow {
   /** Structured failure category (never raw provider text). */
   errorCategory: string | null;
   createdAt: string;
+  eventType?: "model_call" | "routing" | string | null;
+  inputCount?: number | null;
+  batchCount?: number | null;
+  routingDecision?: string | null;
+  expensiveJudgeCallsAvoided?: number | null;
+  classificationFallbacks?: number | null;
+  classificationAmbiguous?: number | null;
 }
 
 export interface AiOpsStats {
@@ -38,6 +45,15 @@ export interface AiOpsReport {
   totalCalls: number;
   overall: AiOpsStats;
   byOperation: AiOpsStats[];
+  routing: {
+    events: number;
+    argumentsClassified: number;
+    batches: number;
+    expensiveJudgeCallsAvoided: number;
+    fallbacks: number;
+    ambiguous: number;
+    byRoute: Record<string, number>;
+  };
   note: string | null;
 }
 
@@ -71,6 +87,23 @@ function summarise(operation: string, rows: AiOpsRow[], minSample: number): AiOp
   };
 }
 
+function summariseRouting(rows: AiOpsRow[]): AiOpsReport["routing"] {
+  const routing = rows.filter((row) => row.eventType === "routing" || row.operation === "argument_routing");
+  const byRoute: Record<string, number> = {};
+  for (const row of routing) {
+    if (row.routingDecision) byRoute[row.routingDecision] = (byRoute[row.routingDecision] ?? 0) + 1;
+  }
+  return {
+    events: routing.length,
+    argumentsClassified: routing.reduce((sum, row) => sum + (row.inputCount ?? 0), 0),
+    batches: routing.reduce((sum, row) => sum + (row.batchCount ?? 0), 0),
+    expensiveJudgeCallsAvoided: routing.reduce((sum, row) => sum + (row.expensiveJudgeCallsAvoided ?? 0), 0),
+    fallbacks: routing.reduce((sum, row) => sum + (row.classificationFallbacks ?? 0), 0),
+    ambiguous: routing.reduce((sum, row) => sum + (row.classificationAmbiguous ?? 0), 0),
+    byRoute,
+  };
+}
+
 export function summariseAiOps(
   rows: AiOpsRow[],
   opts: { now?: string; windowDays?: number; minSample?: number } = {},
@@ -91,6 +124,7 @@ export function summariseAiOps(
     totalCalls: inWindow.length,
     overall: summarise("all", inWindow, minSample),
     byOperation,
+    routing: summariseRouting(inWindow),
     note: inWindow.length === 0 ? "No AI calls recorded in this window." : null,
   };
 }

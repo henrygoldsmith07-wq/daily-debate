@@ -1,6 +1,7 @@
 import type { ArgGraph } from "./argGraph";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
 import type { DebateFormat } from "./sprint";
+import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
 
 export type DebateSide = "for" | "against";
 export type InputMode = "text" | "voice";
@@ -155,6 +156,8 @@ export interface PvpVerdict {
   isTie?: boolean; // true when the judge genuinely can't separate the two sides
   tieReason?: string;
   judges?: VerdictJudgeDetail[]; // per-judge verdicts (empty for single-judge fallback-less runs)
+  /** Structural classifier metadata; no viewpoint correctness or winner signal. */
+  routing?: ArgumentRoutingSummary;
   /** Version fingerprint: provider/model/prompt/engine/schema/temp/ensemble */
   fingerprint?: {
     provider: string;

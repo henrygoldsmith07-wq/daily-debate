@@ -3,8 +3,10 @@
 // calls, no network, no DB. Every regex here is linear (no nested quantifiers)
 // — see reliability.stress.test.ts for why.
 
-import type { ArgGraph, ArgNode } from "./argGraph";
+import { emptyGraph, type ArgEdge, type ArgGraph, type ArgNode, type Owner } from "./argGraph";
+import { inspectSubmittedEvidence, type SubmittedEvidenceInspection } from "./evidence";
 import { isValidRebuttalTarget, STRONG_TARGET_KINDS } from "./opportunity";
+import type { ArgumentRole, ClassifiedArgument, SubmittedArgument } from "./argumentTaxonomy";
 
 // ---------------------------------------------------------------------------
 // Lexicons (single alternations; linear scan)
@@ -109,6 +111,209 @@ export function detectFakePrecision(text: string): FakePrecisionHit[] {
     if (hits.length >= 20) break; // pathological-input cap
   }
   return hits;
+}
+
+// ---------------------------------------------------------------------------
+// Structural routing checks
+//
+// classifier.dev supplies a cheap rhetorical-role hint. These checks are the
+// downstream authority used to decide whether a specialist path is actually
+// safe. They never score a political position or select a debate winner.
+// ---------------------------------------------------------------------------
+
+const DIRECT_REBUTTAL_RE = /\b(?:but|however|although|yet|that ignores|you argue|you say|in response|instead|on the other hand|even if)\b/i;
+const IMPACT_CUE_RE = /\b(?:therefore|thus|so|means|leads? to|results? in|impact|benefit|cost|risk|harm|matters?)\b/i;
+
+export interface RebuttalComparison {
+  targetArgumentId: string | null;
+  overlap: number;
+  directCue: boolean;
+  addressed: boolean;
+  reason: string;
+}
+
+/** Compare a rebuttal/counterexample with earlier opposing text only. */
+export function compareRebuttalAgainstEarlierArgument(
+  argument: SubmittedArgument,
+  earlier: SubmittedArgument[],
+): RebuttalComparison {
+  const current = substantiveTokens(argument.text);
+  const candidates = earlier.filter((item) => item.owner !== argument.owner && item.round < argument.round);
+  if (!current.size || !candidates.length) {
+    return {
+      targetArgumentId: null,
+      overlap: 0,
+      directCue: DIRECT_REBUTTAL_RE.test(argument.text),
+      addressed: false,
+      reason: "No earlier opposing argument is available to compare.",
+    };
+  }
+
+  let best: { id: string; overlap: number } | null = null;
+  for (const candidate of candidates) {
+    const target = substantiveTokens(candidate.text);
+    if (!target.size) continue;
+    let shared = 0;
+    for (const token of current) if (target.has(token)) shared += 1;
+    const union = new Set([...current, ...target]).size || 1;
+    const overlap = shared / union;
+    if (!best || overlap > best.overlap) best = { id: candidate.id, overlap };
+  }
+
+  const directCue = DIRECT_REBUTTAL_RE.test(argument.text);
+  const overlap = best?.overlap ?? 0;
+  const addressed = !!best && (directCue || overlap >= 0.12);
+  return {
+    targetArgumentId: best?.id ?? null,
+    overlap: round2(overlap),
+    directCue,
+    addressed,
+    reason: addressed
+      ? `Compared with ${best?.id}; shared substantive vocabulary ${Math.round(overlap * 100)}%.`
+      : best
+        ? `Closest earlier opposing argument was ${best.id}, but the response did not clearly engage it.`
+        : "No earlier opposing argument had comparable substantive vocabulary.",
+  };
+}
+
+export interface SpecialisedArgumentChecks {
+  evidence: SubmittedEvidenceInspection | null;
+  rebuttal: RebuttalComparison | null;
+  question: boolean;
+}
+
+export function specialisedArgumentChecks(
+  argument: SubmittedArgument,
+  roles: ReadonlyArray<ArgumentRole>,
+  earlier: SubmittedArgument[],
+): SpecialisedArgumentChecks {
+  const evidence = roles.includes("evidence") ? inspectSubmittedEvidence(argument.text) : null;
+  const rebuttal = roles.includes("rebuttal") || roles.includes("counterexample")
+    ? compareRebuttalAgainstEarlierArgument(argument, earlier)
+    : null;
+  return { evidence, rebuttal, question: roles.includes("question") };
+}
+
+// American spelling is the public name; keep the British spelling used by
+// the original comments as a compatibility alias for tests/callers.
+export const specializedArgumentChecks = specialisedArgumentChecks;
+
+function hasRole(roles: ReadonlyArray<ArgumentRole>, role: ArgumentRole): boolean {
+  return roles.includes(role);
+}
+
+function deterministicEvidenceStats(nodes: ArgNode[], edges: ArgEdge[]): ArgGraph["evidenceStats"] {
+  const byOwner: Record<Owner, number> = { a: 0, b: 0, ai: 0 };
+  const byStrength: ArgGraph["evidenceStats"]["byStrength"] = { anecdotal: 0, general: 0, cited: 0, strong: 0 };
+  for (const node of nodes) {
+    if (node.kind !== "evidence") continue;
+    byOwner[node.owner] += 1;
+    byStrength[node.evidenceStrength ?? "general"] += 1;
+  }
+  const supported = new Set<string>();
+  for (const edge of edges) if (edge.relation === "supports") {
+    supported.add(edge.from);
+    supported.add(edge.to);
+  }
+  const unsupportedClaimIds = nodes
+    .filter((node) => (node.kind === "claim" || node.kind === "counterclaim") && !supported.has(node.id))
+    .map((node) => node.id);
+  return {
+    total: nodes.filter((node) => node.kind === "evidence").length,
+    byOwner,
+    byStrength,
+    unsupportedClaimIds,
+  };
+}
+
+/**
+ * Build a conservative graph from high-confidence structural labels. This is
+ * only a judge-avoidance candidate: `assessArgumentGraph` remains the score
+ * and winner authority, and an insufficient result must fall through to the
+ * existing ensemble.
+ */
+export function buildDeterministicArgumentGraph(args: ClassifiedArgument[]): ArgGraph {
+  const graph = emptyGraph();
+  const previous: SubmittedArgument[] = [];
+  const argumentNodeIds = new Map<string, string>();
+
+  for (const item of args) {
+    const roles = item.classification.labels;
+    const checks = specialisedArgumentChecks(item, roles, previous);
+    const hasSubstantive = roles.some((role) => ["claim", "reasoning", "counterexample", "concession", "qualification"].includes(role));
+    const ownPriorClaim = [...graph.nodes].reverse().find(
+      (node) => node.owner === item.owner && (node.kind === "claim" || node.kind === "counterclaim") && node.round < item.round,
+    );
+    const comparisonTargetNode = checks.rebuttal?.targetArgumentId
+      ? graph.nodes.find((node) => node.id === argumentNodeIds.get(checks.rebuttal!.targetArgumentId!))
+      : undefined;
+
+    let claimNode: ArgNode | undefined;
+    if (hasSubstantive) {
+      const kind = hasRole(roles, "counterexample") ? "counterclaim" : "claim";
+      claimNode = { id: `${item.id}-claim`, kind, owner: item.owner, text: item.text.slice(0, 240), round: item.round };
+      graph.nodes.push(claimNode);
+      argumentNodeIds.set(item.id, claimNode.id);
+    }
+
+    if (hasRole(roles, "evidence")) {
+      const inspection = checks.evidence ?? inspectSubmittedEvidence(item.text);
+      const evidenceNode: ArgNode = {
+        id: `${item.id}-evidence`,
+        kind: "evidence",
+        owner: item.owner,
+        text: item.text.slice(0, 240),
+        round: item.round,
+        evidenceStrength: inspection.status === "verifiable" ? "cited" : "general",
+        citations: inspection.sources
+          .filter((source) => !validateEvidenceSource(source).length)
+          .map((source) => ({ sourceName: source.sourceName ?? source.url, homepage: source.url })),
+      };
+      graph.nodes.push(evidenceNode);
+      const supportTarget = claimNode ?? ownPriorClaim;
+      if (supportTarget) graph.edges.push({ from: evidenceNode.id, to: supportTarget.id, relation: "supports" });
+    }
+
+    if (hasRole(roles, "rebuttal")) {
+      const rebuttalNode: ArgNode = {
+        id: `${item.id}-rebuttal`,
+        kind: "rebuttal",
+        owner: item.owner,
+        text: item.text.slice(0, 240),
+        round: item.round,
+        targets: comparisonTargetNode ? [comparisonTargetNode.id] : [],
+      };
+      graph.nodes.push(rebuttalNode);
+      if (comparisonTargetNode) graph.edges.push({ from: rebuttalNode.id, to: comparisonTargetNode.id, relation: "rebuts" });
+    } else if (hasRole(roles, "counterexample") && comparisonTargetNode) {
+      graph.edges.push({ from: claimNode?.id ?? item.id, to: comparisonTargetNode.id, relation: "rebuts" });
+    }
+
+    if (hasRole(roles, "concession") && comparisonTargetNode) {
+      graph.concessions.push({ nodeId: comparisonTargetNode.id, by: item.owner, note: "Structural classifier marked an explicit concession." });
+    }
+
+    if (claimNode && hasRole(roles, "reasoning") && IMPACT_CUE_RE.test(item.text)) {
+      const impact: ArgNode = {
+        id: `${item.id}-impact`,
+        kind: "impact",
+        owner: item.owner,
+        text: item.text.slice(0, 240),
+        round: item.round,
+      };
+      graph.nodes.push(impact);
+      graph.edges.push({ from: claimNode.id, to: impact.id, relation: "impacts" });
+    }
+
+    previous.push(item);
+  }
+
+  graph.evidenceStats = deterministicEvidenceStats(graph.nodes, graph.edges);
+  return graph;
+}
+
+function validateEvidenceSource(source: { url: string; sourceName?: string }): string[] {
+  return source.url.startsWith("https://") && source.sourceName?.trim() ? [] : ["source is not a valid https citation"];
 }
 
 // ---------------------------------------------------------------------------

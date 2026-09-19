@@ -63,7 +63,7 @@ export default async function AnalyticsPage() {
     const service = createServiceClient();
     const { data: aiRows } = await service
       .from("ai_call_log")
-      .select("operation, provider, model, latency_ms, outcome, total_tokens, created_at")
+      .select("operation, provider, model, latency_ms, outcome, total_tokens, error_category, event_type, input_count, batch_count, routing_decision, expensive_judge_calls_avoided, classification_fallbacks, classification_ambiguous, created_at")
       .gte("created_at", aiOpsCutoffIso())
       .order("created_at", { ascending: false })
       .limit(5000);
@@ -75,6 +75,13 @@ export default async function AnalyticsPage() {
       ok: r.outcome === "ok",
       totalTokens: r.total_tokens,
       errorCategory: r.error_category,
+      eventType: r.event_type,
+      inputCount: r.input_count,
+      batchCount: r.batch_count,
+      routingDecision: r.routing_decision,
+      expensiveJudgeCallsAvoided: r.expensive_judge_calls_avoided,
+      classificationFallbacks: r.classification_fallbacks,
+      classificationAmbiguous: r.classification_ambiguous,
       createdAt: r.created_at,
     }));
     aiOps = summariseAiOps(mapped, {});
@@ -203,6 +210,11 @@ export default async function AnalyticsPage() {
                 .sort((a, b) => b[1] - a[1])
                 .map(([cat, n]) => `${cat} ×${n}`)
                 .join(" · ")}
+            </p>
+          )}
+          {aiOps.routing.events > 0 && (
+            <p className="mt-2 text-xs text-ink3">
+              Structural routing: {aiOps.routing.argumentsClassified} arguments in {aiOps.routing.batches} batch{aiOps.routing.batches === 1 ? "" : "es"} · avoided {aiOps.routing.expensiveJudgeCallsAvoided} expensive judge leg{aiOps.routing.expensiveJudgeCallsAvoided === 1 ? "" : "s"} · {aiOps.routing.fallbacks} fallback{aiOps.routing.fallbacks === 1 ? "" : "s"} · routes {Object.entries(aiOps.routing.byRoute).map(([route, count]) => `${route} ×${count}`).join(" · ")}
             </p>
           )}
           {aiOps.note && <p className="mt-2 text-xs text-ink3">{aiOps.note}</p>}

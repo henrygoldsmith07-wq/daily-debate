@@ -250,6 +250,14 @@ export type AiCallLogRow = {
   http_status: number | null;
   retryable: boolean | null;
   error: string | null;
+  event_type: string;
+  input_count: number | null;
+  batch_count: number | null;
+  taxonomy_version: string | null;
+  routing_decision: string | null;
+  expensive_judge_calls_avoided: number | null;
+  classification_fallbacks: number | null;
+  classification_ambiguous: number | null;
   created_at: string;
 };
 

@@ -5,6 +5,7 @@
 // writing-style bias detection. Pure, offline, no model calls.
 
 import { pearsonCorrelation, spearmanCorrelation } from "./humanCorpus";
+import { ARGUMENT_ROLE_LABELS, ARGUMENT_TAXONOMY_VERSION, type ArgumentRole } from "./argumentTaxonomy";
 
 export const EVAL_DIMENSIONS = [
   "evidenceQuality",
@@ -43,6 +44,178 @@ export interface SystemVerdict {
   a: Partial<SideScores>;
   b: Partial<SideScores>;
 }
+
+// ---------------------------------------------------------------------------
+// Structural-role evaluation corpus and routing-savings measurement
+// ---------------------------------------------------------------------------
+
+export interface ArgumentRoleLabelCase {
+  id: string;
+  text: string;
+  expected: ArgumentRole[];
+  /** Topic is context for off-topic labels, never a correctness label. */
+  topic?: string;
+  provenance: "verified_human" | "unverified_fixture" | "synthetic";
+}
+
+/**
+ * Small, auditable seed set for the role router. It deliberately contains
+ * mixed-role moves: a real classifier evaluation must measure multi-label
+ * recall rather than rewarding a forced single label.
+ */
+export const ARGUMENT_ROLE_EVAL_DATASET: readonly ArgumentRoleLabelCase[] = [
+  { id: "claim-1", text: "The policy would reduce peak electricity costs.", expected: ["claim"], provenance: "synthetic" },
+  { id: "evidence-1", text: "According to the 2024 NREL report, storage costs fell by 18%.", expected: ["evidence"], provenance: "synthetic" },
+  { id: "reasoning-1", text: "Because the queue is shorter, more households can access the service.", expected: ["reasoning"], provenance: "synthetic" },
+  { id: "rebuttal-1", text: "However, that cost estimate ignores the grid-upgrade requirement.", expected: ["rebuttal"], provenance: "synthetic" },
+  { id: "counterexample-1", text: "One rural district kept service reliable without that subsidy.", expected: ["counterexample"], provenance: "synthetic" },
+  { id: "concession-1", text: "I agree that the transition creates short-term disruption.", expected: ["concession"], provenance: "synthetic" },
+  { id: "qualification-1", text: "That conclusion may hold only where the grid has spare capacity.", expected: ["qualification"], provenance: "synthetic" },
+  { id: "question-1", text: "What evidence would show that the effect persists after year five?", expected: ["question"], provenance: "synthetic" },
+  { id: "off-topic-1", text: "My favourite films this year have all been comedies.", expected: ["off-topic"], topic: "Should cities expand public transit?", provenance: "synthetic" },
+  { id: "other-1", text: "Thanks for taking the time to debate this.", expected: ["other"], provenance: "synthetic" },
+  { id: "mixed-claim-evidence", text: "The policy cuts costs; Lazard's 2024 analysis reports lower levelised cost for new solar.", expected: ["claim", "evidence"], provenance: "synthetic" },
+  { id: "mixed-claim-reasoning", text: "The policy improves access because the eligibility gap is smaller, so fewer people are excluded.", expected: ["claim", "reasoning"], provenance: "synthetic" },
+  { id: "mixed-rebuttal-evidence", text: "That objection misses the measured result: the NIST review found failure rates fell after the upgrade.", expected: ["rebuttal", "evidence"], provenance: "synthetic" },
+  { id: "mixed-counter-rebuttal", text: "The rural pilot is a counterexample to the claim that every district needs the same subsidy.", expected: ["counterexample", "rebuttal"], provenance: "synthetic" },
+  { id: "mixed-concession-qualification", text: "That point is fair, although it applies only during the initial rollout.", expected: ["concession", "qualification"], provenance: "synthetic" },
+  { id: "mixed-question-qualification", text: "Could the result be different if demand doubles, and what assumption controls that?", expected: ["question", "qualification"], provenance: "synthetic" },
+  { id: "mixed-evidence-reasoning", text: "Pew's survey finds higher uptake, which means the access benefit is not just theoretical.", expected: ["evidence", "reasoning"], provenance: "synthetic" },
+  { id: "mixed-claim-off-topic", text: "The proposal is important, but I also want to mention my weekend plans.", expected: ["claim", "off-topic"], topic: "Should the proposal be adopted?", provenance: "synthetic" },
+] as const;
+
+export interface ArgumentRoleLabelMetrics {
+  label: ArgumentRole;
+  tp: number;
+  fp: number;
+  fn: number;
+  precision: number;
+  recall: number;
+  f1: number;
+}
+
+export interface ArgumentRoleEvaluationReport {
+  taxonomyVersion: typeof ARGUMENT_TAXONOMY_VERSION;
+  cases: number;
+  exactMatch: number;
+  mixedRoleCases: number;
+  mixedRoleExactMatch: number;
+  microPrecision: number;
+  microRecall: number;
+  microF1: number;
+  macroF1: number;
+  unknownPredictions: number;
+  perLabel: ArgumentRoleLabelMetrics[];
+}
+
+type ArgumentRolePrediction = ReadonlyArray<ArgumentRole> | { labels: ReadonlyArray<ArgumentRole> };
+
+function predictionFor(
+  predictions: ReadonlyMap<string, ArgumentRolePrediction> | Readonly<Record<string, ArgumentRolePrediction>>,
+  id: string,
+): ReadonlyArray<ArgumentRole> {
+  const value = predictions instanceof Map
+    ? predictions.get(id)
+    : (predictions as Readonly<Record<string, ArgumentRolePrediction>>)[id];
+  if (!value) return ["other"];
+  return Array.isArray(value) ? value : value.labels;
+}
+
+function f1(precision: number, recall: number): number {
+  return precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
+}
+
+export function evaluateArgumentRoleLabels(
+  cases: ReadonlyArray<ArgumentRoleLabelCase>,
+  predictions: ReadonlyMap<string, ArgumentRolePrediction> | Readonly<Record<string, ArgumentRolePrediction>>,
+): ArgumentRoleEvaluationReport {
+  const counts = new Map<ArgumentRole, { tp: number; fp: number; fn: number }>(ARGUMENT_ROLE_LABELS.map((label) => [label, { tp: 0, fp: 0, fn: 0 }]));
+  let exact = 0;
+  let mixedCases = 0;
+  let mixedExact = 0;
+  let unknownPredictions = 0;
+  for (const item of cases) {
+    const expected = new Set(item.expected);
+    const predicted = new Set(predictionFor(predictions, item.id));
+    if (predicted.has("other") && !expected.has("other")) unknownPredictions += 1;
+    if ([...expected].every((label) => predicted.has(label)) && [...predicted].every((label) => expected.has(label))) exact += 1;
+    if (expected.size > 1) {
+      mixedCases += 1;
+      if ([...expected].every((label) => predicted.has(label)) && [...predicted].every((label) => expected.has(label))) mixedExact += 1;
+    }
+    for (const label of ARGUMENT_ROLE_LABELS) {
+      const want = expected.has(label);
+      const got = predicted.has(label);
+      const row = counts.get(label)!;
+      if (want && got) row.tp += 1;
+      else if (!want && got) row.fp += 1;
+      else if (want && !got) row.fn += 1;
+    }
+  }
+  const perLabel = ARGUMENT_ROLE_LABELS.map((label) => {
+    const row = counts.get(label)!;
+    const precision = row.tp + row.fp ? row.tp / (row.tp + row.fp) : 0;
+    const recall = row.tp + row.fn ? row.tp / (row.tp + row.fn) : 0;
+    return { label, ...row, precision, recall, f1: f1(precision, recall) };
+  });
+  const tp = perLabel.reduce((sum, row) => sum + row.tp, 0);
+  const fp = perLabel.reduce((sum, row) => sum + row.fp, 0);
+  const fn = perLabel.reduce((sum, row) => sum + row.fn, 0);
+  const microPrecision = tp + fp ? tp / (tp + fp) : 0;
+  const microRecall = tp + fn ? tp / (tp + fn) : 0;
+  return {
+    taxonomyVersion: ARGUMENT_TAXONOMY_VERSION,
+    cases: cases.length,
+    exactMatch: cases.length ? exact / cases.length : 0,
+    mixedRoleCases: mixedCases,
+    mixedRoleExactMatch: mixedCases ? mixedExact / mixedCases : 0,
+    microPrecision,
+    microRecall,
+    microF1: f1(microPrecision, microRecall),
+    macroF1: perLabel.reduce((sum, row) => sum + row.f1, 0) / perLabel.length,
+    unknownPredictions,
+    perLabel,
+  };
+}
+
+export interface JudgeRoutingObservation {
+  baselineExpensiveJudgeCalls: number;
+  actualExpensiveJudgeCalls: number;
+  argumentCount?: number;
+  classifierBatches?: number;
+  fallbackCount?: number;
+  route?: string;
+}
+
+export interface JudgeAvoidanceMeasurement {
+  observations: number;
+  baselineExpensiveJudgeCalls: number;
+  actualExpensiveJudgeCalls: number;
+  expensiveJudgeCallsAvoided: number;
+  avoidanceRate: number | null;
+  routedArguments: number;
+  classifierBatches: number;
+  fallbackCount: number;
+}
+
+/** Compare observed judge legs with the no-router baseline. */
+export function measureExpensiveJudgeAvoidance(observations: JudgeRoutingObservation[]): JudgeAvoidanceMeasurement {
+  const baseline = observations.reduce((sum, row) => sum + Math.max(0, row.baselineExpensiveJudgeCalls), 0);
+  const actual = observations.reduce((sum, row) => sum + Math.max(0, row.actualExpensiveJudgeCalls), 0);
+  const avoided = Math.max(0, baseline - actual);
+  return {
+    observations: observations.length,
+    baselineExpensiveJudgeCalls: baseline,
+    actualExpensiveJudgeCalls: actual,
+    expensiveJudgeCallsAvoided: avoided,
+    avoidanceRate: baseline ? avoided / baseline : null,
+    routedArguments: observations.reduce((sum, row) => sum + (row.argumentCount ?? 0), 0),
+    classifierBatches: observations.reduce((sum, row) => sum + (row.classifierBatches ?? 0), 0),
+    fallbackCount: observations.reduce((sum, row) => sum + (row.fallbackCount ?? 0), 0),
+  };
+}
+
+export const measureJudgeCallsAvoided = measureExpensiveJudgeAvoidance;
 
 export function sideScores(values: Partial<SideScores>, fallback: EvalScore = 3): SideScores {
   const out = {} as SideScores;
