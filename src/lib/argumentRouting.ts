@@ -263,7 +263,10 @@ export async function classifyArgumentBatchDetailed(
   options: ClassifierDevOptions = {},
 ): Promise<ArgumentClassificationBatch> {
   if (!inputs.length) return { classifications: [], batchCount: 0, remoteBatches: 0, fallbackCount: 0, remoteUsed: false };
-  const disabled = options.disableRemote === true || process.env.E2E_MOCK_AI === "1";
+  // E2E mode disables the live classifier for application requests, while a
+  // supplied fetch implementation still needs to exercise the client in
+  // unit tests and offline evaluation.
+  const disabled = options.disableRemote === true || (process.env.E2E_MOCK_AI === "1" && !options.fetchImpl && !options.endpoint);
   if (disabled) {
     return {
       classifications: inputs.map((text, index) => fallbackClassification(text, index, "remote_disabled", true)),

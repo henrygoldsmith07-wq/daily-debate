@@ -22,6 +22,9 @@ alter table if exists ai_call_log
   add column if not exists classification_ambiguous integer;
 
 alter table if exists ai_call_log
+  drop constraint if exists ai_call_log_event_type_check;
+
+alter table if exists ai_call_log
   add constraint ai_call_log_event_type_check
   check (event_type in ('model_call', 'routing'));
 
