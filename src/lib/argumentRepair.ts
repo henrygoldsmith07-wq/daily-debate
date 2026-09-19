@@ -1,4 +1,5 @@
 import type { ArgGraph, ArgNode, Fallacy } from "./argGraph";
+import type { ArgumentRole } from "./argumentTaxonomy";
 import { unansweredOpportunitiesBy } from "./opportunity";
 
 export type RepairKind = "evidence" | "rebuttal" | "logic" | "impact" | "structure" | "clarity";
@@ -15,6 +16,30 @@ export interface RepairTarget {
 export interface RepairScore {
   score: number;
   signals: string[];
+}
+
+export type StructuralRepairPath =
+  | "evidence-verification"
+  | "rebuttal-compare"
+  | "reasoning-bridge"
+  | "concession-qualification"
+  | "question-clarification"
+  | "off-topic-lightweight"
+  | "general-repair";
+
+/** Map a structural role to a coaching/repair path without judging its view. */
+export function repairPathForRole(role: ArgumentRole): StructuralRepairPath {
+  switch (role) {
+    case "evidence": return "evidence-verification";
+    case "rebuttal":
+    case "counterexample": return "rebuttal-compare";
+    case "reasoning": return "reasoning-bridge";
+    case "concession":
+    case "qualification": return "concession-qualification";
+    case "question": return "question-clarification";
+    case "off-topic": return "off-topic-lightweight";
+    default: return "general-repair";
+  }
 }
 
 const CONTRASTIVE_RE = /\b(however|but|although|while|even if|yet|conversely|on the contrary)\b/i;
@@ -136,6 +161,74 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
     sourceText: longest.text,
     sourceNodeId: longest.id,
   };
+}
+
+/**
+ * Choose a repair target with the classifier's structural hint as a tie
+ * breaker. Existing graph facts still win: a role hint cannot manufacture an
+ * unsupported claim, an unanswered opportunity, or a fallacy.
+ */
+export function repairForArgumentRole(
+  graph: ArgGraph,
+  role: ArgumentRole,
+  sourceText?: string,
+): RepairTarget | null {
+  const base = pickRepairTarget(graph);
+  const own = ownNodes(graph);
+  const source = sourceText?.trim() || own.at(-1)?.text || base?.sourceText || "";
+  if (!source && !base) return null;
+
+  if (role === "evidence") {
+    const claim = own.find((node) => node.kind === "claim") ?? own[0];
+    if (claim) {
+      return {
+        kind: "evidence",
+        label: "Evidence move",
+        title: "Make the support checkable",
+        prompt: "Add a named source or concrete data point, then explain which part of the claim it supports.",
+        sourceText: source || claim.text,
+        sourceNodeId: claim.id,
+      };
+    }
+  }
+
+  if (role === "rebuttal" || role === "counterexample") {
+    const opportunity = unansweredOpportunitiesBy(graph, "a")[0];
+    if (opportunity) {
+      return {
+        kind: "rebuttal",
+        label: "Compare against the earlier move",
+        title: "Close the response loop",
+        prompt: "Name the earlier argument you are answering, identify its strongest premise, and explain whether your response defeats or narrows it.",
+        sourceText: opportunity.text,
+        sourceNodeId: opportunity.id,
+      };
+    }
+  }
+
+  if (role === "question") {
+    return {
+      kind: "clarity",
+      label: "Question move",
+      title: "Turn the question into a testable point",
+      prompt: "State what the answer would show, then connect the question to the debate motion or to a specific claim.",
+      sourceText: source,
+      sourceNodeId: own.at(-1)?.id ?? base?.sourceNodeId,
+    };
+  }
+
+  if (role === "off-topic") {
+    return {
+      kind: "structure",
+      label: "Off-topic move",
+      title: "Bring the point back to the motion",
+      prompt: "Rewrite this move so it directly names the debate claim, evidence, or consequence it bears on.",
+      sourceText: source,
+      sourceNodeId: own.at(-1)?.id ?? base?.sourceNodeId,
+    };
+  }
+
+  return base;
 }
 
 function sentenceCount(text: string): number {

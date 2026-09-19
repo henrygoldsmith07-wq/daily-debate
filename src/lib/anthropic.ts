@@ -3,6 +3,7 @@ import type { ArgGraph } from "./argGraph";
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
+import type { ArgumentRoute } from "./argumentTaxonomy";
 
 // Lazy import to avoid circular deps: types -> argGraph ok, but anthropic -> types is fine.
 // ArgGraph types are structural; runtime validation via argGraph.validateGraph.
@@ -148,10 +149,17 @@ export async function debateTurn(params: {
   userSide: DebateSide;
   history: { role: "ai" | "user"; text: string }[];
   latestUserMessage: string;
+  argumentRoute?: ArgumentRoute;
 }): Promise<DebateTurnResult> {
   const aiSide: DebateSide = params.userSide === "for" ? "against" : "for";
 
   const transcript = params.history.map((turn) => `${turn.role === "ai" ? "AI (opposing)" : "User"}: ${turn.text}`).join("\n");
+
+  const routeGuidance = params.argumentRoute === "response-generation"
+    ? "The submitted move is structurally a question: answer the question directly first, then add one concise challenge grounded in the debate motion."
+    : params.argumentRoute === "lightweight"
+      ? "The submitted move is structurally off-topic or non-substantive: acknowledge briefly, redirect to the motion, and ask for one relevant claim."
+      : "";
 
   const message = await createWithTelemetry("debate_turn", {
     model: MODEL,
@@ -161,7 +169,7 @@ export async function debateTurn(params: {
     messages: [
       {
         role: "user",
-        content: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\nTranscript so far:\n${transcript}\n\nUser's latest response: "${params.latestUserMessage}"\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
+        content: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}\n\nTranscript so far:\n${transcript}\n\nUser's latest response: "${params.latestUserMessage}"\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
       },
     ],
   });

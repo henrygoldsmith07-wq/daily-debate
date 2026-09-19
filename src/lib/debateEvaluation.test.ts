@@ -14,6 +14,9 @@ import {
   detectStyleBias,
   dailyDebateEvaluation,
   sideScores,
+  ARGUMENT_ROLE_EVAL_DATASET,
+  evaluateArgumentRoleLabels,
+  measureExpensiveJudgeAvoidance,
 } from "./debateEvaluation";
 import type { EvalDebate, SystemVerdict, SideScores, DebateEvalDimension } from "./debateEvaluation";
 
@@ -244,5 +247,28 @@ describe("orchestrator", () => {
     expect(report.usable).toBe(false);
     expect(report.notes.join("\n")).toMatch(/Inter-rater reliability below threshold/);
     expect(report.reliability.failingDimensions).toContain("logicalValidity");
+  });
+});
+
+describe("structural taxonomy evaluation", () => {
+  it("measures exact and multi-label agreement on labelled role data", () => {
+    const predictions = new Map(ARGUMENT_ROLE_EVAL_DATASET.map((item) => [item.id, item.expected]));
+    const report = evaluateArgumentRoleLabels(ARGUMENT_ROLE_EVAL_DATASET, predictions);
+    expect(report.taxonomyVersion).toBe("argument-roles-v1");
+    expect(report.exactMatch).toBe(1);
+    expect(report.mixedRoleCases).toBeGreaterThan(0);
+    expect(report.mixedRoleExactMatch).toBe(1);
+    expect(report.microF1).toBe(1);
+  });
+
+  it("reports expensive judge legs avoided against an explicit baseline", () => {
+    const report = measureExpensiveJudgeAvoidance([
+      { baselineExpensiveJudgeCalls: 2, actualExpensiveJudgeCalls: 0, argumentCount: 4, classifierBatches: 1 },
+      { baselineExpensiveJudgeCalls: 2, actualExpensiveJudgeCalls: 2, argumentCount: 4, classifierBatches: 1, fallbackCount: 1 },
+    ]);
+    expect(report.expensiveJudgeCallsAvoided).toBe(2);
+    expect(report.avoidanceRate).toBe(0.5);
+    expect(report.routedArguments).toBe(8);
+    expect(report.fallbackCount).toBe(1);
   });
 });

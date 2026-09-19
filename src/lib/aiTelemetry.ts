@@ -20,6 +20,7 @@ import "server-only";
  */
 
 export type AiCallOutcome = "ok" | "error";
+export type AiTelemetryEvent = "model_call" | "routing";
 
 export type AiErrorCategory =
   | "rate_limit"
@@ -107,8 +108,11 @@ export interface AiCallTelemetry {
   /** Logical operation, e.g. "judge_pvp" — stable identifiers for attribution. */
   operation: string;
   /** Provider stack that served (or failed) the call. */
-  provider: "openrouter" | "nvidia" | "unorouter" | "kiraai" | "bai" | "anthropic";  /** Concrete model identifier attempted, e.g. "anthropic/claude-sonnet-4.5". */
+  provider: "openrouter" | "nvidia" | "unorouter" | "kiraai" | "bai" | "anthropic" | "classifier";
+  /** Concrete model identifier attempted, e.g. "anthropic/claude-sonnet-4.5". */
   model: string;
+  /** Routing events are operational measurements, not expensive model calls. */
+  eventType?: AiTelemetryEvent;
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
@@ -123,6 +127,14 @@ export interface AiCallTelemetry {
   retryable?: boolean;
   /** Sanitised, truncated diagnostic. Undefined for ok calls. */
   error?: string;
+  /** Classifier/routing telemetry; never user text. */
+  inputCount?: number;
+  batchCount?: number;
+  taxonomyVersion?: string;
+  routingDecision?: string;
+  expensiveJudgeCallsAvoided?: number;
+  classificationFallbacks?: number;
+  classificationAmbiguous?: number;
 }
 
 const MAX_ENTRIES = 500;
@@ -154,6 +166,14 @@ function mirrorToDatabase(entry: AiCallTelemetry): void {
         http_status: entry.httpStatus ?? null,
         retryable: entry.retryable ?? null,
         error: entry.error ?? null,
+        event_type: entry.eventType ?? "model_call",
+        input_count: entry.inputCount ?? null,
+        batch_count: entry.batchCount ?? null,
+        taxonomy_version: entry.taxonomyVersion ?? null,
+        routing_decision: entry.routingDecision ?? null,
+        expensive_judge_calls_avoided: entry.expensiveJudgeCallsAvoided ?? null,
+        classification_fallbacks: entry.classificationFallbacks ?? null,
+        classification_ambiguous: entry.classificationAmbiguous ?? null,
       });
     } catch {
       // Observability must never fail an operation; the log line above

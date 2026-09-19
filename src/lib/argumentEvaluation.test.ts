@@ -5,9 +5,12 @@ import {
   scoreRebuttalQuality,
   scoreSteelmanQuality,
   engineReport,
+  compareRebuttalAgainstEarlierArgument,
+  buildDeterministicArgumentGraph,
 } from "./argumentEvaluation";
 import type { ArgGraph } from "./argGraph";
 import { emptyGraph } from "./argGraph";
+import type { ClassifiedArgument } from "./argumentTaxonomy";
 
 describe("causal overclaim detection", () => {
   it("flags an unhedged causal claim with no evidence as high severity", () => {
@@ -154,5 +157,44 @@ describe("engineReport aggregate", () => {
     expect(report.b.rebuttalQuality).not.toBeNull();
     expect(report.b.rebuttalQuality!.coverage).toBe(1);
     expect(report.a.rebuttalQuality).toBeNull();
+  });
+});
+
+describe("structural specialist checks", () => {
+  it("compares a rebuttal with earlier opposing vocabulary, not viewpoint correctness", () => {
+    const comparison = compareRebuttalAgainstEarlierArgument(
+      { id: "a2", owner: "a", round: 2, text: "However, the grid-upgrade cost remains material." },
+      [{ id: "b1", owner: "b", round: 1, text: "Grid upgrades are the main cost risk." }],
+    );
+    expect(comparison.targetArgumentId).toBe("b1");
+    expect(comparison.addressed).toBe(true);
+  });
+
+  it("builds evidence and rebuttal structure conservatively from mixed labels", () => {
+    const item = (id: string, owner: "a" | "b", round: number, text: string, labels: ClassifiedArgument["classification"]["labels"]): ClassifiedArgument => ({
+      id,
+      owner,
+      round,
+      text,
+      classification: {
+        index: round,
+        text,
+        labels,
+        scores: Object.fromEntries(labels.map((label) => [label, 0.9])),
+        primaryRole: labels[0],
+        confidence: 0.9,
+        status: "high_confidence",
+        source: "classifier.dev",
+      },
+    });
+    const graph = buildDeterministicArgumentGraph([
+      item("a1", "a", 1, "The plan lowers cost according to NREL data https://www.nrel.gov.", ["claim", "evidence", "reasoning"]),
+      item("b1", "b", 1, "The plan creates a reliability risk.", ["claim"]),
+      item("a2", "a", 2, "However, that reliability objection ignores the measured trend.", ["rebuttal"]),
+    ]);
+    expect(graph.nodes.some((node) => node.kind === "evidence" && node.citations?.[0]?.sourceName === "NREL")).toBe(true);
+    expect(graph.nodes.some((node) => node.kind === "rebuttal" && node.targets?.length === 1)).toBe(true);
+    expect(graph.edges.some((edge) => edge.relation === "rebuts")).toBe(true);
+    expect(graph.evidenceStats.total).toBe(1);
   });
 });

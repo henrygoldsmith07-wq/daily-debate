@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyGraph, type ArgGraph } from "./argGraph";
-import { pickRepairTarget, scoreRepair } from "./argumentRepair";
+import { pickRepairTarget, repairForArgumentRole, repairPathForRole, scoreRepair } from "./argumentRepair";
 
 function graph(overrides: Partial<ArgGraph>): ArgGraph {
   return {
@@ -14,6 +14,25 @@ function graph(overrides: Partial<ArgGraph>): ArgGraph {
 }
 
 describe("argument repair targets", () => {
+  it("maps classifier roles to specialised repair paths", () => {
+    expect(repairPathForRole("evidence")).toBe("evidence-verification");
+    expect(repairPathForRole("rebuttal")).toBe("rebuttal-compare");
+    expect(repairPathForRole("question")).toBe("question-clarification");
+    expect(repairPathForRole("off-topic")).toBe("off-topic-lightweight");
+  });
+
+  it("uses earlier-opportunity facts when routing a rebuttal repair", () => {
+    const target = repairForArgumentRole(graph({
+      nodes: [
+        { id: "a1", kind: "claim", owner: "a", text: "The policy improves access.", round: 1 },
+        { id: "b1", kind: "counterclaim", owner: "ai", text: "The policy creates a costly trade-off.", round: 1 },
+        { id: "a2", kind: "claim", owner: "a", text: "The policy also reduces cost.", round: 2 },
+      ],
+    }), "rebuttal");
+    expect(target?.kind).toBe("rebuttal");
+    expect(target?.sourceNodeId).toBe("b1");
+  });
+
   it("prioritises an unsupported claim and scores a named source", () => {
     const target = pickRepairTarget(graph({ evidenceStats: { ...emptyGraph().evidenceStats, unsupportedClaimIds: ["a1"] } }));
     expect(target?.kind).toBe("evidence");

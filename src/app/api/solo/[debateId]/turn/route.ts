@@ -10,6 +10,13 @@ import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderati
 import { type InputMode } from "@/lib/types";
 import { roundCapFor } from "@/lib/sprint";
 import { recordProductEvent } from "@/lib/productEvents";
+import {
+  classifyArgumentBatchDetailed,
+  recordRoutingTelemetry,
+  routeClassifiedArguments,
+  routingSummary,
+} from "@/lib/argumentRouting";
+import type { ArgumentRoute } from "@/lib/argumentTaxonomy";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   const limited = await checkRateLimit(request, { name: "solo-turn", limit: 20, windowMs: 60_000 });
@@ -85,6 +92,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   ]);
   history.push({ role: "ai", text: pendingTurn.ai_message });
 
+  // Structural routing is a response-shaping hint only. It can identify a
+  // question or an off-topic move, but it never supplies a score or decides
+  // which side is correct; the deterministic assessment below remains the
+  // source of truth.
+  let argumentRoute: ArgumentRoute | undefined;
+  try {
+    const classified = await classifyArgumentBatchDetailed([message], {
+      topicTitle: topic.title,
+      topicPrompt: topic.prompt,
+      tier: "fast",
+    });
+    const plan = routeClassifiedArguments(
+      [{ id: `solo-${pendingTurn.id}`, text: message, owner: "a", round: pendingTurn.round_number }],
+      classified.classifications,
+      classified.batchCount,
+    );
+    recordRoutingTelemetry(routingSummary(plan, 0));
+    if (plan.route === "response-generation" || plan.route === "lightweight") argumentRoute = plan.route;
+  } catch {
+    // The classifier is an optimisation and must never make a turn fail.
+    console.warn("Structural argument routing unavailable; continuing with the normal response path.");
+  }
+
   let result;
   try {
     result = await withProviderFallback(
@@ -95,6 +125,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
           userSide: debate.side as "for" | "against",
           history,
           latestUserMessage: message,
+          argumentRoute,
         }),
       isValidDebateTurn,
       () =>
@@ -104,6 +135,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
           userSide: debate.side as "for" | "against",
           history,
           latestUserMessage: message,
+          argumentRoute,
         }),
     );
   } catch (error) {

@@ -6,6 +6,12 @@
 // scoring system.
 
 import type { ArgGraph, ArgNode, Owner } from "./argGraph";
+import {
+  ARGUMENT_ROLE_LABELS,
+  emptyArgumentRoleCounts,
+  type ArgumentClassification,
+  type ArgumentRoleCounts,
+} from "./argumentTaxonomy";
 import { unansweredOpportunitiesBy } from "./opportunity";
 import { computeSkillProfile, PROFILE_DIMENSIONS, type ArgumentSkillProfile, type ProfileDimensionKey } from "./skillProfile";
 import {
@@ -33,6 +39,8 @@ export interface DnaGraphStats {
   concessions: number;
   fallacies: number;
   citedEvidence: number;
+  /** Graph-derived structural role counts; counterclaim/impact are mapped conservatively. */
+  roleCounts: ArgumentRoleCounts;
 }
 
 export interface DnaDebateSnapshot {
@@ -94,6 +102,7 @@ export interface ArgumentDnaModel {
     latest: DnaDebateSnapshot | null;
     dimensions: DnaDimensionChange[];
   };
+  structuralRoles: ArgumentRoleCounts;
 }
 
 export const EMPTY_DNA_METRICS: SkillMetricPoint["metrics"] = Object.fromEntries(
@@ -112,6 +121,7 @@ const EMPTY_GRAPH_STATS: DnaGraphStats = {
   concessions: 0,
   fallacies: 0,
   citedEvidence: 0,
+  roleCounts: emptyArgumentRoleCounts(),
 };
 
 function blankStats(): DnaGraphStats {
@@ -144,6 +154,14 @@ export function graphStatsFor(graph: ArgGraph | null, owner: Owner = "a"): DnaGr
   const mine = ownedNodes(graph, owner);
   const myIds = new Set(mine.map((node) => node.id));
   const evidence = mine.filter((node) => node.kind === "evidence");
+  const roleCounts = emptyArgumentRoleCounts();
+  for (const node of mine) {
+    if (node.kind === "claim") roleCounts.claim += 1;
+    else if (node.kind === "evidence") roleCounts.evidence += 1;
+    else if (node.kind === "counterclaim") roleCounts.counterexample += 1;
+    else if (node.kind === "rebuttal") roleCounts.rebuttal += 1;
+    else if (node.kind === "impact") roleCounts.reasoning += 1;
+  }
 
   return {
     claims: mine.filter((node) => node.kind === "claim").length,
@@ -160,13 +178,50 @@ export function graphStatsFor(graph: ArgGraph | null, owner: Owner = "a"): DnaGr
     concessions: graph.concessions.filter((item) => item.by === owner).length,
     fallacies: graph.fallacies.filter((item) => myIds.has(item.nodeId) && item.fallacy !== "none").length,
     citedEvidence: evidence.filter((node) => (node.citations?.length ?? 0) > 0).length,
+    roleCounts,
   };
 }
 
 function mergeStats(target: DnaGraphStats, source: DnaGraphStats): void {
   for (const key of Object.keys(EMPTY_GRAPH_STATS) as Array<keyof DnaGraphStats>) {
-    target[key] += source[key];
+    if (key === "roleCounts") {
+      for (const label of ARGUMENT_ROLE_LABELS) target.roleCounts[label] += source.roleCounts[label];
+    } else {
+      target[key] += source[key] as number;
+    }
   }
+}
+
+export interface StructuralRoleProfile {
+  counts: ArgumentRoleCounts;
+  total: number;
+  highConfidenceRate: number;
+  ambiguousRate: number;
+  mixedRoleRate: number;
+}
+
+/** Summarise classifier labels for longitudinal analysis without scoring them. */
+export function structuralRoleProfile(classifications: ArgumentClassification[]): StructuralRoleProfile {
+  const counts = emptyArgumentRoleCounts();
+  let high = 0;
+  let ambiguous = 0;
+  let mixed = 0;
+  for (const classification of classifications) {
+    const labels = [...new Set(classification.labels)];
+    if (classification.status === "high_confidence") high += 1;
+    if (classification.status === "ambiguous" || classification.status === "unknown") ambiguous += 1;
+    if (labels.filter((label) => label !== "other").length > 1) mixed += 1;
+    if (!labels.length || classification.status === "unknown") counts.other += 1;
+    else for (const label of labels) if (label !== "other") counts[label] += 1;
+  }
+  const total = classifications.length;
+  return {
+    counts,
+    total,
+    highConfidenceRate: total ? high / total : 0,
+    ambiguousRate: total ? ambiguous / total : 0,
+    mixedRoleRate: total ? mixed / total : 0,
+  };
 }
 
 function monthKey(iso: string): string {
@@ -421,6 +476,10 @@ export function buildArgumentDna(input: DnaDebateSnapshot[]): ArgumentDnaModel {
   const profile = computeSkillProfile(points);
   const first = snapshots[0] ?? null;
   const latest = snapshots[snapshots.length - 1] ?? null;
+  const structuralRoles = emptyArgumentRoleCounts();
+  for (const snapshot of snapshots) {
+    for (const label of ARGUMENT_ROLE_LABELS) structuralRoles[label] += snapshot.graphStats.roleCounts[label];
+  }
 
   return {
     snapshots,
@@ -441,6 +500,7 @@ export function buildArgumentDna(input: DnaDebateSnapshot[]): ArgumentDnaModel {
       latest,
       dimensions: profileChange(points),
     },
+    structuralRoles,
   };
 }
 

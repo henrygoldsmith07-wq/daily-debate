@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ArgGraph } from "./argGraph";
-import { buildArgumentDna, EMPTY_DNA_METRICS, graphStatsFor, type DnaDebateSnapshot } from "./argumentDna";
+import { buildArgumentDna, EMPTY_DNA_METRICS, graphStatsFor, structuralRoleProfile, type DnaDebateSnapshot } from "./argumentDna";
 import { METRIC_KEYS } from "./skillLedger";
 
 function graph(): ArgGraph {
@@ -87,6 +87,17 @@ describe("argument DNA", () => {
     expect(model.analysedDebates).toBe(0);
     expect(model.points).toHaveLength(0);
     expect(METRIC_KEYS.every((key) => model.points[0]?.metrics[key] === null || model.points.length === 0)).toBe(true);
+  });
+
+  it("summarises structural roles without turning them into correctness scores", () => {
+    const profile = structuralRoleProfile([
+      { index: 0, text: "The plan works with data.", labels: ["claim", "evidence"], scores: { claim: 0.9, evidence: 0.8 }, primaryRole: "claim", confidence: 0.9, status: "high_confidence", source: "classifier.dev" },
+      { index: 1, text: "I am unsure.", labels: ["other"], scores: {}, primaryRole: "other", confidence: 0, status: "unknown", source: "classifier.dev" },
+    ]);
+    expect(profile.counts.claim).toBe(1);
+    expect(profile.counts.evidence).toBe(1);
+    expect(profile.counts.other).toBe(1);
+    expect(profile.mixedRoleRate).toBe(0.5);
   });
 });
 

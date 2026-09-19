@@ -7,6 +7,10 @@ One pipeline, stable typed interfaces between stages. No parallel scoring or coa
 ```text
 Transcript
     ↓
+Structural routing (classifier.dev, versioned multi-label roles)
+    ↓
+Specialised deterministic checks (evidence / rebuttal / response / lightweight)
+    ↓
 Argument extraction (model; per turn)
     ↓
 Observable features (deterministic recomputation — observableAssessment.ts)
@@ -25,22 +29,29 @@ User-facing explanation (Today, result screen, Progress, DNA)
 | Module | Role |
 |---|---|
 | `argGraph.ts` | Graph types + pure helpers + validation |
+| `argumentTaxonomy.ts`, `argumentRouting.ts` | Versioned rhetorical-role labels, classifier.dev batching/confidence policy, route selection, and routing telemetry |
 | `observableAssessment.ts` | Feature extraction, scoring policy, insufficiency rules |
-| `argumentEvaluation.ts` | Engine findings: overclaims, fake precision, rebuttal/steelman quality |
+| `argumentEvaluation.ts` | Engine findings: overclaims, fake precision, rebuttal/steelman quality, deterministic structural checks |
 | `evidenceVerification.ts`, `citationVerifier.ts`, `quoteVerification.ts` | Evidence grounding and verification |
 | `skillLedger.ts`, `skillLedgerServer.ts` | Longitudinal metric vectors and trajectories |
 | `adaptiveCoach.ts` | 7-dimension profile, focus selection, drills, attempt scoring |
 | `coachingGoal.ts`, `resultSnapshot.ts` | The daily goal and the one-weakness result story |
 | `sprint.ts` | Sprint/full format rules and measurement honesty |
 | `challengeMe.ts` | Explainable side assignment |
-| `argumentRepair.ts` | Repair target selection + deterministic rewrite scoring |
+| `argumentRepair.ts` | Repair target selection, structural repair paths + deterministic rewrite scoring |
 | `friendChallenge.ts` | Async invite codes/expiry/turn notes |
 | `productEvents.ts` | Allowlisted funnel events (silent on failure) |
 | `backend/*` | Owned Postgres/auth: sessions, query builder, rate limits |
 
-## Data model (migrations 001–004)
+Structural routing is rhetorical only: it never labels a viewpoint as true,
+correct, preferable, or the winner. Low-confidence, `other`, unknown, and
+fallback classifications keep the existing ensemble path open. The graph
+assessment and judge remain authoritative when they disagree with a routing
+hint. Routing telemetry stores counts and decisions, never submitted text.
 
-Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics`, `solo_debates` (+ `format`, `coaching`), `solo_debate_turns` (with `assessment` jsonb), `pvp_queue`, `pvp_matches`, `pvp_turns`, `rate_limits`, `benchmark_corpus`, `match_appeals`, `reports`, `corpus_items`, `corpus_ratings`, `drill_assignments`, `topic_evidence`, plus 004's `repair_results`, `challenge_invites`, `product_events`. Hand-written row types live in `src/lib/backend/database.types.ts`.
+## Data model (migrations 001–015)
+
+Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics`, `solo_debates` (+ `format`, `coaching`), `solo_debate_turns` (with `assessment` jsonb), `pvp_queue`, `pvp_matches`, `pvp_turns`, `rate_limits`, `benchmark_corpus`, `match_appeals`, `reports`, `corpus_items`, `corpus_ratings`, `drill_assignments`, `topic_evidence`, plus 004's `repair_results`, `challenge_invites`, `product_events`. Hand-written row types live in `src/lib/backend/database.types.ts`. Migration 015 extends `ai_call_log` with bounded structural-routing fields: taxonomy version, batch/input counts, route, fallback/ambiguity counts, and expensive judge legs avoided.
 
 ## Reliability & security
 

@@ -9,6 +9,57 @@ export interface UserEvidence {
   sourceName?: string; // optional: institution inferred from hostname
 }
 
+export type EvidenceInspectionStatus = "verifiable" | "needs-source" | "invalid" | "not-evidence";
+
+/**
+ * Cheap evidence-path output for the structural router. This deliberately
+ * checks source shape and attribution cues only; it does not decide whether a
+ * cited source supports the speaker's political or controversial position.
+ */
+export interface SubmittedEvidenceInspection {
+  status: EvidenceInspectionStatus;
+  urls: string[];
+  sources: UserEvidence[];
+  errors: string[];
+  hasEvidenceCue: boolean;
+}
+
+const URL_RE = /https:\/\/[^\s<>"')\]]+/gi;
+const EVIDENCE_CUE_RE = /\b(?:according to|study|studies|data|report(?:ed)?|survey|research|analysis|estimate[ds]?|source[ds]?|\d{2,}(?:\.\d+)?%|\$\d[\d,.]*)\b/i;
+
+/** Extract https URLs without fetching them or treating the URL as proof. */
+export function extractEvidenceUrls(text: string): string[] {
+  const seen = new Set<string>();
+  for (const raw of text.match(URL_RE) ?? []) {
+    const url = raw.replace(/[.,;:!?]+$/g, "");
+    if (url && !seen.has(url)) seen.add(url);
+  }
+  return [...seen];
+}
+
+/**
+ * Inspect a submitted argument for the evidence-verification path. The
+ * result is deterministic and safe to run before any model judge.
+ */
+export function inspectSubmittedEvidence(text: string): SubmittedEvidenceInspection {
+  const clean = text.trim();
+  const urls = extractEvidenceUrls(clean);
+  const sources = urls.map((url) => ({
+    url,
+    sourceName: inferSourceFromUrl(url) ?? undefined,
+  }));
+  const errors = sources.flatMap(validateUserEvidence);
+  const hasEvidenceCue = EVIDENCE_CUE_RE.test(clean);
+  const status: EvidenceInspectionStatus = urls.length
+    ? errors.length
+      ? "invalid"
+      : "verifiable"
+    : hasEvidenceCue
+      ? "needs-source"
+      : "not-evidence";
+  return { status, urls, sources, errors, hasEvidenceCue };
+}
+
 export function hostnameFor(url: string): string | null {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return null; }
 }

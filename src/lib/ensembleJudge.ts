@@ -13,6 +13,15 @@ import type { PvpJudgeResult, PvpVerdict } from "./types";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
 import type { ProviderLabel } from "./openrouter";
 import { makeEnsembleFingerprint, type JudgeFingerprint } from "./judgeVersioning";
+import { finalizePvpAssessment } from "./observableAssessment";
+import { buildDeterministicArgumentGraph } from "./argumentEvaluation";
+import {
+  classifyDebateTranscript,
+  recordRoutingTelemetry,
+  routingSummary,
+  type ArgumentRoutingPlan,
+} from "./argumentRouting";
+import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
 
 export type JudgeId = ProviderLabel | "anthropic";
 export interface JudgedVerdict extends PvpJudgeResult {
@@ -40,6 +49,8 @@ export interface EnsembleResult {
   decidingFactor?: string;
   scoreStatus: AssessmentStatus;
   observableAssessment?: ObservableAssessment;
+  /** Structural route metadata; never a correctness or winner signal. */
+  routing?: ArgumentRoutingSummary;
 }
 
 const TIE_THRESHOLD = 5; // points: |A-B| < 5 => tie unless judges strongly agree
@@ -186,6 +197,66 @@ export function ensembleVerdicts(judges: JudgedVerdict[]): EnsembleResult {
 
 const JUDGE_TIMEOUT_MS = 25_000;
 
+function expectedExpensiveJudgeLegs(): number {
+  // The current harness runs one configured OpenAI-style transport and adds
+  // Anthropic only when its key is present. This is the baseline used by the
+  // savings telemetry; it does not influence the verdict.
+  return 1 + (process.env.ANTHROPIC_API_KEY ? 1 : 0);
+}
+
+function effectiveEnsemblePlan(plan: ArgumentRoutingPlan, reason?: string): ArgumentRoutingPlan {
+  return {
+    ...plan,
+    route: "ensemble",
+    specializedPath: plan.specializedPath,
+    requiresExpensiveJudge: true,
+    reason: reason ?? plan.reason,
+  };
+}
+
+/**
+ * Try the cheap structural path. The classifier only chooses this attempt;
+ * the existing deterministic assessment decides whether the graph is
+ * scoreable. An insufficient graph always falls through to the ensemble.
+ */
+function deterministicRoutedResult(plan: ArgumentRoutingPlan, avoidedJudgeLegs: number): EnsembleResult | null {
+  const graph = buildDeterministicArgumentGraph(plan.classifiedArguments);
+  const extracted = finalizePvpAssessment(
+    { argGraph: graph },
+    {
+      extractionSource: "deterministic",
+      extractionConfidence: plan.classifiedArguments.length
+        ? plan.classifiedArguments.reduce((sum, item) => sum + item.classification.confidence, 0) / plan.classifiedArguments.length
+        : 0,
+      sideA: "a",
+      sideB: "b",
+    },
+  );
+  const canStopAfterSpecialistCheck = plan.route === "lightweight"
+    || plan.route === "response-generation";
+  if (extracted.scoreStatus !== "scored" && !canStopAfterSpecialistCheck) return null;
+  const gap = Math.abs(extracted.playerAScore - extracted.playerBScore);
+  const winner = extracted.winner;
+  return {
+    winner,
+    playerAScore: extracted.playerAScore,
+    playerBScore: extracted.playerBScore,
+    scoreGap: gap,
+    confidence: extracted.scoreStatus === "scored" ? extracted.observableAssessment?.extraction.confidence ?? 0 : 0,
+    isTie: winner === "tie",
+    tieReason: winner === "tie" ? extracted.decidingFactor : undefined,
+    judges: [],
+    scoreGapEstimate: { lo: gap, hi: gap },
+    judgeSplit: { a: winner === "a" ? 1 : 0, b: winner === "b" ? 1 : 0, tie: winner === "tie" ? 1 : 0 },
+    argGraph: extracted.argGraph,
+    rationale: extracted.rationale,
+    decidingFactor: extracted.decidingFactor,
+    scoreStatus: extracted.scoreStatus,
+    observableAssessment: extracted.observableAssessment,
+    routing: routingSummary(plan, avoidedJudgeLegs),
+  };
+}
+
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let t: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, rej) => {
@@ -205,11 +276,37 @@ export async function liveEnsembleJudge(params: {
   playerASide: "for" | "against";
   transcript: string;
 }): Promise<EnsembleResult> {
+  const plan = await classifyDebateTranscript({
+    transcript: params.transcript,
+    topicTitle: params.topicTitle,
+    topicPrompt: params.topicPrompt,
+  });
+  const baselineJudgeLegs = expectedExpensiveJudgeLegs();
+  if (!plan.requiresExpensiveJudge) {
+    const routed = deterministicRoutedResult(plan, baselineJudgeLegs);
+    if (routed) {
+      recordRoutingTelemetry(routed.routing!);
+      return routed;
+    }
+  }
+
+  // A recognised role is not enough to suppress judging when the existing
+  // downstream assessment cannot produce a scoreable graph. That disagreement
+  // is resolved in favour of the downstream path by falling through here.
+  const ensemblePlan = effectiveEnsemblePlan(
+    plan,
+    plan.requiresExpensiveJudge ? plan.reason : "Deterministic structural path was insufficient; existing ensemble remains authoritative.",
+  );
+  const ensembleRouting = routingSummary(ensemblePlan, 0);
+  const primary = await import("./openrouter");
+  if (primary.configuredProviders().length === 0) {
+    recordRoutingTelemetry(ensembleRouting);
+    throw new Error("No judge configured (set at least one provider key, e.g. UNOROUTER_API_KEY).");
+  }
   const legs: Promise<JudgedVerdict>[] = [
     (async (): Promise<JudgedVerdict> => {
       // Primary chat transport: the first configured OpenAI-style provider in
       // the registry (NVIDIA → OpenRouter → UnoRouter → Kirai).
-      const primary = await import("./openrouter");
       const { makeFingerprint } = await import("./judgeVersioning");
       const label = primary.activeProviderLabel();
       const t0 = Date.now();
@@ -242,9 +339,12 @@ export async function liveEnsembleJudge(params: {
   const ok = settled.filter((r): r is PromiseFulfilledResult<JudgedVerdict> => r.status === "fulfilled").map((r) => r.value);
   if (!ok.length) {
     const reasons = settled.filter((r) => r.status === "rejected").map((r) => String((r as PromiseRejectedResult).reason?.message ?? r));
+    recordRoutingTelemetry(ensembleRouting);
     throw new Error(`All judges failed: ${reasons.join(" | ")}`);
   }
-  return ensembleVerdicts(ok);
+  const ensemble = ensembleVerdicts(ok);
+  recordRoutingTelemetry(ensembleRouting);
+  return { ...ensemble, routing: ensembleRouting };
 }
 
 /**
@@ -279,6 +379,7 @@ export function verdictFromEnsemble(e: EnsembleResult): PvpVerdict {
     })),
     scoreStatus: e.scoreStatus,
     observableAssessment: e.observableAssessment,
+    routing: e.routing,
     fingerprint: e.judges.length
       ? (() => {
           const fps = e.judges

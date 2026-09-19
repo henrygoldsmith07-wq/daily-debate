@@ -178,10 +178,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     // are present), falls back to a single judge when only one key is set,
     // and always yields uncertainty fields (provisional agreement signal,
     // score-gap band, judge split, "too close to call").
-    const { configuredProviders } = await import("@/lib/openrouter");
-    if (configuredProviders().length === 0) {
-      throw new Error("No judge configured (set at least one provider key, e.g. UNOROUTER_API_KEY).");
-    }
     const { liveEnsembleJudge, verdictFromEnsemble } = await import("@/lib/ensembleJudge");
     const ensemble = await liveEnsembleJudge({
       topicTitle: topic?.title ?? "the topic",

@@ -59,4 +59,34 @@ describe("summariseAiOps", () => {
     expect(report.overall.calls).toBe(6);
     expect(report.overall.errors).toBe(0);
   });
+
+  it("reports structural-routing volume, fallbacks, and judge legs avoided", () => {
+    const report = summariseAiOps([
+      {
+        ...row("classify_argument_structure", "2026-06-14T09:00:00Z", { provider: "classifier", latency: 80 }),
+        eventType: "model_call",
+        inputCount: 3,
+        batchCount: 1,
+      },
+      {
+        ...row("argument_routing", "2026-06-14T09:00:01Z", { provider: "classifier", latency: 0 }),
+        eventType: "routing",
+        inputCount: 3,
+        batchCount: 1,
+        routingDecision: "rebuttal-compare",
+        expensiveJudgeCallsAvoided: 2,
+        classificationFallbacks: 1,
+        classificationAmbiguous: 1,
+      },
+    ], { now: NOW });
+    expect(report.routing).toMatchObject({
+      events: 1,
+      argumentsClassified: 3,
+      batches: 1,
+      expensiveJudgeCallsAvoided: 2,
+      fallbacks: 1,
+      ambiguous: 1,
+      byRoute: { "rebuttal-compare": 1 },
+    });
+  });
 });
