@@ -56,6 +56,21 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
+      - name: Resolve observed run start (Actions run API; wall-clock fallback)
+        # github.run_created_at does not exist and github.run_started_at
+        # expanded empty in practice (dispatch run 35464159355), so the
+        # observed start is resolved once here from the run API via
+        # GITHUB_RUN_ID and reused by every consumer below. The wall clock
+        # is the documented last resort.
+        id: runtimes
+        run: |
+          OBSERVED="$(curl -sf -H "Authorization: Bearer ${{ github.token }}" -H "Accept: application/vnd.github+json" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            | jq -r '.run_started_at // .created_at // empty' 2>/dev/null)"
+          if [ -z "$OBSERVED" ] || [ "$OBSERVED" = "null" ]; then
+            OBSERVED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          fi
+          echo "start=$OBSERVED" >> "$GITHUB_OUTPUT"
       - name: Validate topic-generation configuration (fail fast, no writes)
         # Runs BEFORE any generation so a missing DATABASE_URL, an
         # unreachable database, or missing tables fail loudly here instead
@@ -106,7 +121,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           RUN_ID: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
-          STARTED: ${{ github.run_started_at }}
+          STARTED: ${{ steps.runtimes.outputs.start }}
         run: |
           {
             echo '## Topic generation evidence'
@@ -134,13 +149,11 @@ jobs:
           CRON: ${{ github.event.schedule }}
           RUN_ID: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
-          # github.run_created_at is NOT a supported Actions context field
-          # (it silently expanded to empty and telemetry skipped entirely).
-          # github.run_started_at IS supported; it is the observed start of
-          # the run, so delay is measured from that wall clock - documented
-          # approximation, never fabricated precision.
-          RUN_CREATED_AT: ${{ github.run_started_at }}
-          RUN_STARTED_AT: ${{ github.run_started_at }}
+          # Observed start resolved once above via the Actions run API
+          # (github.run_created_at does not exist and github.run_started_at
+          # expanded empty in practice - see the runtimes step).
+          RUN_CREATED_AT: ${{ steps.runtimes.outputs.start }}
+          RUN_STARTED_AT: ${{ steps.runtimes.outputs.start }}
           TARGET_DATE: ${{ steps.gen.outputs.target }}
           OUTCOME: ${{ steps.gen.outputs.outcome }}
           RESULT: ${{ job.status }}
