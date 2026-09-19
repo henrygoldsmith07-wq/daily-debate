@@ -26,12 +26,12 @@ const WORKFLOWS = ["topic-generation.yml", "daily-debate.yml", "judge-benchmark.
 
 const SUPPORTED_STEP_PROPS = ["outputs", "outcome", "conclusion"];
 const GITHUB_CONTEXT_KEYS = new Set([
-  "event_name", "event_path", "event", "run_id", "run_number", "run_attempt", "run_started_at",
+  "event_name", "event_path", "event", "run_id", "run_number", "run_attempt",
   "repository", "repository_owner", "sha", "ref", "ref_name", "ref_type", "ref_protected",
   "workflow", "workflow_ref", "workflow_sha", "head_ref", "base_ref", "job", "job_status",
   "action", "action_path", "action_ref", "action_repository", "actor", "api_url",
   "graphql_url", "server_url", "workspace", "retention_days", "triggering_actor",
-  "server_url", "path", "env", "schedule",
+  "token", "path", "env", "schedule",
 ]);
 
 /** Strip YAML comment lines (a # preceded by whitespace or line start). */
