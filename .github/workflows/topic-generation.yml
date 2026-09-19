@@ -46,8 +46,8 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     outputs:
-      outcome: ${{ steps.gen.outcome }}
-      target_date: ${{ steps.gen.target }}
+      outcome: ${{ steps.gen.outputs.outcome }}
+      target_date: ${{ steps.gen.outputs.target }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -90,8 +90,15 @@ jobs:
         id: verify
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET: ${{ steps.gen.outputs.target }}
         run: |
-          node scripts/verify-topic-stored.mjs --date "${{ steps.gen.target }}" | tee verify.json
+          # Guard the target output before invoking the verifier: empty or
+          # malformed target outputs must never reach the freshness check.
+          if ! [[ "$TARGET" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "target output missing or malformed: '$TARGET' (expected YYYY-MM-DD)" >&2
+            exit 1
+          fi
+          node scripts/verify-topic-stored.mjs --date "$TARGET" | tee verify.json
           grep -q '"ok": true' verify.json
       - name: Persist operational evidence
         # Structured proof of this run for audits and the ops-health SLO.
@@ -127,22 +134,33 @@ jobs:
           CRON: ${{ github.event.schedule }}
           RUN_ID: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
-          RUN_CREATED_AT: ${{ github.run_created_at }}
+          # github.run_created_at is NOT a supported Actions context field
+          # (it silently expanded to empty and telemetry skipped entirely).
+          # github.run_started_at IS supported; it is the observed start of
+          # the run, so delay is measured from that wall clock - documented
+          # approximation, never fabricated precision.
+          RUN_CREATED_AT: ${{ github.run_started_at }}
           RUN_STARTED_AT: ${{ github.run_started_at }}
-          TARGET_DATE: ${{ steps.gen.outputs.target_date }}
+          TARGET_DATE: ${{ steps.gen.outputs.target }}
           OUTCOME: ${{ steps.gen.outputs.outcome }}
           RESULT: ${{ job.status }}
-          FRESHNESS: ${{ steps.verify.outcome == 'success' && 'pass' || 'fail' }}
+          # A skipped/never-run verify step must record as null, not "fail".
+          FRESHNESS: ${{ steps.verify.outcome == 'success' && 'pass' || (steps.verify.outcome == 'failure' && 'fail' || '') }}
         # GitHub exposes no run_completed_at context while the job is still
         # running, so capture the wall clock here: completedAt and durationMs
         # (item 4) become real persisted data instead of permanent nulls in
         # topic_run_log.
         run: |
           export RUN_COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # If the DB itself is unavailable, the same structured evidence is
+          # written here and picked up by the artifact upload below.
+          export TELEMETRY_FALLBACK_PATH="${{ github.workspace }}/topic-telemetry-fallback.json"
           node scripts/record-topic-run.mjs || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: topic-run-evidence-${{ github.run_id }}
-          path: topic-run-evidence.json
+          path: |
+            topic-run-evidence.json
+            topic-telemetry-fallback.json
           if-no-files-found: warn

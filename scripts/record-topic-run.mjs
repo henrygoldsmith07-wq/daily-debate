@@ -10,6 +10,7 @@
 //   FRESHNESS=pass|fail node scripts/record-topic-run.mjs
 
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createExecutor } from "./lib/sql-executor.mjs";
 
@@ -34,6 +35,41 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Explicit nulls for stages that never ran - never silently drop a field. */
+function telemetryRecord({ runId, runAttempt, event, cron, scheduledFor, createdAt, startedAt, delayMs, completedAt, durationMs, targetDate, generatorOutcome, result, freshnessOk }) {
+  return {
+    runId: runId ?? null,
+    runAttempt: runAttempt ?? null,
+    event: event ?? null,
+    cronSlot: cron ?? null,
+    scheduledFor: scheduledFor ?? null,
+    actualCreatedAt: createdAt ?? null,
+    actualStartedAt: startedAt ?? null,
+    schedulerDelayMs: delayMs ?? null,
+    completedAt: completedAt ?? null,
+    durationMs: durationMs ?? null,
+    targetDate: targetDate ?? null,
+    generatorOutcome: generatorOutcome ?? null,
+    result: result ?? null,
+    freshnessOk: freshnessOk ?? null,
+  };
+}
+
+/**
+ * When the database itself is unavailable, the same structured evidence is
+ * still emitted to a workflow artifact file so the record is never lost.
+ */
+function emitFallbackArtifact(record) {
+  const outPath = (env.TELEMETRY_FALLBACK_PATH ?? "").trim();
+  if (!outPath) return;
+  try {
+    fs.writeFileSync(outPath, JSON.stringify(record, null, 2) + "\n");
+    console.warn(`[record-topic-run] db unavailable - telemetry emitted to artifact: ${outPath}`);
+  } catch (e) {
+    console.warn(`[record-topic-run] artifact fallback failed: ${String(e?.message ?? e).slice(0, 140)}`);
+  }
+}
+
 /** CLI side effects only when run directly - importing (tests) stays inert. */
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 if (isMain) {
@@ -43,7 +79,7 @@ if (isMain) {
 async function main() {
   const databaseUrl = env.DATABASE_URL?.trim();
   const missing = ["EVENT", "RUN_ID", "RUN_CREATED_AT", "RESULT"].filter((k) => !(env[k] ?? "").trim());
-  if (!databaseUrl || missing.length) {
+  if (missing.length) {
     console.warn(`[record-topic-run] skipped (databaseUrl=${Boolean(databaseUrl)} missing=${missing.join(",") || "-"})`);
     return;
   }
@@ -55,6 +91,31 @@ async function main() {
   const completedAt = env.RUN_COMPLETED_AT?.trim() || null;
   const startedAt = (env.RUN_STARTED_AT ?? createdAt).trim();
   const durationMs = completedAt && startedAt ? Date.parse(completedAt) - Date.parse(startedAt) : null;
+  const freshnessOk = env.FRESHNESS === "pass" ? true : env.FRESHNESS === "fail" ? false : null;
+
+  const record = telemetryRecord({
+    runId: env.RUN_ID.trim(),
+    runAttempt: num(env.ATTEMPT) ?? 1,
+    event,
+    cron: (env.CRON ?? "").trim() || null,
+    scheduledFor,
+    createdAt,
+    startedAt,
+    delayMs,
+    completedAt,
+    durationMs,
+    targetDate: env.TARGET_DATE?.trim() || null,
+    generatorOutcome: env.OUTCOME?.trim() || null,
+    result: env.RESULT.trim(),
+    freshnessOk,
+  });
+
+  // A run with no database must still leave the same structured evidence.
+  if (!databaseUrl) {
+    emitFallbackArtifact(record);
+    console.warn(`[record-topic-run] skipped (databaseUrl=false missing=-)`);
+    return;
+  }
 
   const query = await createExecutor(databaseUrl);
   try {
@@ -75,23 +136,24 @@ async function main() {
          freshness_ok = EXCLUDED.freshness_ok,
          recorded_at = now()`,
       [
-        env.RUN_ID.trim(),
-        num(env.ATTEMPT) ?? 1,
-        event,
-        scheduledFor,
-        createdAt,
-        completedAt,
-        delayMs,
-        durationMs,
-        env.TARGET_DATE?.trim() || null,
-        env.OUTCOME?.trim() || null,
-        env.RESULT.trim(),
-        env.FRESHNESS === "pass" ? true : env.FRESHNESS === "fail" ? false : null,
+        record.runId,
+        record.runAttempt,
+        record.event,
+        record.scheduledFor,
+        record.actualStartedAt,
+        record.completedAt,
+        record.schedulerDelayMs,
+        record.durationMs,
+        record.targetDate,
+        record.generatorOutcome,
+        record.result,
+        record.freshnessOk,
       ],
     );
-    console.log(`[record-topic-run] run ${env.RUN_ID} event=${event} delay=${delayMs ?? "n/a"}ms result=${env.RESULT}`);
+    console.log(`[record-topic-run] run ${record.runId} event=${record.event} delay=${record.schedulerDelayMs ?? "n/a"}ms result=${record.result}`);
   } catch (e) {
     console.warn(`[record-topic-run] non-fatal telemetry failure: ${String(e?.message ?? e).slice(0, 140)}`);
+    emitFallbackArtifact(record);
   }
   // The shared TCP executor keeps a pooled connection open; this one-shot
   // CLI must exit explicitly or it hangs the caller (workflow step / tests).
