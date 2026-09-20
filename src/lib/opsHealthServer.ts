@@ -12,6 +12,7 @@ import {
   assessTopicSlo,
   assessTrainingEvidence,
   buildOpsHealthReport,
+  type AiProductionEvidence,
   type EvidenceSection,
   type OpsHealthReport,
   type TopicRunTelemetryRow,
@@ -161,6 +162,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       latencyMs,
       migrationsApplied: applied.length,
       missingTables,
+      topicRunLogFidelity: await probeTopicRunLogFidelity(),
     });
   } catch {
     database = assessDatabaseHealth({ reachable: false });
@@ -224,17 +226,82 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   // table or unreadable rows degrade to "no telemetry", never to errors.
   const topicRuns = await fetchTopicGenerationRuns(token);
   const telemetry = await loadTopicRunTelemetry();
+  const aiEvidence = topicStoreReadable ? await loadAiProductionEvidence(telemetry) : null;
   const topicSlo = assessTopicSlo(
     {
       runs: topicRuns ?? [],
       productionDbReadable: topicStoreReadable,
       tomorrowReady: topic.tomorrowReady,
       telemetry,
+      aiEvidence,
     },
     now,
   );
 
   return buildOpsHealthReport({ generatedAt: now, topic, topicSlo, judge, database, app, human, training });
+}
+
+/**
+ * Migration 016 readiness probe: full when topic_run_log carries
+ * run_created_at, queue_delay_ms, generator_result and provider_health,
+ * legacy when telemetry flows without them, unknown when the table cannot
+ * be inspected. Legacy stays visible (degraded) rather than silently
+ * presenting full telemetry capability.
+ */
+async function probeTopicRunLogFidelity(): Promise<"full" | "legacy" | "unknown"> {
+  try {
+    const { queryRows } = await import("./backend/sql");
+    const rows = await queryRows<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'topic_run_log'`,
+    );
+    const present = new Set(rows.map((r) => String(r.column_name)));
+    if (!present.size) return "unknown";
+    const required = ["run_created_at", "queue_delay_ms", "generator_result", "provider_health"];
+    return required.every((c) => present.has(c)) ? "full" : "legacy";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Real-AI end-to-end evidence: the newest AI-provenance row with surviving
+ * non-empty sources, matched against a verified AI telemetry row for the
+ * same target date. A fallback standing in for AI can never satisfy this.
+ */
+async function loadAiProductionEvidence(
+  telemetry: TopicRunTelemetryRow[],
+): Promise<AiProductionEvidence | null> {
+  try {
+    const service = createServiceClient();
+    const rows = await service
+      .from("daily_topics")
+      .select("topic_date, sources, generation_source")
+      .eq("generation_source", "ai")
+      .order("topic_date", { ascending: false })
+      .limit(5);
+    if (rows.error) return null;
+    const list = (rows.data ?? []) as Array<{
+      topic_date: string;
+      sources: unknown;
+      generation_source: string | null;
+    }>;
+    if (!list.length) return { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, telemetryVerifiedAi: false };
+    for (const row of list) {
+      const sources = Array.isArray(row.sources) ? row.sources : [];
+      const targetDate = String(row.topic_date).slice(0, 10);
+      const verified = telemetry.some(
+        (t) => t.targetDate === targetDate && t.generatorResult === "ai" && t.freshnessOk === true,
+      );
+      if (sources.length > 0) {
+        return { targetDate, aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: verified };
+      }
+      return { targetDate, aiRowPresent: true, sourcesNonEmpty: false, telemetryVerifiedAi: verified };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -244,6 +311,25 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
  * serves - i.e. T 00:00 is when it becomes today; 03:00 is the hard cap).
  */
 async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
+  const parseAttempts = (raw: unknown): TopicRunTelemetryRow["providerAttempts"] => {
+    if (raw === null || raw === undefined) return null;
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (!Array.isArray(parsed)) return null;
+      return parsed
+        .filter((a): a is Record<string, unknown> => !!a && typeof a === "object")
+        .map((a) => ({
+          provider: typeof a.provider === "string" ? a.provider : null,
+          model: typeof a.model === "string" ? a.model : "unknown",
+          outcome: typeof a.outcome === "string" ? a.outcome : "other",
+          latencyMs: typeof a.latencyMs === "number" ? a.latencyMs : null,
+          httpStatus: typeof a.httpStatus === "number" ? a.httpStatus : null,
+          errorCategory: typeof a.errorCategory === "string" ? a.errorCategory : null,
+        }));
+    } catch {
+      return null;
+    }
+  };
   const mapRow = (r: {
     event: string;
     started_at: string;
@@ -256,6 +342,8 @@ async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
     freshness_ok: boolean | null;
     provider_health?: string | null;
     generator_result?: string | null;
+    topic_fingerprint?: string | null;
+    provider_attempts?: unknown;
   }): TopicRunTelemetryRow => {
     let beforeDeadline: boolean | null = null;
     if (r.completed_at && r.target_date) {
@@ -272,8 +360,11 @@ async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
       queueDelayMs: r.queue_delay_ms === null || r.queue_delay_ms === undefined ? null : Number(r.queue_delay_ms),
       targetDate: r.target_date ? r.target_date.slice(0, 10) : null,
       completedBeforeDeadline: beforeDeadline,
+      freshnessOk: r.freshness_ok,
       providerHealth: r.provider_health ?? null,
       generatorResult: r.generator_result ?? null,
+      topicFingerprint: r.topic_fingerprint ?? null,
+      providerAttempts: parseAttempts(r.provider_attempts),
     };
   };
   try {
@@ -291,9 +382,12 @@ async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
         freshness_ok: boolean | null;
         provider_health: string | null;
         generator_result: string | null;
+        topic_fingerprint: string | null;
+        provider_attempts: unknown;
       }>(
         `SELECT event, started_at, run_created_at, completed_at, delay_ms, queue_delay_ms,
-                target_date, result, freshness_ok, provider_health, generator_result
+                target_date, result, freshness_ok, provider_health, generator_result,
+                topic_fingerprint, provider_attempts
            FROM topic_run_log ORDER BY started_at DESC LIMIT 60`,
       );
       return rows.map(mapRow);

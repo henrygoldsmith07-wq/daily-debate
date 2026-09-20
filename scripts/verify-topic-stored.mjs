@@ -3,13 +3,20 @@
 //
 // A green "generation step" only means the script exited 0. This verifier
 // re-reads the PRODUCTION database after the run and fails the workflow if
-// the write did not actually leave a valid, complete, bounded tomorrow-topic:
+// the stored tomorrow-topic is not a valid, complete, bounded, revision-clean
+// record:
 //
 //   1. exactly one daily_topics row exists for the target date;
-//   2. the row is complete (title + prompt non-empty) and the date matches;
-//   3. generation provenance is a valid stored source ('ai' | 'fallback');
-//   4. every evidence card for that date references the topic row;
-//   5. the evidence count stays within the pipeline cap (default 3).
+//   2. the row is complete (title + prompt + category non-empty) and the date
+//      matches, with valid generation provenance ('ai' | 'fallback');
+//   3. the canonical topic fingerprint recomputes and matches the recorded
+//      fingerprint (missing column or mismatch fails loudly — a missing
+//      migration must never read as green);
+//   4. the evidence count stays within the pipeline cap (default 3);
+//   5. EVERY evidence card for that topic carries the CURRENT revision's
+//      fingerprint — mismatched or unstamped cards are stale evidence from
+//      replaced content and fail the run;
+//   6. no orphan evidence rows exist anywhere (FK integrity).
 //
 //   DATABASE_URL=... node scripts/verify-topic-stored.mjs [--date YYYY-MM-DD] [--max-cards N]
 //
@@ -19,7 +26,7 @@
 // targets today, so the verifier's default must agree.
 
 import { createExecutor } from "./lib/sql-executor.mjs";
-import { resolveTargetDate } from "./generate-topics.mjs";
+import { resolveTargetDate, topicFingerprint } from "./generate-topics.mjs";
 
 const args = process.argv.slice(2);
 const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -45,46 +52,98 @@ const query = await createExecutor(databaseUrl);
 const failures = [];
 const checks = {};
 
+/** A genuine missing-column error names the column with "does not exist". */
+function isMissingColumnError(e, column) {
+  const message = String(e?.message ?? e);
+  return message.includes(column) && /does not exist/i.test(message);
+}
+
 const rows = await query(
-  `SELECT id, topic_date::text AS topic_date, title, prompt, generation_source
+  `SELECT id, topic_date::text AS topic_date, title, prompt, category,
+          generation_source, topic_fingerprint
      FROM daily_topics WHERE topic_date = $1::date`,
   [targetDate],
-);
-
-// 1+2: exactly one complete row for the target date.
-checks.topicRows = rows.length;
-if (rows.length !== 1) {
-  failures.push(`expected exactly 1 topic row for ${targetDate}, found ${rows.length}`);
-  checks.topic_row = { count: rows.length };
-} else {
-  const [row] = rows;
-  checks.topic_row = { id: row.id, date: row.topic_date, title: String(row.title ?? "").slice(0, 80) };
-  if (row.topic_date.slice(0, 10) !== targetDate) failures.push(`stored topic_date ${row.topic_date} != target ${targetDate}`);
-  if (!String(row.title ?? "").trim()) failures.push("stored topic has an empty title");
-  if (!String(row.prompt ?? "").trim()) failures.push("stored topic has an empty prompt");
-  // 3: provenance is a valid stored source.
-  if (row.generation_source !== "ai" && row.generation_source !== "fallback") {
-    failures.push(`invalid generation provenance: ${JSON.stringify(row.generation_source)}`);
+).catch((e) => {
+  // A missing topic_fingerprint column means migration 018 is not applied:
+  // fail loudly rather than silently skipping revision checks.
+  if (isMissingColumnError(e, "topic_fingerprint")) {
+    failures.push("topic_fingerprint column missing — apply migration 018_topic_fingerprint.sql before trusting revision checks");
+    return "fingerprint-column-missing";
   }
-  checks.provenance = row.generation_source;
+  throw e;
+});
 
-  // 4+5: evidence references the correct topic and stays bounded.
-  const ev = await query(
-    `SELECT count(*)::int AS n
-       FROM topic_evidence te
-       JOIN daily_topics dt ON dt.id = te.topic_id
-      WHERE dt.topic_date = $1::date`,
-    [targetDate],
-  );
-  const n = ev[0]?.n ?? 0;
-  checks.evidenceCards = n;
-  if (n > maxCards) failures.push(`evidence cards ${n} exceed cap ${maxCards} (re-runs must replace, never accumulate)`);
-  const orphans = await query(
-    `SELECT count(*)::int AS n
-       FROM topic_evidence te
-      WHERE NOT EXISTS (SELECT 1 FROM daily_topics d WHERE d.id = te.topic_id)`,
-  );
-  if ((orphans[0]?.n ?? 0) > 0) failures.push(`${orphans[0].n} evidence rows reference a topic that no longer exists (FK broken)`);
+if (rows !== "fingerprint-column-missing") {
+  // 1+2: exactly one complete row for the target date.
+  checks.topicRows = rows.length;
+  if (rows.length !== 1) {
+    failures.push(`expected exactly 1 topic row for ${targetDate}, found ${rows.length}`);
+    checks.topic_row = { count: rows.length };
+  } else {
+    const [row] = rows;
+    checks.topic_row = { id: row.id, date: row.topic_date, title: String(row.title ?? "").slice(0, 80) };
+    if (row.topic_date.slice(0, 10) !== targetDate) failures.push(`stored topic_date ${row.topic_date} != target ${targetDate}`);
+    if (!String(row.title ?? "").trim()) failures.push("stored topic has an empty title");
+    if (!String(row.prompt ?? "").trim()) failures.push("stored topic has an empty prompt");
+    if (!String(row.category ?? "").trim()) failures.push("stored topic has an empty category");
+    // 2b: provenance is a valid stored source.
+    if (row.generation_source !== "ai" && row.generation_source !== "fallback") {
+      failures.push(`invalid generation provenance: ${JSON.stringify(row.generation_source)}`);
+    }
+    checks.provenance = row.generation_source;
+
+    // 3: the canonical fingerprint recomputes and matches the record.
+    const expected = topicFingerprint({
+      topicDate: targetDate,
+      title: row.title,
+      prompt: row.prompt,
+      category: row.category,
+    });
+    checks.fingerprint = row.topic_fingerprint ?? null;
+    checks.fingerprintValid = row.topic_fingerprint === expected;
+    if (!row.topic_fingerprint) {
+      failures.push("stored topic has no fingerprint — legacy row awaiting backfill, not yet proven immutable");
+    } else if (row.topic_fingerprint !== expected) {
+      failures.push("stored topic fingerprint does not match its content — the row changed under its recorded identity");
+    }
+
+    // 4+5: evidence is bounded AND belongs to THIS exact revision.
+    // Compared against the RECOMPUTED fingerprint, so a tampered row cannot
+    // validate its own stale cards.
+    const ev = await query(
+      `SELECT count(*)::int AS n,
+              count(*) FILTER (WHERE te.topic_fingerprint IS NOT NULL AND te.topic_fingerprint IS DISTINCT FROM $2)::int AS mismatched,
+              count(*) FILTER (WHERE te.topic_fingerprint IS NULL)::int AS unstamped
+         FROM topic_evidence te
+         JOIN daily_topics dt ON dt.id = te.topic_id
+        WHERE dt.topic_date = $1::date`,
+      [targetDate, expected],
+    ).catch((e) => {
+      if (isMissingColumnError(e, "topic_fingerprint")) {
+        failures.push("topic_evidence.topic_fingerprint column missing — apply migration 018_topic_fingerprint.sql");
+        return null;
+      }
+      throw e;
+    });
+    if (ev) {
+      const n = ev[0]?.n ?? 0;
+      const mismatched = ev[0]?.mismatched ?? 0;
+      const unstamped = ev[0]?.unstamped ?? 0;
+      checks.evidenceCards = n;
+      checks.staleEvidence = mismatched + unstamped;
+      if (n > maxCards) failures.push(`evidence cards ${n} exceed cap ${maxCards} (re-runs must verify, never accumulate)`);
+      if (mismatched > 0) failures.push(`${mismatched} evidence card(s) carry a different revision fingerprint — stale evidence from replaced content`);
+      if (unstamped > 0) failures.push(`${unstamped} evidence card(s) lack a revision fingerprint — ownership unproven`);
+    }
+
+    // 6: no orphan evidence anywhere.
+    const orphans = await query(
+      `SELECT count(*)::int AS n
+         FROM topic_evidence te
+        WHERE NOT EXISTS (SELECT 1 FROM daily_topics d WHERE d.id = te.topic_id)`,
+    );
+    if ((orphans[0]?.n ?? 0) > 0) failures.push(`${orphans[0].n} evidence rows reference a topic that no longer exists (FK broken)`);
+  }
 }
 
 const ok = failures.length === 0;
@@ -93,4 +152,8 @@ if (!ok) {
   process.stderr.write(`[verify-topic-stored] FAILED for ${targetDate}:\n  - ${failures.join("\n  - ")}\n`);
   process.exit(1);
 }
-process.stderr.write(`[verify-topic-stored] OK: ${targetDate} topic verified (provenance=${checks.provenance}, evidence=${checks.evidenceCards}/${maxCards})\n`);
+process.stderr.write(`[verify-topic-stored] OK: ${targetDate} topic verified (provenance=${checks.provenance}, fingerprint=${String(checks.fingerprint ?? "").slice(0, 12)}, evidence=${checks.evidenceCards}/${maxCards})\n`);
+// The shared TCP executor keeps a pooled connection open; this one-shot CLI
+// must exit explicitly (like record-topic-run.mjs) instead of waiting out
+// the pool's idle-client close, which otherwise hangs spawned callers.
+process.exit(0);

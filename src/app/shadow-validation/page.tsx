@@ -1,28 +1,57 @@
-import { createClient } from "@/lib/backend/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { isCorpusAdmin } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import {
   DEFAULT_ROUTE_LIFECYCLE,
+  evaluateRouteGate,
   JUDGE_AVOIDANCE_ROUTES,
+  monitorAdoptedRoute,
   PREREGISTERED_ROUTE_GATES,
   ROUTE_GATE_VERSION,
   routeGateRegistration,
+  segmentByRoute,
+  segmentKeyFns,
+  segmentShadowRecords,
+  type RouteShadowRecord,
 } from "@/lib/routeShadowValidation";
+import { getRouteLifecycleStates } from "@/lib/routeLifecycle";
+import type { ArgumentRoute } from "@/lib/argumentTaxonomy";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Shadow judge validation (admin)" };
 
+const SHADOW_RECORD_LIMIT = 500;
+
+function pct(value: number | null, n: number, minN: number): string {
+  if (value === null) return "—";
+  const shown = `${(value * 100).toFixed(1)}%`;
+  // Never a bare percentage on a tiny sample: the denominator travels along,
+  // and sub-threshold samples are labelled as such.
+  return n < minN ? `${shown} (n=${n}, below N)` : `${shown} (n=${n})`;
+}
+
+function num(value: number | null, digits = 2): string {
+  return value === null ? "—" : value.toFixed(digits);
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-[var(--rule)] py-1.5 last:border-0">
+      <p className="text-xs text-ink3">{label}</p>
+      <p className="tabular text-right text-sm font-medium">{value}</p>
+    </div>
+  );
+}
+
 /**
- * Route-level validation dashboard: per-route lifecycle state (all routes
- * default to shadow), the preregistered adoption gates with their sealed
- * hashes, and the metric definitions the roll-ups report. Per-run shadow
- * records ride on the authoritative verdict (`verdict.routing` metadata +
- * `verdict.shadowRouting` telemetry) for route-vs-ensemble comparison — this
- * page is the standing dashboard; the numbers accumulate as PvP matches
- * complete with shadow telemetry attached. The ensemble stays authoritative
- * until a route clears every preregistered gate.
+ * Route-level validation dashboard over REAL accumulated evidence: stored
+ * `pvp_matches.judge_verdict.shadowRouting` records, aggregated per route
+ * with denominators always shown. Shadow results never control winners —
+ * this page measures how closely each shadow route tracks the authoritative
+ * ensemble. Side-swap stability and human agreement read "not measured"
+ * until those harnesses report; unmeasured gates fail, never pass.
  */
 export default async function ShadowValidationPage() {
   const db = await createClient();
@@ -43,35 +72,124 @@ export default async function ShadowValidationPage() {
   }
 
   const registration = routeGateRegistration();
+  const lifecycleStates = await getRouteLifecycleStates();
+
+  // Stored verdicts only — bounded metadata, never raw transcripts.
+  let records: RouteShadowRecord[] = [];
+  let verdictsRead = 0;
+  try {
+    const service = createServiceClient();
+    const matches = await service
+      .from("pvp_matches")
+      .select("judge_verdict")
+      .eq("status", "completed")
+      .order("completed_at", { ascending: false })
+      .limit(SHADOW_RECORD_LIMIT);
+    const rows = (matches.data ?? []) as Array<{ judge_verdict: unknown }>;
+    verdictsRead = rows.length;
+    for (const row of rows) {
+      const verdict = row.judge_verdict as { shadowRouting?: unknown } | null;
+      const record = verdict?.shadowRouting as RouteShadowRecord | null | undefined;
+      if (record && typeof record === "object" && typeof record.route === "string") {
+        records.push(record);
+      }
+    }
+  } catch {
+    records = [];
+  }
+
+  const eligible = records.filter(
+    (r) => (r.shadowAttemptStatus ?? (r.insufficientEvidence ? "insufficient-evidence" : "scored")) !== "routing-not-eligible",
+  );
+  const segments = segmentByRoute(records);
+  const byRoute = new Map(segments.map((s) => [s.route, s]));
+  const keyFns = segmentKeyFns();
 
   return (
     <AppShell width="narrow">
       <PageHeader
         eyebrow="Internal"
         title="Shadow judge validation"
-        description={`Classifier judge-avoidance routes run in shadow mode only (${ROUTE_GATE_VERSION}). The established ensemble stays authoritative until a route clears every preregistered gate.`}
+        description={`Classifier judge-avoidance routes run in shadow mode only (${ROUTE_GATE_VERSION}). Evidence below aggregates ${eligible.length} eligible shadow attempts from ${verdictsRead} stored verdicts. The established ensemble stays authoritative until a route clears every preregistered gate.`}
       />
 
-      <section className="surface-card p-5" aria-labelledby="routes-heading">
-        <h2 id="routes-heading" className="text-sm font-semibold">Route lifecycle (all default to shadow)</h2>
-        <div className="mt-2">
-          {JUDGE_AVOIDANCE_ROUTES.map((route) => (
-            <div key={route} className="flex items-baseline justify-between gap-3 border-b border-[var(--rule)] py-1.5 last:border-0">
-              <p className="text-xs text-ink3">{route}</p>
-              <p className="tabular text-right text-sm font-medium">{DEFAULT_ROUTE_LIFECYCLE[route]}</p>
+      {JUDGE_AVOIDANCE_ROUTES.map((route: ArgumentRoute) => {
+        const gate = PREREGISTERED_ROUTE_GATES[route];
+        const sealed = registration.gates[route];
+        const seg = byRoute.get(route);
+        const routeRecords = eligible.filter((r) => r.route === route);
+        // Side-swap and human harnesses have not reported: unmeasured, so the
+        // gate fails closed and the route stays in shadow.
+        const verdict = evaluateRouteGate({ route, records: routeRecords });
+        const stored = lifecycleStates[route] ?? DEFAULT_ROUTE_LIFECYCLE[route];
+        const effective = stored === "adopted" ? monitorAdoptedRoute({ ...verdict, state: "adopted" }) : stored;
+        return (
+          <section key={route} className="surface-card mt-4 p-5" aria-labelledby={`route-${route}`}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 id={`route-${route}`} className="text-sm font-semibold">{route}</h2>
+              <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink3">
+                {effective}
+              </span>
             </div>
-          ))}
+            <p className="mt-1 text-xs text-ink3">
+              seal {sealed?.hash.slice(0, 12) ?? "—"} · gate {verdict.passed ? "passing" : "failing"}
+              {stored === "adopted" && effective === "suspended" ? " · monitoring tripped — production stays on the ensemble" : ""}
+            </p>
+            <div className="mt-2">
+              <Fact label="N (eligible attempts)" value={String(seg?.n ?? 0)} />
+              <Fact label="Scored / insufficient" value={`${seg?.scoredCount ?? 0} / ${seg?.insufficientCount ?? 0}`} />
+              <Fact label="Winner agreement" value={pct(seg?.winnerAgreement ?? null, seg?.scoredCount ?? 0, gate.minN)} />
+              <Fact label="Tie disagreement" value={pct(seg?.tieDisagreement ?? null, seg?.scoredCount ?? 0, gate.minN)} />
+              <Fact label="Score MAE" value={num(seg?.scoreMae ?? null)} />
+              <Fact label="Score-gap MAE" value={num(seg?.scoreGapMae ?? null)} />
+              <Fact label="False-decisive rate" value={pct(seg?.falseDecisiveRate ?? null, seg?.scoredCount ?? 0, gate.minN)} />
+              <Fact label="Insufficient-evidence rate" value={pct(seg?.insufficientEvidenceRate ?? null, seg?.n ?? 0, gate.minN)} />
+              <Fact label="Side-swap stability" value="not measured" />
+              <Fact label="Human agreement" value="not measured" />
+            </div>
+            {verdict.failures.length > 0 && (
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-ink3">
+                {verdict.failures.map((failure, i) => (
+                  <li key={i}>{failure}</li>
+                ))}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+
+      <section className="surface-card mt-4 p-5" aria-labelledby="segments-heading">
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="segments-heading" className="text-sm font-semibold">Segments (all routes pooled)</h2>
         </div>
-        <p className="mt-2 text-xs text-ink3">
-          Promotion requires every gate below on the registered rolling window; any later monitoring
-          gate failure returns the route to the ensemble (suspended).
+        <p className="mt-1 text-xs text-ink3">
+          Slices report denominators with every rate; tiny samples are labelled, never hidden.
+          Subject/category segmentation is unavailable — records carry no subject field.
         </p>
+        {Object.entries(keyFns).map(([segment, keyFn]) => {
+          const slices = segmentShadowRecords(eligible, keyFn, segment).slice(0, 8);
+          if (!slices.length) return null;
+          return (
+            <div key={segment} className="mt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink3">by {segment}</p>
+              <div className="mt-1">
+                {slices.map((slice) => (
+                  <Fact
+                    key={`${segment}:${slice.label}`}
+                    label={`${slice.label} (n=${slice.n})`}
+                    value={`agree ${slice.winnerAgreement === null ? "—" : `${(slice.winnerAgreement * 100).toFixed(1)}%`} · tie-dis ${slice.tieDisagreement === null ? "—" : `${(slice.tieDisagreement * 100).toFixed(1)}%`} · gap-MAE ${num(slice.scoreGapMae)}`}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </section>
 
       <section className="surface-card mt-4 p-5" aria-labelledby="gates-heading">
-        <h2 id="gates-heading" className="text-sm font-semibold">Preregistered adoption gates (hash-sealed)</h2>
+        <h2 id="gates-heading" className="text-sm font-semibold">Preregistered adoption gates (SHA-256 sealed)</h2>
         <div className="mt-2">
-          {JUDGE_AVOIDANCE_ROUTES.map((route) => {
+          {JUDGE_AVOIDANCE_ROUTES.map((route: ArgumentRoute) => {
             const gate = PREREGISTERED_ROUTE_GATES[route];
             const sealed = registration.gates[route];
             return (
@@ -83,27 +201,15 @@ export default async function ShadowValidationPage() {
                 <p className="mt-1 text-xs text-ink3">
                   N≥{gate.minN} · agreement≥{gate.minWinnerAgreement} · swap≥{gate.minSideSwapStability} ·
                   false-decisive≤{gate.maxFalseDecisiveRate} · gap-MAE≤{gate.maxScoreGapMae} ·
-                  insuff-evidence≤{gate.maxInsufficientEvidenceRate} · human≥{gate.minHumanAgreement ?? "—"}
+                  insuff-evidence≤{gate.maxInsufficientEvidenceRate} · human≥{gate.minHumanAgreement ?? "—"} (≥30 items)
                 </p>
               </div>
             );
           })}
         </div>
         <p className="mt-2 text-xs text-ink3">
-          Thresholds were fixed before analysing shadow results and are hash-sealed against the data.
-          Changing any threshold starts a new registration — sealed values are never edited in place.
-        </p>
-      </section>
-
-      <section className="surface-card mt-4 p-5" aria-labelledby="metrics-heading">
-        <h2 id="metrics-heading" className="text-sm font-semibold">Tracked metrics (per route × segment)</h2>
-        <p className="mt-1 text-xs text-ink3">
-          Segments: classifier confidence band, transcript length, round count, score-gap band,
-          mixed-role count, debate subject/category where available. Metrics: winner agreement, tie
-          disagreement, score MAE, score-gap MAE, insufficient-evidence disagreement, side-swap
-          stability, false-decisive rate. Human-grounded validity (human consensus vs ensemble, human
-          consensus vs shadow) gates promotion — ensemble agreement alone is migration-safety only.
-          Shadow records carry no raw debate text.
+          Thresholds were fixed before analysing shadow results; immutable artifacts live in
+          docs/route-registrations/v1. Changing any threshold starts a new registration — sealed values are never edited in place.
         </p>
       </section>
     </AppShell>

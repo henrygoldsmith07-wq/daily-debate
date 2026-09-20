@@ -15,6 +15,8 @@
 // that a side should win. Those are separate fields and must never be
 // presented as interchangeable.
 
+import { createHash } from "node:crypto";
+
 import type {
   ArgumentRoleCounts,
   ArgumentRoute,
@@ -110,12 +112,19 @@ export const PREREGISTERED_ROUTE_GATES: Record<ArgumentRoute, RouteAdoptionGate>
 export const ROUTE_GATE_VERSION = "route-adoption-gates-v1";
 
 /**
- * Stable, order-independent hash of a gate so the thresholds are tamper-
- * evident. Registration is immutable: changing a threshold changes the hash.
+ * Minimum human-consensus items behind a human-grounded agreement claim.
+ * Below this, human data is insufficient and the route stays in shadow (or
+ * at most internally eligible-awaiting-human, never production-adopted).
  */
-export function hashRouteGate(route: ArgumentRoute, gate: RouteAdoptionGate): string {
-  const canonical = JSON.stringify([
-    ROUTE_GATE_VERSION,
+export const HUMAN_GATE_MIN_ITEMS = 30;
+
+/**
+ * Canonical payload for a gate seal and for the immutable registration
+ * artifacts in docs/route-registrations. Order-independent by construction.
+ */
+export function canonicalGateJson(version: string, route: ArgumentRoute, gate: RouteAdoptionGate): string {
+  return JSON.stringify([
+    version,
     route,
     gate.minN,
     gate.minWinnerAgreement,
@@ -125,13 +134,15 @@ export function hashRouteGate(route: ArgumentRoute, gate: RouteAdoptionGate): st
     gate.maxInsufficientEvidenceRate,
     gate.minHumanAgreement,
   ]);
-  // FNV-1a, 32-bit: dependency-free and stable across runtimes.
-  let h = 0x811c9dc5;
-  for (let i = 0; i < canonical.length; i++) {
-    h ^= canonical.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, "0");
+}
+
+/**
+ * Stable seal of a gate so the thresholds are tamper-evident. Registration
+ * is immutable: changing a threshold changes the hash. SHA-256 (replacing
+ * the previous 32-bit FNV) so the seal matches the registration artifacts.
+ */
+export function hashRouteGate(route: ArgumentRoute, gate: RouteAdoptionGate): string {
+  return createHash("sha256").update(canonicalGateJson(ROUTE_GATE_VERSION, route, gate), "utf8").digest("hex");
 }
 
 /** The full preregistration, suitable for storing immutably alongside results. */
@@ -147,6 +158,41 @@ export function routeGateRegistration(): {
 }
 
 export type ShadowWinner = "a" | "b" | "tie";
+
+/**
+ * Explicit shadow-attempt states. Only candidate judge-avoidance routes enter
+ * route adoption denominators:
+ * - "scored" — deterministic scoring produced a result;
+ * - "insufficient-evidence" — attempted, but the graph was not scoreable;
+ * - "routing-not-eligible" — normal ensemble routing, not a shadow attempt;
+ * - "classifier-failure" — the classifier itself contributed nothing usable
+ *   (all-fallback rows), so scoring never had a real input.
+ */
+export type ShadowAttemptStatus =
+  | "scored"
+  | "insufficient-evidence"
+  | "routing-not-eligible"
+  | "classifier-failure";
+
+export function classifyShadowAttemptStatus(
+  plan: { route: ArgumentRoute; argumentCount: number; fallbackCount: number },
+  scored: boolean,
+): ShadowAttemptStatus {
+  if (plan.route === "ensemble") return "routing-not-eligible";
+  if (scored) return "scored";
+  if (plan.argumentCount > 0 && plan.fallbackCount >= plan.argumentCount) return "classifier-failure";
+  return "insufficient-evidence";
+}
+
+/** Transcript-size bucket: bounded metadata for segmentation, never the text. */
+export type SizeBucket = "<1k" | "1k-4k" | "4k-16k" | ">=16k";
+
+export function bucketTranscriptChars(chars: number): SizeBucket {
+  if (chars < 1000) return "<1k";
+  if (chars < 4000) return "1k-4k";
+  if (chars < 16000) return "4k-16k";
+  return ">=16k";
+}
 
 export interface ShadowSideResult {
   winner: ShadowWinner;
@@ -187,6 +233,11 @@ export interface RouteShadowRecord {
   scoreGapDifference: number;
   /** Shadow path produced no scoreable result while the ensemble did. */
   insufficientEvidence: boolean;
+  /** Explicit attempt state — only non-"routing-not-eligible" rows count. */
+  shadowAttemptStatus: ShadowAttemptStatus;
+  /** Bounded segmentation metadata (no raw text is ever stored). */
+  sizeBucket: SizeBucket | null;
+  roundCount: number | null;
 }
 
 /** Build the shadow record from the routing summary plus both verdicts. */
@@ -194,6 +245,9 @@ export function buildShadowRecord(params: {
   routing: ArgumentRoutingSummary;
   ensemble: ShadowSideResult;
   shadow: ShadowSideResult | null;
+  status?: ShadowAttemptStatus;
+  sizeBucket?: SizeBucket | null;
+  roundCount?: number | null;
 }): RouteShadowRecord {
   const { routing, ensemble, shadow } = params;
   const argumentCount = routing.argumentCount;
@@ -228,6 +282,10 @@ export function buildShadowRecord(params: {
       : 0,
     scoreGapDifference: shadow ? Math.abs(shadow.scoreGap - ensemble.scoreGap) : 0,
     insufficientEvidence: shadow === null,
+    shadowAttemptStatus: params.status
+      ?? (shadow !== null ? "scored" : routing.route === "ensemble" ? "routing-not-eligible" : "insufficient-evidence"),
+    sizeBucket: params.sizeBucket ?? null,
+    roundCount: typeof params.roundCount === "number" ? params.roundCount : null,
   };
 }
 
@@ -261,9 +319,17 @@ export function evaluateRouteGate(params: {
   records: RouteShadowRecord[];
   sideSwapStability?: number | null;
   humanAgreement?: number | null;
+  humanItems?: number | null;
 }): RouteGateVerdict {
-  const { route, records } = params;
+  const { route } = params;
   const gate = PREREGISTERED_ROUTE_GATES[route];
+  // N = all ELIGIBLE shadow attempts: failed scoring still counts (as
+  // insufficient evidence), but normal ensemble routing is not an attempt
+  // and must never enter the denominator. Legacy rows without an explicit
+  // status keep their historical reading (insufficient flag decides).
+  const records = params.records.filter(
+    (r) => (r.shadowAttemptStatus ?? (r.insufficientEvidence ? "insufficient-evidence" : "scored")) !== "routing-not-eligible",
+  );
   const n = records.length;
   const failures: string[] = [];
 
@@ -273,8 +339,10 @@ export function evaluateRouteGate(params: {
 
   const scored = records.filter((r) => !r.insufficientEvidence);
   const winnerAgreement = scored.length ? scored.filter((r) => r.winnerAgreement).length / scored.length : null;
+  // Tie disagreement is strictly "exactly one side called it a tie".
+  // tie/tie is agreement, and A/B is winner (not tie) disagreement.
   const tieDisagreement = scored.length
-    ? scored.filter((r) => r.ensembleWinner === "tie" || r.shadowWinner === "tie").length / scored.length
+    ? scored.filter((r) => (r.ensembleWinner === "tie") !== (r.shadowWinner === "tie")).length / scored.length
     : null;
   const scoreMae = scored.length
     ? scored.reduce((s, r) => s + r.absoluteScoreDifference, 0) / scored.length
@@ -306,6 +374,10 @@ export function evaluateRouteGate(params: {
   checkMax("insufficient-evidence rate", insufficientEvidenceRate, gate.maxInsufficientEvidenceRate);
   if (gate.minHumanAgreement !== null) {
     checkMin("human-grounded agreement", humanAgreement, gate.minHumanAgreement);
+    const humanItems = params.humanItems ?? null;
+    if (humanItems === null || humanItems < HUMAN_GATE_MIN_ITEMS) {
+      failures.push(`human-grounded items ${humanItems ?? "unmeasured"} < ${HUMAN_GATE_MIN_ITEMS}`);
+    }
   }
 
   // A route is only ever `eligible` here. Promotion to `adopted` is a separate,
@@ -337,15 +409,22 @@ export function monitorAdoptedRoute(verdict: RouteGateVerdict): RouteLifecycleSt
 export interface RouteSegment {
   route: ArgumentRoute;
   n: number;
+  scoredCount: number;
+  insufficientCount: number;
   winnerAgreement: number | null;
+  tieDisagreement: number | null;
+  scoreMae: number | null;
   scoreGapMae: number | null;
   insufficientEvidenceRate: number | null;
   falseDecisiveRate: number | null;
 }
 
 export function segmentByRoute(records: RouteShadowRecord[]): RouteSegment[] {
+  const eligible = records.filter(
+    (r) => (r.shadowAttemptStatus ?? (r.insufficientEvidence ? "insufficient-evidence" : "scored")) !== "routing-not-eligible",
+  );
   const byRoute = new Map<ArgumentRoute, RouteShadowRecord[]>();
-  for (const r of records) {
+  for (const r of eligible) {
     const list = byRoute.get(r.route) ?? [];
     list.push(r);
     byRoute.set(r.route, list);
@@ -355,7 +434,13 @@ export function segmentByRoute(records: RouteShadowRecord[]): RouteSegment[] {
     return {
       route,
       n: rs.length,
+      scoredCount: scored.length,
+      insufficientCount: rs.length - scored.length,
       winnerAgreement: scored.length ? scored.filter((r) => r.winnerAgreement).length / scored.length : null,
+      tieDisagreement: scored.length
+        ? scored.filter((r) => (r.ensembleWinner === "tie") !== (r.shadowWinner === "tie")).length / scored.length
+        : null,
+      scoreMae: scored.length ? scored.reduce((s, r) => s + r.absoluteScoreDifference, 0) / scored.length : null,
       scoreGapMae: scored.length ? scored.reduce((s, r) => s + r.scoreGapDifference, 0) / scored.length : null,
       insufficientEvidenceRate: rs.length ? rs.filter((r) => r.insufficientEvidence).length / rs.length : null,
       falseDecisiveRate: scored.length
@@ -370,6 +455,78 @@ export function confidenceBand(share: number): "low" | "medium" | "high" {
   if (share < 0.6) return "low";
   if (share < 0.85) return "medium";
   return "high";
+}
+
+export function mixedRoleBucket(count: number | null): string {
+  if (count === null || count === undefined) return "unknown";
+  if (count === 0) return "0";
+  if (count <= 2) return "1-2";
+  return ">2";
+}
+
+export function roundCountBucket(rounds: number | null): string {
+  if (rounds === null || rounds === undefined) return "unknown";
+  if (rounds <= 2) return "<=2";
+  if (rounds <= 5) return "3-5";
+  return ">5";
+}
+
+/** Segment label extractors over stored records (bounded metadata only). */
+export function segmentKeyFns(): Record<string, (r: RouteShadowRecord) => string> {
+  return {
+    confidence: (r) => confidenceBand(r.confidence.highConfidenceShare),
+    "score-gap": (r) => scoreGapBand(r.ensembleScores.gap),
+    "mixed-role": (r) => mixedRoleBucket(r.mixedRoleCount),
+    size: (r) => r.sizeBucket ?? "unknown",
+    rounds: (r) => roundCountBucket(r.roundCount),
+  };
+}
+
+export interface ShadowSegmentSlice {
+  segment: string;
+  label: string;
+  n: number;
+  winnerAgreement: number | null;
+  tieDisagreement: number | null;
+  scoreGapMae: number | null;
+  insufficientEvidenceRate: number | null;
+}
+
+/**
+ * Segment eligible records by a bounded label. Slices with tiny samples are
+ * still reported WITH their denominators — never percentages alone.
+ */
+export function segmentShadowRecords(
+  records: RouteShadowRecord[],
+  keyFn: (r: RouteShadowRecord) => string,
+  segment: string,
+): ShadowSegmentSlice[] {
+  const eligible = records.filter(
+    (r) => (r.shadowAttemptStatus ?? (r.insufficientEvidence ? "insufficient-evidence" : "scored")) !== "routing-not-eligible",
+  );
+  const byLabel = new Map<string, RouteShadowRecord[]>();
+  for (const r of eligible) {
+    const label = keyFn(r);
+    const list = byLabel.get(label) ?? [];
+    list.push(r);
+    byLabel.set(label, list);
+  }
+  return [...byLabel.entries()]
+    .map(([label, rs]) => {
+      const scored = rs.filter((r) => !r.insufficientEvidence);
+      return {
+        segment,
+        label,
+        n: rs.length,
+        winnerAgreement: scored.length ? scored.filter((r) => r.winnerAgreement).length / scored.length : null,
+        tieDisagreement: scored.length
+          ? scored.filter((r) => (r.ensembleWinner === "tie") !== (r.shadowWinner === "tie")).length / scored.length
+          : null,
+        scoreGapMae: scored.length ? scored.reduce((s, r) => s + r.scoreGapDifference, 0) / scored.length : null,
+        insufficientEvidenceRate: rs.length ? rs.filter((r) => r.insufficientEvidence).length / rs.length : null,
+      };
+    })
+    .sort((a, b) => b.n - a.n || (a.label < b.label ? -1 : 1));
 }
 
 /** Score-gap bands for segmentation. */

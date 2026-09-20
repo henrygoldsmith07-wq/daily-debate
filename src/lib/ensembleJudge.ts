@@ -22,7 +22,13 @@ import {
   type ArgumentRoutingPlan,
 } from "./argumentRouting";
 import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
-import { buildShadowRecord, type RouteShadowRecord } from "./routeShadowValidation";
+import {
+  bucketTranscriptChars,
+  buildShadowRecord,
+  classifyShadowAttemptStatus,
+  JUDGE_AVOIDANCE_ROUTES,
+  type RouteShadowRecord,
+} from "./routeShadowValidation";
 
 export type JudgeId = ProviderLabel | "anthropic";
 export interface JudgedVerdict extends PvpJudgeResult {
@@ -298,7 +304,16 @@ export async function liveEnsembleJudge(params: {
   // ALONGSIDE the established ensemble and retained as evidence only. The
   // ensemble result below is what gets served, stored, scored, and turned into
   // XP or progression.
-  const shadow = plan.requiresExpensiveJudge ? null : deterministicRoutedResult(plan, baselineJudgeLegs);
+  //
+  // Denominator honesty: EVERY debate where the classifier chooses a
+  // judge-avoidance candidate route gets a shadow record — including attempts
+  // whose deterministic scoring fails (recorded with a null shadow result and
+  // insufficientEvidence=true). Failed attempts must never disappear, or the
+  // validation dataset would be biased toward successes.
+  const candidateRoute =
+    !plan.requiresExpensiveJudge &&
+    (JUDGE_AVOIDANCE_ROUTES as string[]).includes(plan.route);
+  const shadow = candidateRoute ? deterministicRoutedResult(plan, baselineJudgeLegs) : null;
 
   // A recognised role is not enough to suppress judging when the existing
   // downstream assessment cannot produce a scoreable graph. That disagreement
@@ -357,13 +372,18 @@ export async function liveEnsembleJudge(params: {
   const ensemble = ensembleVerdicts(ok);
   recordRoutingTelemetry(ensembleRouting);
   // The authoritative result is the ensemble, always. The shadow route is
-  // attached as evidence for route-vs-ensemble validation only.
+  // attached as evidence for route-vs-ensemble validation only — including
+  // failed attempts (null shadow result), which count toward the adoption
+  // denominator instead of vanishing.
+  const roundCount = plan.arguments.length
+    ? Math.max(...plan.arguments.map((a) => a.round))
+    : null;
   return {
     ...ensemble,
     routing: ensembleRouting,
-    shadowRouting: shadow
+    shadowRouting: candidateRoute
       ? buildShadowRecord({
-          routing: shadow.routing!,
+          routing: shadow?.routing ?? routingSummary(plan, 0),
           ensemble: {
             winner: ensemble.winner,
             playerAScore: ensemble.playerAScore,
@@ -371,13 +391,21 @@ export async function liveEnsembleJudge(params: {
             scoreGap: ensemble.scoreGap,
             scoreStatus: ensemble.scoreStatus,
           },
-          shadow: {
-            winner: shadow.winner,
-            playerAScore: shadow.playerAScore,
-            playerBScore: shadow.playerBScore,
-            scoreGap: shadow.scoreGap,
-            scoreStatus: shadow.scoreStatus,
-          },
+          shadow: shadow
+            ? {
+                winner: shadow.winner,
+                playerAScore: shadow.playerAScore,
+                playerBScore: shadow.playerBScore,
+                scoreGap: shadow.scoreGap,
+                scoreStatus: shadow.scoreStatus,
+              }
+            : null,
+          status: classifyShadowAttemptStatus(
+            { route: plan.route, argumentCount: plan.arguments.length, fallbackCount: plan.fallbackCount },
+            shadow !== null,
+          ),
+          sizeBucket: bucketTranscriptChars(params.transcript.length),
+          roundCount,
         })
       : null,
   };

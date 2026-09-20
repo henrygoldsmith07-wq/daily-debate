@@ -106,10 +106,11 @@ describe("provider vs availability separation in telemetry", () => {
   });
 });
 
-describe("production proof separation (manual / idempotence / scheduled / on-time)", () => {
-  it("exposes the four facts independently in ops health", async () => {
+describe("production proof separation (six independent facts)", () => {
+  it("exposes database, manual, scheduled, idempotent, on-time and AI facts independently", async () => {
     const ops = await import("./opsHealth");
     const now = "2026-09-16T12:00:00Z";
+    const fp = "c".repeat(64);
     const slo = ops.assessTopicSlo(
       {
         runs: [
@@ -119,16 +120,19 @@ describe("production proof separation (manual / idempotence / scheduled / on-tim
         productionDbReadable: true,
         tomorrowReady: true,
         telemetry: [
-          { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-17", completedBeforeDeadline: true },
-          { event: "schedule", at: "2026-09-16T02:00:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-17", completedBeforeDeadline: true },
+          { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-17", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "ai" },
+          { event: "schedule", at: "2026-09-16T02:00:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-17", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "ai" },
         ],
+        aiEvidence: { targetDate: "2026-09-17", aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: true },
       },
       now,
     );
+    expect(slo.proofs.databaseReachable).toBe(true);
     expect(slo.proofs.manualSuccess).toBe(true);
     expect(slo.proofs.scheduledSuccessAfterManual).toBe(true);
-    expect(slo.proofs.idempotenceRerun).toBe(true);
+    expect(slo.proofs.sameDateContentIdempotence).toBe(true);
     expect(slo.proofs.onTimeBeforeDeadline).toBe(true);
+    expect(slo.proofs.aiGeneratedProductionSuccess).toBe(true);
   });
 
   it("never infers scheduled proof from dispatch-only or CI-equivalent runs", async () => {
@@ -140,13 +144,14 @@ describe("production proof separation (manual / idempotence / scheduled / on-tim
         productionDbReadable: true,
         tomorrowReady: true,
         telemetry: [
-          { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-17", completedBeforeDeadline: true },
+          { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-17", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: "c".repeat(64), generatorResult: "fallback-by-policy" },
         ],
       },
       now,
     );
     expect(dispatchOnly.proofs.manualSuccess).toBe(true);
     expect(dispatchOnly.proofs.scheduledSuccessAfterManual).toBe(false);
+    expect(dispatchOnly.proofs.sameDateContentIdempotence).toBe(false);
   });
 
   it("carries generator result + provider health distinctly in telemetry rows", async () => {
@@ -160,8 +165,9 @@ describe("production proof separation (manual / idempotence / scheduled / on-tim
           {
             event: "schedule", at: "2026-09-16T02:00:00Z", result: "success", delayMs: 60_000,
             queueDelayMs: 5_000, runCreatedAt: "2026-09-16T01:59:55Z", completedAt: "2026-09-16T02:05:00Z",
-            targetDate: "2026-09-17", completedBeforeDeadline: true,
-            providerHealth: "timeout", generatorResult: "fallback-after-provider-failure",
+            targetDate: "2026-09-17", completedBeforeDeadline: true, freshnessOk: true,
+            topicFingerprint: "c".repeat(64), generatorResult: "fallback-after-provider-failure",
+            providerHealth: "timeout",
           },
         ],
       },

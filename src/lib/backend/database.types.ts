@@ -20,6 +20,8 @@ export type DailyTopicRow = {
   sources: unknown;
   /** ai | fallback | unknown — recorded by the generator (migration 009). */
   generation_source: string | null;
+  /** SHA-256 content identity for idempotence (migration 018; null on legacy rows). */
+  topic_fingerprint: string | null;
   created_at: string;
 };
 
@@ -192,7 +194,25 @@ export type TopicEvidenceRow = {
   passage: string;
   published_date: string | null;
   checks: unknown;
+  /** Fingerprint of the exact topic revision this card was generated for (migration 018). */
+  topic_fingerprint: string | null;
   created_at: string;
+};
+
+/** Deliberate, durable judge-avoidance route lifecycle (migration 017). Absence of a row means `shadow`. */
+export type RouteLifecycleRow = {
+  route: string;
+  registration_version: string;
+  state: string;
+  evaluated_at: string | null;
+  sample_window: string | null;
+  sample_n: number | null;
+  gate_result: unknown;
+  human_result: unknown;
+  adopted_at: string | null;
+  suspended_at: string | null;
+  reason: string | null;
+  updated_at: string;
 };
 
 export type RepairResultRow = {
@@ -280,6 +300,7 @@ export type Database = {
     corpus_ratings: TableDef<CorpusRatingRow>;
     drill_assignments: TableDef<DrillAssignmentRow>;
     topic_evidence: TableDef<TopicEvidenceRow>;
+    route_lifecycle: TableDef<RouteLifecycleRow>;
     repair_results: TableDef<RepairResultRow>;
     challenge_invites: TableDef<ChallengeInviteRow>;
     product_events: TableDef<ProductEventRow>;

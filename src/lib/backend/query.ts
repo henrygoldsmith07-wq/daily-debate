@@ -29,6 +29,8 @@ const TABLES = new Set<TableName>([
   "corpus_ratings",
   "drill_assignments",
   "topic_evidence",
+  // migration 017 (deliberate route lifecycle registry)
+  "route_lifecycle",
   // migration 004/005/006/007
   "repair_results",
   "challenge_invites",

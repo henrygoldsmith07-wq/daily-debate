@@ -57,9 +57,18 @@ function ms(fromIso, toIso) {
 /**
  * Generator result: what actually produced the stored topic.
  * Deliberately NOT the same axis as provider health or availability.
+ * `already-present` runs verified rather than generated, so the stored
+ * source (the existing row's provenance) decides which generator value the
+ * verified content carries.
  */
-export function generatorResult(outcome) {
-  switch ((outcome ?? "").trim()) {
+export function generatorResult(outcome, storedSource = null) {
+  const o = (outcome ?? "").trim();
+  if (o === "already-present") {
+    if (storedSource === "ai") return "ai";
+    if (storedSource === "fallback") return "fallback-by-policy";
+    return null;
+  }
+  switch (o) {
     case "ai-generated": return "ai";
     case "provider-failure": return "fallback-after-provider-failure";
     case "curated-fallback": return "fallback-by-policy";
@@ -72,7 +81,8 @@ export function generatorResult(outcome) {
 /**
  * Provider health, bucketed from the provider error text.
  * Only meaningful when AI generation was attempted; null otherwise so a
- * policy fallback is never miscounted as a provider outage.
+ * policy fallback — or a verify-only already-present run — is never
+ * miscounted as a provider outage.
  */
 export function providerHealth(outcome, errorText) {
   const o = (outcome ?? "").trim();
@@ -103,11 +113,42 @@ export function availability({ targetDate, freshnessOk, completedAt }) {
   return { topicStored: stored, freshnessValid: freshnessOk ?? null, deadlineSatisfied };
 }
 
+/**
+ * Bound the per-attempt ledger for database persistence: provider/model
+ * identity, outcome, latency, HTTP status and error category — but never raw
+ * provider error text (that stays in the workflow artifact). At most 20
+ * attempts; malformed entries are dropped, never stored half-parsed.
+ */
+export function boundProviderAttempts(raw) {
+  let parsed = raw;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(parsed)) return null;
+  const rows = [];
+  for (const a of parsed.slice(0, 20)) {
+    if (!a || typeof a !== "object") continue;
+    rows.push({
+      provider: typeof a.provider === "string" ? a.provider : null,
+      model: typeof a.model === "string" ? a.model : "unknown",
+      outcome: typeof a.outcome === "string" ? a.outcome : "other",
+      latencyMs: typeof a.latencyMs === "number" && Number.isFinite(a.latencyMs) ? Math.round(a.latencyMs) : null,
+      httpStatus: typeof a.httpStatus === "number" ? a.httpStatus : null,
+      errorCategory: typeof a.errorCategory === "string" ? a.errorCategory : (a.outcome === "success" ? null : (typeof a.outcome === "string" ? a.outcome : "other")),
+    });
+  }
+  return rows;
+}
+
 /** Explicit nulls for stages that never ran - never silently drop a field. */
 export function telemetryRecord({
   runId, runAttempt, event, cron, scheduledFor, createdAt, startedAt, completedAt,
   schedulerDelayMs, queueDelayMs, durationMs, targetDate, generatorOutcome,
-  generator, provider, providerAttempts, result, freshnessOk,
+  generator, provider, providerAttempts, topicFingerprint, result, freshnessOk,
 }) {
   return {
     runId: runId ?? null,
@@ -126,6 +167,7 @@ export function telemetryRecord({
     generatorResult: generator ?? null,
     providerHealth: provider ?? null,
     providerAttempts: providerAttempts ?? null,
+    topicFingerprint: topicFingerprint ?? null,
     availability: availability({ targetDate, freshnessOk, completedAt }),
     result: result ?? null,
     freshnessOk: freshnessOk ?? null,
@@ -155,6 +197,9 @@ const OPTIONAL_COLUMNS = [
   ["queue_delay_ms", (r) => r.queueDelayMs],
   ["generator_result", (r) => r.generatorResult],
   ["provider_health", (r) => r.providerHealth],
+  ["topic_fingerprint", (r) => r.topicFingerprint],
+  // jsonb columns receive a JSON string (see generate-topics jsonParam).
+  ["provider_attempts", (r) => (r.providerAttempts ? JSON.stringify(boundProviderAttempts(r.providerAttempts) ?? []) : null)],
 ];
 
 const BASE_COLUMNS = [
@@ -242,7 +287,8 @@ async function main() {
     durationMs: ms(startedAt, completedAt),
     targetDate: env.TARGET_DATE?.trim() || null,
     generatorOutcome: outcome,
-    generator: generatorResult(outcome),
+    generator: generatorResult(outcome, env.STORED_SOURCE?.trim() || null),
+    topicFingerprint: env.TOPIC_FINGERPRINT?.trim() || null,
     provider: providerHealth(outcome, env.PROVIDER_ERROR),
     providerAttempts: (() => {
       try {

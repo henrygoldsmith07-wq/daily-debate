@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   availability,
+  boundProviderAttempts,
   buildUpsert,
   generatorResult,
   providerHealth,
@@ -56,6 +57,61 @@ test("generatorResult keeps AI, policy fallback, provider fallback and failure a
   assert.equal(generatorResult("config-failure"), "failure");
   assert.equal(generatorResult(""), null);
   assert.equal(generatorResult(null), null);
+});
+
+test("generatorResult maps already-present runs from the stored source they verified", () => {
+  // An already-present run verified rather than generated: the stored
+  // provenance decides which generator value the content carries.
+  assert.equal(generatorResult("already-present", "ai"), "ai");
+  assert.equal(generatorResult("already-present", "fallback"), "fallback-by-policy");
+  assert.equal(generatorResult("already-present", null), null);
+  assert.equal(generatorResult("already-present", "mystery"), null);
+  // Verify-only runs never report provider health: nothing was attempted.
+  assert.equal(providerHealth("already-present", "timeout"), null);
+  assert.equal(providerHealth("already-present", null), null);
+});
+
+test("boundProviderAttempts keeps identity for the database and drops raw error text", () => {
+  const rows = boundProviderAttempts(JSON.stringify([
+    { provider: "openrouter", model: "m1", outcome: "timeout", latencyMs: 60012.7, httpStatus: null, errorCategory: "timeout", error: "timeout of 60000ms exceeded after retries" },
+    { provider: "unorouter", model: "m2", outcome: "success", latencyMs: 1200, httpStatus: null, errorCategory: null },
+  ]));
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0], {
+    provider: "openrouter", model: "m1", outcome: "timeout", latencyMs: 60013,
+    httpStatus: null, errorCategory: "timeout",
+  });
+  assert.ok(!("error" in rows[0]), "raw provider error text stays in the artifact, not the database");
+  assert.equal(boundProviderAttempts("not json"), null);
+  assert.equal(boundProviderAttempts(null), null);
+  assert.equal(boundProviderAttempts([]).length, 0);
+  // Bounded at 20 attempts; malformed entries are dropped.
+  const many = Array.from({ length: 30 }, (_, i) => ({ model: `m${i}`, outcome: "success", latencyMs: 1 }));
+  assert.equal(boundProviderAttempts(many).length, 20);
+});
+
+test("the upsert persists fingerprints and bounded attempts once migration 018 lands", () => {
+  const record = telemetryRecord({
+    runId: "1", runAttempt: 1, event: "schedule", result: "success",
+    topicFingerprint: "a".repeat(64),
+    providerAttempts: [{ provider: "openrouter", model: "m", outcome: "success", latencyMs: 5, httpStatus: null, errorCategory: null, error: "dropped" }],
+  });
+  const migrated = buildUpsert(record, new Set([
+    "run_id", "run_attempt", "event", "result",
+    "topic_fingerprint", "provider_attempts",
+  ]));
+  assert.ok(migrated.columns.includes("topic_fingerprint"));
+  assert.ok(migrated.columns.includes("provider_attempts"));
+  const fpIdx = migrated.columns.indexOf("topic_fingerprint");
+  const atIdx = migrated.columns.indexOf("provider_attempts");
+  assert.equal(migrated.values[fpIdx], "a".repeat(64));
+  const stored = JSON.parse(migrated.values[atIdx]);
+  assert.equal(stored.length, 1);
+  assert.ok(!("error" in stored[0]));
+  // Pre-018 databases keep working without the new columns.
+  const base = buildUpsert(record, new Set(["run_id", "run_attempt", "event", "result"]));
+  assert.ok(!base.columns.includes("topic_fingerprint"));
+  assert.ok(!base.columns.includes("provider_attempts"));
 });
 
 test("a green run on a curated fallback is an availability success, not provider health", () => {
