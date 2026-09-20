@@ -167,10 +167,23 @@ async function getRecentTitles(query, limit = 14) {
   return rows.map((r) => r.title);
 }
 
+/**
+ * jsonb columns must receive a JSON *string*, never a raw JS array/object.
+ * The Neon HTTP transport serialises a JS array as a Postgres array literal
+ * (`{a,b}`), which Postgres rejects with "invalid input syntax for type json".
+ * That is why an empty fallback `sources: []` (-> `{}`, valid JSON) stored
+ * fine while every AI-generated topic (non-empty source list) failed the
+ * production write. Serialising explicitly + casting is correct on both the
+ * Neon HTTP and node-postgres transports.
+ */
+export function jsonParam(value) {
+  return JSON.stringify(value ?? null);
+}
+
 async function upsertTopic(query, targetDate, topic, source) {
   return query(
     `INSERT INTO daily_topics (topic_date, title, prompt, category, sources, generation_source)
-     VALUES ($1, $2, $3, $4, $5, $6)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6)
      ON CONFLICT (topic_date) DO UPDATE SET
        title = EXCLUDED.title,
        prompt = EXCLUDED.prompt,
@@ -178,7 +191,7 @@ async function upsertTopic(query, targetDate, topic, source) {
        sources = EXCLUDED.sources,
        generation_source = EXCLUDED.generation_source
      RETURNING id`,
-    [targetDate, topic.title, topic.prompt, topic.category, topic.sources || [], source],
+    [targetDate, topic.title, topic.prompt, topic.category, jsonParam(topic.sources ?? []), source],
   );
 }
 
@@ -191,7 +204,7 @@ async function storeEvidenceCards(query, topicId, cards) {
     await query(
       `INSERT INTO topic_evidence
        (topic_id, claim, source_name, source_type, url, title, passage, published_date, checks)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
       [
         topicId,
         card.claim,
@@ -201,7 +214,7 @@ async function storeEvidenceCards(query, topicId, cards) {
         card.title ?? null,
         card.passage,
         card.publishedDate,
-        card.checks,
+        jsonParam(card.checks ?? {}),
       ],
     );
   }
@@ -310,6 +323,35 @@ function pickFallback(dateIso, recentTitles) {
 
 // --- AI generation via the shared provider-chain registry ---
 
+/**
+ * Deterministic repair for SAFE JSON syntax defects only.
+ *
+ * Deliberately conservative: it fixes punctuation and encoding damage that
+ * cannot change meaning (smart quotes, trailing commas, stray control
+ * characters). It never invents, reorders or drops content, and the repaired
+ * text is still revalidated against the same schema afterwards, so a repair
+ * can never smuggle structurally invalid content past the checks below.
+ * Returns the input unchanged when no safe defect is present.
+ */
+export function repairJson(text) {
+  let t = String(text);
+  t = t.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
+  t = t.replace(/,\s*([}\]])/g, "$1");
+  t = t.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+  return t;
+}
+
+/** Bucket a single provider attempt failure for longitudinal health stats. */
+export function classifyAttempt(errorText) {
+  const t = String(errorText ?? "").toLowerCase();
+  if (/timeout|timed out|etimedout|abort/.test(t)) return "timeout";
+  if (/429|rate.?limit/.test(t)) return "rate-limit";
+  if (/401|403|unauthor|invalid api key|authentication/.test(t)) return "authentication";
+  if (/quota|insufficient_quota|budget|exceeded/.test(t)) return "quota";
+  if (/json|parse|unexpected token|no topics|no usable topics|empty content|malformed|no json/.test(t)) return "invalid-response";
+  return "other";
+}
+
 async function generateCandidates(recentTitles, count = 5, env = process.env) {
   const chain = generationChain(env);
   if (!chain) throw new Error("No AI provider configured.");
@@ -330,8 +372,13 @@ Requirements for each:
 ${avoid}
 Return JSON: {"topics":[{"title":"...","prompt":"...","category":"...","sources":[{"name":"Pew Research Center","homepage":"https://www.pewresearch.org","angle":"polling data"}]}]}`;
 
+  // Per-model attempt telemetry: model, bucketed outcome and measured
+  // latency. Persisted with the run so provider health is observable
+  // longitudinally instead of being flattened into one "provider failed".
+  const attempts = [];
   let lastError;
   for (const model of models) {
+    const attemptStartedAt = Date.now();
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -356,17 +403,40 @@ Return JSON: {"topics":[{"title":"...","prompt":"...","category":"...","sources"
       const jsonText = fenced ? fenced[1] : trimmed;
       const start = jsonText.indexOf("{"), end = jsonText.lastIndexOf("}");
       if (start === -1 || end <= start) throw new Error("no JSON object");
-      const parsed = JSON.parse(jsonText.slice(start, end + 1));
+      const objectText = jsonText.slice(start, end + 1);
+      let parsed;
+      try {
+        parsed = JSON.parse(objectText);
+      } catch (syntaxError) {
+        // One deterministic repair attempt for safe syntax defects, then the
+        // SAME schema validation below decides. A repair that still does not
+        // parse, or that yields invalid structure, fails exactly as before.
+        const repaired = repairJson(objectText);
+        if (repaired === objectText) throw syntaxError;
+        parsed = JSON.parse(repaired);
+      }
       const topics = parsed.topics || parsed.candidates;
       if (!Array.isArray(topics) || !topics.length) throw new Error("no topics array");
-      return topics.filter((t) => t.title && t.prompt && t.category && Array.isArray(t.sources));
+      const usable = topics.filter((t) => t.title && t.prompt && t.category && Array.isArray(t.sources));
+      if (!usable.length) throw new Error("no usable topics after schema validation");
+      attempts.push({ model, outcome: "success", latencyMs: Date.now() - attemptStartedAt });
+      return usable;
     } catch (e) {
       lastError = e;
-      log(`[generate] ${model}: ${String(e?.message ?? e).slice(0, 140)}`);
+      const message = String(e?.message ?? e).slice(0, 140);
+      attempts.push({
+        model,
+        outcome: classifyAttempt(message),
+        latencyMs: Date.now() - attemptStartedAt,
+        error: message,
+      });
+      log(`[generate] ${model}: ${message}`);
     }
   }
 
-  throw lastError ?? new Error("No AI provider configured.");
+  const failure = lastError ?? new Error("No AI provider configured.");
+  failure.attempts = attempts;
+  throw failure;
 }
 
 // --- Scoring (inline port of topicScoring.ts) ---
@@ -539,7 +609,17 @@ export async function runGeneration(deps = {}) {
     : providerFailure
       ? "provider-failure"
       : "curated-fallback";
-  return { outcome, source: generationSource, date: tomorrow, title: bestTopic.title, evidenceCards };
+  return {
+    outcome,
+    source: generationSource,
+    date: tomorrow,
+    title: bestTopic.title,
+    evidenceCards,
+    // Provider detail stays separable from topic availability: a green run on
+    // a curated fallback is an availability success AND a provider failure.
+    providerError: providerFailure ? String(providerFailure.message ?? providerFailure).slice(0, 200) : null,
+    providerAttempts: Array.isArray(providerFailure?.attempts) ? providerFailure.attempts : null,
+  };
 }
 
 async function main() {

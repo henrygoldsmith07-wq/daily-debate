@@ -22,6 +22,7 @@ import {
   type ArgumentRoutingPlan,
 } from "./argumentRouting";
 import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
+import { buildShadowRecord, type RouteShadowRecord } from "./routeShadowValidation";
 
 export type JudgeId = ProviderLabel | "anthropic";
 export interface JudgedVerdict extends PvpJudgeResult {
@@ -51,6 +52,14 @@ export interface EnsembleResult {
   observableAssessment?: ObservableAssessment;
   /** Structural route metadata; never a correctness or winner signal. */
   routing?: ArgumentRoutingSummary;
+  /**
+   * SHADOW structural-route result. NEVER authoritative and never allowed to
+   * influence winner, rank, XP or progression: it exists only to measure how
+   * closely the deterministic route tracks the established ensemble before any
+   * route may be adopted (see routeShadowValidation). Null when no shadow route
+   * was computed for this debate.
+   */
+  shadowRouting?: RouteShadowRecord | null;
 }
 
 const TIE_THRESHOLD = 5; // points: |A-B| < 5 => tie unless judges strongly agree
@@ -282,20 +291,23 @@ export async function liveEnsembleJudge(params: {
     topicPrompt: params.topicPrompt,
   });
   const baselineJudgeLegs = expectedExpensiveJudgeLegs();
-  if (!plan.requiresExpensiveJudge) {
-    const routed = deterministicRoutedResult(plan, baselineJudgeLegs);
-    if (routed) {
-      recordRoutingTelemetry(routed.routing!);
-      return routed;
-    }
-  }
+
+  // SHADOW MODE. The structural classifier may shape responses, but it must
+  // not decide a PvP winner: no route has passed its preregistered adoption
+  // gate (all default to `shadow`). So the deterministic route is computed
+  // ALONGSIDE the established ensemble and retained as evidence only. The
+  // ensemble result below is what gets served, stored, scored, and turned into
+  // XP or progression.
+  const shadow = plan.requiresExpensiveJudge ? null : deterministicRoutedResult(plan, baselineJudgeLegs);
 
   // A recognised role is not enough to suppress judging when the existing
   // downstream assessment cannot produce a scoreable graph. That disagreement
   // is resolved in favour of the downstream path by falling through here.
   const ensemblePlan = effectiveEnsemblePlan(
     plan,
-    plan.requiresExpensiveJudge ? plan.reason : "Deterministic structural path was insufficient; existing ensemble remains authoritative.",
+    plan.requiresExpensiveJudge
+      ? plan.reason
+      : "Structural route is shadow-only until its adoption gate passes; the established ensemble remains authoritative.",
   );
   const ensembleRouting = routingSummary(ensemblePlan, 0);
   const primary = await import("./openrouter");
@@ -344,7 +356,31 @@ export async function liveEnsembleJudge(params: {
   }
   const ensemble = ensembleVerdicts(ok);
   recordRoutingTelemetry(ensembleRouting);
-  return { ...ensemble, routing: ensembleRouting };
+  // The authoritative result is the ensemble, always. The shadow route is
+  // attached as evidence for route-vs-ensemble validation only.
+  return {
+    ...ensemble,
+    routing: ensembleRouting,
+    shadowRouting: shadow
+      ? buildShadowRecord({
+          routing: shadow.routing!,
+          ensemble: {
+            winner: ensemble.winner,
+            playerAScore: ensemble.playerAScore,
+            playerBScore: ensemble.playerBScore,
+            scoreGap: ensemble.scoreGap,
+            scoreStatus: ensemble.scoreStatus,
+          },
+          shadow: {
+            winner: shadow.winner,
+            playerAScore: shadow.playerAScore,
+            playerBScore: shadow.playerBScore,
+            scoreGap: shadow.scoreGap,
+            scoreStatus: shadow.scoreStatus,
+          },
+        })
+      : null,
+  };
 }
 
 /**

@@ -4,7 +4,7 @@
 // — see reliability.stress.test.ts for why.
 
 import { emptyGraph, type ArgEdge, type ArgGraph, type ArgNode, type Owner } from "./argGraph";
-import { inspectSubmittedEvidence, type SubmittedEvidenceInspection } from "./evidence";
+import { inspectSubmittedEvidence, isPublicEvidenceHost, type SubmittedEvidenceInspection } from "./evidence";
 import { isValidRebuttalTarget, STRONG_TARGET_KINDS } from "./opportunity";
 import type { ArgumentRole, ClassifiedArgument, SubmittedArgument } from "./argumentTaxonomy";
 
@@ -313,7 +313,14 @@ export function buildDeterministicArgumentGraph(args: ClassifiedArgument[]): Arg
 }
 
 function validateEvidenceSource(source: { url: string; sourceName?: string }): string[] {
-  return source.url.startsWith("https://") && source.sourceName?.trim() ? [] : ["source is not a valid https citation"];
+  const errors: string[] = [];
+  if (!source.url.startsWith("https://")) errors.push("source is not a valid https citation");
+  // Reuses the shared public-host rule rather than restating it: a citation to
+  // the local machine or an internal network must never count as evidence,
+  // however confidently the classifier labelled the surrounding text.
+  else if (!isPublicEvidenceHost(source.url)) errors.push("source host is not public");
+  if (!source.sourceName?.trim()) errors.push("source is not a valid https citation");
+  return errors;
 }
 
 // ---------------------------------------------------------------------------

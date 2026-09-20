@@ -1,12 +1,23 @@
 #!/usr/bin/env node
 // Record one topic-generation run into topic_run_log (production DB):
-// scheduledFor (from the cron slot that fired), actualStart, delay,
-// duration, target date, generator outcome, freshness verdict, result.
-// Best-effort by design: telemetry must NEVER fail the pipeline it
-// describes - a missing DATABASE_URL or DB error exits 0 with a warning.
+// scheduledFor, runCreatedAt, runStartedAt, completedAt, scheduler delay,
+// queue delay, duration, target date, generator result, provider health,
+// availability, freshness verdict, final result.
+//
+// Three dimensions stay SEPARATE (they answer different questions):
+//   availability  - did a usable topic land before the deadline?
+//   generator     - what produced it (ai | fallback-after-provider-failure |
+//                   fallback-by-policy | failure)?
+//   provider      - did the AI provider itself behave (success |
+//                   invalid-response | timeout | rate-limit | authentication |
+//                   quota | other)?
+// A green run on a curated fallback is an AVAILABILITY success and a PROVIDER
+// failure. Collapsing those into one field would misreport provider health.
+//
+// Best-effort by design: telemetry must NEVER fail the pipeline it describes.
 //
 //   DATABASE_URL=... EVENT=schedule CRON="0 20 * * *" RUN_ID=... ATTEMPT=1 \
-//   RUN_STARTED_AT=... RUN_CREATED_AT=... TARGET_DATE=... OUTCOME=... \
+//   RUN_CREATED_AT=... RUN_STARTED_AT=... TARGET_DATE=... OUTCOME=... \
 //   FRESHNESS=pass|fail node scripts/record-topic-run.mjs
 
 import path from "node:path";
@@ -35,8 +46,69 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function ms(fromIso, toIso) {
+  if (!fromIso || !toIso) return null;
+  const a = Date.parse(fromIso);
+  const b = Date.parse(toIso);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return b - a;
+}
+
+/**
+ * Generator result: what actually produced the stored topic.
+ * Deliberately NOT the same axis as provider health or availability.
+ */
+export function generatorResult(outcome) {
+  switch ((outcome ?? "").trim()) {
+    case "ai-generated": return "ai";
+    case "provider-failure": return "fallback-after-provider-failure";
+    case "curated-fallback": return "fallback-by-policy";
+    case "db-failure":
+    case "config-failure": return "failure";
+    default: return null;
+  }
+}
+
+/**
+ * Provider health, bucketed from the provider error text.
+ * Only meaningful when AI generation was attempted; null otherwise so a
+ * policy fallback is never miscounted as a provider outage.
+ */
+export function providerHealth(outcome, errorText) {
+  const o = (outcome ?? "").trim();
+  if (o === "ai-generated") return "success";
+  if (o !== "provider-failure") return null;
+  const t = (errorText ?? "").toLowerCase();
+  if (!t) return "other";
+  if (/timeout|timed out|etimedout|abort/.test(t)) return "timeout";
+  if (/429|rate.?limit/.test(t)) return "rate-limit";
+  if (/401|403|unauthor|invalid api key|authentication/.test(t)) return "authentication";
+  if (/quota|insufficient_quota|budget|exceeded/.test(t)) return "quota";
+  if (/json|parse|unexpected token|no topics|no usable topics|empty content|malformed/.test(t)) return "invalid-response";
+  return "other";
+}
+
+/**
+ * Availability: did a topic land in time? The SLO is 'the target date's topic
+ * is stored before 03:00 UTC on that date'.
+ */
+export function availability({ targetDate, freshnessOk, completedAt }) {
+  const stored = freshnessOk === true ? true : freshnessOk === false ? false : null;
+  let deadlineSatisfied = null;
+  if (targetDate && completedAt) {
+    const deadline = Date.parse(`${targetDate}T03:00:00Z`);
+    const done = Date.parse(completedAt);
+    if (Number.isFinite(deadline) && Number.isFinite(done)) deadlineSatisfied = done <= deadline;
+  }
+  return { topicStored: stored, freshnessValid: freshnessOk ?? null, deadlineSatisfied };
+}
+
 /** Explicit nulls for stages that never ran - never silently drop a field. */
-function telemetryRecord({ runId, runAttempt, event, cron, scheduledFor, createdAt, startedAt, delayMs, completedAt, durationMs, targetDate, generatorOutcome, result, freshnessOk }) {
+export function telemetryRecord({
+  runId, runAttempt, event, cron, scheduledFor, createdAt, startedAt, completedAt,
+  schedulerDelayMs, queueDelayMs, durationMs, targetDate, generatorOutcome,
+  generator, provider, providerAttempts, result, freshnessOk,
+}) {
   return {
     runId: runId ?? null,
     runAttempt: runAttempt ?? null,
@@ -45,11 +117,16 @@ function telemetryRecord({ runId, runAttempt, event, cron, scheduledFor, created
     scheduledFor: scheduledFor ?? null,
     actualCreatedAt: createdAt ?? null,
     actualStartedAt: startedAt ?? null,
-    schedulerDelayMs: delayMs ?? null,
+    schedulerDelayMs: schedulerDelayMs ?? null,
+    queueDelayMs: queueDelayMs ?? null,
     completedAt: completedAt ?? null,
     durationMs: durationMs ?? null,
     targetDate: targetDate ?? null,
     generatorOutcome: generatorOutcome ?? null,
+    generatorResult: generator ?? null,
+    providerHealth: provider ?? null,
+    providerAttempts: providerAttempts ?? null,
+    availability: availability({ targetDate, freshnessOk, completedAt }),
     result: result ?? null,
     freshnessOk: freshnessOk ?? null,
   };
@@ -70,6 +147,63 @@ function emitFallbackArtifact(record) {
   }
 }
 
+// Columns added by later migrations. Telemetry must keep working on a
+// database that has not had them applied yet, so the INSERT is built from
+// the columns that actually exist rather than assuming the latest schema.
+const OPTIONAL_COLUMNS = [
+  ["run_created_at", (r) => r.actualCreatedAt],
+  ["queue_delay_ms", (r) => r.queueDelayMs],
+  ["generator_result", (r) => r.generatorResult],
+  ["provider_health", (r) => r.providerHealth],
+];
+
+const BASE_COLUMNS = [
+  ["run_id", (r) => r.runId],
+  ["run_attempt", (r) => r.runAttempt],
+  ["event", (r) => r.event],
+  ["scheduled_for", (r) => r.scheduledFor],
+  ["started_at", (r) => r.actualStartedAt],
+  ["completed_at", (r) => r.completedAt],
+  ["delay_ms", (r) => r.schedulerDelayMs],
+  ["duration_ms", (r) => r.durationMs],
+  ["target_date", (r) => r.targetDate],
+  ["generator_outcome", (r) => r.generatorOutcome],
+  ["result", (r) => r.result],
+  ["freshness_ok", (r) => r.freshnessOk],
+];
+
+/** Columns present on topic_run_log right now. */
+export async function existingColumns(query) {
+  const rows = await query(
+    `SELECT column_name FROM information_schema.columns WHERE table_name = 'topic_run_log'`,
+  );
+  return new Set(rows.map((r) => String(r.column_name)));
+}
+
+/** Build an upsert over exactly the columns that exist. */
+export function buildUpsert(record, columns) {
+  const active = [
+    ...BASE_COLUMNS,
+    ...OPTIONAL_COLUMNS.filter(([name]) => columns.has(name)),
+  ];
+  const names = active.map(([name]) => name);
+  const values = active.map(([, get]) => get(record));
+  const placeholders = names.map((_, i) => `$${i + 1}`);
+  const updates = names
+    .filter((n) => n !== "run_id" && n !== "run_attempt")
+    .map((n) => `${n} = EXCLUDED.${n}`);
+  return {
+    text:
+      `INSERT INTO topic_run_log (${names.join(", ")})
+       VALUES (${placeholders.join(",")})
+       ON CONFLICT (run_id, run_attempt) DO UPDATE SET
+         ${updates.join(", ")},
+         recorded_at = now()`,
+    values,
+    columns: names,
+  };
+}
+
 /** CLI side effects only when run directly - importing (tests) stays inert. */
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 if (isMain) {
@@ -78,19 +212,18 @@ if (isMain) {
 
 async function main() {
   const databaseUrl = env.DATABASE_URL?.trim();
-  const missing = ["EVENT", "RUN_ID", "RUN_CREATED_AT", "RESULT"].filter((k) => !(env[k] ?? "").trim());
+  const missing = ["EVENT", "RUN_ID", "RESULT"].filter((k) => !(env[k] ?? "").trim());
   if (missing.length) {
     console.warn(`[record-topic-run] skipped (databaseUrl=${Boolean(databaseUrl)} missing=${missing.join(",") || "-"})`);
     return;
   }
 
   const event = env.EVENT.trim();
-  const createdAt = env.RUN_CREATED_AT.trim();
-  const scheduledFor = event === "schedule" ? scheduledForCron(env.CRON ?? "", createdAt) : null;
-  const delayMs = scheduledFor ? Date.parse(createdAt) - Date.parse(scheduledFor) : null;
+  const createdAt = env.RUN_CREATED_AT?.trim() || null;
+  const startedAt = env.RUN_STARTED_AT?.trim() || createdAt;
   const completedAt = env.RUN_COMPLETED_AT?.trim() || null;
-  const startedAt = (env.RUN_STARTED_AT ?? createdAt).trim();
-  const durationMs = completedAt && startedAt ? Date.parse(completedAt) - Date.parse(startedAt) : null;
+  const scheduledFor = event === "schedule" ? scheduledForCron(env.CRON ?? "", startedAt ?? createdAt ?? "") : null;
+  const outcome = env.OUTCOME?.trim() || null;
   const freshnessOk = env.FRESHNESS === "pass" ? true : env.FRESHNESS === "fail" ? false : null;
 
   const record = telemetryRecord({
@@ -101,11 +234,23 @@ async function main() {
     scheduledFor,
     createdAt,
     startedAt,
-    delayMs,
     completedAt,
-    durationMs,
+    // scheduler delay is measured from the scheduled slot to when the runner
+    // actually started; queue delay is the platform's own queue time.
+    schedulerDelayMs: ms(scheduledFor, startedAt),
+    queueDelayMs: ms(createdAt, startedAt),
+    durationMs: ms(startedAt, completedAt),
     targetDate: env.TARGET_DATE?.trim() || null,
-    generatorOutcome: env.OUTCOME?.trim() || null,
+    generatorOutcome: outcome,
+    generator: generatorResult(outcome),
+    provider: providerHealth(outcome, env.PROVIDER_ERROR),
+    providerAttempts: (() => {
+      try {
+        return env.PROVIDER_ATTEMPTS ? JSON.parse(env.PROVIDER_ATTEMPTS) : null;
+      } catch {
+        return null;
+      }
+    })(),
     result: env.RESULT.trim(),
     freshnessOk,
   });
@@ -113,44 +258,20 @@ async function main() {
   // A run with no database must still leave the same structured evidence.
   if (!databaseUrl) {
     emitFallbackArtifact(record);
-    console.warn(`[record-topic-run] skipped (databaseUrl=false missing=-)`);
+    console.warn("[record-topic-run] skipped (databaseUrl=false missing=-)");
     return;
   }
 
   const query = await createExecutor(databaseUrl);
   try {
-    await query(
-      `INSERT INTO topic_run_log
-         (run_id, run_attempt, event, scheduled_for, started_at, completed_at, delay_ms,
-          duration_ms, target_date, generator_outcome, result, freshness_ok)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-       ON CONFLICT (run_id, run_attempt) DO UPDATE SET
-         event = EXCLUDED.event,
-         scheduled_for = EXCLUDED.scheduled_for,
-         delay_ms = EXCLUDED.delay_ms,
-         completed_at = EXCLUDED.completed_at,
-         duration_ms = EXCLUDED.duration_ms,
-         target_date = EXCLUDED.target_date,
-         generator_outcome = EXCLUDED.generator_outcome,
-         result = EXCLUDED.result,
-         freshness_ok = EXCLUDED.freshness_ok,
-         recorded_at = now()`,
-      [
-        record.runId,
-        record.runAttempt,
-        record.event,
-        record.scheduledFor,
-        record.actualStartedAt,
-        record.completedAt,
-        record.schedulerDelayMs,
-        record.durationMs,
-        record.targetDate,
-        record.generatorOutcome,
-        record.result,
-        record.freshnessOk,
-      ],
+    const columns = await existingColumns(query);
+    const upsert = buildUpsert(record, columns);
+    await query(upsert.text, upsert.values);
+    console.log(
+      `[record-topic-run] run ${record.runId} event=${record.event} ` +
+      `schedulerDelay=${record.schedulerDelayMs ?? "n/a"}ms queueDelay=${record.queueDelayMs ?? "n/a"}ms ` +
+      `generator=${record.generatorResult ?? "n/a"} provider=${record.providerHealth ?? "n/a"} result=${record.result}`,
     );
-    console.log(`[record-topic-run] run ${record.runId} event=${record.event} delay=${record.schedulerDelayMs ?? "n/a"}ms result=${record.result}`);
   } catch (e) {
     console.warn(`[record-topic-run] non-fatal telemetry failure: ${String(e?.message ?? e).slice(0, 140)}`);
     emitFallbackArtifact(record);

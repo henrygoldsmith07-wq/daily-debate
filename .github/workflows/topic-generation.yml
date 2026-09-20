@@ -37,6 +37,10 @@ on:
 
 permissions:
   contents: read
+  # The runtimes step resolves the observed start/creation timestamps through
+  # the Actions run API. That must be granted explicitly rather than relying
+  # on public-repository behaviour as an implicit dependency.
+  actions: read
 
 concurrency:
   group: topic-generation
@@ -56,21 +60,28 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
-      - name: Resolve observed run start (Actions run API; wall-clock fallback)
+      - name: Resolve run timestamps (Actions run API; wall-clock fallback)
         # github.run_created_at does not exist and github.run_started_at
-        # expanded empty in practice (dispatch run 35464159355), so the
-        # observed start is resolved once here from the run API via
-        # GITHUB_RUN_ID and reused by every consumer below. The wall clock
-        # is the documented last resort.
+        # expanded empty in practice (dispatch run 35464159355), so both
+        # timestamps are resolved once here from the run API via
+        # GITHUB_RUN_ID and reused by every consumer below. The wall clock is
+        # the documented last resort.
+        #
+        # `created` and `start` are kept DISTINCT: the API exposes them as
+        # different values (run creation vs runner start), so queue delay and
+        # scheduler delay are computed from genuinely different instants
+        # rather than one timestamp stored twice under two names.
         id: runtimes
         run: |
-          OBSERVED="$(curl -sf -H "Authorization: Bearer ${{ github.token }}" -H "Accept: application/vnd.github+json" \
-            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            | jq -r '.run_started_at // .created_at // empty' 2>/dev/null)"
-          if [ -z "$OBSERVED" ] || [ "$OBSERVED" = "null" ]; then
-            OBSERVED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          fi
-          echo "start=$OBSERVED" >> "$GITHUB_OUTPUT"
+          PAYLOAD="$(curl -sf -H "Authorization: Bearer ${{ github.token }}" -H "Accept: application/vnd.github+json" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}")"
+          CREATED="$(printf '%s' "$PAYLOAD" | jq -r '.created_at // empty' 2>/dev/null)"
+          STARTED="$(printf '%s' "$PAYLOAD" | jq -r '.run_started_at // empty' 2>/dev/null)"
+          NOW_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          [ -n "$CREATED" ] && [ "$CREATED" != "null" ] || CREATED="$NOW_UTC"
+          [ -n "$STARTED" ] && [ "$STARTED" != "null" ] || STARTED="$CREATED"
+          echo "created=$CREATED" >> "$GITHUB_OUTPUT"
+          echo "start=$STARTED" >> "$GITHUB_OUTPUT"
       - name: Validate topic-generation configuration (fail fast, no writes)
         # Runs BEFORE any generation so a missing DATABASE_URL, an
         # unreachable database, or missing tables fail loudly here instead
@@ -117,24 +128,23 @@ jobs:
           grep -q '"ok": true' verify.json
       - name: Persist operational evidence
         # Structured proof of this run for audits and the ops-health SLO.
+        # Runs even on failure: a run that died before the verifier still has
+        # a generator outcome worth keeping, and stages that never executed
+        # record as explicit nulls.
+        if: always()
         env:
           EVENT: ${{ github.event_name }}
           RUN_ID: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
           STARTED: ${{ steps.runtimes.outputs.start }}
         run: |
-          {
-            echo '## Topic generation evidence'
-            echo '```json'
-            jq -s --arg rt "$EVENT" --arg id "$RUN_ID" --arg at "$ATTEMPT" --arg st "$STARTED" \
-              '{runId: $id, runAttempt: $at, runType: $rt, startedAt: $st, generator: .[0], freshness: .[1], result: "pass"}' \
-              gen-result.json verify.json
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          jq -s --arg rt "$EVENT" --arg id "$RUN_ID" --arg at "$ATTEMPT" --arg st "$STARTED" \
-            '{runId: $id, runAttempt: $at, runType: $rt, startedAt: $st, generator: .[0], freshness: .[1], result: "pass"}' \
-            gen-result.json verify.json > topic-run-evidence.json
-          echo "run=${RUN_ID} event=${EVENT} target=$(jq -r .generator.date gen-result.json) source=$(jq -r .generator.source gen-result.json) evidence=$(jq -r .freshness.checks.evidenceCards verify.json)"
+          # Field mapping lives in a tested module: the generator file is
+          # flat ({outcome, source, date, evidenceCards}) and so is the
+          # verifier file ({targetDate, checks.evidenceCards, provenance}).
+          # Reading nested .generator.* / .freshness.* paths from those files
+          # was the bug that logged `target=null source=null evidence=null`
+          # on an otherwise green run.
+          node scripts/topic-run-evidence.mjs
       - name: Record durable run telemetry (best-effort, never fails the run)
         if: always()
         # Scheduler delay vs generator failure vs availability - persisted to
@@ -149,10 +159,12 @@ jobs:
           CRON: ${{ github.event.schedule }}
           RUN_ID: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
-          # Observed start resolved once above via the Actions run API
+          # Both timestamps resolved above via the Actions run API
           # (github.run_created_at does not exist and github.run_started_at
-          # expanded empty in practice - see the runtimes step).
-          RUN_CREATED_AT: ${{ steps.runtimes.outputs.start }}
+          # expanded empty in practice - see the runtimes step). Kept
+          # distinct: runCreatedAt is when the run was created, runStartedAt
+          # is when the runner actually began, so queue delay is real.
+          RUN_CREATED_AT: ${{ steps.runtimes.outputs.created }}
           RUN_STARTED_AT: ${{ steps.runtimes.outputs.start }}
           TARGET_DATE: ${{ steps.gen.outputs.target }}
           OUTCOME: ${{ steps.gen.outputs.outcome }}
@@ -165,6 +177,11 @@ jobs:
         # topic_run_log.
         run: |
           export RUN_COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # Provider detail is read from the generator's own result so provider
+          # health is recorded separately from topic availability. Absent on a
+          # policy fallback (no provider was attempted) -> explicit null.
+          export PROVIDER_ERROR="$(jq -r '.providerError // empty' gen-result.json 2>/dev/null || true)"
+          export PROVIDER_ATTEMPTS="$(jq -c '.providerAttempts // empty' gen-result.json 2>/dev/null || true)"
           # If the DB itself is unavailable, the same structured evidence is
           # written here and picked up by the artifact upload below.
           export TELEMETRY_FALLBACK_PATH="${{ github.workspace }}/topic-telemetry-fallback.json"
