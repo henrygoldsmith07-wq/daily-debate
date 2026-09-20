@@ -68,12 +68,29 @@ d("topic run telemetry recorder (real Postgres)", () => {
     const r = rows[0];
     expect(r.event).toBe("schedule");
     expect(new Date(r.scheduled_for).toISOString()).toBe("2026-09-15T21:30:00.000Z");
-    expect(Number(r.delay_ms)).toBe(Date.parse("2026-09-16T02:00:00Z") - Date.parse("2026-09-15T21:30:00Z"));
+    // schedulerDelay = runStartedAt - scheduledFor (NOT createdAt: created and
+    // started are distinct instants, so measuring from the wrong one would
+    // silently absorb the platform's queue time into the scheduler delay).
+    expect(Number(r.delay_ms)).toBe(Date.parse("2026-09-16T02:00:30Z") - Date.parse("2026-09-15T21:30:00Z"));
     expect(Number(r.duration_ms)).toBe(330_000);
     expect(String(r.target_date).slice(0, 10)).toBe("2026-09-17");
     expect(r.generator_outcome).toBe("curated-fallback");
     expect(r.result).toBe("pass");
     expect(r.freshness_ok).toBe(true);
+  });
+
+  it("keeps created, started and completed as distinct instants", async () => {
+    runRecorder({});
+    const { rows } = await pool.query(
+      `SELECT run_created_at, started_at, queue_delay_ms, delay_ms
+         FROM topic_run_log WHERE run_id = 999001`,
+    );
+    const r = rows[0];
+    expect(new Date(r.run_created_at).toISOString()).toBe("2026-09-16T02:00:00.000Z");
+    expect(new Date(r.started_at).toISOString()).toBe("2026-09-16T02:00:30.000Z");
+    // queueDelay = runStartedAt - runCreatedAt; never the same column twice.
+    expect(Number(r.queue_delay_ms)).toBe(30_000);
+    expect(Number(r.delay_ms)).not.toBe(Number(r.queue_delay_ms));
   });
 
   it("rerunning the same run/attempt updates in place (idempotent telemetry)", async () => {
