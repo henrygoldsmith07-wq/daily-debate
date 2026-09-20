@@ -153,3 +153,7 @@ if (!ok) {
   process.exit(1);
 }
 process.stderr.write(`[verify-topic-stored] OK: ${targetDate} topic verified (provenance=${checks.provenance}, fingerprint=${String(checks.fingerprint ?? "").slice(0, 12)}, evidence=${checks.evidenceCards}/${maxCards})\n`);
+// The shared TCP executor keeps a pooled connection open; this one-shot CLI
+// must exit explicitly (like record-topic-run.mjs) instead of waiting out
+// the pool's idle-client close, which otherwise hangs spawned callers.
+process.exit(0);
