@@ -52,6 +52,12 @@ const query = await createExecutor(databaseUrl);
 const failures = [];
 const checks = {};
 
+/** A genuine missing-column error names the column with "does not exist". */
+function isMissingColumnError(e, column) {
+  const message = String(e?.message ?? e);
+  return message.includes(column) && /does not exist/i.test(message);
+}
+
 const rows = await query(
   `SELECT id, topic_date::text AS topic_date, title, prompt, category,
           generation_source, topic_fingerprint
@@ -60,7 +66,7 @@ const rows = await query(
 ).catch((e) => {
   // A missing topic_fingerprint column means migration 018 is not applied:
   // fail loudly rather than silently skipping revision checks.
-  if (/topic_fingerprint/i.test(String(e?.message ?? e))) {
+  if (isMissingColumnError(e, "topic_fingerprint")) {
     failures.push("topic_fingerprint column missing — apply migration 018_topic_fingerprint.sql before trusting revision checks");
     return "fingerprint-column-missing";
   }
@@ -106,14 +112,14 @@ if (rows !== "fingerprint-column-missing") {
     // validate its own stale cards.
     const ev = await query(
       `SELECT count(*)::int AS n,
-              count(*) FILTER (WHERE topic_fingerprint IS NOT NULL AND topic_fingerprint IS DISTINCT FROM $2)::int AS mismatched,
-              count(*) FILTER (WHERE topic_fingerprint IS NULL)::int AS unstamped
+              count(*) FILTER (WHERE te.topic_fingerprint IS NOT NULL AND te.topic_fingerprint IS DISTINCT FROM $2)::int AS mismatched,
+              count(*) FILTER (WHERE te.topic_fingerprint IS NULL)::int AS unstamped
          FROM topic_evidence te
          JOIN daily_topics dt ON dt.id = te.topic_id
         WHERE dt.topic_date = $1::date`,
       [targetDate, expected],
     ).catch((e) => {
-      if (/topic_fingerprint/i.test(String(e?.message ?? e))) {
+      if (isMissingColumnError(e, "topic_fingerprint")) {
         failures.push("topic_evidence.topic_fingerprint column missing — apply migration 018_topic_fingerprint.sql");
         return null;
       }
