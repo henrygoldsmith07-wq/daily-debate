@@ -166,6 +166,31 @@ export function providerStatus(env = process.env) {
   return PROVIDERS.filter((p) => (env[p.keyEnv] ?? "").trim().length > 0).map((p) => p.label);
 }
 
+function flagSet(value) {
+  return /^(1|true|yes)$/i.test(String(value ?? "").trim());
+}
+
+/**
+ * Whether a configured provider may actually be called. A present key is
+ * necessary but not sufficient:
+ * - `<LABEL>_DISABLED=1` explicitly removes a provider (incident response).
+ * - `kiraai` additionally requires `KIRAAI_ENABLED=1`: its free tier was
+ *   retired mid-session (hard 404s, then wallet-billed 402s), so calling it
+ *   on key presence alone burns a whole ladder slot on a known-dead tier.
+ *   Re-enable deliberately once capacity is confirmed (see quota-probe.mjs).
+ */
+export function providerUsable(provider, env = process.env) {
+  if (!((env[provider.keyEnv] ?? "").trim().length > 0)) return false;
+  if (flagSet(env[`${provider.label.toUpperCase()}_DISABLED`])) return false;
+  if (provider.label === "kiraai" && !flagSet(env.KIRAAI_ENABLED)) return false;
+  return true;
+}
+
+/** Usable providers in configured priority order (never blind-calls the dead). */
+export function usableProviders(env = process.env) {
+  return PROVIDERS.filter((p) => providerUsable(p, env));
+}
+
 /** Model chain for one provider entry: primary + fallbacks (env-overridable). */
 export function chainFor(provider, env = process.env) {
   const upper = provider.label.toUpperCase();
@@ -181,11 +206,27 @@ export function generationChain(env = process.env) {
   const [provider] = PROVIDERS.filter((p) => (env[p.keyEnv] ?? "").trim().length > 0);
   if (!provider) return null;
   return {
+    label: provider.label,
     url: provider.url,
     key: (env[provider.keyEnv] ?? "").trim(),
     models: chainFor(provider, env),
     extraHeaders: provider.extraHeaders ?? {},
   };
+}
+
+/**
+ * Every USABLE provider's chain in priority order, for provider-level
+ * failover: exhaust provider A's models, then B's, and so on, before the
+ * curated fallback. Providers without capacity are skipped, never called.
+ */
+export function generationChains(env = process.env) {
+  return usableProviders(env).map((provider) => ({
+    label: provider.label,
+    url: provider.url,
+    key: (env[provider.keyEnv] ?? "").trim(),
+    models: chainFor(provider, env),
+    extraHeaders: provider.extraHeaders ?? {},
+  }));
 }
 
 /** Chain judge: tries each model in order; the judge id names the primary.

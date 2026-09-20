@@ -165,6 +165,16 @@ export interface TopicScheduledRun {
   createdAt: string;
 }
 
+/** One bounded provider/model attempt as persisted in topic_run_log.provider_attempts. */
+export interface TopicProviderAttemptRow {
+  provider: string | null;
+  model: string;
+  outcome: string; // success | invalid-response | timeout | rate-limit | authentication | quota | other
+  latencyMs: number | null;
+  httpStatus: number | null;
+  errorCategory: string | null;
+}
+
 export interface TopicRunTelemetryRow {
   event: string; // "schedule" | "workflow_dispatch" | ...
   at: string; // runStartedAt ISO (distinct from runCreatedAt)
@@ -175,8 +185,19 @@ export interface TopicRunTelemetryRow {
   queueDelayMs?: number | null; // queueDelay = runStartedAt - runCreatedAt
   targetDate: string | null; // ISO date the run generated for
   completedBeforeDeadline: boolean | null; // availability S1 held for that run
+  freshnessOk?: boolean | null; // post-write verifier verdict for this run
   providerHealth?: string | null; // success | invalid-response | timeout | rate-limit | authentication | quota | other
   generatorResult?: string | null; // ai | fallback-after-provider-failure | fallback-by-policy | failure
+  topicFingerprint?: string | null; // canonical content identity for idempotence proofs
+  providerAttempts?: TopicProviderAttemptRow[] | null; // bounded per-model ledger
+}
+
+/** Evidence that a real AI-generated topic survived production end to end. */
+export interface AiProductionEvidence {
+  targetDate: string | null;
+  aiRowPresent: boolean;
+  sourcesNonEmpty: boolean;
+  telemetryVerifiedAi: boolean;
 }
 
 export const TOPIC_MISSED_START_THRESHOLD_MS = 90 * 60_000;
@@ -194,6 +215,12 @@ export interface TopicSloInput {
   latestRunVerified?: boolean | null;
   /** Persisted per-run telemetry (topic_run_log); newest first or any order. */
   telemetry?: TopicRunTelemetryRow[];
+  /**
+   * Real-AI end-to-end evidence for the aiGeneratedProductionSuccess proof:
+   * an AI row with surviving non-empty sources plus a matching verified AI
+   * telemetry row. null/undefined = unevidenced (proof stays false).
+   */
+  aiEvidence?: AiProductionEvidence | null;
 }
 
 export interface TopicSlo {
@@ -224,14 +251,93 @@ export interface TopicSlo {
   /** Deterministic overall: worst of scheduler + availability. */
   status: HealthState;
   lastSuccessfulRun: { at: string; event: string } | null;
-  /** Production proofs (item 7): the four things scheduling-complete means. */
+  /**
+   * Production proofs: six independent facts. Idempotence requires matching
+   * content fingerprints from separate verified attempts — never merely two
+   * successes — and the AI proof requires a real AI topic surviving
+   * end to end, never a fallback standing in for it.
+   */
   proofs: {
+    databaseReachable: boolean;
     manualSuccess: boolean;
     scheduledSuccessAfterManual: boolean;
-    idempotenceRerun: boolean;
+    sameDateContentIdempotence: boolean;
     onTimeBeforeDeadline: boolean;
+    aiGeneratedProductionSuccess: boolean;
   };
+  /**
+   * Longitudinal provider/model roll-up over the telemetry window. Ordering
+   * stays configured priority (no automatic health-based decisions); these
+   * numbers inform humans, with minimum-sample discipline left to the reader
+   * via the denominators.
+   */
+  providerSummary: {
+    byModel: ProviderModelSummary[];
+    fallbackTriggerRate: number | null;
+    windowRuns: number;
+  } | null;
   note: string | null;
+}
+
+export interface ProviderModelSummary {
+  provider: string | null;
+  model: string;
+  attempts: number;
+  successRate: number | null;
+  invalidResponses: number;
+  timeouts: number;
+  rateLimits: number;
+  authFailures: number;
+  quotaFailures: number;
+  p50LatencyMs: number | null;
+  p95LatencyMs: number | null;
+}
+
+/**
+ * Aggregate bounded per-attempt rows longitudinally by provider/model.
+ * Pure over telemetry rows so dashboards, ops health and tests share it.
+ */
+export function summariseProviderAttempts(rows: TopicRunTelemetryRow[]): {
+  byModel: ProviderModelSummary[];
+  fallbackTriggerRate: number | null;
+  windowRuns: number;
+} {
+  const attempts: TopicProviderAttemptRow[] = [];
+  for (const row of rows) {
+    if (Array.isArray(row.providerAttempts)) attempts.push(...row.providerAttempts);
+  }
+  const byKey = new Map<string, { provider: string | null; model: string; rows: TopicProviderAttemptRow[] }>();
+  for (const a of attempts) {
+    const key = `${a.provider ?? "unknown"}|${a.model}`;
+    const bucket = byKey.get(key) ?? { provider: a.provider ?? null, model: a.model, rows: [] };
+    bucket.rows.push(a);
+    byKey.set(key, bucket);
+  }
+  const byModel = [...byKey.values()].map(({ provider, model, rows: rs }) => {
+    const latencies = rs
+      .map((r) => r.latencyMs)
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
+      .sort((x, y) => x - y);
+    const ok = rs.filter((r) => r.outcome === "success").length;
+    return {
+      provider,
+      model,
+      attempts: rs.length,
+      successRate: rs.length ? Math.round((ok / rs.length) * 1000) / 1000 : null,
+      invalidResponses: rs.filter((r) => r.outcome === "invalid-response").length,
+      timeouts: rs.filter((r) => r.outcome === "timeout").length,
+      rateLimits: rs.filter((r) => r.outcome === "rate-limit").length,
+      authFailures: rs.filter((r) => r.outcome === "authentication").length,
+      quotaFailures: rs.filter((r) => r.outcome === "quota").length,
+      p50LatencyMs: quantile(latencies, 0.5),
+      p95LatencyMs: quantile(latencies, 0.95),
+    };
+  });
+  const windowed = rows.filter((r) => (r.providerAttempts?.length ?? 0) > 0);
+  const fallbackTriggerRate = windowed.length
+    ? Math.round((windowed.filter((r) => r.generatorResult === "fallback-after-provider-failure").length / windowed.length) * 1000) / 1000
+    : null;
+  return { byModel, fallbackTriggerRate, windowRuns: windowed.length };
 }
 
 function quantile(sorted: number[], q: number): number | null {
@@ -322,17 +428,37 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
     ? scheduled.some((r) => successBy(r) && Date.parse(r.createdAt) > Date.parse(dispatchSuccess.createdAt))
     : false;
 
-  // The four production proofs (item 7), from run history + telemetry:
-  const successfulTargets = telemetry.filter((r) => r.result === "success" && r.targetDate);
-  const idempotenceRerun =
-    new Set(successfulTargets.map((r) => `${r.targetDate}|${r.event}`)).size > 0 &&
-    successfulTargets.some((r1) => successfulTargets.some((r2) => r1 !== r2 && r1.targetDate === r2.targetDate));
+  // -- production proofs: six independent facts, no telemetry coincidences --
+  // Idempotence needs matching fingerprints from SEPARATE verified attempts
+  // with the same provenance semantics — two bare successes prove nothing
+  // under write-once semantics (the second run may simply have verified).
+  const verifiedSuccesses = telemetry.filter(
+    (r) => r.result === "success" && r.targetDate && r.freshnessOk === true && r.topicFingerprint && r.generatorResult,
+  );
+  const sameDateContentIdempotence = verifiedSuccesses.some((r1) =>
+    verifiedSuccesses.some(
+      (r2) =>
+        r1 !== r2 &&
+        r1.targetDate === r2.targetDate &&
+        r1.topicFingerprint === r2.topicFingerprint &&
+        r1.generatorResult === r2.generatorResult,
+    ),
+  );
   const tomorrowIso = addDaysUtc(todayIsoUtc(nowIso), 1);
+  // On-time needs VERIFIED content completed before the actual deadline.
   const onTimeBeforeDeadline =
     input.tomorrowReady &&
-    telemetry.some((r) => r.targetDate === tomorrowIso && r.completedBeforeDeadline === true);
+    telemetry.some(
+      (r) => r.targetDate === tomorrowIso && r.completedBeforeDeadline === true && r.freshnessOk === true,
+    );
+  const aiEvidence = input.aiEvidence ?? null;
+  const aiGeneratedProductionSuccess =
+    aiEvidence?.aiRowPresent === true &&
+    aiEvidence?.sourcesNonEmpty === true &&
+    aiEvidence?.telemetryVerifiedAi === true;
 
   const scheduling = assessScheduling(telemetry);
+  const providerSummary = summariseProviderAttempts(telemetry);
 
   const notes = [availabilityNote, schedulerNote(scheduler, consecutiveScheduledFailures, scheduled, nowIso)].filter(Boolean);
   return {
@@ -347,11 +473,14 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
     status,
     lastSuccessfulRun: newestSuccessFirst ? { at: newestSuccessFirst.createdAt, event: newestSuccessFirst.event } : null,
     proofs: {
+      databaseReachable: input.productionDbReadable,
       manualSuccess: Boolean(dispatchSuccess),
       scheduledSuccessAfterManual,
-      idempotenceRerun,
+      sameDateContentIdempotence,
       onTimeBeforeDeadline,
+      aiGeneratedProductionSuccess,
     },
+    providerSummary,
     note: notes.length ? notes.join(" ") : null,
   };
 }
@@ -432,6 +561,15 @@ export function assessJudgeHealth(artifact: JudgeArtifactInput | null, nowIso: s
 
 // --- Database / migrations ---------------------------------------------------
 
+/**
+ * topic_run_log fidelity for migration 016: "full" when run_created_at,
+ * queue_delay_ms, generator_result and provider_health are all present,
+ * "legacy" when telemetry still flows but those columns are missing,
+ * "unknown" when the table itself could not be inspected. Legacy is
+ * reported as degraded — visible, never a silent loss of capability.
+ */
+export type TopicRunLogFidelity = "full" | "legacy" | "unknown";
+
 export interface DatabaseHealth {
   status: HealthState;
   reachable: boolean;
@@ -439,6 +577,7 @@ export interface DatabaseHealth {
   migrationsApplied: number | null;
   requiredTablesOk: boolean | null;
   missingTables: string[];
+  topicRunLogFidelity: TopicRunLogFidelity;
   note: string | null;
 }
 
@@ -447,6 +586,7 @@ export function assessDatabaseHealth(input: {
   latencyMs?: number | null;
   migrationsApplied?: number | null;
   missingTables?: string[];
+  topicRunLogFidelity?: TopicRunLogFidelity;
 }): DatabaseHealth {
   if (!input.reachable) {
     return {
@@ -456,6 +596,7 @@ export function assessDatabaseHealth(input: {
       migrationsApplied: null,
       requiredTablesOk: null,
       missingTables: [],
+      topicRunLogFidelity: "unknown",
       note: "Database unreachable — every DB-backed surface is down, not just slow.",
     };
   }
@@ -468,7 +609,20 @@ export function assessDatabaseHealth(input: {
       migrationsApplied: input.migrationsApplied ?? null,
       requiredTablesOk: false,
       missingTables,
+      topicRunLogFidelity: input.topicRunLogFidelity ?? "unknown",
       note: `Required tables missing (${missingTables.join(", ")}) — run migrations before trusting any stored data.`,
+    };
+  }
+  if (input.topicRunLogFidelity === "legacy") {
+    return {
+      status: "degraded",
+      reachable: true,
+      latencyMs: input.latencyMs ?? null,
+      migrationsApplied: input.migrationsApplied ?? null,
+      requiredTablesOk: true,
+      missingTables: [],
+      topicRunLogFidelity: "legacy",
+      note: "topic_run_log lacks migration 016 columns (run_created_at, queue_delay_ms, generator_result, provider_health) — apply 016_topic_run_telemetry.sql; telemetry writers keep working in compatibility mode.",
     };
   }
   if ((input.latencyMs ?? 0) > 5000) {
@@ -479,6 +633,7 @@ export function assessDatabaseHealth(input: {
       migrationsApplied: input.migrationsApplied ?? null,
       requiredTablesOk: true,
       missingTables: [],
+      topicRunLogFidelity: input.topicRunLogFidelity ?? "unknown",
       note: `Database reachable but slow (SELECT 1 took ${input.latencyMs}ms).`,
     };
   }
@@ -489,6 +644,7 @@ export function assessDatabaseHealth(input: {
     migrationsApplied: input.migrationsApplied ?? null,
     requiredTablesOk: true,
     missingTables: [],
+    topicRunLogFidelity: input.topicRunLogFidelity ?? "unknown",
     note: null,
   };
 }

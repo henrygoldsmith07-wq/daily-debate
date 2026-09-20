@@ -4,7 +4,7 @@
 // DIFFERENT shapes:
 //
 //   gen-result.json -> the generator's own result, flat:
-//                      { outcome, source, date, title, evidenceCards }
+//                      { outcome, source, date, title, evidenceCards, fingerprint }
 //   verify.json     -> the verifier's report, flat:
 //                      { ok, targetDate, checks: { evidenceCards, ... }, provenance }
 //
@@ -22,7 +22,7 @@
 import fs from "node:fs";
 
 /** Fields that must never be null when the source files carry a value. */
-export const REQUIRED_FIELDS = ["targetDate", "source", "evidenceCards"];
+export const REQUIRED_FIELDS = ["targetDate", "source", "evidenceCards", "fingerprint"];
 
 /**
  * Map the two source documents onto one flat evidence record.
@@ -42,6 +42,9 @@ export function buildEvidence({ generator, freshness, runId, runAttempt, runType
     targetDate: gen?.date ?? ver?.targetDate ?? null,
     source: gen?.source ?? null,
     generatorOutcome: gen?.outcome ?? null,
+    // Content identity for idempotence proofs; prefer the generator's claim,
+    // fall back to what the verifier re-read from the database.
+    fingerprint: gen?.fingerprint ?? ver?.checks?.fingerprint ?? null,
     // The verifier's count is authoritative (it re-read the database).
     evidenceCards: ver?.checks?.evidenceCards ?? gen?.evidenceCards ?? null,
     provenance: ver?.provenance ?? null,

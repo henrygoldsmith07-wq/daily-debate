@@ -145,12 +145,26 @@ export default async function OpsHealthPage() {
             }
           />
           <Fact
-            label="Production proofs (manual / later-scheduled / idempotence / on-time)"
-            value={`${report.topicSlo.proofs.manualSuccess ? "manual ✓" : "manual ✗"} · ${
-              report.topicSlo.proofs.scheduledSuccessAfterManual ? "scheduled ✓" : "scheduled ✗"
-            } · ${report.topicSlo.proofs.idempotenceRerun ? "idempotent ✓" : "idempotent ✗"} · ${
-              report.topicSlo.proofs.onTimeBeforeDeadline ? "on-time ✓" : "on-time ✗"
+            label="Production proofs (db / manual / scheduled / idempotent / on-time / AI)"
+            value={`${report.topicSlo.proofs.databaseReachable ? "db ✓" : "db ✗"} · ${
+              report.topicSlo.proofs.manualSuccess ? "manual ✓" : "manual ✗"
+            } · ${report.topicSlo.proofs.scheduledSuccessAfterManual ? "scheduled ✓" : "scheduled ✗"} · ${
+              report.topicSlo.proofs.sameDateContentIdempotence ? "idempotent ✓" : "idempotent ✗"
+            } · ${report.topicSlo.proofs.onTimeBeforeDeadline ? "on-time ✓" : "on-time ✗"} · ${
+              report.topicSlo.proofs.aiGeneratedProductionSuccess ? "AI ✓" : "AI ✗"
             }`}
+          />
+          <Fact
+            label="Provider attempts (window runs / fallback-trigger rate)"
+            value={
+              report.topicSlo.providerSummary === null || report.topicSlo.providerSummary.windowRuns === 0
+                ? "no attempt telemetry"
+                : `${report.topicSlo.providerSummary.windowRuns} runs · fallback ${
+                    report.topicSlo.providerSummary.fallbackTriggerRate === null
+                      ? "—"
+                      : `${Math.round(report.topicSlo.providerSummary.fallbackTriggerRate * 100)}%`
+                  }${report.topicSlo.providerSummary.byModel.length ? ` · ${report.topicSlo.providerSummary.byModel.map((m) => `${m.provider ?? "?"}/${m.model} ×${m.attempts}${m.successRate === null ? "" : ` ${Math.round(m.successRate * 100)}%`}`).join(" · ")}` : ""}`
+            }
           />
         </div>
         {report.topicSlo.note && <p className="mt-2 text-xs text-ink3">{report.topicSlo.note}</p>}
@@ -181,6 +195,7 @@ export default async function OpsHealthPage() {
           <Fact label="Latency" value={report.database.latencyMs === null ? "—" : `${report.database.latencyMs}ms`} />
           <Fact label="Migrations applied" value={report.database.migrationsApplied === null ? "—" : String(report.database.migrationsApplied)} />
           <Fact label="Required tables" value={report.database.requiredTablesOk === null ? "—" : report.database.requiredTablesOk ? "all present" : `missing: ${report.database.missingTables.join(", ")}`} />
+          <Fact label="topic_run_log fidelity (016)" value={report.database.topicRunLogFidelity} />
         </div>
         {report.database.note && <p className="mt-2 text-xs text-ink3">{report.database.note}</p>}
       </section>

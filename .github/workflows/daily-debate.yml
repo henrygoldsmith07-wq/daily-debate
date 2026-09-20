@@ -121,9 +121,10 @@ jobs:
   # --- Topic pipeline end-to-end proof over ephemeral Postgres --------------
   # Runs the REAL generation pipeline (not a mock): migrate, --check-config,
   # two consecutive runs for the same target date, then SQL assertions that
-  # prove: exactly one topic row (ON CONFLICT, not a duplicate), fallback
-  # provenance recorded when no provider key is configured, and evidence
-  # storage within its cap (re-runs replace, never accumulate). The scheduled
+  # prove write-once semantics: the first run stores the topic, the second
+  # returns already-present with the identical fingerprint (never a rewrite),
+  # fallback provenance recorded when no provider key is configured, evidence
+  # bounded and stamped with the current revision fingerprint. The scheduled
   # topic-generation workflow remains the production (Neon) runner.
   topic-pipeline:
     runs-on: ubuntu-latest
@@ -167,21 +168,31 @@ jobs:
           node scripts/generate-topics.mjs | tee run1.json
           node scripts/generate-topics.mjs | tee run2.json
           grep -q '"outcome":"curated-fallback"' run1.json
-          grep -q '"outcome":"curated-fallback"' run2.json
+          # The retry verifies rather than regenerates: same row, same content.
+          grep -q '"outcome":"already-present"' run2.json
+          test "$(jq -r .fingerprint run1.json)" = "$(jq -r .fingerprint run2.json)"
+          test "$(jq -r .title run1.json)" = "$(jq -r .title run2.json)"
 
-      - name: Assert idempotent storage (one topic row, provenance, bounded evidence)
+      - name: Assert immutable storage (one row, provenance, fingerprint, bounded stamped evidence)
         run: |
           date=$(jq -r .date run1.json)
-          echo "asserting target date $date"
+          fp=$(jq -r .fingerprint run1.json)
+          echo "asserting target date $date fp ${fp:0:12}"
           rows=$(psql "$DATABASE_URL" -At -c "SELECT count(*) FROM daily_topics WHERE topic_date = '$date'::date")
           echo "topic rows for target: $rows"
           test "$rows" = "1"
           src=$(psql "$DATABASE_URL" -At -c "SELECT generation_source FROM daily_topics WHERE topic_date = '$date'::date")
           echo "generation_source: $src"
           test "$src" = "fallback"
+          stored_fp=$(psql "$DATABASE_URL" -At -c "SELECT topic_fingerprint FROM daily_topics WHERE topic_date = '$date'::date")
+          echo "stored fingerprint: ${stored_fp:0:12}"
+          test "$stored_fp" = "$fp"
           ev=$(psql "$DATABASE_URL" -At -c "SELECT count(*) FROM topic_evidence te JOIN daily_topics dt ON te.topic_id = dt.id WHERE dt.topic_date = '$date'::date")
           echo "evidence cards: $ev"
           test "$ev" -le 3
+          stale=$(psql "$DATABASE_URL" -At -c "SELECT count(*) FROM topic_evidence te JOIN daily_topics dt ON te.topic_id = dt.id WHERE dt.topic_date = '$date'::date AND (te.topic_fingerprint IS NULL OR te.topic_fingerprint <> dt.topic_fingerprint)")
+          echo "stale/unstamped evidence cards: $stale"
+          test "$stale" = "0"
 
       - name: Freshness verifier passes on the real write / fails on absence
         run: |

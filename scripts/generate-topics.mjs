@@ -21,9 +21,63 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createExecutor } from "./lib/sql-executor.mjs";
-import { generationChain, providerStatus as registryProviderStatus } from "./lib/judge-providers.mjs";
+import { generationChains, providerStatus as registryProviderStatus, usableProviders } from "./lib/judge-providers.mjs";
+
+/**
+ * Canonical topic fingerprint: SHA-256 over the content identity of one
+ * daily topic. A rerun proves TRUE idempotence only when the same target
+ * date resolves to the same row with the same fingerprint — "two runs
+ * succeeded" is not sufficient, because replacement writes also succeed.
+ */
+export const TOPIC_FINGERPRINT_VERSION = 1;
+
+export function topicFingerprint({ topicDate, title, prompt, category }) {
+  const hash = createHash("sha256");
+  hash.update(
+    [`topic-fingerprint-v${TOPIC_FINGERPRINT_VERSION}`, topicDate, title, prompt, category ?? ""].join("\n"),
+  );
+  return hash.digest("hex");
+}
+
+/**
+ * Content validity for a stored topic row: complete, well-formed fields with
+ * a known provenance. Fingerprint agreement is checked separately by
+ * topicRowStatus so legacy rows (pre-fingerprint) get a distinct verdict.
+ */
+export function isValidTopicContent(row) {
+  if (!row) return false;
+  if (typeof row.title !== "string" || !row.title.trim()) return false;
+  if (typeof row.prompt !== "string" || !row.prompt.trim()) return false;
+  if (typeof row.category !== "string" || !row.category.trim()) return false;
+  return row.generation_source === "ai" || row.generation_source === "fallback";
+}
+
+/**
+ * Classify one stored topic row for a target date:
+ * - "missing"               no row at all — generate.
+ * - "valid"                 content valid AND fingerprint agrees — verify only.
+ * - "legacy-unfingerprinted" content valid but recorded before fingerprints
+ *                             existed — backfill the fingerprint, keep content.
+ * - "invalid-content"       corrupt row — deliberate repair path regenerates.
+ * - "fingerprint-mismatch"  content changed under a recorded fingerprint —
+ *                             deliberate repair path regenerates.
+ */
+export function topicRowStatus(row, targetDate) {
+  if (!row) return "missing";
+  if (!isValidTopicContent(row)) return "invalid-content";
+  const expected = topicFingerprint({
+    topicDate: targetDate,
+    title: row.title,
+    prompt: row.prompt,
+    category: row.category,
+  });
+  if (!row.topic_fingerprint) return "legacy-unfingerprinted";
+  if (row.topic_fingerprint !== expected) return "fingerprint-mismatch";
+  return "valid";
+}
 
 /**
  * Per-model timeout budget: historically the free Nemotron pools stall rather
@@ -63,7 +117,8 @@ function printHelp() {
       "Usage:",
       "  node scripts/generate-topics.mjs [--check-config] [--help]",
       "",
-      "  (no flags)     run the pipeline: AI candidates, else curated fallback",
+      "  (no flags)     run the pipeline: AI candidates, else curated fallback;",
+      "                   a valid stored topic is verified, never replaced (already-present)",
       "  --check-config validate env + DB connectivity + required tables, no writes",
       "  --help         print this help",
       "",
@@ -151,6 +206,29 @@ export async function checkConfig(env = process.env, sqlFactory = createExecutor
     if (!checks.topic_date_unique) {
       return { ok: false, checks, reason: "db-failure: daily_topics.topic_date lacks its UNIQUE constraint; re-runs would duplicate rows" };
     }
+    // Informational only (never fatal here): the write-once claim and the
+    // fingerprint proofs need migration 018. Ops health reports the
+    // readiness fact; this surfaces it at config-check time too.
+    try {
+      const fpCols = await withTimeout(
+        sql(
+          `SELECT table_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND column_name = 'topic_fingerprint'
+              AND table_name IN ('daily_topics', 'topic_evidence', 'topic_run_log')`,
+        ),
+        10_000,
+        "fingerprint column check",
+      );
+      const have = new Set(fpCols.map((r) => r.table_name));
+      checks.topic_fingerprint_supported =
+        have.has("daily_topics") && have.has("topic_evidence") && have.has("topic_run_log");
+      if (!checks.topic_fingerprint_supported) {
+        checks.topic_fingerprint_note =
+          "migration 018_topic_fingerprint.sql not fully applied: content checks still apply, fingerprint proofs deferred until migrated";
+      }
+    } catch {
+      checks.topic_fingerprint_supported = false;
+    }
   } catch (e) {
     return { ok: false, checks, reason: `db-failure: schema check failed (${String(e?.message ?? e).slice(0, 120)})` };
   }
@@ -194,44 +272,160 @@ export function jsonParam(value) {
   return JSON.stringify(value ?? null);
 }
 
-async function upsertTopic(query, targetDate, topic, source) {
-  return query(
-    `INSERT INTO daily_topics (topic_date, title, prompt, category, sources, generation_source)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6)
-     ON CONFLICT (topic_date) DO UPDATE SET
-       title = EXCLUDED.title,
-       prompt = EXCLUDED.prompt,
-       category = EXCLUDED.category,
-       sources = EXCLUDED.sources,
-       generation_source = EXCLUDED.generation_source
-     RETURNING id`,
-    [targetDate, topic.title, topic.prompt, topic.category, jsonParam(topic.sources ?? []), source],
-  );
+/**
+ * Whether this database has the fingerprint columns (migration 018). The
+ * pipeline degrades gracefully on older schemas for the write path, but the
+ * freshness verifier stays strict so a missing migration is loud, not silent.
+ */
+export async function fingerprintColumnsSupported(query) {
+  try {
+    const rows = await query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'daily_topics'
+          AND column_name = 'topic_fingerprint'`,
+    );
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
 }
 
-async function storeEvidenceCards(query, topicId, cards) {
-  if (!cards.length) return;
-  // Idempotent re-runs: replace this topic's cards instead of duplicating
-  // them, so a second run for the same date is always safe.
+async function getExistingTopic(query, targetDate, fingerprintSupported) {
+  const columns = fingerprintSupported
+    ? "id, topic_date, title, prompt, category, sources, generation_source, topic_fingerprint"
+    : "id, topic_date, title, prompt, category, sources, generation_source";
+  const rows = await query(
+    `SELECT ${columns} FROM daily_topics WHERE topic_date = $1::date`,
+    [targetDate],
+  );
+  return rows[0] ?? null;
+}
+
+async function evidenceFingerprintCounts(query, topicId, fingerprint, fingerprintSupported) {
+    const rows = await query(
+    fingerprintSupported
+      ? `SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE topic_fingerprint IS NOT NULL AND topic_fingerprint IS DISTINCT FROM $2)::int AS mismatched,
+                count(*) FILTER (WHERE topic_fingerprint IS NULL)::int AS unstamped
+           FROM topic_evidence WHERE topic_id = $1`
+      : `SELECT count(*)::int AS total, 0 AS mismatched, 0 AS unstamped
+           FROM topic_evidence WHERE topic_id = $1`,
+    fingerprintSupported ? [topicId, fingerprint] : [topicId],
+  );
+  return { total: rows[0]?.total ?? 0, mismatched: rows[0]?.mismatched ?? 0, unstamped: rows[0]?.unstamped ?? 0 };
+}
+
+/**
+ * Write-once topic claim: inserts ONLY when no row exists for the date.
+ * `ON CONFLICT DO NOTHING` (not DO UPDATE) is what makes concurrent
+ * same-date retries converge instead of replacing each other — the unique
+ * constraint on topic_date serialises the race, losers re-read the winner.
+ * Returns the inserted row id, or null when a row already existed.
+ */
+async function insertTopicOnce(query, targetDate, topic, source, fingerprint, fingerprintSupported) {
+  const rows = await query(
+    fingerprintSupported
+      ? `INSERT INTO daily_topics (topic_date, title, prompt, category, sources, generation_source, topic_fingerprint)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+         ON CONFLICT (topic_date) DO NOTHING
+         RETURNING id`
+      : `INSERT INTO daily_topics (topic_date, title, prompt, category, sources, generation_source)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+         ON CONFLICT (topic_date) DO NOTHING
+         RETURNING id`,
+    fingerprintSupported
+      ? [targetDate, topic.title, topic.prompt, topic.category, jsonParam(topic.sources ?? []), source, fingerprint]
+      : [targetDate, topic.title, topic.prompt, topic.category, jsonParam(topic.sources ?? []), source],
+  );
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Deliberate repair write for a corrupt row (invalid content or a
+ * fingerprint mismatch). This is the ONLY path that may change an existing
+ * topic's content, and it always replaces the evidence atomically with it —
+ * normal retries never reach here.
+ */
+async function repairTopicRow(query, targetDate, topic, source, fingerprint, fingerprintSupported) {
+  const rows = await query(
+    fingerprintSupported
+      ? `UPDATE daily_topics SET title = $2, prompt = $3, category = $4,
+           sources = $5::jsonb, generation_source = $6, topic_fingerprint = $7
+         WHERE topic_date = $1::date RETURNING id`
+      : `UPDATE daily_topics SET title = $2, prompt = $3, category = $4,
+           sources = $5::jsonb, generation_source = $6
+         WHERE topic_date = $1::date RETURNING id`,
+    fingerprintSupported
+      ? [targetDate, topic.title, topic.prompt, topic.category, jsonParam(topic.sources ?? []), source, fingerprint]
+      : [targetDate, topic.title, topic.prompt, topic.category, jsonParam(topic.sources ?? []), source],
+  );
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Atomic evidence replacement for one topic revision: delete-then-insert in
+ * that order, INCLUDING the zero-card case. The old code returned early on
+ * empty input after a topic change, which left the previous topic's cards
+ * attached to the new topic. Every inserted card carries the fingerprint of
+ * the exact revision it was generated for.
+ */
+async function replaceEvidenceCards(query, topicId, cards, fingerprint, fingerprintSupported) {
   await query("DELETE FROM topic_evidence WHERE topic_id = $1", [topicId]);
   for (const card of cards) {
     await query(
-      `INSERT INTO topic_evidence
-       (topic_id, claim, source_name, source_type, url, title, passage, published_date, checks)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
-      [
-        topicId,
-        card.claim,
-        card.sourceName,
-        card.sourceType,
-        card.url,
-        card.title ?? null,
-        card.passage,
-        card.publishedDate,
-        jsonParam(card.checks ?? {}),
-      ],
+      fingerprintSupported
+        ? `INSERT INTO topic_evidence
+            (topic_id, claim, source_name, source_type, url, title, passage, published_date, checks, topic_fingerprint)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)`
+        : `INSERT INTO topic_evidence
+            (topic_id, claim, source_name, source_type, url, title, passage, published_date, checks)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+      fingerprintSupported
+        ? [
+            topicId, card.claim, card.sourceName, card.sourceType, card.url,
+            card.title ?? null, card.passage, card.publishedDate,
+            jsonParam(card.checks ?? {}), fingerprint,
+          ]
+        : [
+            topicId, card.claim, card.sourceName, card.sourceType, card.url,
+            card.title ?? null, card.passage, card.publishedDate,
+            jsonParam(card.checks ?? {}),
+          ],
     );
   }
+  // Post-write invariant: the surviving set must be exactly what we wrote,
+  // all stamped with this revision's fingerprint. Anything else is stale.
+  const counts = await evidenceFingerprintCounts(query, topicId, fingerprint, fingerprintSupported);
+  if (counts.total !== cards.length || counts.mismatched !== 0) {
+    throw new Error(
+      `evidence invariant violated for topic ${topicId}: ` +
+      `wrote ${cards.length}, found ${counts.total} (${counts.mismatched} mismatched)`,
+    );
+  }
+  return counts.total;
+}
+
+/** Stamp legacy (pre-fingerprint) evidence rows with their topic's fingerprint. */
+async function backfillEvidenceFingerprints(query, topicId, fingerprint) {
+  await query(
+    `UPDATE topic_evidence SET topic_fingerprint = $2
+      WHERE topic_id = $1 AND topic_fingerprint IS NULL`,
+    [topicId, fingerprint],
+  );
+}
+
+/**
+ * Drop evidence stamped for a DIFFERENT revision — it belongs to replaced
+ * content. Unstamped (legacy NULL) rows are never deleted here: they are
+ * backfilled, not discarded, so a fingerprint backfill cannot destroy valid
+ * pre-fingerprint evidence.
+ */
+async function deleteMismatchedEvidence(query, topicId, fingerprint) {
+  await query(
+    `DELETE FROM topic_evidence WHERE topic_id = $1
+       AND topic_fingerprint IS NOT NULL AND topic_fingerprint IS DISTINCT FROM $2`,
+    [topicId, fingerprint],
+  );
 }
 
 async function retrieveEvidence(title, prompt) {
@@ -366,10 +560,29 @@ export function classifyAttempt(errorText) {
   return "other";
 }
 
+/**
+ * Resolve the fetch timeout for one model attempt. Explicit production tiers
+ * (TOPIC_PRIMARY_TIMEOUT_MS for the chain head, TOPIC_FALLBACK_TIMEOUT_MS
+ * for the rest) win; per-model <SLUG>_TIMEOUT_MS keys come next; the 60s
+ * default holds otherwise. Every value is bounded 5s–120s, and timeouts
+ * never relax schema or content quality — they only bound the wait.
+ */
+export function timeoutForAttempt(model, modelIndex, env = process.env) {
+  const tierRaw = modelIndex === 0 ? env.TOPIC_PRIMARY_TIMEOUT_MS : env.TOPIC_FALLBACK_TIMEOUT_MS;
+  const tier = Number(tierRaw);
+  if (tierRaw !== undefined && tierRaw !== "" && Number.isFinite(tier) && tier >= 5_000 && tier <= 120_000) {
+    return Math.round(tier);
+  }
+  return modelTimeoutMs(model, env);
+}
+
 async function generateCandidates(recentTitles, count = 5, env = process.env) {
-  const chain = generationChain(env);
-  if (!chain) throw new Error("No AI provider configured.");
-  const { url, key, models, extraHeaders } = chain;
+  const chains = generationChains(env);
+  if (!chains.length) {
+    const err = new Error("No usable AI provider configured.");
+    err.attempts = [];
+    throw err;
+  }
 
   const avoid = recentTitles.length
     ? `Avoid these recent topics: ${recentTitles.join("; ")}.`
@@ -386,72 +599,88 @@ Requirements for each:
 ${avoid}
 Return JSON: {"topics":[{"title":"...","prompt":"...","category":"...","sources":[{"name":"Pew Research Center","homepage":"https://www.pewresearch.org","angle":"polling data"}]}]}`;
 
-  // Per-model attempt telemetry: model, bucketed outcome and measured
-  // latency. Persisted with the run so provider health is observable
-  // longitudinally instead of being flattened into one "provider failed".
+  // Provider-level failover: every usable provider's full model chain is
+  // attempted in configured priority order before the curated fallback.
+  // Providers known to be unavailable (no key, explicitly disabled, or the
+  // kiraai tier without an explicit opt-in) are never called. Per-attempt
+  // telemetry carries provider + model identity for longitudinal tracking.
   const attempts = [];
   let lastError;
-  for (const model of models) {
-    const attemptStartedAt = Date.now();
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...extraHeaders },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: "Respond with ONE JSON object, no markdown fences." },
-            { role: "user", content: user },
-          ],
-          max_tokens: 3000,
-          temperature: 0.8,
-        }),
-        signal: AbortSignal.timeout(modelTimeoutMs(model, env)),
-      });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const data = await res.json();
-      const content = data?.choices?.[0]?.message?.content;
-      if (!content?.trim()) throw new Error("empty content");
-      const trimmed = content.trim();
-      const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-      const jsonText = fenced ? fenced[1] : trimmed;
-      const start = jsonText.indexOf("{"), end = jsonText.lastIndexOf("}");
-      if (start === -1 || end <= start) throw new Error("no JSON object");
-      const objectText = jsonText.slice(start, end + 1);
-      let parsed;
+  for (const chain of chains) {
+    const { label: provider, url, key, models, extraHeaders } = chain;
+    for (const [modelIndex, model] of models.entries()) {
+      const attemptStartedAt = Date.now();
+      let httpStatus = null;
       try {
-        parsed = JSON.parse(objectText);
-      } catch (syntaxError) {
-        // One deterministic repair attempt for safe syntax defects, then the
-        // SAME schema validation below decides. A repair that still does not
-        // parse, or that yields invalid structure, fails exactly as before.
-        const repaired = repairJson(objectText);
-        if (repaired === objectText) throw syntaxError;
-        parsed = JSON.parse(repaired);
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...extraHeaders },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: "Respond with ONE JSON object, no markdown fences." },
+              { role: "user", content: user },
+            ],
+            max_tokens: 3000,
+            temperature: 0.8,
+          }),
+          signal: AbortSignal.timeout(timeoutForAttempt(model, modelIndex, env)),
+        });
+        if (!res.ok) {
+          httpStatus = res.status;
+          const err = new Error(`${res.status}`);
+          err.httpStatus = res.status;
+          throw err;
+        }
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content;
+        if (!content?.trim()) throw new Error("empty content");
+        const trimmed = content.trim();
+        const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        const jsonText = fenced ? fenced[1] : trimmed;
+        const start = jsonText.indexOf("{"), end = jsonText.lastIndexOf("}");
+        if (start === -1 || end <= start) throw new Error("no JSON object");
+        const objectText = jsonText.slice(start, end + 1);
+        let parsed;
+        try {
+          parsed = JSON.parse(objectText);
+        } catch (syntaxError) {
+          // One deterministic repair attempt for safe syntax defects, then the
+          // SAME schema validation below decides. A repair that still does not
+          // parse, or that yields invalid structure, fails exactly as before.
+          const repaired = repairJson(objectText);
+          if (repaired === objectText) throw syntaxError;
+          parsed = JSON.parse(repaired);
+        }
+        const topics = parsed.topics || parsed.candidates;
+        if (!Array.isArray(topics) || !topics.length) throw new Error("no topics array");
+        const usable = topics.filter((t) => t.title && t.prompt && t.category && Array.isArray(t.sources));
+        if (!usable.length) throw new Error("no usable topics after schema validation");
+        attempts.push({ provider, model, outcome: "success", latencyMs: Date.now() - attemptStartedAt, httpStatus: null, errorCategory: null });
+        // Success-path attempts ride on the return value so longitudinal stats
+        // see successes too — failure-only telemetry would bias every rate.
+        usable.attempts = attempts;
+        return usable;
+      } catch (e) {
+        lastError = e;
+        const status = e?.httpStatus ?? httpStatus;
+        const message = String(e?.message ?? e).slice(0, 140);
+        const outcome = classifyAttempt(status !== null && status !== undefined ? `${status} ${message}` : message);
+        attempts.push({
+          provider,
+          model,
+          outcome,
+          latencyMs: Date.now() - attemptStartedAt,
+          httpStatus: status ?? null,
+          errorCategory: outcome === "success" ? null : outcome,
+          error: message,
+        });
+        log(`[generate] ${provider}/${model}: ${message}`);
       }
-      const topics = parsed.topics || parsed.candidates;
-      if (!Array.isArray(topics) || !topics.length) throw new Error("no topics array");
-      const usable = topics.filter((t) => t.title && t.prompt && t.category && Array.isArray(t.sources));
-      if (!usable.length) throw new Error("no usable topics after schema validation");
-      attempts.push({ model, outcome: "success", latencyMs: Date.now() - attemptStartedAt });
-      // Success-path attempts ride on the return value so longitudinal stats
-      // see successes too — failure-only telemetry would bias every rate.
-      usable.attempts = attempts;
-      return usable;
-    } catch (e) {
-      lastError = e;
-      const message = String(e?.message ?? e).slice(0, 140);
-      attempts.push({
-        model,
-        outcome: classifyAttempt(message),
-        latencyMs: Date.now() - attemptStartedAt,
-        error: message,
-      });
-      log(`[generate] ${model}: ${message}`);
     }
   }
 
-  const failure = lastError ?? new Error("No AI provider configured.");
+  const failure = lastError ?? new Error("No usable AI provider configured.");
   failure.attempts = attempts;
   throw failure;
 }
@@ -538,9 +767,15 @@ export function resolveTargetDate(now) {
 
 /**
  * The generation pipeline, dependency-injected so every branch — AI success,
- * provider failure → fallback, DB failure, idempotent re-run — is testable
- * against an in-memory query double. Outcomes are explicit:
- * ai-generated | curated-fallback | provider-failure | db-failure.
+ * provider failure → fallback, already-present, repair, DB failure — is
+ * testable against an in-memory query double.
+ *
+ * IMMUTABILITY: once a valid topic exists for the target date, normal runs
+ * return `already-present` with the existing metadata and never regenerate,
+ * rewrite, or re-evidence it. A user must never see two different "daily
+ * topics" for the same date because the scheduler retried. Outcomes:
+ * ai-generated | curated-fallback | provider-failure | already-present |
+ * db-failure.
  *
  * Availability vs provider health stay separate downstream: the workflow's
  * record step derives generator_result (ai | fallback-after-provider-failure
@@ -567,14 +802,44 @@ export async function runGeneration(deps = {}) {
   }
   emit(`[generate-topics] ${recentTitles.length} recent titles loaded`);
 
-  const providers = providerStatus(env);
+  let fingerprintSupported = true;
+  try {
+    fingerprintSupported = await fingerprintColumnsSupported(query);
+  } catch (e) {
+    return { outcome: "db-failure", stage: "read-recent", error: String(e?.message ?? e) };
+  }
+  if (!fingerprintSupported) {
+    emit("[generate-topics] topic_fingerprint columns absent (migration 018 pending) — content checks still apply, fingerprint proofs deferred");
+  }
+
+  // --- Write-once gate: a valid stored topic is verified, never replaced. --
+  let existing = null;
+  try {
+    existing = await getExistingTopic(query, tomorrow, fingerprintSupported);
+  } catch (e) {
+    return { outcome: "db-failure", stage: "read-existing", error: String(e?.message ?? e) };
+  }
+  const status = fingerprintSupported ? topicRowStatus(existing, tomorrow) : (existing && isValidTopicContent(existing) ? "valid" : (existing ? "invalid-content" : "missing"));
+  if (status === "valid" || status === "legacy-unfingerprinted") {
+    return alreadyPresent(query, existing, tomorrow, fingerprintSupported, status, emit, retrieve);
+  }
+  let repairing = false;
+  if (status === "invalid-content" || status === "fingerprint-mismatch") {
+    repairing = true;
+    emit(`[generate-topics] existing row for ${tomorrow} is ${status} — deliberate repair path regenerates content and evidence together`);
+  }
+
+  // Usability, not mere key presence, decides: a key for a provider without
+  // capacity (or an explicitly disabled one) must not turn a policy fallback
+  // into a provider failure — nothing was attempted, nothing failed.
+  const usable = usableProviders(env);
   let bestTopic = null;
   let providerFailure = null;
   // Per-model attempts from the successful leg too — failure-only telemetry
   // would bias every longitudinal success/timeout rate.
   let successAttempts = null;
-  if (!providers.length) {
-    emit("[generate-topics] no provider keys configured — curated fallback mode (acceptable, not an error)");
+  if (!usable.length) {
+    emit("[generate-topics] no usable provider configured — curated fallback mode (acceptable, not an error)");
   } else {
     try {
       const candidates = await generate(recentTitles, 5);
@@ -606,30 +871,54 @@ export async function runGeneration(deps = {}) {
     bestTopic = pickFallback(tomorrow, recentTitles);
     emit(`[generate-topics] Using curated fallback: "${bestTopic.title}"`);
   }
+  const fingerprint = topicFingerprint({
+    topicDate: tomorrow, title: bestTopic.title, prompt: bestTopic.prompt, category: bestTopic.category,
+  });
 
-  let stored;
+  // Write-once claim: concurrent same-date retries converge on the winner
+  // instead of replacing each other (the UNIQUE constraint serialises).
+  let topicId = null;
   try {
-    stored = await upsertTopic(query, tomorrow, bestTopic, generationSource);
+    if (repairing) {
+      topicId = await repairTopicRow(query, tomorrow, bestTopic, generationSource, fingerprint, fingerprintSupported);
+      emit(`[generate-topics] repaired invalid row for ${tomorrow}`);
+    } else {
+      topicId = await insertTopicOnce(query, tomorrow, bestTopic, generationSource, fingerprint, fingerprintSupported);
+    }
   } catch (e) {
     return { outcome: "db-failure", stage: "store-topic", error: String(e?.message ?? e) };
   }
-  const topicId = stored?.[0]?.id;
+  if (!topicId) {
+    // Lost the claim race (or a concurrent repair landed first): re-read and
+    // converge on the existing row rather than overwriting it.
+    emit(`[generate-topics] row for ${tomorrow} already claimed — converging on existing content`);
+    let raced = null;
+    try {
+      raced = await getExistingTopic(query, tomorrow, fingerprintSupported);
+    } catch (e) {
+      return { outcome: "db-failure", stage: "read-existing", error: String(e?.message ?? e) };
+    }
+    const racedStatus = fingerprintSupported ? topicRowStatus(raced, tomorrow) : (raced && isValidTopicContent(raced) ? "valid" : "invalid-content");
+    if (racedStatus === "valid" || racedStatus === "legacy-unfingerprinted") {
+      return alreadyPresent(query, raced, tomorrow, fingerprintSupported, racedStatus, emit, retrieve, true);
+    }
+    return { outcome: "db-failure", stage: "store-race", error: `lost claim race for ${tomorrow} and the winning row is ${racedStatus}` };
+  }
 
   let evidenceCards = 0;
-  if (topicId) {
+  try {
+    let cards = [];
     try {
-      const cards = await retrieve(bestTopic.title, bestTopic.prompt);
-      if (cards.length) {
-        await storeEvidenceCards(query, topicId, cards);
-        evidenceCards = cards.length;
-      }
-      emit(`[generate-topics] ${evidenceCards} evidence cards stored`);
+      cards = await retrieve(bestTopic.title, bestTopic.prompt);
     } catch (e) {
-      // Evidence is best-effort: a retrieval hiccup must not lose the topic.
+      // Retrieval is best-effort: a network hiccup yields zero cards, which
+      // replaceEvidenceCards stores as an empty (but consistent) set.
       emit(`[generate-topics] Evidence retrieval failed: ${String(e?.message ?? e).slice(0, 140)}`);
     }
-  } else {
-    emit(`[generate-topics] Could not resolve stored topic id`);
+    evidenceCards = await replaceEvidenceCards(query, topicId, cards, fingerprint, fingerprintSupported);
+    emit(`[generate-topics] ${evidenceCards} evidence cards stored`);
+  } catch (e) {
+    return { outcome: "db-failure", stage: "store-evidence", error: String(e?.message ?? e) };
   }
 
   const outcome = generationSource === "ai"
@@ -643,6 +932,8 @@ export async function runGeneration(deps = {}) {
     date: tomorrow,
     title: bestTopic.title,
     evidenceCards,
+    fingerprint,
+    repaired: repairing ? "replaced-invalid-row" : null,
     // Provider detail stays separable from topic availability: a green run on
     // a curated fallback is an availability success AND a provider failure.
     // Attempts cover the successful leg too (see above), not just failures.
@@ -651,6 +942,74 @@ export async function runGeneration(deps = {}) {
       ? providerFailure.attempts
       : successAttempts,
   };
+}
+
+/**
+ * The already-present path: verify the stored topic (and its evidence
+ * ownership) and return its metadata without regenerating anything. Legacy
+ * rows get their fingerprint backfilled; stale evidence (a different
+ * revision's cards, or legacy unstamped cards on a fingerprinted topic) is
+ * repaired in place — the TOPIC content itself is never touched here.
+ */
+async function alreadyPresent(query, existing, tomorrow, fingerprintSupported, status, emit, retrieve, converged = false) {
+  const fingerprint = fingerprintSupported
+    ? topicFingerprint({ topicDate: tomorrow, title: existing.title, prompt: existing.prompt, category: existing.category })
+    : null;
+  let repaired = converged ? "converged-on-existing" : null;
+  try {
+    if (status === "legacy-unfingerprinted" && fingerprintSupported) {
+      await query(`UPDATE daily_topics SET topic_fingerprint = $2 WHERE id = $1`, [existing.id, fingerprint]);
+      await deleteMismatchedEvidence(query, existing.id, fingerprint);
+      await backfillEvidenceFingerprints(query, existing.id, fingerprint);
+      repaired = "backfilled-fingerprint";
+      emit(`[generate-topics] backfilled fingerprint for legacy row ${tomorrow}`);
+    } else if (fingerprintSupported) {
+      // Content is valid and fingerprinted: evidence must belong to THIS
+      // revision. Stale cards are deleted and unstamped legacy cards are
+      // stamped; missing cards are re-retrieved for the SAME topic (never a
+      // new topic).
+      const before = await evidenceFingerprintCounts(query, existing.id, fingerprint, true);
+      if (before.mismatched > 0) {
+        await deleteMismatchedEvidence(query, existing.id, fingerprint);
+        repaired = "replaced-stale-evidence";
+        emit(`[generate-topics] removed ${before.mismatched} stale evidence card(s) for ${tomorrow}`);
+      }
+      if (before.unstamped > 0) {
+        await backfillEvidenceFingerprints(query, existing.id, fingerprint);
+        repaired = repaired ?? "backfilled-fingerprint";
+        emit(`[generate-topics] stamped ${before.unstamped} legacy evidence card(s) for ${tomorrow}`);
+      }
+      if (before.total - before.mismatched === 0) {
+        let cards = [];
+        try {
+          cards = await retrieve(existing.title, existing.prompt);
+        } catch (e) {
+          emit(`[generate-topics] Evidence re-retrieval failed: ${String(e?.message ?? e).slice(0, 140)}`);
+        }
+        if (cards.length) {
+          await replaceEvidenceCards(query, existing.id, cards, fingerprint, true);
+          repaired = repaired ?? "re-retrieved-evidence";
+          emit(`[generate-topics] re-retrieved ${cards.length} evidence card(s) for unchanged topic ${tomorrow}`);
+        }
+      }
+    }
+    const after = await evidenceFingerprintCounts(query, existing.id, fingerprint, fingerprintSupported);
+    emit(`[generate-topics] outcome=already-present source=${existing.generation_source} topic="${existing.title}" evidence_cards=${after.total}`);
+    return {
+      outcome: "already-present",
+      source: existing.generation_source,
+      date: tomorrow,
+      title: existing.title,
+      evidenceCards: after.total,
+      fingerprint,
+      repaired,
+      converged,
+      providerError: null,
+      providerAttempts: [],
+    };
+  } catch (e) {
+    return { outcome: "db-failure", stage: "verify-existing", error: String(e?.message ?? e) };
+  }
 }
 
 async function main() {
@@ -670,7 +1029,7 @@ async function main() {
     log(`[generate-topics] outcome=db-failure (${result.stage}): ${result.error}`);
     process.exit(1);
   }
-  log(`[generate-topics] outcome=${result.outcome} source=${result.source} topic="${result.title}" evidence_cards=${result.evidenceCards}`);
+  log(`[generate-topics] outcome=${result.outcome} source=${result.source} topic="${result.title}" evidence_cards=${result.evidenceCards} fp=${String(result.fingerprint ?? "").slice(0, 12) || "n/a"}${result.repaired ? ` repaired=${result.repaired}` : ""}`);
   process.stdout.write(JSON.stringify(result) + "\n");
 }
 

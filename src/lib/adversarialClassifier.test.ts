@@ -305,6 +305,7 @@ describe("shadow-only containment of adversarial mistakes", () => {
       records: Array.from({ length: 200 }, () => record),
       sideSwapStability: 0.99,
       humanAgreement: 0.9,
+      humanItems: 200,
     });
     expect(verdict.passed).toBe(false);
     expect(verdict.state).toBe("shadow");
@@ -349,6 +350,7 @@ describe("shadow-only containment of adversarial mistakes", () => {
       records: Array.from({ length: 200 }, () => swapped),
       sideSwapStability: 0.4,
       humanAgreement: 0.9,
+      humanItems: 200,
     });
     expect(verdict.passed).toBe(false);
     expect(verdict.failures.some((f) => f.includes("side-swap stability"))).toBe(true);

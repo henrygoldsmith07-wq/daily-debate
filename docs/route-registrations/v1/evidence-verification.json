@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "route-registration/v1",
+  "registrationVersion": "v1",
+  "gatesVersion": "route-adoption-gates-v1",
+  "registeredAt": "2026-09-20",
+  "commitSha": "f458122",
+  "route": "evidence-verification",
+  "status": "registered",
+  "thresholds": {
+    "minN": 200,
+    "minWinnerAgreement": 0.92,
+    "minSideSwapStability": 0.92,
+    "maxFalseDecisiveRate": 0.03,
+    "maxScoreGapMae": 6,
+    "maxInsufficientEvidenceRate": 0.03,
+    "minHumanAgreement": 0.65
+  },
+  "sampleRequirements": {
+    "minEligibleAttempts": 200,
+    "window": "most recent eligible attempts (no expiry while N is below 500)",
+    "denominator": "all eligible shadow attempts: scored + insufficient-evidence + classifier-failure; routing-not-eligible never counts"
+  },
+  "humanGate": {
+    "minAgreement": 0.65,
+    "minItems": 30,
+    "note": "human consensus vs shadow on >=30 consensus items; insufficient human data keeps the route in shadow"
+  },
+  "metricDefinitions": {
+    "winnerAgreement": "share of scored attempts where shadow and ensemble pick the same winner",
+    "tieDisagreement": "share of scored attempts where exactly one side called the debate a tie",
+    "scoreMae": "mean per-side absolute score difference between shadow and ensemble, scored attempts only",
+    "scoreGapMae": "mean absolute score-gap difference between shadow and ensemble, scored attempts only",
+    "insufficientEvidenceRate": "share of eligible attempts with no scoreable shadow result",
+    "falseDecisiveRate": "share of scored attempts where the shadow path is decisive but the ensemble ties",
+    "sideSwapStability": "share of paired side-swapped runs where the shadow route keeps the same winner (externally measured)"
+  },
+  "note": "Immutable once shadow evidence is observed under this version. Changes require a new registration version; never edit in place.",
+  "sha256": "945551dac4cecd615861df7500acb02444a23367759b65bd4beed4ac9eb35347"
+}

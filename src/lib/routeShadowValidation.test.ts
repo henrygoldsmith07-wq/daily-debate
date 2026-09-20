@@ -7,14 +7,20 @@ import {
   JUDGE_AVOIDANCE_ROUTES,
   PREREGISTERED_ROUTE_GATES,
   ROUTE_GATE_VERSION,
+  bucketTranscriptChars,
   buildShadowRecord,
+  classifyShadowAttemptStatus,
   confidenceBand,
   evaluateRouteGate,
   hashRouteGate,
+  mixedRoleBucket,
   monitorAdoptedRoute,
+  roundCountBucket,
   routeGateRegistration,
   scoreGapBand,
   segmentByRoute,
+  segmentKeyFns,
+  segmentShadowRecords,
   type RouteShadowRecord,
 } from "./routeShadowValidation";
 import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
@@ -88,12 +94,22 @@ describe("preregistered gates are immutable", () => {
     );
   });
 
-  it("the registration exposes a hash for every gate", () => {
+  it("the registration exposes a SHA-256 hash for every gate", () => {
     const reg = routeGateRegistration();
     expect(reg.version).toBe(ROUTE_GATE_VERSION);
     for (const route of Object.keys(PREREGISTERED_ROUTE_GATES)) {
-      expect(reg.gates[route].hash).toMatch(/^[0-9a-f]{8}$/);
+      expect(reg.gates[route].hash).toMatch(/^[0-9a-f]{64}$/);
     }
+  });
+
+  it("human agreement on too few items keeps the route in shadow", () => {
+    const records = Array.from({ length: 200 }, () => record());
+    const verdict = evaluateRouteGate({
+      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.95, humanItems: 12,
+    });
+    expect(verdict.passed).toBe(false);
+    expect(verdict.state).toBe("shadow");
+    expect(verdict.failures.some((f) => f.includes("human-grounded items"))).toBe(true);
   });
 
   it("judge-avoidance gates require substantial evidence", () => {
@@ -117,7 +133,7 @@ describe("gate evaluation", () => {
   it("a route that agrees with the ensemble becomes eligible, never adopted", () => {
     const records = Array.from({ length: 200 }, () => record());
     const verdict = evaluateRouteGate({
-      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.8,
+      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.8, humanItems: 200,
     });
     expect(verdict.passed).toBe(true);
     expect(verdict.state).toBe("eligible");
@@ -129,7 +145,7 @@ describe("gate evaluation", () => {
       record({ shadow: side("b", 40, 70) }),
     );
     const verdict = evaluateRouteGate({
-      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.8,
+      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.8, humanItems: 200,
     });
     expect(verdict.passed).toBe(false);
     expect(verdict.state).toBe("shadow");
@@ -155,7 +171,7 @@ describe("gate evaluation", () => {
       record({ ensemble: side("tie", 50, 52), shadow: side("a", 70, 30) }),
     );
     const verdict = evaluateRouteGate({
-      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.9,
+      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.9, humanItems: 200,
     });
     expect(verdict.passed).toBe(false);
     expect(verdict.metrics.falseDecisiveRate).toBe(1);
@@ -166,7 +182,7 @@ describe("gate evaluation", () => {
       i < 40 ? record({ shadow: null }) : record(),
     );
     const verdict = evaluateRouteGate({
-      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.9,
+      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.9, humanItems: 200,
     });
     expect(verdict.metrics.insufficientEvidenceRate).toBeCloseTo(0.2);
     expect(verdict.passed).toBe(false);
@@ -178,7 +194,7 @@ describe("adopted-route monitoring", () => {
     const bad = evaluateRouteGate({
       route: "deterministic",
       records: Array.from({ length: 200 }, () => record({ shadow: side("b", 40, 70) })),
-      sideSwapStability: 0.99, humanAgreement: 0.9,
+      sideSwapStability: 0.99, humanAgreement: 0.9, humanItems: 200,
     });
     expect(monitorAdoptedRoute({ ...bad, state: "adopted" })).toBe("suspended");
   });
@@ -187,7 +203,7 @@ describe("adopted-route monitoring", () => {
     const good = evaluateRouteGate({
       route: "deterministic",
       records: Array.from({ length: 200 }, () => record()),
-      sideSwapStability: 0.99, humanAgreement: 0.9,
+      sideSwapStability: 0.99, humanAgreement: 0.9, humanItems: 200,
     });
     expect(monitorAdoptedRoute({ ...good, state: "adopted" })).toBe("adopted");
   });
@@ -245,6 +261,108 @@ describe("dashboards and bands", () => {
   });
 });
 
+describe("shadow attempt states (item 16)", () => {
+  it("classifies scored, insufficient, ineligible and classifier-failed attempts", () => {
+    const plan = { route: "deterministic" as const, argumentCount: 4, fallbackCount: 0 };
+    expect(classifyShadowAttemptStatus(plan, true)).toBe("scored");
+    expect(classifyShadowAttemptStatus(plan, false)).toBe("insufficient-evidence");
+    expect(classifyShadowAttemptStatus({ ...plan, fallbackCount: 4 }, false)).toBe("classifier-failure");
+    // A partially-fallback plan that still fails to score is insufficient
+    // evidence, not a classifier failure.
+    expect(classifyShadowAttemptStatus({ ...plan, fallbackCount: 2 }, false)).toBe("insufficient-evidence");
+    expect(classifyShadowAttemptStatus({ route: "ensemble" as const, argumentCount: 4, fallbackCount: 0 }, true)).toBe(
+      "routing-not-eligible",
+    );
+  });
+
+  it("failed scoring still creates a validation record that counts toward N", () => {
+    const failed = record({ shadow: null, status: "insufficient-evidence" });
+    expect(failed.insufficientEvidence).toBe(true);
+    expect(failed.shadowAttemptStatus).toBe("insufficient-evidence");
+    const failedClassifier = record({ shadow: null, status: "classifier-failure" });
+    expect(failedClassifier.shadowAttemptStatus).toBe("classifier-failure");
+    const records = [...Array.from({ length: 198 }, () => record()), failed, failedClassifier];
+    const verdict = evaluateRouteGate({
+      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.9, humanItems: 200,
+    });
+    // N counts every eligible attempt, including the two failures.
+    expect(verdict.n).toBe(200);
+    expect(verdict.metrics.insufficientEvidenceRate).toBeCloseTo(0.01);
+  });
+
+  it("routing-not-eligible rows never enter the adoption denominator", () => {
+    const ineligible = record({ status: "routing-not-eligible" });
+    const verdict = evaluateRouteGate({
+      route: "deterministic",
+      records: [...Array.from({ length: 200 }, () => record()), ineligible],
+      sideSwapStability: 0.99, humanAgreement: 0.9, humanItems: 200,
+    });
+    expect(verdict.n).toBe(200);
+    expect(verdict.passed).toBe(true);
+  });
+});
+
+describe("tie disagreement (item 17)", () => {
+  const tie = (w: "a" | "b" | "tie") => (w === "tie" ? side("tie", 50, 52) : side(w, 70, 40));
+  function gateOf(pairs: Array<["a" | "b" | "tie", "a" | "b" | "tie"]>) {
+    const records = pairs.map(([ensembleWinner, shadowWinner]) =>
+      record({ ensemble: tie(ensembleWinner), shadow: tie(shadowWinner) }),
+    );
+    return evaluateRouteGate({
+      route: "deterministic", records, sideSwapStability: 0.99, humanAgreement: 0.9, humanItems: 200,
+    });
+  }
+
+  it("tie/tie is agreement, single-sided ties disagree, A/B is not tie disagreement", () => {
+    expect(gateOf([["tie", "tie"]]).metrics.tieDisagreement).toBe(0);
+    expect(gateOf([["tie", "a"]]).metrics.tieDisagreement).toBe(1);
+    expect(gateOf([["a", "tie"]]).metrics.tieDisagreement).toBe(1);
+    expect(gateOf([["a", "a"]]).metrics.tieDisagreement).toBe(0);
+    expect(gateOf([["a", "b"]]).metrics.tieDisagreement).toBe(0);
+  });
+
+  it("segment roll-ups use the same strict definition", () => {
+    const records = [
+      record({ ensemble: tie("tie"), shadow: tie("tie") }),
+      record({ ensemble: tie("a"), shadow: tie("tie") }),
+    ];
+    const [segment] = segmentByRoute(records).filter((s) => s.route === "deterministic");
+    expect(segment.tieDisagreement).toBe(0.5);
+    expect(segment.scoredCount).toBe(2);
+    expect(segment.insufficientCount).toBe(0);
+    expect(segment.scoreMae).not.toBeNull();
+  });
+});
+
+describe("bounded segmentation metadata (item 19)", () => {
+  it("buckets stay bounded and carry no raw text", () => {
+    expect(bucketTranscriptChars(500)).toBe("<1k");
+    expect(bucketTranscriptChars(2000)).toBe("1k-4k");
+    expect(bucketTranscriptChars(9000)).toBe("4k-16k");
+    expect(bucketTranscriptChars(20000)).toBe(">=16k");
+    expect(mixedRoleBucket(null)).toBe("unknown");
+    expect(mixedRoleBucket(0)).toBe("0");
+    expect(mixedRoleBucket(2)).toBe("1-2");
+    expect(mixedRoleBucket(9)).toBe(">2");
+    expect(roundCountBucket(null)).toBe("unknown");
+    expect(roundCountBucket(5)).toBe("3-5");
+    const r = record({ sizeBucket: "1k-4k", roundCount: 4 });
+    expect(r.sizeBucket).toBe("1k-4k");
+    expect(r.roundCount).toBe(4);
+    expect(JSON.stringify(r)).not.toMatch(/transcript|prompt|argument text/i);
+  });
+
+  it("segments pool eligible records with denominators attached", () => {
+    const records = [record(), record({ sizeBucket: ">=16k", roundCount: 8 })];
+    const slices = segmentShadowRecords(records, segmentKeyFns().size, "size");
+    expect(slices).toHaveLength(2);
+    for (const slice of slices) {
+      expect(slice.n).toBe(1);
+      expect(slice.winnerAgreement).toBe(1);
+    }
+  });
+});
+
 /**
  * The safety property that matters most: while routes are shadow-only, a
  * classifier mistake must not be able to produce a decisive production winner.
@@ -265,7 +383,11 @@ describe("shadow-only guarantee (static)", () => {
     const calls = source.match(/deterministicRoutedResult\(/g) ?? [];
     // One definition + exactly one call site (the shadow computation).
     expect(calls.length).toBe(2);
-    expect(source).toMatch(/const shadow = plan\.requiresExpensiveJudge \? null : deterministicRoutedResult\(/);
+    expect(source).toMatch(/const shadow = candidateRoute \? deterministicRoutedResult\(plan, baselineJudgeLegs\) : null;/);
+    // Only judge-avoidance candidate routes are attempted; ensemble and
+    // response-generation routing never enter the adoption denominator.
+    expect(source).toMatch(/!plan\.requiresExpensiveJudge/);
+    expect(source).toMatch(/JUDGE_AVOIDANCE_ROUTES/);
   });
 
   it("the ensemble result is always returned, with the shadow attached", () => {

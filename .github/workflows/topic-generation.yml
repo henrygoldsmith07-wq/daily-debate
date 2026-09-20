@@ -13,14 +13,15 @@ name: topic-generation
 #
 # Why so early and so many: GitHub scheduled runs have been observed starting
 # 4-5+ hours late, and the hard availability SLO stays 'tomorrow's topic
-# stored by 03:00 UTC'. Every slot is the same idempotent pipeline (one row
-# per date, replaced evidence, post-write verification), so retries cost
-# nothing and buy recovery margin under platform delay; the 02:15 slot
-# doubles as the last-chance write AND the deadline re-verification. If a
-# delayed slot slips past midnight, the cycle-boundary date rule keeps it on
-# the SAME target date until 15:00 UTC instead of silently generating the
-# next cycle. A late PLATFORM start is scheduler delay, recorded as such -
-# never counted as a generator failure.
+# stored by 03:00 UTC'. Topics are WRITE-ONCE per date: the first valid write
+# wins (outcome `already-present` afterwards), so later slots are cheap
+# verification runs that only generate when nothing valid is stored. Retries
+# therefore cost almost nothing yet buy recovery margin under platform delay;
+# the 02:15 slot doubles as the last-chance write AND the deadline
+# re-verification. If a delayed slot slips past midnight, the cycle-boundary
+# date rule keeps it on the SAME target date until 15:00 UTC instead of
+# silently generating the next cycle. A late PLATFORM start is scheduler
+# delay, recorded as such - never counted as a generator failure.
 #
 # If this workflow still fails, the app serves curated fallbacks - the
 # pipeline failing is degraded, not broken, until the 03:00 deadline passes.
@@ -94,6 +95,10 @@ jobs:
           KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
         run: node scripts/generate-topics.mjs --check-config
       - name: Pre-generate tomorrow's topic
+        # Write-once semantics: the first valid write for the date wins and
+        # later slots verify it (outcome `already-present`) instead of
+        # regenerating. 20:00 generates if absent; every later slot verifies
+        # and only generates/recovers when nothing valid is stored.
         id: gen
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -103,6 +108,12 @@ jobs:
           KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
           NVIDIA_MODEL: ${{ secrets.NVIDIA_MODEL }}
           OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+          # Operational fetch budgets (bounded 5s-120s in code): the chain
+          # head gets the full window, fallback models fail over faster so a
+          # stalling pool cannot burn the whole slot. Timeouts never relax
+          # schema or content quality — they only bound the wait.
+          TOPIC_PRIMARY_TIMEOUT_MS: "60000"
+          TOPIC_FALLBACK_TIMEOUT_MS: "45000"
         run: |
           node scripts/generate-topics.mjs | tee gen.json
           grep -o '{.*}' gen.json | tail -n 1 | tee gen-result.json
@@ -182,6 +193,11 @@ jobs:
           # policy fallback (no provider was attempted) -> explicit null.
           export PROVIDER_ERROR="$(jq -r '.providerError // empty' gen-result.json 2>/dev/null || true)"
           export PROVIDER_ATTEMPTS="$(jq -c '.providerAttempts // empty' gen-result.json 2>/dev/null || true)"
+          # Content identity + stored provenance for the idempotence proof:
+          # an `already-present` run verified rather than generated, so the
+          # stored source decides which generator value the content carries.
+          export TOPIC_FINGERPRINT="$(jq -r '.fingerprint // empty' gen-result.json 2>/dev/null || true)"
+          export STORED_SOURCE="$(jq -r '.source // empty' gen-result.json 2>/dev/null || true)"
           # If the DB itself is unavailable, the same structured evidence is
           # written here and picked up by the artifact upload below.
           export TELEMETRY_FALLBACK_PATH="${{ github.workspace }}/topic-telemetry-fallback.json"

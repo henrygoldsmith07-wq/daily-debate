@@ -328,29 +328,139 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     expect(s.status).toBe("healthy"); // delay alone never degrades app status
   });
 
-  it("all four production proofs computed from runs + telemetry", () => {
+  it("all six production proofs computed from runs + telemetry + AI evidence", () => {
     const dispatch = run("workflow_dispatch", "success", "2026-09-15T10:00:00Z");
     const schedule = run("schedule", "success", "2026-09-15T20:00:00Z");
+    const fp = "a".repeat(64);
     const telemetry = [
-      { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-16", completedBeforeDeadline: true },
-      { event: "schedule", at: "2026-09-15T20:02:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-16", completedBeforeDeadline: true },
+      { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-16", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "fallback-by-policy" },
+      { event: "schedule", at: "2026-09-15T20:02:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-16", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "fallback-by-policy" },
     ];
     const s = assessTopicSlo(
-      { runs: [schedule, dispatch, ...schedOk], productionDbReadable: true, tomorrowReady: true, telemetry },
+      {
+        runs: [schedule, dispatch, ...schedOk], productionDbReadable: true, tomorrowReady: true, telemetry,
+        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: true },
+      },
       "2026-09-15T23:00:00Z",
     );
     expect(s.proofs).toEqual({
+      databaseReachable: true,
       manualSuccess: true,
       scheduledSuccessAfterManual: true,
-      idempotenceRerun: true, // two successes for 2026-09-16
+      sameDateContentIdempotence: true, // two verified successes, same date + fingerprint + provenance
       onTimeBeforeDeadline: true,
+      aiGeneratedProductionSuccess: true,
     });
     const partial = assessTopicSlo(
       { runs: [dispatch], productionDbReadable: true, tomorrowReady: true, telemetry: [telemetry[0]] },
       "2026-09-15T23:00:00Z",
     );
     expect(partial.proofs.scheduledSuccessAfterManual).toBe(false);
-    expect(partial.proofs.idempotenceRerun).toBe(false);
+    expect(partial.proofs.sameDateContentIdempotence).toBe(false);
+    expect(partial.proofs.aiGeneratedProductionSuccess).toBe(false);
+  });
+
+  it("two bare successes without matching fingerprints prove no idempotence", () => {
+    // The weak legacy signal: same date twice, but unverified and
+    // unfingerprinted. Under write-once semantics this proves nothing.
+    const telemetry = [
+      { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-16", completedBeforeDeadline: true },
+      { event: "schedule", at: "2026-09-15T20:02:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-16", completedBeforeDeadline: true },
+    ];
+    const s = assessTopicSlo(
+      { runs: [], productionDbReadable: true, tomorrowReady: true, telemetry },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(s.proofs.sameDateContentIdempotence).toBe(false);
+  });
+
+  it("idempotence needs identical fingerprints AND identical provenance semantics", () => {
+    const base = {
+      event: "schedule", at: "2026-09-15T20:02:00Z", result: "success", delayMs: 120_000,
+      targetDate: "2026-09-16", completedBeforeDeadline: true, freshnessOk: true,
+    };
+    const same = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true,
+        telemetry: [
+          { ...base, topicFingerprint: "a".repeat(64), generatorResult: "ai" },
+          { ...base, at: "2026-09-15T21:02:00Z", topicFingerprint: "a".repeat(64), generatorResult: "ai" },
+        ],
+      },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(same.proofs.sameDateContentIdempotence).toBe(true);
+    const divergent = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true,
+        telemetry: [
+          { ...base, topicFingerprint: "a".repeat(64), generatorResult: "ai" },
+          { ...base, at: "2026-09-15T21:02:00Z", topicFingerprint: "b".repeat(64), generatorResult: "ai" },
+        ],
+      },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(divergent.proofs.sameDateContentIdempotence).toBe(false);
+    const mixedProvenance = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true,
+        telemetry: [
+          { ...base, topicFingerprint: "a".repeat(64), generatorResult: "ai" },
+          { ...base, at: "2026-09-15T21:02:00Z", topicFingerprint: "a".repeat(64), generatorResult: "fallback-by-policy" },
+        ],
+      },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(mixedProvenance.proofs.sameDateContentIdempotence).toBe(false);
+  });
+
+  it("on-time needs verified content before the deadline; AI proof needs a real AI topic", () => {
+    const late = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true,
+        telemetry: [
+          { event: "schedule", at: "2026-09-16T04:00:00Z", result: "success", delayMs: 0, targetDate: "2026-09-17", completedBeforeDeadline: false, freshnessOk: true, topicFingerprint: "a".repeat(64), generatorResult: "ai" },
+        ],
+      },
+      "2026-09-16T12:00:00Z",
+    );
+    expect(late.proofs.onTimeBeforeDeadline).toBe(false);
+    // A fallback standing in for AI never satisfies the AI proof.
+    const fallbackOnly = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true, telemetry: [],
+        aiEvidence: { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, telemetryVerifiedAi: false },
+      },
+      "2026-09-16T12:00:00Z",
+    );
+    expect(fallbackOnly.proofs.aiGeneratedProductionSuccess).toBe(false);
+  });
+
+  it("longitudinal provider attempts aggregate by provider and model", () => {
+    const s = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true,
+        telemetry: [
+          {
+            event: "schedule", at: "2026-09-16T02:00:00Z", result: "success", delayMs: 0,
+            targetDate: "2026-09-17", completedBeforeDeadline: true, freshnessOk: true,
+            topicFingerprint: "a".repeat(64), generatorResult: "fallback-after-provider-failure",
+            providerAttempts: [
+              { provider: "openrouter", model: "m1", outcome: "timeout", latencyMs: 60000, httpStatus: null, errorCategory: "timeout" },
+              { provider: "unorouter", model: "m2", outcome: "success", latencyMs: 1200, httpStatus: null, errorCategory: null },
+            ],
+          },
+        ],
+      },
+      "2026-09-16T12:00:00Z",
+    );
+    expect(s.providerSummary?.windowRuns).toBe(1);
+    expect(s.providerSummary?.fallbackTriggerRate).toBe(1);
+    const byModel = Object.fromEntries((s.providerSummary?.byModel ?? []).map((m) => [`${m.provider}/${m.model}`, m]));
+    expect(byModel["openrouter/m1"].timeouts).toBe(1);
+    expect(byModel["openrouter/m1"].successRate).toBe(0);
+    expect(byModel["unorouter/m2"].successRate).toBe(1);
+    expect(byModel["unorouter/m2"].p50LatencyMs).toBe(1200);
   });
 });
 

@@ -23,6 +23,7 @@ const GENERATOR = {
   date: "2026-09-20",
   title: "Should governments ban facial recognition in public spaces?",
   evidenceCards: 3,
+  fingerprint: "9f".repeat(32),
 };
 const FRESHNESS = {
   ok: true,

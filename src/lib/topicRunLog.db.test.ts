@@ -107,4 +107,31 @@ d("topic run telemetry recorder (real Postgres)", () => {
     expect(rows[0].scheduled_for).toBeNull();
     expect(rows[0].delay_ms).toBeNull();
   });
+
+  it("persists the content fingerprint and bounded provider attempts", async () => {
+    runRecorder({
+      OUTCOME: "already-present",
+      STORED_SOURCE: "ai",
+      TOPIC_FINGERPRINT: "b".repeat(64),
+      PROVIDER_ATTEMPTS: JSON.stringify([
+        { provider: "openrouter", model: "m1", outcome: "timeout", latencyMs: 60000, httpStatus: null, errorCategory: "timeout", error: "dropped before storage" },
+        { provider: "unorouter", model: "m2", outcome: "success", latencyMs: 800, httpStatus: null, errorCategory: null },
+      ]),
+    });
+    const { rows } = await pool.query(
+      `SELECT generator_result, topic_fingerprint, provider_attempts
+         FROM topic_run_log WHERE run_id = 999001`,
+    );
+    expect(rows).toHaveLength(1);
+    // An already-present run verified ai content: the stored source decides.
+    expect(rows[0].generator_result).toBe("ai");
+    expect(rows[0].topic_fingerprint).toBe("b".repeat(64));
+    const attempts = typeof rows[0].provider_attempts === "string"
+      ? JSON.parse(rows[0].provider_attempts)
+      : rows[0].provider_attempts;
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0].provider).toBe("openrouter");
+    expect(attempts[0].outcome).toBe("timeout");
+    expect(attempts[0]).not.toHaveProperty("error");
+  });
 });
