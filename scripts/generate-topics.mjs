@@ -25,6 +25,20 @@ import { pathToFileURL } from "node:url";
 import { createExecutor } from "./lib/sql-executor.mjs";
 import { generationChain, providerStatus as registryProviderStatus } from "./lib/judge-providers.mjs";
 
+/**
+ * Per-model timeout budget: historically the free Nemotron pools stall rather
+ * than fail fast. The default stays 60s so quality requirements never
+ * silently drop, but a model can be pinned lower via <MODEL_SLUG>_TIMEOUT_MS
+ * — e.g. NEMOTRON_3_5_LIGHTNING_TIMEOUT_MS=25000 — so one unhealthy pool
+ * cannot burn the whole retry-ladder slot waiting the full maximum.
+ */
+export function modelTimeoutMs(model, env = process.env, fallbackMs = 60_000) {
+  const key = `${String(model ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_TIMEOUT_MS`;
+  const raw = Number(env[key]);
+  if (Number.isFinite(raw) && raw >= 5_000 && raw <= 120_000) return Math.round(raw);
+  return fallbackMs;
+}
+
 function loadEnvLocal() {
   const p = path.join(process.cwd(), ".env.local");
   if (!fs.existsSync(p)) return;
@@ -392,7 +406,7 @@ Return JSON: {"topics":[{"title":"...","prompt":"...","category":"...","sources"
           max_tokens: 3000,
           temperature: 0.8,
         }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(modelTimeoutMs(model, env)),
       });
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
@@ -420,6 +434,9 @@ Return JSON: {"topics":[{"title":"...","prompt":"...","category":"...","sources"
       const usable = topics.filter((t) => t.title && t.prompt && t.category && Array.isArray(t.sources));
       if (!usable.length) throw new Error("no usable topics after schema validation");
       attempts.push({ model, outcome: "success", latencyMs: Date.now() - attemptStartedAt });
+      // Success-path attempts ride on the return value so longitudinal stats
+      // see successes too — failure-only telemetry would bias every rate.
+      usable.attempts = attempts;
       return usable;
     } catch (e) {
       lastError = e;
@@ -493,7 +510,7 @@ function scoreCandidate(topic, recentTitles) {
 
 // --- Main ---
 
-export { pickFallback, scoreCandidate, scoreNovelty };
+export { pickFallback, scoreCandidate, scoreNovelty, generateCandidates };
 
 /**
  * Resolve which date a generation run targets.
@@ -524,6 +541,12 @@ export function resolveTargetDate(now) {
  * provider failure → fallback, DB failure, idempotent re-run — is testable
  * against an in-memory query double. Outcomes are explicit:
  * ai-generated | curated-fallback | provider-failure | db-failure.
+ *
+ * Availability vs provider health stay separate downstream: the workflow's
+ * record step derives generator_result (ai | fallback-after-provider-failure
+ * | fallback-by-policy | failure) and provider_health from outcome +
+ * providerError, so a green run on a curated fallback reads as an
+ * availability success AND a provider failure, never one flattened field.
  */
 export async function runGeneration(deps = {}) {
   const query = deps.query ?? defaultQuery;
@@ -547,11 +570,15 @@ export async function runGeneration(deps = {}) {
   const providers = providerStatus(env);
   let bestTopic = null;
   let providerFailure = null;
+  // Per-model attempts from the successful leg too — failure-only telemetry
+  // would bias every longitudinal success/timeout rate.
+  let successAttempts = null;
   if (!providers.length) {
     emit("[generate-topics] no provider keys configured — curated fallback mode (acceptable, not an error)");
   } else {
     try {
       const candidates = await generate(recentTitles, 5);
+      if (Array.isArray(candidates?.attempts)) successAttempts = candidates.attempts;
       emit(`[generate-topics] ${candidates.length} candidates generated`);
       const scored = candidates.map((c) => ({ ...scoreCandidate(c, recentTitles), raw: c }));
       scored.sort((a, b) => b._score - a._score);
@@ -566,6 +593,7 @@ export async function runGeneration(deps = {}) {
         };
       } else {
         providerFailure = new Error("provider returned no usable candidates");
+        if (Array.isArray(candidates?.attempts)) providerFailure.attempts = candidates.attempts;
       }
     } catch (e) {
       providerFailure = e;
@@ -617,8 +645,11 @@ export async function runGeneration(deps = {}) {
     evidenceCards,
     // Provider detail stays separable from topic availability: a green run on
     // a curated fallback is an availability success AND a provider failure.
+    // Attempts cover the successful leg too (see above), not just failures.
     providerError: providerFailure ? String(providerFailure.message ?? providerFailure).slice(0, 200) : null,
-    providerAttempts: Array.isArray(providerFailure?.attempts) ? providerFailure.attempts : null,
+    providerAttempts: Array.isArray(providerFailure?.attempts)
+      ? providerFailure.attempts
+      : successAttempts,
   };
 }
 

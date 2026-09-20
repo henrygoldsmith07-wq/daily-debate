@@ -167,11 +167,16 @@ export interface TopicScheduledRun {
 
 export interface TopicRunTelemetryRow {
   event: string; // "schedule" | "workflow_dispatch" | ...
-  at: string; // started/created ISO
+  at: string; // runStartedAt ISO (distinct from runCreatedAt)
+  runCreatedAt?: string | null; // Actions API run creation time (queue-delay input)
+  completedAt?: string | null; // wall-clock completion time
   result: string; // "success" | "failure" | ...
-  delayMs: number | null; // platform start lateness for schedule rows
+  delayMs: number | null; // schedulerDelay = runStartedAt - scheduledFor (schedule rows)
+  queueDelayMs?: number | null; // queueDelay = runStartedAt - runCreatedAt
   targetDate: string | null; // ISO date the run generated for
   completedBeforeDeadline: boolean | null; // availability S1 held for that run
+  providerHealth?: string | null; // success | invalid-response | timeout | rate-limit | authentication | quota | other
+  generatorResult?: string | null; // ai | fallback-after-provider-failure | fallback-by-policy | failure
 }
 
 export const TOPIC_MISSED_START_THRESHOLD_MS = 90 * 60_000;

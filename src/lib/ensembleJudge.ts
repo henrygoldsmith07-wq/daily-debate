@@ -416,6 +416,10 @@ export function verdictFromEnsemble(e: EnsembleResult): PvpVerdict {
     scoreStatus: e.scoreStatus,
     observableAssessment: e.observableAssessment,
     routing: e.routing,
+    // Persist the shadow record on the verdict so route-vs-ensemble
+    // validation accumulates durably in judge_verdict jsonb. Telemetry only:
+    // readers must never take winner/scores from shadowRouting.
+    shadowRouting: e.shadowRouting ?? null,
     fingerprint: e.judges.length
       ? (() => {
           const fps = e.judges

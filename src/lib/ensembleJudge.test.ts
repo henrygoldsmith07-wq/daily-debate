@@ -89,3 +89,49 @@ describe("verdictFromEnsemble — persists uncertainty onto the stored verdict",
   });
 });
 
+describe("verdictFromEnsemble — shadow record is telemetry, never authority", () => {
+  it("carries shadowRouting through while winner/scores stay ensemble-owned", async () => {
+    const { buildShadowRecord } = await import("./routeShadowValidation");
+    const { emptyArgumentRoleCounts, ARGUMENT_TAXONOMY_VERSION } = await import("./argumentTaxonomy");
+    const e = ensembleVerdicts([judge("openrouter", "a", 61, 39), judge("anthropic", "a", 59, 41)]);
+    const roleCounts = emptyArgumentRoleCounts();
+    roleCounts.claim = 1;
+    roleCounts.question = 1;
+    const shadow = buildShadowRecord({
+      routing: {
+        route: "deterministic",
+        specializedPath: "deterministic",
+        taxonomyVersion: ARGUMENT_TAXONOMY_VERSION,
+        classifierSource: "fallback",
+        argumentCount: 2,
+        batchCount: 1,
+        roleCounts,
+        roleCountsByOwner: { a: roleCounts, b: emptyArgumentRoleCounts(), ai: emptyArgumentRoleCounts() },
+        highConfidenceCount: 1,
+        ambiguousCount: 0,
+        unknownCount: 1,
+        fallbackCount: 1,
+        mixedRoleCount: 0,
+        expensiveJudgeCallsAvoided: 0,
+        reason: "test",
+      },
+      ensemble: { winner: "a", playerAScore: 60, playerBScore: 40, scoreGap: 20, scoreStatus: "scored" },
+      shadow: { winner: "b", playerAScore: 40, playerBScore: 60, scoreGap: 20, scoreStatus: "scored" },
+    });
+    const v = verdictFromEnsemble({ ...e, shadowRouting: shadow });
+    // Shadow disagrees with the ensemble here — the stored winner must still
+    // be the ensemble's. Shadow can never alter the production winner.
+    expect(v.shadowRouting).toEqual(shadow);
+    expect(v.shadowRouting!.winnerAgreement).toBe(false);
+    expect(v.winner).toBe("a");
+    expect(v.playerAScore).toBe(60);
+    expect(v.playerBScore).toBe(40);
+  });
+
+  it("stores null shadow when no shadow route ran", () => {
+    const v = verdictFromEnsemble(ensembleVerdicts([judge("openrouter", "a", 61, 39)]));
+    expect(v.shadowRouting).toBeNull();
+    expect(v.winner).toBe("a");
+  });
+});
+

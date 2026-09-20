@@ -158,6 +158,13 @@ export interface PvpVerdict {
   judges?: VerdictJudgeDetail[]; // per-judge verdicts (empty for single-judge fallback-less runs)
   /** Structural classifier metadata; no viewpoint correctness or winner signal. */
   routing?: ArgumentRoutingSummary;
+  /**
+   * SHADOW judge-avoidance record (telemetry only). The ensemble fields above
+   * are AUTHORITATIVE: winner, scores, XP, and progression must never be read
+   * from shadowRouting. Null when no shadow route produced a record; absent
+   * on pre-shadow rows.
+   */
+  shadowRouting?: import("./routeShadowValidation").RouteShadowRecord | null;
   /** Version fingerprint: provider/model/prompt/engine/schema/temp/ensemble */
   fingerprint?: {
     provider: string;
