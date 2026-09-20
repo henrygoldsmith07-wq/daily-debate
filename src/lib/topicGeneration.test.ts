@@ -260,6 +260,112 @@ describe("runGeneration pipeline (injected query)", () => {
   });
 });
 
+/**
+ * PRODUCTION WRITE REGRESSION — jsonb parameter binding.
+ *
+ * Real scheduled runs failed on the store-topic step with
+ * `invalid input syntax for type json`. The Neon HTTP transport serialises a
+ * JS array as a Postgres array literal (`{a,b}`), which a jsonb column
+ * rejects. The curated fallback only ever stored successfully because its
+ * `sources` was empty (`[]` -> `{}`, which happens to parse as JSON) — so
+ * every AI-generated topic failed the production write. This double enforces
+ * real jsonb semantics so the defect cannot silently return.
+ */
+describe("jsonb parameter binding (production write regression)", () => {
+  type Row = Record<string, unknown>;
+
+  function jsonbStrictDb() {
+    const topics = new Map<string, Row>();
+    const evidence: Row[] = [];
+    const jsonbBound: unknown[] = [];
+    let seq = 0;
+
+    // A jsonb column accepts a JSON *string*; anything else is a hard error.
+    const asJsonb = (value: unknown, column: string): string => {
+      jsonbBound.push(value);
+      if (typeof value !== "string") throw new Error(`invalid input syntax for type json (${column})`);
+      JSON.parse(value);
+      return value;
+    };
+
+    const query = async (text: string, params: unknown[] = []): Promise<Row[]> => {
+      if (/^SELECT title FROM daily_topics/i.test(text)) {
+        return [...topics.values()].map((r) => ({ title: r.title }));
+      }
+      if (/^INSERT INTO daily_topics/i.test(text)) {
+        const [date, title, prompt, category, sources, source] = params as [
+          string, string, string, string, unknown, string,
+        ];
+        topics.set(date, {
+          topic_date: date,
+          title,
+          prompt,
+          category,
+          sources: asJsonb(sources, "daily_topics.sources"),
+          generation_source: source,
+        });
+        return [{ id: ++seq }];
+      }
+      if (/^DELETE FROM topic_evidence/i.test(text)) {
+        const [topicId] = params as [number];
+        for (let i = evidence.length - 1; i >= 0; i--) {
+          if (evidence[i].topic_id === topicId) evidence.splice(i, 1);
+        }
+        return [];
+      }
+      if (/^INSERT INTO topic_evidence/i.test(text)) {
+        const [topicId, claim, , , url, , , , checks] = params as unknown[];
+        evidence.push({ topic_id: topicId, claim, url, checks: asJsonb(checks, "topic_evidence.checks") });
+        return [];
+      }
+      throw new Error(`unexpected SQL: ${text.slice(0, 60)}`);
+    };
+
+    return { topics, evidence, jsonbBound, query };
+  }
+
+  const NOW = new Date("2026-09-11T02:00:00Z");
+  const silent = { log: () => {} } as const;
+
+  it("stores an AI topic with non-empty sources (the exact production failure)", async () => {
+    const db = jsonbStrictDb();
+    const generate = async () => [
+      {
+        title: "Cities should eliminate minimum parking requirements",
+        prompt: "Should planning rules stop requiring parking?",
+        category: "Policy",
+        sources: ["https://nrel.gov/a", "https://pewresearch.org/b"],
+      },
+    ];
+    const result = await runGeneration({
+      query: db.query, env: { NVIDIA_API_KEY: "x" }, generate, retrieve: async () => [], now: NOW, ...silent,
+    });
+    expect(result.outcome).toBe("ai-generated");
+    expect(db.topics.size).toBe(1);
+    // Round-trips as the same array, not a Postgres array literal `{...}`.
+    expect(JSON.parse(String([...db.topics.values()][0].sources)))
+      .toEqual(["https://nrel.gov/a", "https://pewresearch.org/b"]);
+  });
+
+  it("binds every jsonb parameter as a JSON string, never a raw array/object", async () => {
+    const db = jsonbStrictDb();
+    const retrieve = async () => [
+      {
+        claim: "c",
+        sourceName: "NREL",
+        sourceType: "primary",
+        url: "https://nrel.gov",
+        passage: "p",
+        checks: { reachable: true },
+      },
+    ];
+    await runGeneration({ query: db.query, env: {}, retrieve, now: NOW, ...silent });
+    expect(db.jsonbBound.length).toBeGreaterThanOrEqual(2);
+    for (const bound of db.jsonbBound) expect(typeof bound).toBe("string");
+    expect(JSON.parse(String(db.jsonbBound[db.jsonbBound.length - 1]))).toEqual({ reachable: true });
+  });
+});
+
 describe("resolveTargetDate (cycle-boundary rule)", () => {
   it("on-time evening slots target tomorrow", () => {
     for (const at of ["2026-09-16T20:00:00Z", "2026-09-16T21:30:00Z", "2026-09-16T22:45:00Z", "2026-09-16T23:40:00Z"]) {
