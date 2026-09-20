@@ -186,6 +186,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       transcript,
     });
     verdict = stampVerdict(verdictFromEnsemble(ensemble));
+    // The ensemble verdict is AUTHORITATIVE — verdictFromEnsemble carries the
+    // shadow record through as telemetry only (never winner/scores/XP).
 
     // Persist the judge fingerprint alongside the verdict so model drift is
     // attributable when agreement drops in future benchmark runs.

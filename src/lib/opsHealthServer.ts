@@ -244,36 +244,76 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
  * serves - i.e. T 00:00 is when it becomes today; 03:00 is the hard cap).
  */
 async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
+  const mapRow = (r: {
+    event: string;
+    started_at: string;
+    run_created_at?: string | null;
+    completed_at: string | null;
+    delay_ms: string | number | null;
+    queue_delay_ms?: string | number | null;
+    target_date: string | null;
+    result: string;
+    freshness_ok: boolean | null;
+    provider_health?: string | null;
+    generator_result?: string | null;
+  }): TopicRunTelemetryRow => {
+    let beforeDeadline: boolean | null = null;
+    if (r.completed_at && r.target_date) {
+      const deadline = Date.parse(`${r.target_date.slice(0, 10)}T00:00:00Z`) + 3 * 3_600_000;
+      beforeDeadline = Date.parse(r.completed_at) <= deadline && r.freshness_ok !== false;
+    }
+    return {
+      event: r.event,
+      at: r.started_at,
+      runCreatedAt: r.run_created_at ?? null,
+      completedAt: r.completed_at,
+      result: r.result,
+      delayMs: r.delay_ms === null ? null : Number(r.delay_ms),
+      queueDelayMs: r.queue_delay_ms === null || r.queue_delay_ms === undefined ? null : Number(r.queue_delay_ms),
+      targetDate: r.target_date ? r.target_date.slice(0, 10) : null,
+      completedBeforeDeadline: beforeDeadline,
+      providerHealth: r.provider_health ?? null,
+      generatorResult: r.generator_result ?? null,
+    };
+  };
   try {
     const { queryRows } = await import("./backend/sql");
-    const rows = await queryRows<{
-      event: string;
-      started_at: string;
-      scheduled_for: string | null;
-      completed_at: string | null;
-      delay_ms: string | number | null;
-      target_date: string | null;
-      result: string;
-      freshness_ok: boolean | null;
-    }>(
-      `SELECT event, started_at, scheduled_for, completed_at, delay_ms, target_date, result, freshness_ok
-         FROM topic_run_log ORDER BY started_at DESC LIMIT 60`,
-    );
-    return rows.map((r) => {
-      let beforeDeadline: boolean | null = null;
-      if (r.completed_at && r.target_date) {
-        const deadline = Date.parse(`${r.target_date.slice(0, 10)}T00:00:00Z`) + 3 * 3_600_000;
-        beforeDeadline = Date.parse(r.completed_at) <= deadline && r.freshness_ok !== false;
-      }
-      return {
-        event: r.event,
-        at: r.started_at,
-        result: r.result,
-        delayMs: r.delay_ms === null ? null : Number(r.delay_ms),
-        targetDate: r.target_date ? r.target_date.slice(0, 10) : null,
-        completedBeforeDeadline: beforeDeadline,
-      };
-    });
+    try {
+      const rows = await queryRows<{
+        event: string;
+        started_at: string;
+        run_created_at: string | null;
+        completed_at: string | null;
+        delay_ms: string | number | null;
+        queue_delay_ms: string | number | null;
+        target_date: string | null;
+        result: string;
+        freshness_ok: boolean | null;
+        provider_health: string | null;
+        generator_result: string | null;
+      }>(
+        `SELECT event, started_at, run_created_at, completed_at, delay_ms, queue_delay_ms,
+                target_date, result, freshness_ok, provider_health, generator_result
+           FROM topic_run_log ORDER BY started_at DESC LIMIT 60`,
+      );
+      return rows.map(mapRow);
+    } catch {
+      // Pre-016 databases lack the fidelity columns — fall back to the
+      // legacy shape so telemetry still loads instead of going dark.
+      const rows = await queryRows<{
+        event: string;
+        started_at: string;
+        completed_at: string | null;
+        delay_ms: string | number | null;
+        target_date: string | null;
+        result: string;
+        freshness_ok: boolean | null;
+      }>(
+        `SELECT event, started_at, completed_at, delay_ms, target_date, result, freshness_ok
+           FROM topic_run_log ORDER BY started_at DESC LIMIT 60`,
+      );
+      return rows.map(mapRow);
+    }
   } catch {
     return [];
   }

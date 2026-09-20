@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  modelTimeoutMs,
   pickFallback,
   resolveTargetDate,
   runGeneration,
@@ -257,6 +258,101 @@ describe("runGeneration pipeline (injected query)", () => {
     // never silently advance to the next cycle's date.
     expect(late.date).toBe("2026-09-17");
     expect(db.topics.size).toBe(1);
+  });
+});
+
+/**
+ * PER-MODEL TIMEOUTS — a historically unhealthy pool must not burn the full
+ * maximum wait on every attempt, but quality requirements never silently drop
+ * (the default stays 60s; overrides are explicit, bounded, and per model).
+ */
+describe("modelTimeoutMs (per-model failover budget)", () => {
+  it("defaults to 60s and honours bounded per-model overrides", () => {
+    const env = (v: Record<string, string>) => v as unknown as NodeJS.ProcessEnv;
+    expect(modelTimeoutMs("nvidia/nemotron-3-ultra-550b-a55b", env({}))).toBe(60_000);
+    expect(
+      modelTimeoutMs("nvidia/nemotron-3.5-lightning:free", env({ NVIDIA_NEMOTRON_3_5_LIGHTNING_FREE_TIMEOUT_MS: "25000" })),
+    ).toBe(25_000);
+    // Out-of-range overrides fall back instead of weakening or stalling.
+    expect(modelTimeoutMs("m", env({ M_TIMEOUT_MS: "1000" }))).toBe(60_000);
+    expect(modelTimeoutMs("m", env({ M_TIMEOUT_MS: "999999" }))).toBe(60_000);
+    expect(modelTimeoutMs("m", env({ M_TIMEOUT_MS: "nope" }))).toBe(60_000);
+  });
+});
+
+/**
+ * PROVIDER DETAIL vs AVAILABILITY — the result separates what the workflow's
+ * record step derives downstream (generator_result + provider_health) from
+ * the stored-topic outcome: providerError/providerAttempts ride on every
+ * path, and success-leg attempts are propagated (not just failures) so
+ * longitudinal rates are never computed from failure-only telemetry.
+ */
+describe("provider detail separation (availability vs provider health)", () => {
+  type Row = Record<string, unknown>;
+  function fakeDb() {
+    const topics = new Map<string, Row & { id: number }>();
+    let seq = 0;
+    const query = async (text: string, params: unknown[] = []): Promise<Row[]> => {
+      if (/^SELECT title FROM daily_topics/i.test(text)) {
+        return [...topics.values()].map((r) => ({ title: r.title }));
+      }
+      if (/^INSERT INTO daily_topics/i.test(text)) {
+        const [date, title, prompt, category, sources, source] = params as [string, string, string, string, unknown, string];
+        const existing = topics.get(date);
+        if (existing) {
+          Object.assign(existing, { title, prompt, category, sources, generation_source: source });
+          return [{ id: existing.id }];
+        }
+        const row = { id: ++seq, topic_date: date, title, prompt, category, sources, generation_source: source } as Row & { id: number };
+        topics.set(date, row);
+        return [{ id: row.id }];
+      }
+      if (/^DELETE FROM topic_evidence/i.test(text)) return [];
+      if (/^INSERT INTO topic_evidence/i.test(text)) return [];
+      throw new Error(`unexpected SQL: ${text.slice(0, 60)}`);
+    };
+    return { topics, query };
+  }
+  const NOW = new Date("2026-09-11T02:00:00Z");
+  const silent = { log: () => {} } as const;
+
+  it("provider failure stores the fallback with bucketed per-model attempts", async () => {
+    const db = fakeDb();
+    const generate = async () => {
+      const err = new Error("timeout of 60000ms exceeded") as Error & { attempts: unknown[] };
+      err.attempts = [{ model: "m", outcome: "timeout", latencyMs: 60000, error: "timeout of 60000ms exceeded" }];
+      throw err;
+    };
+    const result = await runGeneration({ query: db.query, env: { NVIDIA_API_KEY: "x" }, generate, retrieve: async () => [], now: NOW, ...silent });
+    expect(result.outcome).toBe("provider-failure");
+    expect(result.source).toBe("fallback");
+    expect(result.providerError).toMatch(/timeout/i);
+    expect(result.providerAttempts).toHaveLength(1);
+    expect(db.topics.size).toBe(1);
+  });
+
+  it("policy fallback (no keys) carries no provider error or attempts", async () => {
+    const db = fakeDb();
+    const result = await runGeneration({ query: db.query, env: {}, retrieve: async () => [], now: NOW, ...silent });
+    expect(result.outcome).toBe("curated-fallback");
+    expect(result.providerError).toBeNull();
+    expect(result.providerAttempts).toBeNull();
+  });
+
+  it("AI success propagates success-leg attempts for longitudinal stats", async () => {
+    const db = fakeDb();
+    const attempts = [{ model: "m", outcome: "success", latencyMs: 1200 }];
+    const generate = async () => {
+      const out = [
+        { title: "Cities should eliminate minimum parking requirements", prompt: "Should planning rules stop requiring parking?", category: "Policy", sources: [] },
+      ] as unknown as Array<Record<string, unknown>> & { attempts?: unknown[] };
+      (out as { attempts?: unknown[] }).attempts = attempts;
+      return out;
+    };
+    const result = await runGeneration({ query: db.query, env: { NVIDIA_API_KEY: "x" }, generate, retrieve: async () => [], now: NOW, ...silent });
+    expect(result.outcome).toBe("ai-generated");
+    expect(result.providerError).toBeNull();
+    expect(result.providerAttempts).toEqual(attempts);
   });
 });
 
