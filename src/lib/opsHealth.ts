@@ -202,6 +202,81 @@ export interface AiProductionEvidence {
 
 export const TOPIC_MISSED_START_THRESHOLD_MS = 90 * 60_000;
 
+/**
+ * Canonical topic-generation cron slots in UTC (mirror of
+ * .github/workflows/topic-generation.yml — update both together). Used by the
+ * second-witness delay derivation below; the workflow itself records the
+ * exact slot via github.event.schedule into topic_run_log, which stays the
+ * PRIMARY source. This mirror only fills gaps when the DB is unreachable.
+ */
+export const TOPIC_LADDER_SLOTS_UTC_MINUTES = [20 * 60, 21 * 60 + 30, 22 * 60 + 45, 23 * 60 + 40, 15, 2 * 60 + 15];
+
+/**
+ * Most recent ladder slot (UTC, wrapping midnight) strictly <= nowMs.
+ * Mirrors scheduledForCron in scripts/record-topic-run.mjs for the fixed
+ * daily-slot ladder; a shared module was rejected to keep the Next runtime
+ * free of cross-imports from scripts/.
+ */
+export function mostRecentTopicSlot(nowMs: number): number | null {
+  const d = new Date(nowMs);
+  for (const offsetDays of [0, 1, 2]) {
+    const dayStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    const candidates = TOPIC_LADDER_SLOTS_UTC_MINUTES.map((m) => dayStart - offsetDays * 86_400_000 + m * 60_000);
+    const best = Math.max(...candidates.filter((t) => t <= nowMs));
+    if (candidates.some((t) => t <= nowMs)) return best;
+  }
+  return null;
+}
+
+/**
+ * SECOND-WITNESS scheduler-delay telemetry, derived from GitHub run history
+ * alone. The primary source is topic_run_log (recorded by the run itself,
+ * with the exact cron slot). But that telemetry lives in the same database
+ * the pipeline needs: when the DB is down — precisely when you want to know
+ * whether the platform or the store failed — the delay log disappears with
+ * it. This derivation reconstructs approximate delays from run_created_at
+ * vs the most recent ladder slot so the scheduler-delay view keeps working.
+ *
+ * Approximate by design: the actual slot a run belonged to is inferred
+ * (created_at vs started_at also differ slightly). Only schedule runs are
+ * witnessed; targetDate stays null so these rows can never contribute to
+ * the availability proofs — those remain DB-backed.
+ */
+export function deriveDelayWitness(runs: TopicScheduledRun[]): TopicRunTelemetryRow[] {
+  const out: TopicRunTelemetryRow[] = [];
+  for (const r of runs) {
+    if (r.event !== "schedule") continue;
+    const at = Date.parse(r.createdAt);
+    if (!Number.isFinite(at)) continue;
+    const slot = mostRecentTopicSlot(at);
+    if (slot === null) continue;
+    out.push({
+      event: "schedule",
+      at: r.createdAt,
+      result: r.status === "completed" ? r.conclusion ?? "unknown" : r.status,
+      delayMs: at - slot,
+      targetDate: null,
+      completedBeforeDeadline: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Merge DB-recorded telemetry (primary) with derived witness rows: a DB row
+ * within ±5 minutes of a witness covers it (same run recorded precisely),
+ * so nothing is double-counted; witness rows only fill real gaps.
+ */
+export function mergeDelayWitnesses(dbRows: TopicRunTelemetryRow[], witnesses: TopicRunTelemetryRow[]): TopicRunTelemetryRow[] {
+  const covered = (w: TopicRunTelemetryRow) =>
+    dbRows.some((d) => {
+      const a = Date.parse(d.at);
+      const b = Date.parse(w.at);
+      return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 5 * 60_000;
+    });
+  return [...dbRows, ...witnesses.filter((w) => !covered(w))];
+}
+
 export interface TopicSloInput {
   runs: TopicScheduledRun[];
   /** Can this runtime read the production topic store at all? */

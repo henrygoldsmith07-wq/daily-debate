@@ -6,6 +6,8 @@ import {
   assessJudgeHealth,
   assessTopicHealth,
   assessTopicSlo,
+  deriveDelayWitness,
+  mergeDelayWitnesses,
   assessTrainingEvidence,
   buildOpsHealthReport,
   rollupOverall,
@@ -537,5 +539,57 @@ describe("evidence sections (never green-washed)", () => {
     };
     expect(invalidSection.measurement).toBe("invalid");
     expect(invalidSection.outcomes).toHaveLength(0);
+  });
+});
+
+describe("second-witness scheduler-delay telemetry (derived from GitHub run history)", () => {
+  const run = (event: string, conclusion: string | null, createdAt: string, status = "completed") => ({
+    event, status, conclusion, createdAt,
+  });
+
+  it("derives delay from the most recent ladder slot for schedule runs only", () => {
+    const witnesses = deriveDelayWitness([
+      run("schedule", "failure", "2026-09-16T22:30:00Z"), // slot 22:45 is future -> belongs to 21:30 -> 60 min
+      run("workflow_dispatch", "success", "2026-09-16T12:00:00Z"), // never witnessed
+    ]);
+    expect(witnesses).toHaveLength(1);
+    expect(witnesses[0].delayMs).toBe(60 * 60_000);
+    expect(witnesses[0].result).toBe("failure");
+    // Witness rows never claim availability facts.
+    expect(witnesses[0].targetDate).toBeNull();
+    expect(witnesses[0].completedBeforeDeadline).toBeNull();
+  });
+
+  it("wraps midnight: a 00:10 run belongs to the previous day's 23:40 slot", () => {
+    const witnesses = deriveDelayWitness([run("schedule", "failure", "2026-09-16T00:10:00Z")]);
+    expect(witnesses[0].delayMs).toBe(30 * 60_000);
+  });
+
+  it("merge keeps DB rows primary and drops witnesses within ±5 minutes of one", () => {
+    const db = [
+      { event: "schedule", at: "2026-09-16T21:32:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-17", completedBeforeDeadline: true },
+    ];
+    const witness = [
+      { event: "schedule", at: "2026-09-16T21:31:30Z", result: "success", delayMs: 90_000, targetDate: null, completedBeforeDeadline: null },
+      { event: "schedule", at: "2026-09-16T23:44:00Z", result: "failure", delayMs: 240_000, targetDate: null, completedBeforeDeadline: null },
+    ];
+    const merged = mergeDelayWitnesses(db, witness);
+    expect(merged).toHaveLength(2); // covered witness dropped, gap witness kept
+    expect(merged[0].targetDate).toBe("2026-09-17"); // DB row intact
+    expect(merged[1].delayMs).toBe(240_000);
+  });
+
+  it("feeds the scheduling view when the DB is unreachable (outage scenario)", () => {
+    const s = assessTopicSlo(
+      {
+        runs: [run("schedule", "failure", "2026-09-16T22:30:00Z")],
+        productionDbReadable: false,
+        tomorrowReady: false,
+        telemetry: deriveDelayWitness([run("schedule", "failure", "2026-09-16T22:30:00Z")]),
+      },
+      "2026-09-16T23:00:00Z",
+    );
+    expect(s.scheduling.latestDelayMs).toBe(60 * 60_000); // platform lateness still measurable
+    expect(s.availability.state).toBe("unknown"); // content facts stay honest
   });
 });
