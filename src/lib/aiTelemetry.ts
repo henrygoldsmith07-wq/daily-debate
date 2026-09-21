@@ -119,6 +119,12 @@ export interface AiCallTelemetry {
   /** USD cost as reported by the provider (OpenRouter). Absent when not reported. */
   costUsd?: number;
   latencyMs: number;
+  /**
+   * Server-reported inference time (classifier.dev `usage.ms`). Log-only:
+   * kept in the structured log line for latency attribution, not mirrored
+   * to ai_call_log (no migration) — query per-operation latency there.
+   */
+  serverLatencyMs?: number;
   outcome: AiCallOutcome;
   /** Structured failure classification — never raw provider text. */
   errorCategory?: AiErrorCategory;

@@ -184,6 +184,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       topicPrompt: topic?.prompt ?? "",
       playerASide: match.player_a_side as "for" | "against",
       transcript,
+      // Stable key for deterministic shadow-sampling of classifier.dev
+      // traffic: only a hash-selected subset of judged matches is classified
+      // remotely. Sampling never changes the verdict — the ensemble stays
+      // authoritative and skipped matches take the local fallback path.
+      debateKey: matchId,
     });
     verdict = stampVerdict(verdictFromEnsemble(ensemble));
     // The ensemble verdict is AUTHORITATIVE — verdictFromEnsemble carries the

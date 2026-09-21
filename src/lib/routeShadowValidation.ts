@@ -238,6 +238,13 @@ export interface RouteShadowRecord {
   /** Bounded segmentation metadata (no raw text is ever stored). */
   sizeBucket: SizeBucket | null;
   roundCount: number | null;
+  /**
+   * Expensive judge legs this shadow attempt WOULD have avoided had its
+   * route been adopted (copied from the routing summary). Shadow-only
+   * evidence for judge-call savings; never a live saving while routes are
+   * in shadow. Absent on rows recorded before this field existed.
+   */
+  avoidedJudgeLegs?: number;
 }
 
 /** Build the shadow record from the routing summary plus both verdicts. */
@@ -286,6 +293,7 @@ export function buildShadowRecord(params: {
       ?? (shadow !== null ? "scored" : routing.route === "ensemble" ? "routing-not-eligible" : "insufficient-evidence"),
     sizeBucket: params.sizeBucket ?? null,
     roundCount: typeof params.roundCount === "number" ? params.roundCount : null,
+    avoidedJudgeLegs: routing.expensiveJudgeCallsAvoided ?? 0,
   };
 }
 
@@ -417,6 +425,27 @@ export interface RouteSegment {
   scoreGapMae: number | null;
   insufficientEvidenceRate: number | null;
   falseDecisiveRate: number | null;
+  /** Sum of would-be-avoided judge legs across eligible attempts. */
+  avoidedJudgeLegs: number;
+}
+
+/** Eligible shadow attempts: everything except normal ensemble routing. */
+function isEligibleShadowAttempt(r: RouteShadowRecord): boolean {
+  return (r.shadowAttemptStatus ?? (r.insufficientEvidence ? "insufficient-evidence" : "scored")) !== "routing-not-eligible";
+}
+
+/**
+ * False-route rate: share of SCORED shadow attempts where the classifier
+ * route disagrees with the authoritative ensemble (any winner mismatch, not
+ * just false-decisive calls). Null when nothing scored. This is the
+ * complement of winner agreement — the headline "how often would the route
+ * have been wrong" tracker. It is NOT a gate criterion: adoption thresholds
+ * are fixed in PREREGISTERED_ROUTE_GATES and evaluated only there.
+ */
+export function falseRouteRate(records: RouteShadowRecord[]): number | null {
+  const scored = records.filter((r) => isEligibleShadowAttempt(r) && !r.insufficientEvidence);
+  if (!scored.length) return null;
+  return scored.filter((r) => !r.winnerAgreement).length / scored.length;
 }
 
 export function segmentByRoute(records: RouteShadowRecord[]): RouteSegment[] {
@@ -446,6 +475,7 @@ export function segmentByRoute(records: RouteShadowRecord[]): RouteSegment[] {
       falseDecisiveRate: scored.length
         ? scored.filter((r) => r.shadowWinner !== "tie" && r.ensembleWinner === "tie").length / scored.length
         : null,
+      avoidedJudgeLegs: rs.reduce((sum, r) => sum + (r.avoidedJudgeLegs ?? 0), 0),
     };
   });
 }

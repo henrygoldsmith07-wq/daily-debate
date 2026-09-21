@@ -7,6 +7,11 @@
 
 import { classifyAiError, recordAiCall } from "./aiTelemetry";
 import {
+  resolveShadowSampleRate,
+  SHADOW_SAMPLE_ENV_VAR,
+  shadowSampleDecision,
+} from "./shadowSampling";
+import {
   ARGUMENT_ROLE_DESCRIPTIONS,
   ARGUMENT_ROLE_LABELS,
   ARGUMENT_TAXONOMY_VERSION,
@@ -26,6 +31,13 @@ import {
 export const CLASSIFIER_DEV_ENDPOINT = "https://classifier.dev/v1/classify";
 export const CLASSIFIER_DEV_MAX_INPUTS = 1_000;
 export const CLASSIFIER_DEV_MAX_LABELS = 100;
+/**
+ * Per-input transmission cap. Rhetorical role is a local property — the
+ * opening paragraphs determine it — so sending more than ~4k characters
+ * (≈600–800 words) only enlarges external exposure and the oversize-400
+ * risk without improving labels. Minimises text sent to classifier.dev.
+ */
+export const CLASSIFIER_DEV_MAX_INPUT_CHARS = 4_000;
 
 /**
  * classifier.dev returns every multi-label score at or above 0.7. We keep
@@ -62,6 +74,14 @@ export interface ArgumentClassificationBatch {
   fallbackCount: number;
   model?: string;
   remoteUsed: boolean;
+  /** Tier echo from the service (`tier` field), or the requested tier. */
+  tier?: string;
+  /** Server-reported inference time (`usage.ms`), when the service reports it. */
+  serverLatencyMs?: number;
+  /** Count of inputs whose smart-tier escalation failed (`usage.escalation_failed`). */
+  escalationFailed?: number;
+  /** Service version header (`x-api-version`) for API-drift detection. */
+  apiVersion?: string;
 }
 
 export interface ArgumentRoutingPlan {
@@ -83,6 +103,14 @@ export interface ArgumentRoutingPlan {
   requiresExpensiveJudge: boolean;
   reason: string;
   model?: string;
+  /**
+   * Shadow-sampling outcome for this debate: true when the debate was
+   * selected for remote classification, false when it took the local
+   * fallback path instead, null when sampling did not apply (e.g. live
+   * response shaping or disabled remote). Persisted via routingSummary so
+   * the sampling decision stays auditable per debate.
+   */
+  shadowSampled: boolean | null;
 }
 
 interface RawClassifierResult {
@@ -91,13 +119,23 @@ interface RawClassifierResult {
   confidence?: unknown;
   scores?: unknown;
   escalated?: unknown;
+  /**
+   * Real-API field: a non-empty string reason when the service declined to
+   * score this input. Such a row carries no usable labels and must degrade
+   * to fallback, never to a confident classification.
+   */
+  unscored?: unknown;
+  /** Real-API field: per-result model attribution (falls back to batch model). */
+  model?: unknown;
 }
 
 interface RawClassifierResponse {
   results?: unknown;
   model?: unknown;
   modelsUsed?: unknown;
-  usage?: { escalated?: unknown };
+  /** Real-API field: echo of the serving tier ("fast" | "smart"). */
+  tier?: unknown;
+  usage?: { escalated?: unknown; escalation_failed?: unknown; ms?: unknown };
 }
 
 class ClassifierDevError extends Error {
@@ -172,7 +210,15 @@ function classificationFromRaw(
   raw: RawClassifierResult,
   model?: string,
   escalated?: boolean,
+  tier?: string,
 ): ArgumentClassification {
+  // The service explicitly declined to score this input: degrade to the
+  // local fallback path (which can never take a judge-avoidance route)
+  // rather than trusting whatever labels ride along.
+  if (typeof raw.unscored === "string" && raw.unscored.length > 0) {
+    return fallbackClassification(text, index, "unscored_result");
+  }
+  const resolvedModel = typeof raw.model === "string" && raw.model.length > 0 ? raw.model : model;
   const scores = roleScores(raw.scores);
   const labels = labelsFromRaw(raw, scores);
   const ranked = [...new Set([...labels, ...Object.keys(scores).map(normaliseArgumentRole)])]
@@ -196,7 +242,8 @@ function classificationFromRaw(
     confidence,
     status: (primaryRole as ArgumentRole) === "other" ? "unknown" : highConfidence ? "high_confidence" : "ambiguous",
     source: "classifier.dev",
-    model,
+    model: resolvedModel,
+    tier,
     escalated: escalated || Boolean(raw.escalated),
   };
 }
@@ -215,7 +262,14 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-async function fetchClassifierBatch(inputs: string[], options: ClassifierDevOptions): Promise<{ response: RawClassifierResponse; model?: string }> {
+async function fetchClassifierBatch(inputs: string[], options: ClassifierDevOptions): Promise<{
+  response: RawClassifierResponse;
+  model?: string;
+  tier?: string;
+  serverLatencyMs?: number;
+  escalationFailed?: number;
+  apiVersion?: string;
+}> {
   const fetchImpl = options.fetchImpl ?? fetch;
   if (typeof fetchImpl !== "function") throw new ClassifierDevError("fetch_unavailable", null, "fetch is unavailable");
   const endpoint = options.endpoint ?? process.env.CLASSIFIER_DEV_ENDPOINT ?? CLASSIFIER_DEV_ENDPOINT;
@@ -247,7 +301,16 @@ async function fetchClassifierBatch(inputs: string[], options: ClassifierDevOpti
     if (!body || !Array.isArray(body.results)) throw new ClassifierDevError("invalid_response", response.status, "classifier.dev returned no results");
     if (body.results.length !== inputs.length) throw new ClassifierDevError("result_length_mismatch", response.status, "classifier.dev result count did not match input count");
     const model = typeof body.model === "string" ? body.model : Array.isArray(body.modelsUsed) ? (body.modelsUsed.find((value): value is string => typeof value === "string") ?? "classifier.dev") : "classifier.dev";
-    return { response: body, model };
+    // Tier echo tells fast-vs-smart evaluation which tier actually served the
+    // request; fall back to the requested tier when the service omits it.
+    const tier = typeof body.tier === "string" && body.tier.length > 0 ? body.tier : (options.tier ?? "fast");
+    const usage = body.usage ?? {};
+    const serverLatencyMs = typeof usage.ms === "number" && Number.isFinite(usage.ms) && usage.ms >= 0 ? usage.ms : undefined;
+    const escalationFailed = typeof usage.escalation_failed === "number" && Number.isFinite(usage.escalation_failed) && usage.escalation_failed > 0
+      ? Math.floor(usage.escalation_failed)
+      : undefined;
+    const apiVersion = response.headers?.get?.("x-api-version") ?? undefined;
+    return { response: body, model, tier, serverLatencyMs, escalationFailed, apiVersion: apiVersion ?? undefined };
   } catch (error) {
     if (error instanceof ClassifierDevError) throw error;
     const classified = classifyAiError(error, null);
@@ -282,17 +345,27 @@ export async function classifyArgumentBatchDetailed(
   let remoteBatches = 0;
   let fallbackCount = 0;
   let model: string | undefined;
+  let tier: string | undefined;
+  let serverLatencyMs: number | undefined;
+  let escalationFailed = 0;
+  let apiVersion: string | undefined;
   for (const batch of batches) {
     const startedAt = Date.now();
     try {
-      const result = await fetchClassifierBatch(batch.map((text) => text.slice(0, 32_000)), options);
+      const result = await fetchClassifierBatch(batch.map((text) => text.slice(0, CLASSIFIER_DEV_MAX_INPUT_CHARS)), options);
       model = result.model ?? model;
+      tier = result.tier ?? tier;
+      if (typeof result.serverLatencyMs === "number") {
+        serverLatencyMs = serverLatencyMs === undefined ? result.serverLatencyMs : Math.max(serverLatencyMs, result.serverLatencyMs);
+      }
+      escalationFailed += result.escalationFailed ?? 0;
+      apiVersion = result.apiVersion ?? apiVersion;
       remoteBatches += 1;
       const usageEscalated = result.response.usage?.escalated;
       const escalated = typeof usageEscalated === "number" && usageEscalated > 0;
       const rows = result.response.results as unknown[];
       rows.forEach((row, index) => {
-        classifications.push(classificationFromRaw(batch[index], classifications.length, (row ?? {}) as RawClassifierResult, result.model, escalated));
+        classifications.push(classificationFromRaw(batch[index], classifications.length, (row ?? {}) as RawClassifierResult, result.model, escalated, result.tier));
       });
       recordAiCall({
         at: new Date().toISOString(),
@@ -300,6 +373,7 @@ export async function classifyArgumentBatchDetailed(
         provider: "classifier",
         model: result.model ?? "classifier.dev",
         latencyMs: Date.now() - startedAt,
+        serverLatencyMs: result.serverLatencyMs,
         outcome: "ok",
         inputCount: batch.length,
         batchCount: 1,
@@ -329,7 +403,18 @@ export async function classifyArgumentBatchDetailed(
       });
     }
   }
-  return { classifications, batchCount: batches.length, remoteBatches, fallbackCount, model, remoteUsed: remoteBatches > 0 };
+  return {
+    classifications,
+    batchCount: batches.length,
+    remoteBatches,
+    fallbackCount,
+    model,
+    remoteUsed: remoteBatches > 0,
+    tier,
+    serverLatencyMs,
+    escalationFailed: escalationFailed > 0 ? escalationFailed : undefined,
+    apiVersion,
+  };
 }
 
 export async function classifyArgumentBatch(inputs: string[], options: ClassifierDevOptions = {}): Promise<ArgumentClassification[]> {
@@ -361,6 +446,7 @@ export function routeClassifiedArguments(
   args: SubmittedArgument[],
   classifications: ArgumentClassification[],
   batchCount = 1,
+  opts: { shadowSampled?: boolean | null } = {},
 ): ArgumentRoutingPlan {
   const roleCounts = countArgumentRoles(classifications);
   const roleCountsByOwner = ownerRoleCounts(args, classifications);
@@ -417,6 +503,7 @@ export function routeClassifiedArguments(
     requiresExpensiveJudge: route === "ensemble",
     reason,
     model: classifications.find((classification) => classification.model)?.model,
+    shadowSampled: opts.shadowSampled ?? null,
   };
 }
 
@@ -438,15 +525,35 @@ export async function classifyDebateTranscript(params: {
   topicTitle?: string;
   topicPrompt?: string;
   classifier?: ClassifierDevOptions;
+  /**
+   * Shadow-validation sampling. When a stable debate key is supplied, only a
+   * deterministic hash-selected subset reaches the remote classifier; the
+   * rest take the local fallback path (never a judge-avoidance route, never
+   * a shadow attempt). Omit to classify every debate, as today — the
+   * human-grounded corpus harness and live response shaping do this.
+   */
+  shadow?: { key: string; rate?: number };
 }): Promise<ArgumentRoutingPlan> {
   const args = parseDebateTranscript(params.transcript);
   if (!args.length) return routeClassifiedArguments([], [], 0);
+  if (params.shadow) {
+    const rate = params.shadow.rate ?? resolveShadowSampleRate(
+      typeof process !== "undefined" ? process.env?.[SHADOW_SAMPLE_ENV_VAR] : undefined,
+    );
+    const decision = shadowSampleDecision(params.shadow.key, rate);
+    if (!decision.sampled) {
+      const skipped = args.map((argument, index) => fallbackClassification(argument.text, index, "shadow_not_sampled"));
+      return routeClassifiedArguments(args, skipped, 0, { shadowSampled: false });
+    }
+  }
   const detail = await classifyArgumentBatchDetailed(args.map((argument) => argument.text), {
     ...params.classifier,
     topicTitle: params.topicTitle,
     topicPrompt: params.topicPrompt,
   });
-  return routeClassifiedArguments(args, detail.classifications, detail.batchCount);
+  return routeClassifiedArguments(args, detail.classifications, detail.batchCount, {
+    shadowSampled: params.shadow ? true : null,
+  });
 }
 
 export function routingSummary(plan: ArgumentRoutingPlan, expensiveJudgeCallsAvoided = 0): ArgumentRoutingSummary {
@@ -466,6 +573,7 @@ export function routingSummary(plan: ArgumentRoutingPlan, expensiveJudgeCallsAvo
     mixedRoleCount: plan.mixedRoleCount,
     expensiveJudgeCallsAvoided,
     reason: plan.reason,
+    ...(plan.shadowSampled === null ? {} : { shadowSampled: plan.shadowSampled }),
   };
 }
 
@@ -482,7 +590,11 @@ export function recordRoutingTelemetry(
     latencyMs: 0,
     outcome: "ok",
     eventType: "routing",
-    inputCount: summary.argumentCount,
+    // Remote inputs actually transmitted: debates that skipped remote
+    // classification (sampling, disabled remote) transmit nothing, so they
+    // contribute 0 here while their local fallbacks are counted below.
+    // Failed remote attempts still count: their inputs WERE transmitted.
+    inputCount: summary.batchCount > 0 && summary.classifierSource !== "disabled" ? summary.argumentCount : 0,
     batchCount: summary.batchCount,
     taxonomyVersion: summary.taxonomyVersion,
     routingDecision: summary.route,

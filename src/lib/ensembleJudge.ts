@@ -290,11 +290,19 @@ export async function liveEnsembleJudge(params: {
   topicPrompt: string;
   playerASide: "for" | "against";
   transcript: string;
+  /**
+   * Stable debate key (e.g. the PvP match id) enabling deterministic
+   * hash sampling of classifier.dev shadow-validation traffic. Omit to
+   * classify every debate — the human-grounded corpus harness does this,
+   * since human labels are too valuable to skip.
+   */
+  debateKey?: string;
 }): Promise<EnsembleResult> {
   const plan = await classifyDebateTranscript({
     transcript: params.transcript,
     topicTitle: params.topicTitle,
     topicPrompt: params.topicPrompt,
+    ...(params.debateKey ? { shadow: { key: params.debateKey } } : {}),
   });
   const baselineJudgeLegs = expectedExpensiveJudgeLegs();
 

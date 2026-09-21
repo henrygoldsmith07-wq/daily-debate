@@ -7,6 +7,7 @@ import {
   HUMAN_GATE_MIN_ITEMS,
   JUDGE_AVOIDANCE_ROUTES,
   PREREGISTERED_ROUTE_GATES,
+  ROUTE_GATE_VERSION,
 } from "./routeShadowValidation";
 import { plannedRouteTransition } from "./routeLifecycle";
 
@@ -72,6 +73,35 @@ describe("route registration artifacts", () => {
       expect(humanGate.minAgreement).toBe(gate.minHumanAgreement);
       expect(humanGate.minItems).toBe(HUMAN_GATE_MIN_ITEMS);
     }
+  });
+
+  it("pins the preregistered thresholds to their exact adopted values — never loosen", () => {
+    // The mirror test above keeps code and artifacts in sync; this test pins
+    // the absolute values so neither side can be loosened in step. Any
+    // threshold change — tightening included — starts a new registration
+    // version; weakening one fails here first.
+    expect(ROUTE_GATE_VERSION).toBe("route-adoption-gates-v1");
+    expect(HUMAN_GATE_MIN_ITEMS).toBe(30);
+    expect(PREREGISTERED_ROUTE_GATES.deterministic).toEqual({
+      minN: 200, minWinnerAgreement: 0.95, minSideSwapStability: 0.95,
+      maxFalseDecisiveRate: 0.02, maxScoreGapMae: 4, maxInsufficientEvidenceRate: 0.02,
+      minHumanAgreement: 0.7,
+    });
+    expect(PREREGISTERED_ROUTE_GATES["rebuttal-compare"]).toEqual({
+      minN: 200, minWinnerAgreement: 0.92, minSideSwapStability: 0.92,
+      maxFalseDecisiveRate: 0.03, maxScoreGapMae: 6, maxInsufficientEvidenceRate: 0.03,
+      minHumanAgreement: 0.65,
+    });
+    expect(PREREGISTERED_ROUTE_GATES["evidence-verification"]).toEqual({
+      minN: 200, minWinnerAgreement: 0.92, minSideSwapStability: 0.92,
+      maxFalseDecisiveRate: 0.03, maxScoreGapMae: 6, maxInsufficientEvidenceRate: 0.03,
+      minHumanAgreement: 0.65,
+    });
+    expect(PREREGISTERED_ROUTE_GATES.lightweight).toEqual({
+      minN: 300, minWinnerAgreement: 0.97, minSideSwapStability: 0.97,
+      maxFalseDecisiveRate: 0.01, maxScoreGapMae: 3, maxInsufficientEvidenceRate: 0.01,
+      minHumanAgreement: 0.75,
+    });
   });
 });
 

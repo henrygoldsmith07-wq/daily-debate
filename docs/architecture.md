@@ -49,6 +49,46 @@ fallback classifications keep the existing ensemble path open. The graph
 assessment and judge remain authoritative when they disagree with a routing
 hint. Routing telemetry stores counts and decisions, never submitted text.
 
+### Classifier.dev: external processing, traffic sampling, and evaluation
+
+The structural classifier is the only component that sends submitted text to
+an external processor (classifier.dev, `POST /v1/classify`; keyless per-IP
+free tier). Request/response handling is verified against the service's live
+OpenAPI contract (see the "classifier.dev API contract" tests in
+`argumentRouting.test.ts`): versioned multi-label taxonomy, `tier`
+fast/smart, `multi` with a two-label cap, calibrated confidences, and
+defensive parsing — length mismatches, `unscored` rows, and withheld
+confidences all degrade to the local fallback, which can never take a
+judge-avoidance route.
+
+What leaves the boundary per call: argument texts truncated to
+`CLASSIFIER_DEV_MAX_INPUT_CHARS` (4,000) characters, plus the motion title
+and prompt (context for the off-topic label only). Never sent or stored:
+debate ids, user ids, winners, scores, or political/correctness judgements —
+the classification instructions explicitly exclude truth, ideology, and which
+side should win.
+
+What is stored: `ai_call_log` keeps bounded operational fields only
+(input/batch counts, route, fallback/ambiguity counts, avoided judge legs,
+sanitised error codes); `judge_verdict.shadowRouting` keeps bounded
+per-debate metadata (role counts, winners, scores, size/round buckets).
+Neither stores raw debate text.
+
+Traffic control: judged PvP debates are hash-sampled
+(`CLASSIFIER_SHADOW_SAMPLE_RATE`, default 25% — see `shadowSampling.ts`)
+before any remote call. Sampling is uniform over a stable debate key, so gate
+denominators stay unbiased while external calls drop by roughly three
+quarters. Non-sampled debates take the local fallback path and never enter
+shadow denominators. Human-grounded corpus runs and live solo shaping are not
+sampled. Adoption gates (`route-adoption-gates-v1`, sealed in
+`docs/route-registrations/v1`) are unchanged by any of this.
+
+Evaluation: `ARGUMENT_ROLE_EVAL_DATASET` (60 labelled paragraphs: five per
+role plus ten mixed-role) with precision/recall/F1, confusion matrix,
+confidence calibration (ECE), latency, fast-vs-smart comparison, and
+shadow-route agreement in `rhetoricalRoleEvaluation.ts`, all covered by
+`rhetoricalRoleEvaluation.test.ts`.
+
 ## Data model (migrations 001–015)
 
 Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics`, `solo_debates` (+ `format`, `coaching`), `solo_debate_turns` (with `assessment` jsonb), `pvp_queue`, `pvp_matches`, `pvp_turns`, `rate_limits`, `benchmark_corpus`, `match_appeals`, `reports`, `corpus_items`, `corpus_ratings`, `drill_assignments`, `topic_evidence`, plus 004's `repair_results`, `challenge_invites`, `product_events`. Hand-written row types live in `src/lib/backend/database.types.ts`. Migration 015 extends `ai_call_log` with bounded structural-routing fields: taxonomy version, batch/input counts, route, fallback/ambiguity counts, and expensive judge legs avoided.
