@@ -20,55 +20,12 @@ function todayIso(): string {
 }
 
 /**
- * Returns today's topic from the pre-generated store. Never triggers an AI
- * call; falls back to a curated motion when nothing is stored.
+ * Absolute last resort (store unreadable or unresponsive): serve the curated
+ * fallback in-memory without persisting. NOT stored, so the topic pipeline's
+ * freshness/ladder logic never mistakes it for a generated row.
  */
-export async function getTodayTopic(): Promise<DailyTopic> {
-  const db = createServiceClient();
-  const date = todayIso();
-
-  const { data: existing } = await db
-    .from("daily_topics")
-    .select("*")
-    .eq("topic_date", date)
-    .maybeSingle();
-
-  if (existing) return existing as unknown as DailyTopic;
-
-  // No pre-stored topic — serve a curated fallback and persist it so all
-  // users see the same one today (not just the first visitor).
-  const { data: recent } = await db
-    .from("daily_topics")
-    .select("title")
-    .order("topic_date", { ascending: false })
-    .limit(14);
-  const recentTitles = (recent ?? []).map((r) => r.title as string);
-
+function inMemoryFallback(date: string, recentTitles: string[] = []): DailyTopic {
   const fb = pickFallbackExcluding(date, recentTitles);
-
-  const { data: inserted } = await db
-    .from("daily_topics")
-    .insert({
-      topic_date: date,
-      title: fb.title,
-      prompt: fb.prompt,
-      category: fb.category,
-      sources: [], // curated fallbacks have known-good institutions baked into their prompts
-    })
-    .select("*")
-    .single();
-
-  if (inserted) return inserted as unknown as DailyTopic;
-
-  // Concurrent insert race: another instance already wrote it — read theirs.
-  const { data: concurrent } = await db
-    .from("daily_topics")
-    .select("*")
-    .eq("topic_date", date)
-    .single();
-  if (concurrent) return concurrent as unknown as DailyTopic;
-
-  // Absolute last resort (DB completely unreachable): return in-memory without persisting.
   return {
     id: "fallback-in-memory",
     topic_date: date,
@@ -78,6 +35,72 @@ export async function getTodayTopic(): Promise<DailyTopic> {
     sources: [],
     created_at: new Date().toISOString(),
   };
+}
+
+/**
+ * Returns today's topic from the pre-generated store. Never triggers an AI
+ * call; falls back to a curated motion when nothing is stored. This function
+ * must NEVER throw: the dashboard contract is that a degraded store degrades
+ * the topic source, not the product.
+ */
+export async function getTodayTopic(): Promise<DailyTopic> {
+  const date = todayIso();
+
+  try {
+    const db = createServiceClient();
+
+    const { data: existing } = await db
+      .from("daily_topics")
+      .select("*")
+      .eq("topic_date", date)
+      .maybeSingle();
+
+    if (existing) return existing as unknown as DailyTopic;
+
+    // No pre-stored topic — serve a curated fallback and persist it so all
+    // users see the same one today (not just the first visitor).
+    const { data: recent } = await db
+      .from("daily_topics")
+      .select("title")
+      .order("topic_date", { ascending: false })
+      .limit(14);
+    const recentTitles = (recent ?? []).map((r) => r.title as string);
+
+    const fb = pickFallbackExcluding(date, recentTitles);
+
+    const { data: inserted } = await db
+      .from("daily_topics")
+      .insert({
+        topic_date: date,
+        title: fb.title,
+        prompt: fb.prompt,
+        category: fb.category,
+        sources: [], // curated fallbacks have known-good institutions baked into their prompts
+        // Honest provenance (migration 009): this row is a curated fallback,
+        // not AI output and not "unknown" — the pipeline's ladder, the
+        // freshness verifier and ops health all read this field.
+        generation_source: "fallback",
+      })
+      .select("*")
+      .single();
+
+    if (inserted) return inserted as unknown as DailyTopic;
+
+    // Concurrent insert race: another instance already wrote it — read theirs.
+    const { data: concurrent } = await db
+      .from("daily_topics")
+      .select("*")
+      .eq("topic_date", date)
+      .single();
+    if (concurrent) return concurrent as unknown as DailyTopic;
+
+    // Insert failed without throwing (constraint/rate issue): serve in-memory,
+    // keeping the exclusion list so the served fallback stays fresh.
+    return inMemoryFallback(date, recentTitles);
+  } catch (error) {
+    console.error("Daily topic store unavailable — serving curated fallback in-memory:", error);
+    return inMemoryFallback(date);
+  }
 }
 
 /**

@@ -13,6 +13,8 @@ import {
   assessTrainingEvidence,
   buildOpsHealthReport,
   type AiProductionEvidence,
+  deriveDelayWitness,
+  mergeDelayWitnesses,
   type EvidenceSection,
   type OpsHealthReport,
   type TopicRunTelemetryRow,
@@ -225,7 +227,12 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   // (migration 014) supplies scheduler-delay/availability telemetry; missing
   // table or unreadable rows degrade to "no telemetry", never to errors.
   const topicRuns = await fetchTopicGenerationRuns(token);
-  const telemetry = await loadTopicRunTelemetry();
+  const dbTelemetry = await loadTopicRunTelemetry();
+  // Second witness: when topic_run_log is unreachable (the DB is down),
+  // scheduler-delay telemetry is derived from GitHub run history instead, so
+  // a platform-vs-database question stays answerable during an outage. DB
+  // rows stay primary; witnesses only fill gaps (see mergeDelayWitnesses).
+  const telemetry = mergeDelayWitnesses(dbTelemetry, topicRuns ? deriveDelayWitness(topicRuns) : []);
   const aiEvidence = topicStoreReadable ? await loadAiProductionEvidence(telemetry) : null;
   const topicSlo = assessTopicSlo(
     {
