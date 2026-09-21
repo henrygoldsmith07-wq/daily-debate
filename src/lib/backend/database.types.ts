@@ -20,6 +20,9 @@ export type DailyTopicRow = {
   sources: unknown;
   /** ai | fallback | unknown — recorded by the generator (migration 009). */
   generation_source: string | null;
+  /** How the immutable topic was originally created (ai, fallback-provider-failure,
+   *  fallback-policy, request-time-fallback); null on pre-019 rows. */
+  generation_reason: string | null;
   /** SHA-256 content identity for idempotence (migration 018; null on legacy rows). */
   topic_fingerprint: string | null;
   created_at: string;

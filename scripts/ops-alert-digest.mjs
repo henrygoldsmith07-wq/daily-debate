@@ -33,7 +33,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { decideOpsAlert } from "./lib/ops-alert.mjs";
+import { classifyFailureStage, decideOpsAlert } from "./lib/ops-alert.mjs";
 
 const REPO = "henrygoldsmith07-wq/daily-debate";
 const LABEL = process.env.OPS_ALERT_LABEL?.trim() || "ops-alert";
@@ -104,10 +104,34 @@ async function fetchProbe(nowIso) {
 }
 
 /**
- * Heuristic only used when the probe cannot speak: a failed scheduled run
- * that recorded no later success of any kind died before doing its job — the
+ * Failed-run step names from the workflow-jobs API: real stage evidence for
+ * classification ("which step failed?" instead of guessing from outcomes).
+ * Best-effort: an unavailable jobs API degrades to null, never throws.
+ */
+async function fetchFailedStepName(token, runs) {
+  try {
+    const failed = runs
+      .filter((r) => r.event === "schedule" && r.status === "completed" && r.conclusion === "failure")
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+    if (!failed?.id) return null;
+    const res = await gh(`/repos/${REPO}/actions/runs/${failed.id}/jobs?per_page=5`, token);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const failedStep = (data.jobs ?? [])
+      .flatMap((j) => j.steps ?? [])
+      .find((s) => s.conclusion === "failure");
+    return failedStep?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Heuristic only used when no step/probe evidence exists: a failed scheduled
+ * run with no later success of any kind died before doing its job — the
  * config/db gate (DATABASE_URL secret, connectivity, migrations) is the
- * prime suspect. With a live probe, availability/proofs make this redundant.
+ * prime SUSPECT. With stage evidence, classification names the actual stage
+ * instead; this reason is never presented as a confirmed fact.
  */
 function latestConfigGate(runs) {
   const failed = runs
@@ -138,13 +162,30 @@ async function main() {
   const dbReadable = probe ? probe.databaseReachable === true : true;
   const proofs = probe?.proofs ?? null;
 
+  // Stage-aware failure classification: name the failed STAGE from the
+  // jobs API + probe schema facts; fall back to the labelled heuristic
+  // suspect only when no step evidence exists.
+  const failedStepName = await fetchFailedStepName(token, runs);
+  const heuristic = latestConfigGate(runs);
+  const failureStage = failedStepName || heuristic.ok === false
+    ? classifyFailureStage({
+        failedStepName,
+        configStepFailed: /config/i.test(failedStepName ?? ""),
+        probe: probe
+          ? { topicFingerprintSchemaReady: probe.topicFingerprintSchemaReady ?? null, databaseReachable: probe.databaseReachable ?? null }
+          : null,
+        heuristicConfigReason: heuristic.ok === false ? heuristic.reason : null,
+      })
+    : null;
+
   const decision = decideOpsAlert({
     runs,
     telemetry: [],
     availability,
     dbReadable,
     proofs,
-    latestConfigCheck: latestConfigGate(runs),
+    latestConfigCheck: heuristic,
+    failureStage,
     nowIso,
   });
 

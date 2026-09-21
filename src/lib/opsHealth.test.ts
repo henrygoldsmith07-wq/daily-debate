@@ -341,7 +341,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     const s = assessTopicSlo(
       {
         runs: [schedule, dispatch, ...schedOk], productionDbReadable: true, tomorrowReady: true, telemetry,
-        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: true },
+        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: true, rowFingerprint: "a".repeat(64), fingerprintMatched: true },
       },
       "2026-09-15T23:00:00Z",
     );
@@ -376,7 +376,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     expect(s.proofs.sameDateContentIdempotence).toBe(false);
   });
 
-  it("idempotence needs identical fingerprints AND identical provenance semantics", () => {
+  it("content idempotence needs same date + same non-null fingerprint + both verified — and NOTHING else", () => {
     const base = {
       event: "schedule", at: "2026-09-15T20:02:00Z", result: "success", delayMs: 120_000,
       targetDate: "2026-09-16", completedBeforeDeadline: true, freshnessOk: true,
@@ -403,6 +403,10 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
       "2026-09-15T23:00:00Z",
     );
     expect(divergent.proofs.sameDateContentIdempotence).toBe(false);
+    // Operational generator reason is a SEPARATE dimension: under write-once
+    // semantics a "generated" run and a "verified-only" run with the same
+    // fingerprint prove the same content — a mixed-provenance pair must NOT
+    // be a false negative.
     const mixedProvenance = assessTopicSlo(
       {
         runs: [], productionDbReadable: true, tomorrowReady: true,
@@ -413,7 +417,69 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
       },
       "2026-09-15T23:00:00Z",
     );
-    expect(mixedProvenance.proofs.sameDateContentIdempotence).toBe(false);
+    expect(mixedProvenance.proofs.sameDateContentIdempotence).toBe(true);
+    // An unverified attempt proves nothing.
+    const unverified = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true,
+        telemetry: [
+          { ...base, topicFingerprint: "a".repeat(64), generatorResult: "ai", freshnessOk: true },
+          { ...base, at: "2026-09-15T21:02:00Z", topicFingerprint: "a".repeat(64), generatorResult: "ai", freshnessOk: false },
+        ],
+      },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(unverified.proofs.sameDateContentIdempotence).toBe(false);
+  });
+
+  it("scheduledSuccessAfterManual is an existence proof: later manual runs cannot erase it", () => {
+    const runs = (events: Array<[string, string, string, string]>) =>
+      events.map(([event, conclusion, at]) => ({ event, status: "completed", conclusion, createdAt: at }));
+    const slo = (list: ReturnType<typeof runs>) =>
+      assessTopicSlo({ runs: list, productionDbReadable: true, tomorrowReady: true }, "2026-09-20T00:00:00Z");
+    const M = (at: string): [string, string, string, string] => ["workflow_dispatch", "success", at, ""];
+    const S = (at: string): [string, string, string, string] => ["schedule", "success", at, ""];
+    const F = (event: string, at: string): [string, string, string, string] => [event, "failure", at, ""];
+    // manual → scheduled: true
+    expect(slo(runs([M("2026-09-15T10:00:00Z"), S("2026-09-16T20:00:00Z")])).proofs.scheduledSuccessAfterManual).toBe(true);
+    // manual → scheduled → manual: STILL true (the historical fact stands)
+    expect(slo(runs([M("2026-09-15T10:00:00Z"), S("2026-09-16T20:00:00Z"), M("2026-09-18T10:00:00Z")])).proofs.scheduledSuccessAfterManual).toBe(true);
+    // scheduled → manual: false (no scheduled success AFTER a manual)
+    expect(slo(runs([S("2026-09-14T20:00:00Z"), M("2026-09-15T10:00:00Z")])).proofs.scheduledSuccessAfterManual).toBe(false);
+    // manual only / scheduled only: false
+    expect(slo(runs([M("2026-09-15T10:00:00Z")])).proofs.scheduledSuccessAfterManual).toBe(false);
+    expect(slo(runs([S("2026-09-15T20:00:00Z")])).proofs.scheduledSuccessAfterManual).toBe(false);
+    // failed manual → successful schedule: false
+    expect(slo(runs([F("workflow_dispatch", "2026-09-15T10:00:00Z"), S("2026-09-16T20:00:00Z")])).proofs.scheduledSuccessAfterManual).toBe(false);
+    // manual → failed schedule: false
+    expect(slo(runs([M("2026-09-15T10:00:00Z"), F("schedule", "2026-09-16T20:00:00Z")])).proofs.scheduledSuccessAfterManual).toBe(false);
+  });
+
+  it("the AI production proof requires an exact telemetry fingerprint match, not just a date", () => {
+    const fp = "c".repeat(64);
+    const telemetry = [
+      { event: "schedule", at: "2026-09-15T20:02:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-16", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "ai" },
+    ];
+    const full = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true, telemetry,
+        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: true, rowFingerprint: fp, fingerprintMatched: true },
+      },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(full.proofs.aiGeneratedProductionSuccess).toBe(true);
+    // Same date, different fingerprint (row rebuilt after the verified run):
+    // the date-only version of this proof would ride the old run's evidence.
+    const rebuilt = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true, telemetry,
+        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: true, rowFingerprint: "d".repeat(64), fingerprintMatched: false },
+      },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(rebuilt.proofs.aiGeneratedProductionSuccess).toBe(false);
+    // Availability stays independent: a fallback can satisfy availability
+    // while the AI proof is false (item 16) — no assertion here couples them.
   });
 
   it("on-time needs verified content before the deadline; AI proof needs a real AI topic", () => {
@@ -431,7 +497,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     const fallbackOnly = assessTopicSlo(
       {
         runs: [], productionDbReadable: true, tomorrowReady: true, telemetry: [],
-        aiEvidence: { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, telemetryVerifiedAi: false },
+        aiEvidence: { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, telemetryVerifiedAi: false, rowFingerprint: null, fingerprintMatched: false },
       },
       "2026-09-16T12:00:00Z",
     );

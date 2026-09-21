@@ -14,13 +14,62 @@
 // without re-implementing any judgement.
 
 /**
+ * Stage-aware failure classification (pure).
+ *
+ * A failed scheduled run is NOT necessarily a config failure: today's runs
+ * prove a failure can be config=pass → generation=pass → freshness=FAIL.
+ * Classify from the strongest available evidence, in order:
+ *
+ *   1. the failed workflow STEP name (GitHub jobs API) — real stage evidence;
+ *   2. the health probe's migration-schema flag (018 readiness);
+ *   3. the legacy heuristic (failed run with no later success) — phrased as
+ *      a SUSPECT, never a fact.
+ *
+ * Stage vocabulary: configuration | migration/schema | provider | generation
+ * | database write | freshness verification | telemetry | unknown.
+ *
+ * @param {{ failedStepName: string | null, configStepFailed: boolean, probe: { topicFingerprintSchemaReady: boolean | null, databaseReachable: boolean | null } | null, heuristicConfigReason: string | null }} input
+ * @returns {{ stage: string, reason: string, suspect: boolean } | null}
+ */
+export function classifyFailureStage(input) {
+  const step = (input.failedStepName ?? "").toLowerCase();
+  const probeReady = input.probe?.topicFingerprintSchemaReady ?? null;
+  if (/freshness/.test(step)) {
+    const reason = probeReady === false
+      ? "migration 018 missing (topic fingerprint schema absent)"
+      : input.heuristicConfigReason ?? "stored topic failed the freshness postconditions";
+    return { stage: "freshness verification", reason, suspect: false };
+  }
+  if (/config/.test(step)) {
+    if (probeReady === false) {
+      return { stage: "migration/schema", reason: "required production topic fingerprint schema missing; apply database migrations before topic generation", suspect: false };
+    }
+    return { stage: "configuration", reason: input.heuristicConfigReason ?? "config validation failed before any generation attempt", suspect: false };
+  }
+  if (/pre-generate|generation/.test(step)) {
+    if (input.probe?.databaseReachable === false) {
+      return { stage: "database write", reason: "generation ran but the production store is unreachable", suspect: false };
+    }
+    return { stage: "generation", reason: "the generation step failed (provider chain or topic write)", suspect: false };
+  }
+  if (/telemetry/.test(step)) {
+    return { stage: "telemetry", reason: "the telemetry step failed", suspect: false };
+  }
+  if (input.heuristicConfigReason) {
+    return { stage: "unknown", reason: input.heuristicConfigReason, suspect: true };
+  }
+  return null;
+}
+
+/**
  * @param {{
  *   runs: Array<{ event: string; status: string; conclusion: string | null; createdAt: string }>,
- *   telemetry: Array<{ event: string; at: string; result: string; targetDate: string | null }>,
+ *   telemetry: Array<{ event: string; at: string; result: string; targetDate: string | null; delayMs?: number | null }>,
  *   availability: { state: string; note?: string | null } | null,
  *   dbReadable: boolean,
- *   proofs: { manualSuccess: boolean; scheduledSuccessAfterManual: boolean; idempotenceRerun: boolean; onTimeBeforeDeadline: boolean } | null,
+ *   proofs: Record<string, boolean> | null,
  *   latestConfigCheck: { ok: boolean; reason: string | null } | null,
+ *   failureStage: { stage: string; reason: string; suspect: boolean } | null,
  *   nowIso: string,
  * }} input  null sections mean "source unavailable" — treated as alertable unknowns.
  * @returns {{ alert: boolean, severity: "critical" | "warning" | null, title: string, facts: string[], evidence: string } | null}
@@ -91,8 +140,15 @@ export function decideOpsAlert(input) {
 
   // --- latest config gate (the DATABASE_URL class of failure) --------------
   const cfg = input.latestConfigCheck;
-  if (cfg && cfg.ok === false) {
+  if (cfg && cfg.ok === false && !input.failureStage) {
     facts.push(`config: ${cfg.reason ?? "config check failed"}`);
+    severity = "critical";
+  }
+
+  // --- stage-aware failure classification (item: no more broad guessing) ---
+  const stage = input.failureStage;
+  if (stage) {
+    facts.push(`production topic pipeline failure — stage = ${stage.stage}, reason = ${stage.reason}${stage.suspect ? " (suspect, not confirmed)" : ""}`);
     severity = "critical";
   }
 

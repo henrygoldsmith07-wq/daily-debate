@@ -1,18 +1,28 @@
 // Daily topic resolution — zero AI calls at request time.
 //
 // Architecture:
-//   02:00 UTC  scripts/generate-topics.mjs runs as a scheduled job:
-//              generates 3-5 candidates → scores them on 9 dimensions →
-//              picks the strongest → stores for TOMORROW's date.
+//   20:00-02:15 UTC  scripts/generate-topics.mjs runs on the retry ladder:
+//                    generates 3-5 candidates → scores them on 9 dimensions →
+//                    picks the strongest → stores for TOMORROW's date.
 //   00:00 UTC  tomorrow's stored topic becomes today's automatically.
 //
 // This module only READS the pre-stored topic. If none exists (pipeline down,
 // fresh deployment, missed run) it falls back to a curated local motion —
 // never an AI call. The dashboard can therefore never fail due to provider
 // unavailability.
+//
+// CANONICAL PERSISTENCE: every durable daily_topics write in the app goes
+// through insertCanonicalTopicOnce() — one write-once helper, one canonical
+// row shape (topic_date, title, prompt, category, sources, generation_source,
+// generation_reason, topic_fingerprint). There is no overwrite path: the
+// scheduled pipeline, scheduled fallbacks, and request-time persisted
+// fallbacks all converge on the same immutable shape via ON CONFLICT DO
+// NOTHING. Only the pipeline's deliberate corruption-repair may replace
+// content, and it runs transactionally over there — never here.
 
 import { createServiceClient } from "./backend/server";
 import { pickFallbackExcluding } from "./topicFallbacks";
+import { topicFingerprint } from "../../scripts/generate-topics.mjs";
 import type { DailyTopic } from "./types";
 
 function todayIso(): string {
@@ -20,9 +30,62 @@ function todayIso(): string {
 }
 
 /**
+ * THE canonical durable topic write for application code. Write-once:
+ * ON CONFLICT DO NOTHING on the topic_date unique constraint, so a
+ * request-time fallback can never replace a scheduled topic (or lose a race
+ * — callers re-read the winner). The row carries the full canonical shape,
+ * including the content fingerprint: an unfingerprinted row would re-create
+ * the legacy state that made stale evidence undetectable.
+ *
+ * Returns the stored row (either freshly inserted or the pre-existing
+ * winner), or null when the write path is unavailable.
+ */
+async function insertCanonicalTopicOnce(
+  db: ReturnType<typeof createServiceClient>,
+  targetDate: string,
+  topic: { title: string; prompt: string; category: string; sources: unknown[] },
+  generationSource: "ai" | "fallback",
+  generationReason: "ai" | "fallback-provider-failure" | "fallback-policy" | "request-time-fallback",
+): Promise<DailyTopic | null> {
+  const fingerprint = topicFingerprint({
+    topicDate: targetDate,
+    title: topic.title,
+    prompt: topic.prompt,
+    category: topic.category,
+  });
+  const { data, error } = await db
+    .from("daily_topics")
+    .insert({
+      topic_date: targetDate,
+      title: topic.title,
+      prompt: topic.prompt,
+      category: topic.category,
+      sources: topic.sources,
+      generation_source: generationSource,
+      generation_reason: generationReason,
+      topic_fingerprint: fingerprint,
+    })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("Canonical topic insert failed:", error.message);
+    return null;
+  }
+  if (data) return data as unknown as DailyTopic;
+  // ON CONFLICT DO NOTHING skipped (another writer won the date): read theirs.
+  const { data: winner } = await db
+    .from("daily_topics")
+    .select("*")
+    .eq("topic_date", targetDate)
+    .maybeSingle();
+  return (winner as unknown as DailyTopic) ?? null;
+}
+
+/**
  * Absolute last resort (store unreadable or unresponsive): serve the curated
  * fallback in-memory without persisting. NOT stored, so the topic pipeline's
- * freshness/ladder logic never mistakes it for a generated row.
+ * freshness/ladder logic never mistakes it for a generated row; it carries
+ * no fingerprint and contributes to no proof (availability protection only).
  */
 function inMemoryFallback(date: string, recentTitles: string[] = []): DailyTopic {
   const fb = pickFallbackExcluding(date, recentTitles);
@@ -58,7 +121,9 @@ export async function getTodayTopic(): Promise<DailyTopic> {
     if (existing) return existing as unknown as DailyTopic;
 
     // No pre-stored topic — serve a curated fallback and persist it so all
-    // users see the same one today (not just the first visitor).
+    // users see the same one today (not just the first visitor). Persistence
+    // goes through the canonical write-once helper: same row shape as the
+    // scheduled pipeline, WITH fingerprint and reason.
     const { data: recent } = await db
       .from("daily_topics")
       .select("title")
@@ -67,103 +132,23 @@ export async function getTodayTopic(): Promise<DailyTopic> {
     const recentTitles = (recent ?? []).map((r) => r.title as string);
 
     const fb = pickFallbackExcluding(date, recentTitles);
+    const persisted = await insertCanonicalTopicOnce(
+      db,
+      date,
+      { title: fb.title, prompt: fb.prompt, category: fb.category, sources: [] },
+      "fallback",
+      "request-time-fallback",
+    );
 
-    const { data: inserted } = await db
-      .from("daily_topics")
-      .insert({
-        topic_date: date,
-        title: fb.title,
-        prompt: fb.prompt,
-        category: fb.category,
-        sources: [], // curated fallbacks have known-good institutions baked into their prompts
-        // Honest provenance (migration 009): this row is a curated fallback,
-        // not AI output and not "unknown" — the pipeline's ladder, the
-        // freshness verifier and ops health all read this field.
-        generation_source: "fallback",
-      })
-      .select("*")
-      .single();
+    if (persisted) return persisted;
 
-    if (inserted) return inserted as unknown as DailyTopic;
-
-    // Concurrent insert race: another instance already wrote it — read theirs.
-    const { data: concurrent } = await db
-      .from("daily_topics")
-      .select("*")
-      .eq("topic_date", date)
-      .single();
-    if (concurrent) return concurrent as unknown as DailyTopic;
-
-    // Insert failed without throwing (constraint/rate issue): serve in-memory,
+    // Insert unavailable (constraint/rate/write failure): serve in-memory,
     // keeping the exclusion list so the served fallback stays fresh.
     return inMemoryFallback(date, recentTitles);
   } catch (error) {
     console.error("Daily topic store unavailable — serving curated fallback in-memory:", error);
     return inMemoryFallback(date);
   }
-}
-
-/**
- * Store a pre-generated topic for a future date. Called by the scheduled
- * generation script, never by request handlers.
- */
-export async function storePreGeneratedTopic(
-  targetDate: string,
-  topic: { title: string; prompt: string; category: string; sources: Array<{ name: string; homepage: string; angle: string }> },
-): Promise<{ ok: boolean; error?: string }> {
-  const db = createServiceClient();
-
-  // Upsert: overwrite any previous candidate for this date.
-  const { error } = await db
-    .from("daily_topics")
-    .upsert(
-      {
-        topic_date: targetDate,
-        title: topic.title,
-        prompt: topic.prompt,
-        category: topic.category,
-        sources: topic.sources,
-      },
-      { onConflict: "topic_date" }
-    );
-
-  if (error) return { ok: false, error: error.message };
-
-  // Retrieve evidence cards for the stored topic (best-effort).
-  try {
-    const { data: stored } = await db
-      .from("daily_topics")
-      .select("id, title, prompt")
-      .eq("topic_date", targetDate)
-      .single();
-
-    if (stored) {
-      const { buildTopicEvidenceCards } = await import("./topicEvidence");
-      const { cards } = await buildTopicEvidenceCards(
-        { title: stored.title, prompt: stored.prompt },
-        { maxCards: 3 }
-      );
-      if (cards.length) {
-        await db.from("topic_evidence").insert(
-          cards.map((c) => ({
-            topic_id: stored.id,
-            claim: c.claim,
-            source_name: c.sourceName,
-            source_type: c.sourceType,
-            url: c.url,
-            title: c.title ?? null,
-            passage: c.passage,
-            published_date: c.publishedDate,
-            checks: c.checks,
-          }))
-        );
-      }
-    }
-  } catch (evidenceError) {
-    console.error("Evidence retrieval failed during pre-generation:", evidenceError);
-  }
-
-  return { ok: true };
 }
 
 // Legacy alias kept so existing imports don't break during migration.

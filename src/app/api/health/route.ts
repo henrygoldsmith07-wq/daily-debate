@@ -1,7 +1,42 @@
 import { NextResponse } from "next/server";
 import { loadOpsHealth } from "@/lib/opsHealthServer";
 import { derivePublicHealthState } from "@/lib/healthProbe";
+import type { OpsHealthReport } from "@/lib/opsHealth";
 import { checkRateLimit } from "@/lib/rateLimit";
+
+/**
+ * The all-unknown report used when loadOpsHealth itself fails. Built through
+ * the SAME derivePublicHealthState reduction as the success path, so the two
+ * response schemas can never drift — a new report field flows into both
+ * branches (or fails the contract test) automatically.
+ */
+function unknownReport(): OpsHealthReport {
+  return {
+    generatedAt: new Date().toISOString(),
+    topic: {},
+    topicSlo: {
+      scheduler: { state: "unknown", consecutiveScheduledFailures: 0, lastScheduledRunAt: null, lastScheduledRunConclusion: null },
+      availability: { state: "unknown", deadlineUtc: "03:00", note: null },
+      scheduling: { latestDelayMs: null, medianDelayMs: null, p95DelayMs: null, missedStarts: 0, thresholdMs: 0, note: null },
+      status: "unknown",
+      lastSuccessfulRun: null,
+      proofs: {
+        databaseReachable: false,
+        manualSuccess: false,
+        scheduledSuccessAfterManual: false,
+        sameDateContentIdempotence: false,
+        onTimeBeforeDeadline: false,
+        aiGeneratedProductionSuccess: false,
+      },
+      note: null,
+    },
+    judge: {},
+    database: { status: "blocked", reachable: false, latencyMs: null, migrationsApplied: null, requiredTablesOk: null, missingTables: [], topicRunLogFidelity: "unknown", migrationReadiness: { migration016TelemetryReady: null, migration017RouteLifecycleReady: null, migration018TopicFingerprintReady: null, note: null }, note: null },
+    app: {},
+    human: { status: "unknown", headline: "", facts: [], note: null },
+    training: { status: "unknown", headline: "", facts: [], note: null, measurement: "unknown", outcomes: [] },
+  } as unknown as OpsHealthReport;
+}
 
 /**
  * Public, unauthenticated health probe — a deliberately NON-SENSITIVE
@@ -32,23 +67,12 @@ export async function GET(request: Request) {
   } catch {
     // The probe must never leak internals and must never 500 with detail:
     // an explicit unknown state is honest and machine-readable.
-    return NextResponse.json(
-      {
-        topicStatus: "unknown",
-        scheduler: "unknown",
-        availability: "unknown",
-        databaseReachable: false,
-        databaseRequiredTablesOk: null,
-        proofs: {
-          manualSuccess: false,
-          scheduledSuccessAfterManual: false,
-          idempotenceRerun: false,
-          onTimeBeforeDeadline: false,
-        },
-        generatedAt: new Date().toISOString(),
-        ageMs: 0,
-      },
-      { status: 503, headers: { "Cache-Control": "no-store" } },
-    );
+    // The error branch MUST expose the exact same schema as the success
+    // branch (one stable public contract): every key of PublicHealthState,
+    // degraded to unknown/false/null. Legacy proof keys (e.g.
+    // `idempotenceRerun`) are a contract violation — the canonical six-proof
+    // shape comes from the typed OpsHealthReport, never a hand-copied literal.
+    const state = derivePublicHealthState(unknownReport(), new Date().toISOString());
+    return NextResponse.json(state, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }

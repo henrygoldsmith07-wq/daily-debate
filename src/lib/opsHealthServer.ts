@@ -5,6 +5,7 @@ import { createServiceClient } from "./backend/server";
 import type { TableName } from "./backend/query";
 import {
   assessAppHealth,
+  assessMigrationReadiness,
   assessDatabaseHealth,
   assessHumanValidation,
   assessJudgeHealth,
@@ -12,6 +13,7 @@ import {
   assessTopicSlo,
   assessTrainingEvidence,
   buildOpsHealthReport,
+  MIGRATION_REQUIRED_COLUMNS,
   type AiProductionEvidence,
   deriveDelayWitness,
   mergeDelayWitnesses,
@@ -165,6 +167,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       migrationsApplied: applied.length,
       missingTables,
       topicRunLogFidelity: await probeTopicRunLogFidelity(),
+      migrationReadiness: assessMigrationReadiness(await probeMigrationColumns()),
     });
   } catch {
     database = assessDatabaseHealth({ reachable: false });
@@ -272,6 +275,32 @@ async function probeTopicRunLogFidelity(): Promise<"full" | "legacy" | "unknown"
 }
 
 /**
+ * information_schema column listing for every table a required migration
+ * touches, keyed by table name. null when the schema is unreadable —
+ * readiness then reports unknown instead of guessing.
+ */
+async function probeMigrationColumns(): Promise<Map<string, Set<string>> | null> {
+  try {
+    const { queryRows } = await import("./backend/sql");
+    const tables = [...new Set(Object.values(MIGRATION_REQUIRED_COLUMNS).flatMap((g) => g.map((t) => t.table)))];
+    const rows = await queryRows<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name IN (${tables.map((_, i) => `$${i + 1}`).join(", ")})`,
+      tables,
+    );
+    const map = new Map<string, Set<string>>();
+    for (const r of rows) {
+      let cols = map.get(r.table_name);
+      if (!cols) map.set(r.table_name, (cols = new Set()));
+      cols.add(r.column_name);
+    }
+    return map;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Real-AI end-to-end evidence: the newest AI-provenance row with surviving
  * non-empty sources, matched against a verified AI telemetry row for the
  * same target date. A fallback standing in for AI can never satisfy this.
@@ -283,7 +312,7 @@ async function loadAiProductionEvidence(
     const service = createServiceClient();
     const rows = await service
       .from("daily_topics")
-      .select("topic_date, sources, generation_source")
+      .select("topic_date, sources, generation_source, topic_fingerprint")
       .eq("generation_source", "ai")
       .order("topic_date", { ascending: false })
       .limit(5);
@@ -292,18 +321,30 @@ async function loadAiProductionEvidence(
       topic_date: string;
       sources: unknown;
       generation_source: string | null;
+      topic_fingerprint: string | null;
     }>;
-    if (!list.length) return { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, telemetryVerifiedAi: false };
+    if (!list.length) {
+      return { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, telemetryVerifiedAi: false, rowFingerprint: null, fingerprintMatched: false };
+    }
     for (const row of list) {
       const sources = Array.isArray(row.sources) ? row.sources : [];
       const targetDate = String(row.topic_date).slice(0, 10);
+      const rowFingerprint = row.topic_fingerprint ?? null;
       const verified = telemetry.some(
         (t) => t.targetDate === targetDate && t.generatorResult === "ai" && t.freshnessOk === true,
       );
+      // EXACT fingerprint identity: a verified AI telemetry row for this
+      // date counts only when its fingerprint equals this row's. Date-only
+      // matching let rebuilt rows ride an old run's proof.
+      const fingerprintMatched =
+        rowFingerprint != null &&
+        telemetry.some(
+          (t) => t.targetDate === targetDate && t.topicFingerprint === rowFingerprint && t.freshnessOk === true,
+        );
       if (sources.length > 0) {
-        return { targetDate, aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: verified };
+        return { targetDate, aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: verified, rowFingerprint, fingerprintMatched };
       }
-      return { targetDate, aiRowPresent: true, sourcesNonEmpty: false, telemetryVerifiedAi: verified };
+      return { targetDate, aiRowPresent: true, sourcesNonEmpty: false, telemetryVerifiedAi: verified, rowFingerprint, fingerprintMatched };
     }
     return null;
   } catch {

@@ -42,7 +42,7 @@ function report(over: Partial<OpsHealthReport> = {}): OpsHealthReport {
       note: null,
     },
     judge: {},
-    database: { status: "healthy", reachable: true, latencyMs: 5, migrationsApplied: 14, requiredTablesOk: true, missingTables: [], note: null },
+    database: { status: "healthy", reachable: true, latencyMs: 5, migrationsApplied: 14, requiredTablesOk: true, missingTables: [], note: null, migrationReadiness: { migration016TelemetryReady: true, migration017RouteLifecycleReady: true, migration018TopicFingerprintReady: true, note: null } },
     app: {},
     human: { status: "healthy", headline: "", facts: [], note: null },
     training: { status: "healthy", headline: "", facts: [], note: null, measurement: "valid", outcomes: [] },
@@ -59,6 +59,7 @@ describe("derivePublicHealthState (non-sensitive reduction)", () => {
       availability: "ready",
       databaseReachable: true,
       databaseRequiredTablesOk: true,
+      topicFingerprintSchemaReady: true,
       proofs: { databaseReachable: true, manualSuccess: true, scheduledSuccessAfterManual: true, sameDateContentIdempotence: true, onTimeBeforeDeadline: true, aiGeneratedProductionSuccess: true },
       generatedAt: "2026-09-21T03:59:00.000Z",
       ageMs: 60_000,
@@ -80,13 +81,14 @@ describe("derivePublicHealthState (non-sensitive reduction)", () => {
           proofs: { databaseReachable: false, manualSuccess: false, scheduledSuccessAfterManual: false, sameDateContentIdempotence: false, onTimeBeforeDeadline: false, aiGeneratedProductionSuccess: false },
           note: null,
         },
-        database: { status: "healthy", reachable: true, latencyMs: 5, migrationsApplied: 14, requiredTablesOk: true, missingTables: [], note: null },
+        database: { status: "healthy", reachable: true, latencyMs: 5, migrationsApplied: 14, requiredTablesOk: true, missingTables: [], note: null, migrationReadiness: { migration016TelemetryReady: true, migration017RouteLifecycleReady: true, migration018TopicFingerprintReady: false, note: null } },
       } as unknown as OpsHealthReport),
       now,
     );
     expect(failed.topicStatus).toBe("failed");
     expect(failed.availability).toBe("missed-deadline");
     expect(failed.proofs.manualSuccess).toBe(false);
+    expect(failed.topicFingerprintSchemaReady).toBe(false);
   });
 });
 
@@ -97,6 +99,7 @@ describe("isUsableProbe (consumer-side sanity gate)", () => {
     availability: "ready",
     databaseReachable: true,
     databaseRequiredTablesOk: true,
+    topicFingerprintSchemaReady: true,
     proofs: { databaseReachable: true, manualSuccess: true, scheduledSuccessAfterManual: true, sameDateContentIdempotence: true, onTimeBeforeDeadline: true, aiGeneratedProductionSuccess: true },
     generatedAt: "2026-09-21T03:50:00.000Z",
     ageMs: 600_000, // 10 minutes old at `now`
@@ -108,6 +111,12 @@ describe("isUsableProbe (consumer-side sanity gate)", () => {
 
   it("rejects an internally incoherent payload (ready topic but DB failed)", () => {
     expect(isUsableProbe({ ...base, databaseReachable: false }, now, 60 * 60_000)).toBe(false);
+  });
+
+  it("rejects the incoherent pair: availability ready while the fingerprint schema is missing", () => {
+    // The freshness verifier hard-fails without migration 018, so a probe
+    // claiming ready-AND-schema-missing is stale or version-skewed.
+    expect(isUsableProbe({ ...base, topicFingerprintSchemaReady: false }, now, 60 * 60_000)).toBe(false);
   });
 
   it("rejects stale payloads and missing timestamps", () => {
@@ -134,6 +143,7 @@ describe("GET /api/health (route contract)", () => {
         "availability",
         "databaseReachable",
         "databaseRequiredTablesOk",
+        "topicFingerprintSchemaReady",
         "generatedAt",
         "proofs",
         "scheduler",
@@ -151,5 +161,27 @@ describe("GET /api/health (route contract)", () => {
     expect(body.availability).toBe("unknown");
     expect(Object.values(body.proofs).every((v) => v === false)).toBe(true);
     expect(JSON.stringify(body)).not.toContain("secret internals");
+  });
+
+  it("CONTRACT: success and error branches expose the exact same response schema", async () => {
+    // One stable public contract: the 503 branch must carry every key of the
+    // 200 branch (same proof names, no legacy keys like idempotenceRerun),
+    // and vice versa. A new report field must flow into BOTH or fail here.
+    const { GET } = await import("../app/api/health/route");
+    loadOpsHealth.mockResolvedValue(report());
+    const okRes = await GET(new Request("https://dailydebate.app/api/health"));
+    const okBody = (await okRes.json()) as Record<string, unknown>;
+    loadOpsHealth.mockRejectedValueOnce(new Error("down"));
+    const errRes = await GET(new Request("https://dailydebate.app/api/health"));
+    const errBody = (await errRes.json()) as Record<string, unknown>;
+    expect(Object.keys(okBody).sort()).toEqual(Object.keys(errBody).sort());
+    const okProofs = okBody.proofs as Record<string, boolean>;
+    const errProofs = errBody.proofs as Record<string, boolean>;
+    expect(Object.keys(okProofs).sort()).toEqual(Object.keys(errProofs).sort());
+    // Canonical six-proof names only — the legacy key must never return.
+    expect(Object.keys(okProofs).sort()).toEqual(
+      ["aiGeneratedProductionSuccess", "databaseReachable", "manualSuccess", "onTimeBeforeDeadline", "sameDateContentIdempotence", "scheduledSuccessAfterManual"].sort(),
+    );
+    expect(JSON.stringify(errBody)).not.toContain("idempotenceRerun");
   });
 });

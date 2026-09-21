@@ -22,6 +22,9 @@ export interface PublicHealthState {
   availability: OpsHealthReport["topicSlo"]["availability"]["state"];
   databaseReachable: boolean;
   databaseRequiredTablesOk: boolean | null;
+  /** Is the migration-018 topic-fingerprint schema present? null = unknown.
+   *  This is the fact whose absence caused scheduled-run failures #54-#59. */
+  topicFingerprintSchemaReady: boolean | null;
   /** The production proofs (item 7), exposed as plain booleans. Typed as the
    *  canonical slice so upstream proof changes surface here at compile time. */
   proofs: OpsHealthReport["topicSlo"]["proofs"];
@@ -44,6 +47,7 @@ export function derivePublicHealthState(report: OpsHealthReport, nowIso: string)
     availability: report.topicSlo.availability.state,
     databaseReachable: report.database.reachable,
     databaseRequiredTablesOk: report.database.requiredTablesOk,
+    topicFingerprintSchemaReady: report.database.migrationReadiness.migration018TopicFingerprintReady,
     proofs: { ...report.topicSlo.proofs },
     generatedAt: report.generatedAt,
     ageMs: Number.isFinite(generatedMs) && Number.isFinite(nowMs) ? Math.max(0, nowMs - generatedMs) : null,
@@ -57,6 +61,10 @@ export function derivePublicHealthState(report: OpsHealthReport, nowIso: string)
  */
 export function isUsableProbe(state: PublicHealthState, nowIso: string, maxAgeMs: number): boolean {
   if (state.databaseReachable === false && state.availability === "ready") return false;
+  // The freshness verifier hard-fails without the 018 schema, so any "ready"
+  // claim from a probe that also reports the schema missing is incoherent —
+  // a stale or version-skewed witness, not usable evidence.
+  if (state.topicFingerprintSchemaReady === false && state.availability === "ready") return false;
   if (state.ageMs !== null && state.ageMs > maxAgeMs) return false;
   if (state.ageMs === null) {
     const generated = Date.parse(state.generatedAt);

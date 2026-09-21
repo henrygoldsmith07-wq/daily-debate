@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decideOpsAlert } from "./ops-alert.mjs";
+import { classifyFailureStage, decideOpsAlert } from "./ops-alert.mjs";
 
 const NOW = "2026-09-16T12:00:00Z";
 const okProofs = { manualSuccess: true, scheduledSuccessAfterManual: true, idempotenceRerun: true, onTimeBeforeDeadline: true };
@@ -106,4 +106,47 @@ test("config-gate suspect survives when only run history exists (probe down)", (
   }));
   assert.equal(d.severity, "critical");
   assert.ok(d.facts.some((f) => f.includes("config/db gate")));
+});
+
+test("classifyFailureStage: freshness-verification failure with schema evidence names the migration", () => {
+  const c = classifyFailureStage({
+    failedStepName: "Verify the write landed (freshness postconditions)",
+    configStepFailed: false,
+    probe: { topicFingerprintSchemaReady: false, databaseReachable: true },
+    heuristicConfigReason: "scheduled run failed with no later success — config/db gate suspect",
+  });
+  assert.equal(c.stage, "freshness verification");
+  assert.equal(c.suspect, false);
+  assert.match(c.reason, /migration 018 missing/);
+});
+
+test("classifyFailureStage: config-step failure with missing schema reports migration/schema", () => {
+  const c = classifyFailureStage({
+    failedStepName: "Validate topic-generation configuration (fail fast, no writes)",
+    configStepFailed: true,
+    probe: { topicFingerprintSchemaReady: false, databaseReachable: true },
+    heuristicConfigReason: null,
+  });
+  assert.equal(c.stage, "migration/schema");
+  assert.match(c.reason, /fingerprint schema missing/);
+});
+
+test("classifyFailureStage: no step evidence falls back to the labelled suspect", () => {
+  const c = classifyFailureStage({
+    failedStepName: null,
+    configStepFailed: false,
+    probe: null,
+    heuristicConfigReason: "scheduled run failed with no later successful run — the config/db gate is the prime suspect",
+  });
+  assert.equal(c.stage, "unknown");
+  assert.equal(c.suspect, true);
+});
+
+test("ops alert reports the classified stage, not a broad guess", () => {
+  const d = decideOpsAlert(probeUnavailable({
+    latestConfigCheck: { ok: true, reason: null },
+    failureStage: { stage: "freshness verification", reason: "migration 018 missing (topic fingerprint schema absent)", suspect: false },
+  }));
+  assert.equal(d.severity, "critical");
+  assert.ok(d.facts.some((f) => f.includes("stage = freshness verification") && f.includes("migration 018")));
 });
