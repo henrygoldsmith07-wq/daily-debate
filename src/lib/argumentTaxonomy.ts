@@ -52,6 +52,8 @@ export interface ArgumentClassification {
   status: ClassificationStatus;
   source: ClassificationSource;
   model?: string;
+  /** Serving tier echo from classifier.dev ("fast" | "smart"), when reported. */
+  tier?: string;
   escalated?: boolean;
   errorCode?: string;
 }
@@ -79,6 +81,12 @@ export interface ArgumentRoutingSummary {
   /** Number of expensive judge legs avoided by this routing decision. */
   expensiveJudgeCallsAvoided: number;
   reason: string;
+  /**
+   * Shadow-sampling outcome: true when the debate was selected for remote
+   * classification, false when it took the local fallback path instead.
+   * Absent for plans where sampling did not apply (legacy rows included).
+   */
+  shadowSampled?: boolean;
 }
 
 export const ARGUMENT_ROLE_DESCRIPTIONS: Record<ArgumentRole, string> = {

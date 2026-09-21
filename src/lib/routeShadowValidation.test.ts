@@ -12,6 +12,7 @@ import {
   classifyShadowAttemptStatus,
   confidenceBand,
   evaluateRouteGate,
+  falseRouteRate,
   hashRouteGate,
   mixedRoleBucket,
   monitorAdoptedRoute,
@@ -394,5 +395,30 @@ describe("shadow-only guarantee (static)", () => {
     expect(source).toMatch(/const ensemble = ensembleVerdicts\(ok\);/);
     expect(source).toMatch(/shadowRouting:/);
     expect(source).toMatch(/\.\.\.ensemble,/);
+  });
+});
+
+describe("false-route rate and would-be-avoided judge legs", () => {
+  it("measures disagreement with the ensemble over scored attempts only", () => {
+    const agree = record();
+    const disagree = record({ shadow: side("b", 40, 70) });
+    expect(falseRouteRate([agree, agree, disagree])).toBeCloseTo(1 / 3);
+    // Complements winner agreement: together they cover every scored attempt.
+    expect(falseRouteRate([agree, disagree])).toBeCloseTo(1 - 0.5);
+    // Nothing scored means no rate, not zero.
+    expect(falseRouteRate([])).toBeNull();
+    expect(falseRouteRate([record({ shadow: null, status: "insufficient-evidence" })])).toBeNull();
+    // Routing-not-eligible rows never enter the rate.
+    expect(falseRouteRate([record({ status: "routing-not-eligible" })])).toBeNull();
+  });
+
+  it("carries would-be-avoided judge legs from the routing summary into segments", () => {
+    const withLegs = record({ routing: routing({ expensiveJudgeCallsAvoided: 2 }) });
+    expect(withLegs.avoidedJudgeLegs).toBe(2);
+    expect(record().avoidedJudgeLegs).toBe(0);
+    // No raw text rides along with the new field.
+    expect(JSON.stringify(withLegs)).not.toMatch(/transcript|prompt|argument text/i);
+    const [segment] = segmentByRoute([withLegs, record()]).filter((s) => s.route === "deterministic");
+    expect(segment.avoidedJudgeLegs).toBe(2);
   });
 });

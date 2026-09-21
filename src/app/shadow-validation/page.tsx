@@ -5,6 +5,7 @@ import PageHeader from "@/components/PageHeader";
 import {
   DEFAULT_ROUTE_LIFECYCLE,
   evaluateRouteGate,
+  falseRouteRate,
   JUDGE_AVOIDANCE_ROUTES,
   monitorAdoptedRoute,
   PREREGISTERED_ROUTE_GATES,
@@ -139,11 +140,13 @@ export default async function ShadowValidationPage() {
               <Fact label="N (eligible attempts)" value={String(seg?.n ?? 0)} />
               <Fact label="Scored / insufficient" value={`${seg?.scoredCount ?? 0} / ${seg?.insufficientCount ?? 0}`} />
               <Fact label="Winner agreement" value={pct(seg?.winnerAgreement ?? null, seg?.scoredCount ?? 0, gate.minN)} />
+              <Fact label="False-route rate" value={pct(falseRouteRate(routeRecords), seg?.scoredCount ?? 0, gate.minN)} />
               <Fact label="Tie disagreement" value={pct(seg?.tieDisagreement ?? null, seg?.scoredCount ?? 0, gate.minN)} />
               <Fact label="Score MAE" value={num(seg?.scoreMae ?? null)} />
               <Fact label="Score-gap MAE" value={num(seg?.scoreGapMae ?? null)} />
               <Fact label="False-decisive rate" value={pct(seg?.falseDecisiveRate ?? null, seg?.scoredCount ?? 0, gate.minN)} />
               <Fact label="Insufficient-evidence rate" value={pct(seg?.insufficientEvidenceRate ?? null, seg?.n ?? 0, gate.minN)} />
+              <Fact label="Would-be-avoided judge legs" value={String(seg?.avoidedJudgeLegs ?? 0)} />
               <Fact label="Side-swap stability" value="not measured" />
               <Fact label="Human agreement" value="not measured" />
             </div>
