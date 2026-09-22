@@ -1,7 +1,7 @@
 // Learning-loop lifecycle tracker.
 //
 // For each coached weakness, tracks how far it has progressed:
-//   detected → practised → improved in drill → improved in a later full debate → retained
+//   detected → practised → improved in a later debate → retained
 //
 // Pure — consumes ledger points + drill assignment rows, produces stage data.
 
@@ -10,10 +10,9 @@ import { HIGHER_IS_BETTER } from "./skillLedger";
 
 export type LoopStage =
   | "detected"                // weakness identified in a debate assessment
-  | "practised"              // drill assigned and attempt submitted
-  | "improved_in_drill"      // drill attempt scored above before-score
-  | "improved_in_debate"     // next full debate shows improvement on this dimension
-  | "retained";              // improvement persisted across 2+ subsequent debates
+  | "practised"               // drill assigned and attempt submitted
+  | "improved_in_debate"      // later debate evidence shows improvement on this dimension
+  | "retained";               // improvement persisted across 2+ subsequent debates
 
 export interface DrillAssignmentLite {
   id: string;
@@ -201,17 +200,17 @@ export function computeLoopStatuses(
     // Stage: practised (attempt submitted)
     if (assignment.status === "attempted" && assignment.attemptText) {
       stage = "practised";
-      summary = `${label} drill attempted.`;
       drillAttemptScore = assignment.attemptScore ?? null;
+      summary =
+        drillAttemptScore === null
+          ? `${label} drill attempted.`
+          : `${label} drill attempted (formative score ${drillAttemptScore}/100).`;
 
-      const before = assignment.beforeScore;
-      const attempt = assignment.attemptScore;
-      if (before !== null && attempt !== null && attempt > before) {
-        stage = "improved_in_drill";
-        summary = `${label} drill scored ${attempt}/100 (up from ${Math.round(before)}).`;
-      }
+      // A drill rubric score and the longitudinal skill-profile score are
+      // different constructs. Never compare them to claim "improvement".
+      // Improvement begins only when later debate evidence moves.
 
-      // Stage: improved in later full debate
+      // Stage: improved in later debate
       const movement = measureDebateImprovement(timeline, assignment.createdAt, 2);
       if (movement.improved !== null) {
         debateMovement = movement.delta;
@@ -246,7 +245,7 @@ export function computeLoopStatuses(
   }
 
   // Sort by progression (most advanced first)
-  const ORDER: LoopStage[] = ["detected", "practised", "improved_in_drill", "improved_in_debate", "retained"];
+  const ORDER: LoopStage[] = ["detected", "practised", "improved_in_debate", "retained"];
   return statuses.sort((a, b) => ORDER.indexOf(b.stage) - ORDER.indexOf(a.stage));
 }
 
@@ -302,7 +301,7 @@ export function formatCoachPrompt(
       ...base,
       show: true,
       headline: `${DIMENSION_LABELS[latestAssignment.dimension] ?? "Skill"} drill completed`,
-      detail: "Your next debate will show whether the improvement sticks.",
+      detail: "Your next debate will show whether the practice transfers.",
       ctaLabel: "View progress",
       ctaHref: "/progress",
     };
