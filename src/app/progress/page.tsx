@@ -32,7 +32,6 @@ const TREND_GLYPH: Record<string, { glyph: string; tone: string }> = {
 const LOOP_STAGE_ORDER: LoopStage[] = [
   "detected",
   "practised",
-  "improved_in_drill",
   "improved_in_debate",
   "retained",
 ];
@@ -40,7 +39,6 @@ const LOOP_STAGE_ORDER: LoopStage[] = [
 const LOOP_STAGE_LABEL: Record<LoopStage, string> = {
   detected: "Detected",
   practised: "Drilled",
-  improved_in_drill: "Drill improved",
   improved_in_debate: "Debate improved",
   retained: "Retained",
 };
@@ -181,8 +179,8 @@ export default async function ProgressPage() {
             </span>
           </div>
           <p className="mt-2 text-sm leading-relaxed text-ink3">
-            A drill is only the first step. Daily Debate checks the same skill in later debates, then waits for repeated
-            evidence before calling it retained.
+            A drill is practice, not proof of improvement. Daily Debate checks the same skill in later debates, then
+            waits for repeated evidence before calling it retained.
           </p>
 
           <div className="mt-4 flex flex-col gap-3">
@@ -196,7 +194,7 @@ export default async function ProgressPage() {
                     <span className="text-xs font-medium text-[var(--accent)]">{LOOP_STAGE_LABEL[status.stage]}</span>
                   </div>
                   <div
-                    className="mt-3 grid grid-cols-5 gap-1"
+                    className="mt-3 grid grid-cols-4 gap-1"
                     aria-label={`${status.label} learning loop: ${LOOP_STAGE_LABEL[status.stage]}`}
                   >
                     {LOOP_STAGE_ORDER.map((stage, index) => (
