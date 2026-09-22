@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/backend/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { METRIC_KEYS, METRIC_LABELS, HIGHER_IS_BETTER } from "@/lib/skillLedger";
 import { buildProgressSummary } from "@/lib/progressSummary";
@@ -9,6 +9,7 @@ import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
 import CoachToday from "@/components/CoachToday";
 import { recordProductEvent } from "@/lib/productEvents";
+import { computeLoopStatuses, type DrillAssignmentLite, type LoopStage } from "@/lib/coachLoop";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,28 @@ const TREND_GLYPH: Record<string, { glyph: string; tone: string }> = {
   flat: { glyph: "→", tone: "text-ink3" },
   "no-data": { glyph: "·", tone: "text-ink3" },
 };
+
+const LOOP_STAGE_ORDER: LoopStage[] = [
+  "detected",
+  "practised",
+  "improved_in_drill",
+  "improved_in_debate",
+  "retained",
+];
+
+const LOOP_STAGE_LABEL: Record<LoopStage, string> = {
+  detected: "Detected",
+  practised: "Drilled",
+  improved_in_drill: "Drill improved",
+  improved_in_debate: "Debate improved",
+  retained: "Retained",
+};
+
+function loopCta(stage: LoopStage): { href: string; label: string } {
+  if (stage === "detected") return { href: "#daily-drill", label: "Do the drill →" };
+  if (stage === "retained") return { href: "/history", label: "Review the debates →" };
+  return { href: "/", label: stage === "improved_in_debate" ? "Test it again →" : "Test it in a debate →" };
+}
 
 function Sparkline({ values }: { values: Array<number | null> }) {
   const pts = values.filter((v): v is number => v !== null);
@@ -62,6 +85,29 @@ export default async function ProgressPage() {
   void recordProductEvent("progress_viewed");
 
   const ledger = await buildLedgerForUser(user.id);
+  const service = createServiceClient();
+  const { data: drillRows } = await service
+    .from("drill_assignments")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  const drillAssignments: DrillAssignmentLite[] = (drillRows ?? []).map((row) => ({
+    id: row.id,
+    dimension: row.dimension,
+    assignedDate: row.assigned_date,
+    createdAt: row.created_at,
+    minutes: row.minutes,
+    beforeScore: row.before_score,
+    attemptText: row.attempt_text,
+    attemptScore: row.attempt_score,
+    movement: row.movement,
+    status: row.status,
+  }));
+  const loopStatuses = computeLoopStatuses(ledger.points, drillAssignments)
+    .sort((a, b) => (b.drillAssignedAt ?? "").localeCompare(a.drillAssignedAt ?? ""))
+    .slice(0, 3);
+
   const summary = buildProgressSummary(ledger.points);
   const goal = buildCoachingGoal(ledger.points, null);
   const focusLabel = goal?.dimension
@@ -122,8 +168,66 @@ export default async function ProgressPage() {
         )}
       </section>
 
+      {/* ── Closed learning loop: weakness → drill → retest → retention ─────── */}
+      {loopStatuses.length > 0 && (
+        <section className="surface-card p-5" aria-labelledby="learning-loop-heading" data-testid="learning-loop">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">Learning loop</p>
+              <h2 id="learning-loop-heading" className="mt-1 text-lg font-semibold">Prove the fix sticks</h2>
+            </div>
+            <span className="text-xs text-ink3">
+              {loopStatuses.length} recent skill{loopStatuses.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-ink3">
+            A drill is only the first step. Daily Debate checks the same skill in later debates, then waits for repeated
+            evidence before calling it retained.
+          </p>
+
+          <div className="mt-4 flex flex-col gap-3">
+            {loopStatuses.map((status) => {
+              const currentIndex = LOOP_STAGE_ORDER.indexOf(status.stage);
+              const cta = loopCta(status.stage);
+              return (
+                <article key={status.dimension} className="rounded-xl border border-[var(--rule)] bg-surface-2 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold">{status.label}</h3>
+                    <span className="text-xs font-medium text-[var(--accent)]">{LOOP_STAGE_LABEL[status.stage]}</span>
+                  </div>
+                  <div
+                    className="mt-3 grid grid-cols-5 gap-1"
+                    aria-label={`${status.label} learning loop: ${LOOP_STAGE_LABEL[status.stage]}`}
+                  >
+                    {LOOP_STAGE_ORDER.map((stage, index) => (
+                      <span
+                        key={stage}
+                        className={`h-1.5 rounded-full ${index <= currentIndex ? "bg-[var(--accent)]" : "bg-[var(--rule)]"}`}
+                        title={LOOP_STAGE_LABEL[stage]}
+                        aria-hidden="true"
+                      />
+                    ))}
+                  </div>
+                  <p className="mt-3 text-sm text-ink2">{status.summary}</p>
+                  <Link href={cta.href} className="mt-3 inline-block text-xs font-medium underline underline-offset-2">
+                    {cta.label}
+                  </Link>
+                </article>
+              );
+            })}
+          </div>
+
+          <p className="mt-4 text-[11px] leading-5 text-ink3">
+            These are observational skill trajectories from your debate history, not proof that a drill caused the
+            change. A skill only reaches “retained” after improvement persists across later measurements.
+          </p>
+        </section>
+      )}
+
       {/* The drill system: same focus, one concrete exercise */}
-      <CoachToday showProfile={false} />
+      <div id="daily-drill">
+        <CoachToday showProfile={false} />
+      </div>
 
       {/* ── How this was calculated (progressive disclosure) ──────────────── */}
       <details className="surface-card p-5">
