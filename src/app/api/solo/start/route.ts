@@ -11,6 +11,8 @@ import { assignChallengeSide, type SideHistoryItem } from "@/lib/challengeMe";
 import { pickFocusDimension } from "@/lib/coachingGoal";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { recordProductEvent } from "@/lib/productEvents";
+import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
+import { pendingRepairRetest } from "@/lib/repairRetest";
 
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "solo-start", limit: 10, windowMs: 60_000 });
@@ -65,11 +67,30 @@ export async function POST(request: Request) {
   // The daily goal travels with the debate: whichever dimension the coach
   // focuses on today is what the finish step will assess.
   let coachingDimension: string | null = null;
+  let repairRetest:
+    | { repairDebateId: string; targetKind: string; attemptedAt: string }
+    | null = null;
   try {
-    const ledger = await buildLedgerForUser(user.id);
-    coachingDimension = pickFocusDimension(ledger.points);
+    const [ledger, repairAnchor] = await Promise.all([
+      buildLedgerForUser(user.id),
+      latestRepairRetestAnchor(user.id),
+    ]);
+    const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
+    coachingDimension = pickFocusDimension(
+      ledger.points,
+      {},
+      pendingRetest?.dimension ?? null,
+    );
+    repairRetest = pendingRetest
+      ? {
+          repairDebateId: pendingRetest.debateId,
+          targetKind: pendingRetest.targetKind,
+          attemptedAt: pendingRetest.attemptedAt,
+        }
+      : null;
   } catch {
     coachingDimension = null;
+    repairRetest = null;
   }
 
   const { data: debate, error: debateError } = await db
@@ -80,7 +101,7 @@ export async function POST(request: Request) {
       side,
       round_count: 1,
       format,
-      coaching: { dimension: coachingDimension, sideReason },
+      coaching: { dimension: coachingDimension, sideReason, repairRetest },
     })
     .select("*")
     .single();
