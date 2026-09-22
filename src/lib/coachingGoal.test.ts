@@ -47,9 +47,9 @@ describe("pickFocusDimension", () => {
 
   it("picks the weakest dimension from the ledger", () => {
     const points = [
-      point({ rebuttalCoverage: 0.9, evidenceGrounding: 0.2, clarity: 0.8 }, 0),
-      point({ rebuttalCoverage: 0.9, evidenceGrounding: 0.25, clarity: 0.8 }, 1),
-      point({ rebuttalCoverage: 0.9, evidenceGrounding: 0.3, clarity: 0.8 }, 2),
+      point({ rebuttalCoverage: 0.9, unsupportedClaimRate: 0.8, clarity: 0.8 }, 0),
+      point({ rebuttalCoverage: 0.9, unsupportedClaimRate: 0.75, clarity: 0.8 }, 1),
+      point({ rebuttalCoverage: 0.9, unsupportedClaimRate: 0.7, clarity: 0.8 }, 2),
     ];
     const focus = pickFocusDimension(points);
     expect(focus).toBe("evidence");
