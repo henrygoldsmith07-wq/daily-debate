@@ -6,7 +6,8 @@ import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAsse
 import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { measurementHonestyFor } from "@/lib/sprint";
-import type { SoloDebate, SoloDebateTurn } from "@/lib/types";
+import type { CoachingRecord, SoloDebate, SoloDebateTurn } from "@/lib/types";
+import type { CoachDimension } from "@/lib/adaptiveCoach";
 
 export default async function DebatePage({ params }: { params: Promise<{ debateId: string }> }) {
   const { debateId } = await params;
@@ -58,9 +59,16 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
           labelB: "AI opponent",
         })
       : null;
+    const coaching = (debate.coaching ?? null) as CoachingRecord | null;
+    const goalDimension = (coaching?.dimension ?? null) as CoachDimension | null;
     const snapshot = finalAssessment
-      ? buildResultSnapshot(finalAssessment, { format: debate.format === "sprint" ? "sprint" : "full" })
-      : null;    const { data: repair } = await db
+      ? buildResultSnapshot(finalAssessment, {
+          format: debate.format === "sprint" ? "sprint" : "full",
+          goalDimension,
+        })
+      : null;
+
+    const { data: repair } = await db
       .from("repair_results")
       .select("id, created_at")
       .eq("debate_id", debateId)
