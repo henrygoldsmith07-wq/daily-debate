@@ -6,6 +6,7 @@ import {
   buildWeeklyCohorts,
   completenessNote,
   completionTime,
+  isSuccessfulRepairCompletion,
   repairRetentionComparison,
   returnRate,
   returnRateAfterAnchor,
@@ -55,15 +56,31 @@ describe("buildFunnelReport", () => {
     expect(report.debateCompletion.rate).toBeCloseTo(3 / 8);
   });
 
-  it("computes repair start and completion through the funnel", () => {
+  it("computes repair start and SUCCESSFUL completion through the funnel", () => {
     const rows = [
       ...event(["a", "b", "c", "d", "e"], "debate_completed", "2026-06-14T09:30:00Z"),
       ...event(["a", "b", "c"], "repair_started", "2026-06-14T09:35:00Z"),
       ...event(["a", "c"], "repair_completed", "2026-06-14T09:40:00Z"),
+      // Historical failed retry: this used to be emitted as repair_completed.
+      row("b", "repair_completed", "2026-06-14T09:39:00Z", { reason: "retry" }),
     ];
     const report = buildFunnelReport(rows, { now: NOW, minSample: 2 });
     expect(report.repairStart.rate).toBeCloseTo(0.6);
     expect(report.repairCompletion.rate).toBeCloseTo(2 / 3);
+  });
+
+  it("recognises legacy/success completions but rejects historical retry completions", () => {
+    expect(isSuccessfulRepairCompletion(row("u", "repair_completed", "2026-06-14T09:40:00Z"))).toBe(true);
+    expect(
+      isSuccessfulRepairCompletion(
+        row("u", "repair_completed", "2026-06-14T09:40:00Z", { reason: "succeeded" }),
+      ),
+    ).toBe(true);
+    expect(
+      isSuccessfulRepairCompletion(
+        row("u", "repair_completed", "2026-06-14T09:40:00Z", { reason: "retry" }),
+      ),
+    ).toBe(false);
   });
 
   it("counts full-analysis opens and challenge-me reasons", () => {
@@ -171,10 +188,12 @@ describe("session conversion (per-debate funnel)", () => {
     expect(report.sessions.coverage).toBe(1);
   });
 
-  it("measures repair and analysis steps per session", () => {
+  it("measures successful repair and analysis steps per session", () => {
     const rows = [
       ...debateRows("u1", "d-1", { completed: true, repairStarted: true, repairCompleted: true, analysisOpened: true, at: "2026-06-10T09:00:00Z" }),
       ...debateRows("u1", "d-2", { completed: true, repairStarted: true, repairCompleted: false, analysisOpened: false, at: "2026-06-11T09:00:00Z" }),
+      // Historical failed retry on d-2 must not turn the session into a completion.
+      row("u1", "repair_completed", "2026-06-11T09:05:00Z", { debate_id: "d-2", reason: "retry" }),
       ...debateRows("u2", "d-3", { completed: true, repairStarted: false, repairCompleted: false, analysisOpened: false, at: "2026-06-12T09:00:00Z" }),
     ];
     const report = buildFunnelReport(rows, { now: NOW, minSample: 2 });
@@ -290,10 +309,13 @@ describe("deeper product validation metrics", () => {
       rows.push(row(u, "repair_completed", "2026-06-12T09:30:00Z"));
       rows.push(row(u, "daily_viewed", "2026-06-13T09:00:00Z"));
     }
-    // 5 non-repairers: completed Jun 12, no repair, no return.
+    // 5 non-repairers: completed Jun 12, no successful repair, no return.
     for (const u of ["f", "g", "h", "i", "j"]) {
       rows.push(row(u, "debate_completed", "2026-06-12T09:00:00Z"));
     }
+    // A failed retry used to masquerade as repair completion. It must not move
+    // user f into the repairer cohort.
+    rows.push(row("f", "repair_completed", "2026-06-12T09:30:00Z", { reason: "retry" }));
     const comparison = repairRetentionComparison(rows, NOW);
     expect(comparison.repairers.users).toBe(5);
     expect(comparison.repairers.rate).toBe(1);
