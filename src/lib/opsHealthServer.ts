@@ -212,7 +212,10 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
     const applied = ((migrations.data ?? []) as Array<{ name: string }>).map((r) => r.name);
     const missingTables: string[] = [];
     for (const table of REQUIRED_TABLES) {
-      const probed = await service.from(table).select("id").limit(1);
+      // Column-agnostic existence probe: tables like topic_run_log have a
+      // composite PK (run_id, run_attempt) and no `id` column, so selecting
+      // `id` misreports a migrated database as schema-incomplete.
+      const probed = await service.from(table).select("*", { count: "exact", head: true });
       if (probed.error) missingTables.push(table);
     }
     database = assessDatabaseHealth({
