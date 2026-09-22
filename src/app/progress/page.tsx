@@ -85,11 +85,11 @@ export default async function ProgressPage() {
 
   void recordProductEvent("progress_viewed");
 
-  const [ledger, repairAnchor, drillOutcomes] = await Promise.all([
+  const [ledger, repairAnchor] = await Promise.all([
     buildLedgerForUser(user.id),
     latestRepairRetestAnchor(user.id),
-    latestDrillOutcomes(user.id),
   ]);
+  const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
   const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
   const service = createServiceClient();
   const { data: drillRows } = await service
