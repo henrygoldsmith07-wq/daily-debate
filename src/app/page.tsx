@@ -44,7 +44,7 @@ export default async function DashboardPage() {
   const topic = await getTodayTopic();
   void recordProductEvent("daily_viewed");
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger, repairAnchor, drillOutcomes] =
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger, repairAnchor] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -72,8 +72,8 @@ export default async function DashboardPage() {
         .maybeSingle(),
       buildLedgerForUser(user.id),
       latestRepairRetestAnchor(user.id),
-      latestDrillOutcomes(user.id),
     ]);
+  const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
 
   let previousDebateTitle: string | null = null;
   if (previousDebate?.topic_id) {
