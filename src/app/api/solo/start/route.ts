@@ -100,11 +100,11 @@ export async function POST(request: Request) {
     | { repairDebateId: string; targetKind: string; attemptedAt: string }
     | null = null;
   try {
-    const [ledger, repairAnchor, drillOutcomes] = await Promise.all([
+    const [ledger, repairAnchor] = await Promise.all([
       buildLedgerForUser(user.id),
       latestRepairRetestAnchor(user.id),
-      latestDrillOutcomes(user.id),
     ]);
+    const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
     const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
     coachingDimension = pickFocusDimension(
       ledger.points,
