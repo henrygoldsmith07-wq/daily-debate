@@ -58,7 +58,7 @@ Replays of finished debates render the same hierarchy server-side (strength, wea
 - **links into coaching**: a repair on the day's drill dimension marks that drill attempted, feeding the next coaching decision;
 - retries remain raw practice history, but the latest retry refreshes the linked formative drill attempt so coaching never stays stuck on an abandoned first draft.
 
-For longitudinal measurement, multiple rewrite submissions for the same user + debate + weakness kind are one **repair episode**. The first attempt anchors the episode; retries are preserved but cannot inflate repair denominators or create fake intervention cutoffs.
+For longitudinal measurement, multiple rewrite submissions for the same user + debate + weakness kind are one **repair episode**. The first attempt anchors the episode; retries are preserved but cannot inflate repair denominators or create fake intervention cutoffs. A failed submission is practice history only: it stays retryable, does **not** count as repair completion, and does **not** unlock a deliberate next-debate retest. The first successful submission is what transitions the product into retest state.
 
 The debate's own score never changes.
 
@@ -82,7 +82,7 @@ Behind **How this was calculated**: metric trajectories, per-debate slopes, the 
 ## Coaching loop
 
 1. Normally, the ledger's weakest dimension (movement-adjusted, shared with the drill system — one selection policy, not two) becomes today's goal.
-2. **A pending repair retest overrides that generic selector.** After a repair, Today and Progress show **Retest after repair**, the drill coach targets the same dimension, and the next solo debate stores the retest provenance in `solo_debates.coaching.repairRetest`.
+2. **A pending repair retest overrides that generic selector only after a successful repair.** Failed attempts remain retryable practice. After success, Today and Progress show **Retest after repair**, the drill coach targets the same dimension, and the next solo debate stores the retest provenance in `solo_debates.coaching.repairRetest`.
 3. The retest remains pending until a distinct later debate produces an **observable** ledger reading for that dimension. A poor reading still counts as a real retest; a debate with no opportunity for the target skill does not silently clear it.
 4. Same-day drill handling is conservative: an unattempted drill may be retargeted to the new repair focus, but an already-attempted drill is preserved as history rather than rewritten.
 5. The goal travels with the debate (`solo_debates.coaching.dimension`). At finish, the result snapshot receives that dimension, assesses the observable goal behaviour where a deterministic proxy exists, and the exact same outcome is persisted as `demonstrated`.
