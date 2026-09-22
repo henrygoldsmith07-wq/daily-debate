@@ -67,6 +67,7 @@ export default function DebateRoom({
   const [result, setResult] = useState<DebateSummaryPayload | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  const [repairSucceeded, setRepairSucceeded] = useState(completedResult?.repaired ?? false);
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
@@ -187,7 +188,7 @@ export default function DebateRoom({
         totalScore: result.totalScore,
         snapshot: result.snapshot ?? null,
         argGraph: result.summary.argGraph ?? null,
-        repaired: false,
+        repaired: repairSucceeded,
         bonusXP: result.bonusXP,
         topRewardLabel: result.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.label,
         topRewardDetail: result.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.detail,
@@ -199,7 +200,7 @@ export default function DebateRoom({
           totalScore: completedResult.totalScore,
           snapshot: completedResult.snapshot ?? null,
           argGraph: completedResult.argGraph ?? null,
-          repaired: completedResult.repaired ?? false,
+          repaired: repairSucceeded,
           honestyNote: completedResult.honestyNote ?? null,
         }
       : null;
@@ -365,12 +366,20 @@ export default function DebateRoom({
           )}
         </div>
 
-        {/* The repair exercise: deliberate practice on the exact flagged move.
-            Rendered whenever a weakness exists and no repair is recorded yet —
-            Fix this now scrolls straight down to it. */}
-        {view.argGraph && weakness && !view.repaired && (
+        {/* The repair exercise: failed attempts stay retryable. On a fresh
+            successful repair, keep the panel mounted so the user can read the
+            feedback they just earned; replays collapse it to the completed
+            status above. */}
+        {view.argGraph && weakness && (!view.repaired || view.fresh) && (
           <div ref={repairRef}>
-            <ArgumentRepair graph={view.argGraph} debateId={debate.id} presetTarget={weakness.repair} />
+            <ArgumentRepair
+              graph={view.argGraph}
+              debateId={debate.id}
+              presetTarget={weakness.repair}
+              onCompleted={(repair) => {
+                if (repair.succeeded) setRepairSucceeded(true);
+              }}
+            />
           </div>
         )}
       </div>
