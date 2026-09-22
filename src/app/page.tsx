@@ -128,7 +128,7 @@ export default async function DashboardPage() {
         topic={topic}
         activeDebateId={activeDebate?.id ?? null}
         evidenceCards={(evidenceRows ?? []) as unknown as EvidenceCardView[]}
-        goalLine={goal?.headline ?? "Use evidence for major claims."}
+        goalLine={goal?.goalLine ?? "Use evidence for major claims."}
         lastLine={goal?.lastLine ?? null}
         focusLabel={pendingRetest ? "Retest after repair" : "Today's focus"}
         isFirstVisit={!previousDebate}
@@ -197,7 +197,7 @@ export default async function DashboardPage() {
             <div className="home-secondary-highlight">
               <span className="home-coaching-label">Goal</span>
               <br />
-              {goal?.headline ?? "Complete a debate to unlock your training focus."}
+              {goal?.goalLine ?? "Complete a debate to unlock your training focus."}
             </div>
             <Link href="/dna" className="home-secondary-action">
               See Argument DNA →
