@@ -93,6 +93,12 @@ test.describe("daily sprint repair loop", () => {
     await expect(page.getByTestId("start-sprint")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("Retest after repair", { exact: true })).toBeVisible();
 
+    // Progress and the drill coach must agree with Today — no parallel
+    // selector is allowed to silently switch the target dimension.
+    await page.goto("/progress");
+    await expect(page.getByText("Retest after repair", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("repair-retest-card")).toBeVisible({ timeout: 20_000 });
+
     // 10. Replay uses the same hierarchy: repair already done → status shown,
     // no Fix-this-now CTA, and the graph stays collapsed until asked for.
     await page.goto(debateUrl);
