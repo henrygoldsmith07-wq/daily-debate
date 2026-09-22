@@ -94,7 +94,7 @@ Goals are numeric only where previous behaviour justifies precision ("Answer at 
 
 Privacy-conscious funnel events (`src/lib/productEvents.ts`, migration 004): allowlisted names only, bounded context, no free text, no device identifiers, silent no-op for guests. Captured: `daily_viewed`, `debate_started`, `sprint_started`, `full_debate_started`, `round_completed`, `debate_completed`, `repair_started`, `repair_completed`, `full_analysis_opened`, `progress_viewed`, `pvp_started`, `challenge_me_selected`, `challenge_link_created`, `challenge_link_accepted`.
 
-Funnel semantics: `repair_started` is the click on **Fix this now** (client-side); `repair_completed` is a server-confirmed submission — so start/completion can be compared honestly.
+Funnel semantics: `repair_started` is the click on **Fix this now** (client-side); `repair_completed` is emitted only when a server-scored rewrite crosses the repair success threshold. Failed submissions remain raw practice history, not completion events. Historical `repair_completed` rows marked `reason="retry"` are excluded from funnel/retention cohorts.
 
 ### Admin funnel report (`/analytics`, admin-gated)
 
@@ -134,6 +134,12 @@ weakness detected → repair completed → next relevant debates → improved / 
 - A per-kind rate is only claimed with ≥5 repairs and ≥3 measurable — otherwise the report says "not yet claimable".
 - **Retest linkage**: the first later debate that could express the weakness is the deliberate retest; the report tracks how often the weakness recurred in that first retest (rate claimed only at ≥3 measurable retests).
 - The output is labelled observational: an association with the repair, not proof of causation.
+
+## Live PvP matchmaking
+
+`POST /api/pvp/queue` delegates the entire join lifecycle to `join_pvp_queue_and_match()`: recover an existing active match, enqueue the caller, claim the oldest waiting opponent, create the match, and clear both queue rows inside one serialized database transaction per topic. This closes the simultaneous-first-join gap where two users could both enqueue and then wait forever.
+
+The database also enforces **one active PvP match per player across both roles**. A trigger checks `player_a` and `player_b` together under deterministic per-player transaction locks, so a user cannot be `player_b` in one active match and `player_a` in another. Friend challenges use the same `pvp_matches` table and therefore inherit the invariant.
 
 ## Async friend challenges
 
