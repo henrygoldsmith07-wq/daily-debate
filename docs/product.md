@@ -68,7 +68,7 @@ A third side option that picks for the user, with the reasoning shown:
 
 - No/minimal history → random.
 - Heavy side dominance (≥75% of last 8) → the other side (variety + steelmanning).
-- Clear performance gap (≥8 points, ≥2 debates each side) → the weaker side.
+- Clear performance gap (≥8 points, ≥2 debates each side) → the weaker side. Performance is normalized from cumulative turn points to a per-turn 0–100 scale first, so Sprint vs Full length cannot create the gap.
 - Otherwise → alternate from the last debate.
 
 Every outcome carries a plain-language reason ("You've argued FOR in 7 of your last 8 debates — switching to AGAINST for variety and steelmanning practice."). Deliberately lightweight; never described as optimised. Implementation: `src/lib/challengeMe.ts`.
