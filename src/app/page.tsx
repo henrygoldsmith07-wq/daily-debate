@@ -14,6 +14,7 @@ import { recordProductEvent } from "@/lib/productEvents";
 import { isDatabaseConfigured } from "@/lib/backend/env";
 import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
 import { pendingRepairRetest } from "@/lib/repairRetest";
+import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export default async function DashboardPage() {
   const topic = await getTodayTopic();
   void recordProductEvent("daily_viewed");
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger, repairAnchor] =
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger, repairAnchor, drillOutcomes] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -71,6 +72,7 @@ export default async function DashboardPage() {
         .maybeSingle(),
       buildLedgerForUser(user.id),
       latestRepairRetestAnchor(user.id),
+      latestDrillOutcomes(user.id),
     ]);
 
   let previousDebateTitle: string | null = null;
@@ -96,7 +98,7 @@ export default async function DashboardPage() {
   const goal = buildCoachingGoal(
     ledger?.points ?? [],
     lastCoaching?.snapshot ?? null,
-    {},
+    drillOutcomes,
     pendingRetest?.dimension ?? null,
   );
   const focusDimension: CoachDimension | null = goal?.dimension ?? null;
