@@ -13,6 +13,30 @@
 // The JSON decision is data: the CI step renders it into a GitHub issue
 // without re-implementing any judgement.
 
+
+/**
+ * Preserve the workflow-run identity needed to fetch job/step evidence.
+ * Keeping this normalisation pure makes it impossible for the digest to
+ * silently drop `id` while still claiming stage-aware diagnostics.
+ */
+export function normaliseTopicWorkflowRun(raw) {
+  if (!raw || typeof raw !== "object" || !raw.created_at) return null;
+  return {
+    id: Number.isInteger(raw.id) ? raw.id : null,
+    event: raw.event ?? "unknown",
+    status: raw.status ?? "unknown",
+    conclusion: raw.conclusion ?? null,
+    createdAt: raw.created_at,
+  };
+}
+
+/** Newest completed scheduled failure, including its GitHub run id. */
+export function latestFailedScheduledRun(runs) {
+  return [...(runs ?? [])]
+    .filter((r) => r.event === "schedule" && r.status === "completed" && r.conclusion === "failure")
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] ?? null;
+}
+
 /**
  * Stage-aware failure classification (pure).
  *
