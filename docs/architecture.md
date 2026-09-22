@@ -90,17 +90,17 @@ confidence calibration (ECE), latency, fast-vs-smart comparison, and
 shadow-route agreement in `rhetoricalRoleEvaluation.ts`, all covered by
 `rhetoricalRoleEvaluation.test.ts`.
 
-## Data model (migrations 001–015)
+## Data model (migrations 001–020)
 
 Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics`, `solo_debates` (+ `format`, `coaching`), `solo_debate_turns` (with `assessment` jsonb), `pvp_queue`, `pvp_matches`, `pvp_turns`, `rate_limits`, `benchmark_corpus`, `match_appeals`, `reports`, `corpus_items`, `corpus_ratings`, `drill_assignments`, `topic_evidence`, plus 004's `repair_results`, `challenge_invites`, `product_events`. Hand-written row types live in `src/lib/backend/database.types.ts`. Migration 015 extends `ai_call_log` with bounded structural-routing fields: taxonomy version, batch/input counts, route, fallback/ambiguity counts, and expensive judge legs avoided.
 
 ### Repair retest invariant
 
-A persisted repair does not merely change copy. The latest repair attempt can create a pending retest dimension. Today, the drill coach and solo-debate start all read the same pure `pendingRepairRetest` policy. The repaired debate cannot satisfy its own retest; a distinct later skill-ledger point must expose the target metric. Failed-but-observable retests count as tested, while no-opportunity debates keep the retest pending. The debate stores `coaching.repairRetest` provenance so result/replay surfaces can distinguish deliberate retests from coincidental focus selection.
+A persisted repair does not merely change copy. The latest **successful** repair can create a pending retest dimension; failed attempts remain retryable practice history and never unlock retest state. Today, the drill coach and solo-debate start all read the same pure `pendingRepairRetest` policy. The repaired debate cannot satisfy its own retest; a distinct later skill-ledger point must expose the target metric. Failed-but-observable retests count as tested, while no-opportunity debates keep the retest pending. The debate stores `coaching.repairRetest` provenance so result/replay surfaces can distinguish deliberate retests from coincidental focus selection.
 
 ## Reliability & security
 
-- **Atomic PvP matchmaking**: `claim_pvp_match` uses `FOR UPDATE SKIP LOCKED`; partial unique indexes guarantee ≤1 active match per player.
+- **Convergent PvP matchmaking**: migration 020's `join_pvp_queue_and_match()` serializes join/enqueue/claim per topic, so simultaneous first-time joiners converge instead of both waiting forever. A cross-role trigger takes deterministic player advisory locks and rejects any active match sharing either player, including player_a ↔ player_b role swaps; the older partial indexes remain a same-column backstop.
 - **Owned Postgres/auth**: scrypt password hashing, hashed session tokens, server-side session checks; the proxy does no DB/network work.
 - **Rate limiting**: Postgres-backed `increment_rate_limit()`, shared across instances; in-memory fallback for guest mode.
 - **Turn claiming**: solo turns and debate completion claim atomically (`update ... where status = 'active'` / `.is("user_message", null)`); concurrent losers get 409, never double points.
@@ -112,6 +112,6 @@ A persisted repair does not merely change copy. The latest repair attempt can cr
 ## Testing
 
 - **Unit**: `npm test` — all pure modules including sprint rules, coaching goal, challenge-me, repair targets, result snapshot, confidence differences, progress summary math.
-- **DB integration**: `*.db.test.ts` run when `TEST_DATABASE_URL` is set (CI provisions ephemeral Postgres): matchmaking invariants and boolean enqueue results, migration 004–008 schema/constraints (coaching loop, session ids, AI log, enqueue boolean), jsonb array storage shape, repair persistence, invite lifecycle.
+- **DB integration**: `*.db.test.ts` run when `TEST_DATABASE_URL` is set (CI provisions ephemeral Postgres): matchmaking convergence/cross-role invariants and boolean enqueue results, migration 004–020 schema/constraints (coaching loop, session ids, AI log, enqueue boolean), jsonb array storage shape, repair persistence, invite lifecycle.
 - **E2E**: Playwright against a production build with `E2E_MOCK_AI=1` — PvP flows, full-debate flow, and the Sprint → weakness → repair loop.
 - **Benchmarks**: deterministic judge invariance on every test run; live-model weekly with gates.
