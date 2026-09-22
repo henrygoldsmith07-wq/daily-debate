@@ -126,6 +126,17 @@ describe("buildCoachingGoal", () => {
   });
 });
 
+  it("lets a pending repair retest override the generic weakest-skill focus", () => {
+    const points = [
+      point({ rebuttalCoverage: 0.2, unsupportedClaimRate: 0.1, clarity: 0.9 }, 0),
+      point({ rebuttalCoverage: 0.2, unsupportedClaimRate: 0.1, clarity: 0.9 }, 1),
+    ];
+    const goal = buildCoachingGoal(points, null, {}, "evidence");
+    expect(goal?.dimension).toBe("evidence");
+    expect(goal?.lastLine).toMatch(/test whether it transfers/i);
+    expect(goal?.numeric).toBe(false);
+  });
+
 describe("assessGoalOutcome", () => {
   it("marks the rebuttal goal demonstrated at 80% coverage", () => {
     const ok = assessGoalOutcome("rebuttal", {
