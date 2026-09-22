@@ -143,7 +143,7 @@ export function completenessNote(meta: DataCompleteness): string | null {
   }
   if (meta.repairs.truncated) {
     bits.push(
-      `repair rows capped at ${meta.repairs.limit} — repair effectiveness covers only the newest repairs`,
+      `repair-attempt rows capped at ${meta.repairs.limit} — repair-episode effectiveness covers only episodes represented in the newest attempts`,
     );
   }
   if (meta.debates.truncated) {
