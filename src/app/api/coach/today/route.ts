@@ -4,9 +4,13 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import {
   buildCoachProfile,
+  DIMENSION_LABELS,
   selectFocus,
   todaysDrill,
+  type CoachDim,
 } from "@/lib/adaptiveCoach";
+import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
+import { pendingRepairRetest } from "@/lib/repairRetest";
 
 // Today's training focus: the lowest skill dimension adjusted by movement
 // (improving dimensions are deprioritised; dimensions whose previous drill
@@ -23,8 +27,12 @@ export async function GET(request: Request) {
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const ledger = await buildLedgerForUser(user.id);
+  const [ledger, repairAnchor] = await Promise.all([
+    buildLedgerForUser(user.id),
+    latestRepairRetestAnchor(user.id),
+  ]);
   const service = createServiceClient();
+  const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
 
   // Outcome-awareness: dimensions whose recent drills produced negative
   // movement stop being recommended until their skill moves again.
@@ -45,16 +53,33 @@ export async function GET(request: Request) {
   }
 
   const { dims, slopes } = buildCoachProfile(ledger.points);
-  const { focus, reason } = selectFocus(dims, slopes, outcomes);
+  let focus: CoachDim | null;
+  let reason: string;
+  if (pendingRetest) {
+    focus =
+      dims.find((d) => d.key === pendingRetest.dimension) ?? {
+        key: pendingRetest.dimension,
+        label: DIMENSION_LABELS[pendingRetest.dimension],
+        score: null,
+        hasData: false,
+      };
+    reason = "deliberate retest after your repair";
+  } else {
+    const selected = selectFocus(dims, slopes, outcomes);
+    focus = selected.focus;
+    reason = selected.reason;
+  }
 
   if (!focus) {
-    return NextResponse.json({ profile: dims, assignment: null, reason });
+    return NextResponse.json({ profile: dims, assignment: null, reason, retest: null });
   }
 
   const today = new Date().toISOString().slice(0, 10);
   const drill = todaysDrill(focus.key, new Date().toISOString());
 
-  // Idempotent per (user, day): upsert keeps the same assignment all day.
+  // Idempotent per (user, day), with one exception: an OPEN generic drill may
+  // be repurposed when a new repair creates a deliberate retest. An attempted
+  // drill is historical practice and is never rewritten.
   const beforeScore = focus.score;
   const { data: existing } = await service
     .from("drill_assignments")
@@ -64,7 +89,33 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   let assignment;
-  if (existing) {
+  if (
+    existing &&
+    pendingRetest &&
+    existing.status === "open" &&
+    existing.dimension !== focus.key
+  ) {
+    const { data: retargeted, error } = await service
+      .from("drill_assignments")
+      .update({
+        dimension: focus.key,
+        minutes: drill.minutes,
+        title: drill.title,
+        prompt: drill.prompt,
+        before_score: beforeScore,
+      })
+      .eq("id", existing.id)
+      .eq("user_id", user.id)
+      .eq("status", "open")
+      .select("*")
+      .single();
+    if (error || !retargeted) {
+      console.error("Failed to retarget open drill for repair retest:", error);
+      assignment = existing;
+    } else {
+      assignment = retargeted;
+    }
+  } else if (existing) {
     assignment = existing;
   } else {
     const { data: created, error } = await service
@@ -91,6 +142,14 @@ export async function GET(request: Request) {
     profile: dims,
     focusReason: reason,
     assignment,
+    retest: pendingRetest
+      ? {
+          dimension: pendingRetest.dimension,
+          label: DIMENSION_LABELS[pendingRetest.dimension],
+          repairDebateId: pendingRetest.debateId,
+          attemptedAt: pendingRetest.attemptedAt,
+        }
+      : null,
     debatesAnalysed: ledger.debates,
   });
 }
