@@ -28,11 +28,11 @@ export async function GET(request: Request) {
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [ledger, repairAnchor, outcomes] = await Promise.all([
+  const [ledger, repairAnchor] = await Promise.all([
     buildLedgerForUser(user.id),
     latestRepairRetestAnchor(user.id),
-    latestDrillOutcomes(user.id),
   ]);
+  const outcomes = await latestDrillOutcomes(user.id, ledger.points);
   const service = createServiceClient();
   const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
 
