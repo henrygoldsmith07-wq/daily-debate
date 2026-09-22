@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyFailureStage, decideOpsAlert } from "./ops-alert.mjs";
+import {
+  classifyFailureStage,
+  decideOpsAlert,
+  latestFailedScheduledRun,
+  normaliseTopicWorkflowRun,
+} from "./ops-alert.mjs";
 
 const NOW = "2026-09-16T12:00:00Z";
 const okProofs = { manualSuccess: true, scheduledSuccessAfterManual: true, idempotenceRerun: true, onTimeBeforeDeadline: true };
@@ -14,6 +19,32 @@ const healthy = (over = {}) => ({
   latestConfigCheck: { ok: true, reason: "ok" },
   nowIso: NOW,
   ...over,
+});
+
+test("workflow-run normalisation preserves the id required for failed-step diagnostics", () => {
+  const run = normaliseTopicWorkflowRun({
+    id: 123456,
+    event: "schedule",
+    status: "completed",
+    conclusion: "failure",
+    created_at: "2026-09-16T02:00:00Z",
+  });
+  assert.deepEqual(run, {
+    id: 123456,
+    event: "schedule",
+    status: "completed",
+    conclusion: "failure",
+    createdAt: "2026-09-16T02:00:00Z",
+  });
+});
+
+test("latest failed scheduled run keeps the newest run id for the jobs API", () => {
+  const failed = latestFailedScheduledRun([
+    { id: 11, event: "schedule", status: "completed", conclusion: "failure", createdAt: "2026-09-15T02:00:00Z" },
+    { id: 22, event: "workflow_dispatch", status: "completed", conclusion: "failure", createdAt: "2026-09-17T02:00:00Z" },
+    { id: 33, event: "schedule", status: "completed", conclusion: "failure", createdAt: "2026-09-16T02:00:00Z" },
+  ]);
+  assert.equal(failed.id, 33);
 });
 
 test("fully healthy inputs raise no alert", () => {
