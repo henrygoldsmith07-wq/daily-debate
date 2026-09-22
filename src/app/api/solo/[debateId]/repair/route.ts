@@ -3,19 +3,11 @@ import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
-import { pickRepairTarget, scoreRepair, type RepairKind, type RepairTarget } from "@/lib/argumentRepair";
+import { pickRepairTarget, scoreRepair, type RepairTarget } from "@/lib/argumentRepair";
 import { recordProductEvent } from "@/lib/productEvents";
+import { REPAIR_KIND_TO_DIMENSION } from "@/lib/repairRetest";
 
 const REPAIR_SUCCESS_THRESHOLD = 60;
-
-const KIND_TO_DIMENSION: Record<RepairKind, string> = {
-  evidence: "evidence",
-  rebuttal: "rebuttal",
-  logic: "logic",
-  impact: "impact",
-  structure: "structure",
-  clarity: "clarity",
-};
 
 /** Merge the debate's per-turn graphs into the final assessment. */
 async function finalAssessmentFor(db: Awaited<ReturnType<typeof createClient>>, debateId: string) {
@@ -130,7 +122,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   try {
     const service = createServiceClient();
     const today = new Date().toISOString().slice(0, 10);
-    const dimension = KIND_TO_DIMENSION[target.kind];
+    const dimension = REPAIR_KIND_TO_DIMENSION[target.kind];
     await service
       .from("drill_assignments")
       .update({
