@@ -101,7 +101,7 @@ export default async function AnalyticsPage() {
         <h2 id="funnel-heading" className="text-sm font-semibold">Training funnel</h2>
         <p className="mt-1 text-xs text-ink3">
           User conversion counts each user once; session conversion counts each debate separately (migration 005 events).
-          Data: {completeness.events.loaded} events · {completeness.repairs.loaded} repairs · {completeness.debates.loaded} debate graphs.
+          Data: {completeness.events.loaded} events · {completeness.repairs.loaded} repair attempts · {completeness.debates.loaded} debate graphs.
         </p>
         {completeness.note && (
           <p className="mt-1 text-xs text-amber-600" role="note">
@@ -224,6 +224,10 @@ export default async function AnalyticsPage() {
       <section className="surface-card p-5" aria-labelledby="repair-heading">
         <h2 id="repair-heading" className="text-sm font-semibold">Does repair work?</h2>
         <p className="mt-1 text-xs text-ink3">{effectiveness.honestyNote}</p>
+        <p className="mt-1 text-xs text-ink3">
+          {effectiveness.totalRepairs} distinct repair episodes from {effectiveness.totalAttempts} stored attempt{effectiveness.totalAttempts === 1 ? "" : "s"}
+          {effectiveness.retryAttemptsCollapsed > 0 && ` · ${effectiveness.retryAttemptsCollapsed} retry attempt${effectiveness.retryAttemptsCollapsed === 1 ? "" : "s"} collapsed`}.
+        </p>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
@@ -288,7 +292,8 @@ export default async function AnalyticsPage() {
           <RateRow label="Return after 30 days" numerator={trainingLoop.postRepairReturn.d30.returnedUsers} denominator={trainingLoop.postRepairReturn.d30.eligibleUsers} rate={trainingLoop.postRepairReturn.d30.rate} note={trainingLoop.postRepairReturn.d30.note} />
         </div>
         <p className="mt-2 text-xs text-ink3">
-          {trainingLoop.repairs} repairs · {trainingLoop.retestsObserved} with an eligible retest
+          {trainingLoop.repairs} repair episodes from {trainingLoop.attempts} attempt{trainingLoop.attempts === 1 ? "" : "s"}
+          {trainingLoop.retryAttemptsCollapsed > 0 && ` (${trainingLoop.retryAttemptsCollapsed} retries collapsed)`} · {trainingLoop.retestsObserved} with an eligible retest
           ({trainingLoop.retestsPending} pending, never counted as clean) · median {trainingLoop.medianDaysToRetest ?? "—"} days to retest
           {trainingLoop.unmatchedStarts > 0 && ` · ${trainingLoop.unmatchedStarts} start events without a debate id cannot be matched`}
           . Time to first recurrence: median {trainingLoop.timeToFirstRecurrence.medianDays ?? "—"} days across
