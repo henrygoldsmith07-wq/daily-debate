@@ -176,7 +176,7 @@ export default async function DashboardPage() {
             {previousDebate ? (
               <p className="home-secondary-meta">
                 {formatShortDate(previousDebate.completed_at ?? previousDebate.created_at)} · arguing{" "}
-                {previousDebate.side} · {previousDebate.total_score ?? "—"}/100
+                {previousDebate.side} · {previousDebate.total_score ?? "—"} pts
                 {improvementKey ? <span className="block text-[var(--accent)]">Improving: {improvementKey.replace(/([A-Z])/g, " $1").toLowerCase()}</span> : null}
               </p>
             ) : (
