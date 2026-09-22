@@ -11,6 +11,7 @@ import {
 } from "@/lib/adaptiveCoach";
 import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
 import { pendingRepairRetest } from "@/lib/repairRetest";
+import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 
 // Today's training focus: the lowest skill dimension adjusted by movement
 // (improving dimensions are deprioritised; dimensions whose previous drill
@@ -27,30 +28,13 @@ export async function GET(request: Request) {
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [ledger, repairAnchor] = await Promise.all([
+  const [ledger, repairAnchor, outcomes] = await Promise.all([
     buildLedgerForUser(user.id),
     latestRepairRetestAnchor(user.id),
+    latestDrillOutcomes(user.id),
   ]);
   const service = createServiceClient();
   const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
-
-  // Outcome-awareness: dimensions whose recent drills produced negative
-  // movement stop being recommended until their skill moves again.
-  // `movement` arrives as a real number: numeric columns are normalised at
-  // the database/client boundary (backend/sql.ts).
-  const { data: past } = await service
-    .from("drill_assignments")
-    .select("dimension, movement")
-    .eq("user_id", user.id)
-    .not("movement", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(12);
-  const outcomes: Record<string, number> = {};
-  for (const row of past ?? []) {
-    if (outcomes[row.dimension] === undefined && typeof row.movement === "number") {
-      outcomes[row.dimension] = row.movement;
-    }
-  }
 
   const { dims, slopes } = buildCoachProfile(ledger.points);
   let focus: CoachDim | null;
