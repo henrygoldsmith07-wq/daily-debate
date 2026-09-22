@@ -57,7 +57,37 @@ export function pointMeasuresDimension(
   point: SkillMetricPoint,
   dimension: CoachDimension,
 ): boolean {
-  return RETEST_METRICS[dimension].some((metric) => point.metrics[metric] !== null);
+  const metricObserved = RETEST_METRICS[dimension].some(
+    (metric) => point.metrics[metric] !== null,
+  );
+  if (!metricObserved) return false;
+
+  const opportunities = point.opportunities;
+  switch (dimension) {
+    case "evidence":
+    case "logic":
+    case "structure":
+      // These repairs need the user to make at least one claim-like move.
+      // A structural zero from an empty case is not evidence of transfer.
+      return opportunities ? opportunities.majorClaims > 0 : dimension !== "structure";
+    case "rebuttal":
+      // rebuttalCoverage itself is null at zero canonical opportunities, but
+      // keep the explicit gate so future metric changes cannot weaken this.
+      return opportunities ? opportunities.opponentMoves > 0 : true;
+    case "impact":
+      // Mirror coachRewards.measureDimension: weighing is only testable when
+      // there is something to weigh — an opposing move or at least two own
+      // claims to compare. Legacy points without opportunity metadata stay
+      // pending rather than being falsely cleared by a default zero.
+      return opportunities
+        ? opportunities.majorClaims > 0 &&
+            (opportunities.opponentMoves > 0 || opportunities.majorClaims >= 2)
+        : false;
+    case "clarity":
+      return point.metrics.clarity !== null;
+    case "steelmanning":
+      return opportunities ? opportunities.opponentMoves > 0 : metricObserved;
+  }
 }
 
 /**
