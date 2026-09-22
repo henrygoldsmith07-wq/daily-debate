@@ -81,10 +81,12 @@ Behind **How this was calculated**: metric trajectories, per-debate slopes, the 
 
 ## Coaching loop
 
-1. The ledger's weakest dimension (movement-adjusted, shared with the drill system — one selection policy, not two) becomes today's goal on the Today screen.
-2. The goal travels with the debate (`solo_debates.coaching.dimension`).
-3. At finish, the goal behaviour is assessed against the graph and persisted (`snapshot`, `demonstrated`).
-4. The result screen reports it; the next day's goal accounts for it.
+1. Normally, the ledger's weakest dimension (movement-adjusted, shared with the drill system — one selection policy, not two) becomes today's goal.
+2. **A pending repair retest overrides that generic selector.** After a repair, Today and Progress show **Retest after repair**, the drill coach targets the same dimension, and the next solo debate stores the retest provenance in `solo_debates.coaching.repairRetest`.
+3. The retest remains pending until a distinct later debate produces an **observable** ledger reading for that dimension. A poor reading still counts as a real retest; a debate with no opportunity for the target skill does not silently clear it.
+4. Same-day drill handling is conservative: an unattempted drill may be retargeted to the new repair focus, but an already-attempted drill is preserved as history rather than rewritten.
+5. The goal travels with the debate (`solo_debates.coaching.dimension`). At finish, the result snapshot receives that dimension, assesses the observable goal behaviour where a deterministic proxy exists, and the exact same outcome is persisted as `demonstrated`.
+6. The result screen labels deliberate retests explicitly. Dimensions without a valid one-debate pass/fail rule are reported as practised under debate conditions and left to longitudinal Progress measurement rather than receiving a guessed verdict.
 
 Goals are numeric only where previous behaviour justifies precision ("Answer at least 4 of 5" needs ≥3 opportunities last debate; otherwise the goal stays qualitative).
 
