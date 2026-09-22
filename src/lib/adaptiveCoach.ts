@@ -103,17 +103,9 @@ export function buildCoachProfile(points: SkillMetricPoint[]): {
   const slopes = Object.fromEntries(
     COACH_DIMENSIONS.map((key) => {
       const metric = DIMENSION_METRIC[key];
-      const rawSlope = trajectoryFor(points, metric).slopePerDebate;
-      // Focus policy consumes GOODNESS movement: positive always means the
-      // skill is improving, regardless of whether the raw metric itself is
-      // higher-is-better (coverage) or lower-is-better (fallacies/drops).
-      const goodnessSlope =
-        rawSlope === null
-          ? null
-          : HIGHER_IS_BETTER[metric]
-            ? rawSlope
-            : -rawSlope;
-      return [key, goodnessSlope];
+      // trajectoryFor already normalizes direction: positive slope always
+      // means goodness is increasing, including lower-is-better metrics.
+      return [key, trajectoryFor(points, metric).slopePerDebate];
     }),
   ) as Record<CoachDimension, number | null>;
 
