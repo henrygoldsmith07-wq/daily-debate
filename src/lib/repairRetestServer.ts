@@ -4,10 +4,12 @@ import { createServiceClient } from "@/lib/backend/server";
 import type { RepairRetestAnchor } from "./repairRetest";
 
 /**
- * Latest submitted repair attempt for a user. Retries are intentionally useful
- * here: coaching should test the most recently practised version. Longitudinal
- * effectiveness analytics still collapses those raw attempts into one repair
- * episode; this helper only decides what the user should practise next.
+ * Latest SUCCESSFUL repair for a user.
+ *
+ * Raw failed attempts remain valuable practice history, but they must not
+ * schedule "Retest after repair" or make the product claim a weakness was
+ * repaired. Retries are still preserved in repair_results; once any retry
+ * succeeds, that successful attempt becomes the retest anchor.
  */
 export async function latestRepairRetestAnchor(
   userId: string,
@@ -17,6 +19,7 @@ export async function latestRepairRetestAnchor(
     .from("repair_results")
     .select("debate_id, target_kind, created_at")
     .eq("user_id", userId)
+    .eq("succeeded", true)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
