@@ -150,6 +150,11 @@ export function providerStatus(env = process.env) {
 /**
  * Fail-fast configuration validation (no writes, no provider calls, no
  * secret values in output). Returns { ok, checks } and never throws.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {(url: string) => Promise<(text: string, params?: unknown[]) => Promise<unknown[]>>} [sqlFactory]
+ *   DB factory (injectable for tests). Structural: any factory returning a
+ *   plain query function fits — including the full executor with .transaction.
  */
 export async function checkConfig(env = process.env, sqlFactory = createExecutor) {
   const checks = {};
@@ -240,6 +245,54 @@ export async function checkConfig(env = process.env, sqlFactory = createExecutor
         reason: "config-failure: could not verify topic fingerprint schema; apply database migrations before topic generation",
       };
     }
+    // FATAL when migration 019 is absent: generation_reason is part of the
+    // canonical topic row (how this immutable row was originally created),
+    // so a schema without it cannot store honest provenance. Same fail-fast
+    // discipline as 018: config-failure BEFORE any generation attempt, so no
+    // retry slot is wasted repeating a schema-known failure.
+    try {
+      const reasonCols = await withTimeout(
+        sql(
+          `SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'daily_topics' AND column_name = 'generation_reason'`,
+        ),
+        10_000,
+        "generation_reason column check",
+      );
+      checks.generation_reason_supported = reasonCols.length > 0;
+      if (!checks.generation_reason_supported) {
+        return {
+          ok: false,
+          checks,
+          reason: "config-failure: required generation_reason schema missing; apply database migrations (019_generation_reason.sql) before topic generation",
+        };
+      }
+      const reasonConstraint = await withTimeout(
+        sql(
+          `SELECT 1 FROM information_schema.table_constraints
+            WHERE table_schema = 'public' AND table_name = 'daily_topics'
+              AND constraint_name = 'daily_topics_generation_reason_check'
+            LIMIT 1`,
+        ),
+        10_000,
+        "generation_reason constraint check",
+      );
+      checks.generation_reason_constraint = reasonConstraint.length > 0;
+      if (!checks.generation_reason_constraint) {
+        return {
+          ok: false,
+          checks,
+          reason: "config-failure: generation_reason value constraint missing; apply database migrations (019_generation_reason.sql) before topic generation",
+        };
+      }
+    } catch {
+      checks.generation_reason_supported = false;
+      return {
+        ok: false,
+        checks,
+        reason: "config-failure: could not verify generation_reason schema; apply database migrations (019_generation_reason.sql) before topic generation",
+      };
+    }
   } catch (e) {
     return { ok: false, checks, reason: `db-failure: schema check failed (${String(e?.message ?? e).slice(0, 120)})` };
   }
@@ -260,6 +313,23 @@ async function defaultQuery(text, params) {
   if (!executorPromise) executorPromise = createExecutor(databaseUrl);
   const executor = await executorPromise;
   return executor(text, params ?? []);
+}
+
+/**
+ * Real session-backed transaction from the same executor (see
+ * sql-executor.mjs). Works on BOTH transports: plain pg over TCP, and Neon
+ * HTTP via a dedicated session client — because Neon HTTP cannot carry
+ * BEGIN/COMMIT across query() calls. Throws when no session can be opened,
+ * so a repair can never run half-atomic.
+ */
+async function defaultTransaction(fn) {
+  if (!databaseUrl) throw new Error("DATABASE_URL is required.");
+  if (!executorPromise) executorPromise = createExecutor(databaseUrl);
+  const executor = await executorPromise;
+  if (typeof executor.transaction !== "function") {
+    throw new Error("database transport exposes no transaction surface — refusing a non-atomic repair");
+  }
+  return executor.transaction(fn);
 }
 
 async function getRecentTitles(query, limit = 14) {
@@ -460,15 +530,18 @@ async function replaceEvidenceCards(query, topicId, cards, fingerprint, fingerpr
  * never deleted in place by normal retries — it is removed inside this
  * transaction, so no intermediate state is ever observable.
  */
-async function rebuildEvidenceTx(query, { topicId, backfillFingerprint, fingerprint, cards }) {
-  await query("BEGIN", []);
-  try {
+async function rebuildEvidenceTx(transaction, { topicId, backfillFingerprint, fingerprint, cards }) {
+  // ONE session-backed transaction (executor.transaction). BEGIN/COMMIT are
+  // owned by the abstraction — on the Neon HTTP production transport those
+  // as separate query() calls would be separate sessions (a silent
+  // non-transaction). Any throw rolls the whole thing back.
+  return transaction(async (tx) => {
     if (backfillFingerprint) {
-      await query(`UPDATE daily_topics SET topic_fingerprint = $2 WHERE id = $1`, [topicId, fingerprint]);
+      await tx(`UPDATE daily_topics SET topic_fingerprint = $2 WHERE id = $1`, [topicId, fingerprint]);
     }
-    await query(`DELETE FROM topic_evidence WHERE topic_id = $1`, [topicId]);
+    await tx(`DELETE FROM topic_evidence WHERE topic_id = $1`, [topicId]);
     for (const card of cards) {
-      await query(
+      await tx(
         `INSERT INTO topic_evidence
             (topic_id, claim, source_name, source_type, url, title, passage, published_date, checks, topic_fingerprint)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)`,
@@ -476,19 +549,15 @@ async function rebuildEvidenceTx(query, { topicId, backfillFingerprint, fingerpr
          card.title ?? null, card.passage, card.publishedDate, jsonParam(card.checks ?? {}), fingerprint],
       );
     }
-    const counts = await evidenceFingerprintCounts(query, topicId, fingerprint, true);
+    const counts = await evidenceFingerprintCounts(tx, topicId, fingerprint, true);
     if (counts.total !== cards.length || counts.mismatched !== 0 || counts.unstamped !== 0) {
       throw new Error(
         `repair evidence invariant violated for topic ${topicId}: ` +
         `wrote ${cards.length}, found ${counts.total} (${counts.mismatched} mismatched, ${counts.unstamped} unstamped)`,
       );
     }
-    await query("COMMIT", []);
     return counts.total;
-  } catch (e) {
-    try { await query("ROLLBACK", []); } catch { /* rollback of a dead txn is best-effort */ }
-    throw e;
-  }
+  });
 }
 
 /**
@@ -497,18 +566,19 @@ async function rebuildEvidenceTx(query, { topicId, backfillFingerprint, fingerpr
  * only normal-ladder path allowed to change a stored topic's content, and
  * it can never expose new topic + old evidence (or any partial state).
  */
-async function repairTopicTx(query, { targetDate, topic, source, fingerprint, fingerprintSupported, reason, reasonSupported, cards }) {
-  await query("BEGIN", []);
-  try {
-    const topicId = await repairTopicRow(query, targetDate, topic, source, fingerprint, fingerprintSupported, reason, reasonSupported);
+async function repairTopicTx(transaction, { targetDate, topic, source, fingerprint, fingerprintSupported, reason, reasonSupported, cards }) {
+  // Topic content replacement + evidence rebuild land together or not at all,
+  // on ONE real database session regardless of query transport (see
+  // sql-executor.transaction). Failure after the UPDATE, after the DELETE, or
+  // midway through the INSERTs rolls every statement back — the invariant
+  // "never new topic + old evidence, never cleared + partial" is enforced by
+  // the database, not by statement ordering.
+  return transaction(async (tx) => {
+    const topicId = await repairTopicRow(tx, targetDate, topic, source, fingerprint, fingerprintSupported, reason, reasonSupported);
     if (!topicId) throw new Error(`repair: topic row for ${targetDate} no longer exists`);
-    await replaceEvidenceCards(query, topicId, cards, fingerprint, fingerprintSupported);
-    await query("COMMIT", []);
+    await replaceEvidenceCards(tx, topicId, cards, fingerprint, fingerprintSupported);
     return topicId;
-  } catch (e) {
-    try { await query("ROLLBACK", []); } catch { /* best-effort */ }
-    throw e;
-  }
+  });
 }
 
 async function retrieveEvidence(title, prompt) {
@@ -868,6 +938,11 @@ export function resolveTargetDate(now) {
  */
 export async function runGeneration(deps = {}) {
   const query = deps.query ?? defaultQuery;
+  // Atomic repair transport: production uses the executor's session-backed
+  // transaction (Neon HTTP included). An injected query WITHOUT an explicit
+  // transaction runs against the caller's own transport — unit doubles own
+  // their atomicity; real repairs always go through executor.transaction.
+  const transaction = deps.transaction ?? (deps.query ? (fn) => fn(deps.query) : defaultTransaction);
   const generate = deps.generate ?? ((recent, count) => generateCandidates(recent, count, deps.env));
   const retrieve = deps.retrieve ?? retrieveEvidence;
   const env = deps.env ?? process.env;
@@ -910,7 +985,7 @@ export async function runGeneration(deps = {}) {
   }
   const status = fingerprintSupported ? topicRowStatus(existing, tomorrow) : (existing && isValidTopicContent(existing) ? "valid" : (existing ? "invalid-content" : "missing"));
   if (status === "valid" || status === "legacy-unfingerprinted") {
-    return alreadyPresent(query, existing, tomorrow, fingerprintSupported, reasonSupported, status, emit, retrieve);
+    return alreadyPresent(query, transaction, existing, tomorrow, fingerprintSupported, reasonSupported, status, emit, retrieve);
   }
   let repairing = false;
   if (status === "invalid-content" || status === "fingerprint-mismatch") {
@@ -984,7 +1059,7 @@ export async function runGeneration(deps = {}) {
       } catch (e) {
         emit(`[generate-topics] Evidence retrieval failed: ${String(e?.message ?? e).slice(0, 140)}`);
       }
-      topicId = await repairTopicTx(query, {
+      topicId = await repairTopicTx(transaction, {
         targetDate: tomorrow,
         topic: bestTopic,
         source: generationSource,
@@ -1014,7 +1089,7 @@ export async function runGeneration(deps = {}) {
     }
     const racedStatus = fingerprintSupported ? topicRowStatus(raced, tomorrow) : (raced && isValidTopicContent(raced) ? "valid" : "invalid-content");
     if (racedStatus === "valid" || racedStatus === "legacy-unfingerprinted") {
-      return alreadyPresent(query, raced, tomorrow, fingerprintSupported, reasonSupported, racedStatus, emit, retrieve, true);
+      return alreadyPresent(query, transaction, raced, tomorrow, fingerprintSupported, reasonSupported, racedStatus, emit, retrieve, true);
     }
     return { outcome: "db-failure", stage: "store-race", error: `lost claim race for ${tomorrow} and the winning row is ${racedStatus}` };
   }
@@ -1034,7 +1109,7 @@ export async function runGeneration(deps = {}) {
         // the transaction stores as an empty (but consistent) set.
         emit(`[generate-topics] Evidence retrieval failed: ${String(e?.message ?? e).slice(0, 140)}`);
       }
-      evidenceCards = await rebuildEvidenceTx(query, {
+      evidenceCards = await rebuildEvidenceTx(transaction, {
         topicId,
         backfillFingerprint: false,
         fingerprint,
@@ -1077,7 +1152,7 @@ export async function runGeneration(deps = {}) {
  * stamped); stale or unstamped evidence on fingerprinted topics is deleted
  * and re-retrieved — the TOPIC content itself is never touched here.
  */
-async function alreadyPresent(query, existing, tomorrow, fingerprintSupported, reasonSupported, status, emit, retrieve, converged = false) {
+async function alreadyPresent(query, transaction, existing, tomorrow, fingerprintSupported, reasonSupported, status, emit, retrieve, converged = false) {
   const fingerprint = fingerprintSupported
     ? topicFingerprint({ topicDate: tomorrow, title: existing.title, prompt: existing.prompt, category: existing.category })
     : null;
@@ -1101,7 +1176,7 @@ async function alreadyPresent(query, existing, tomorrow, fingerprintSupported, r
       } catch (e) {
         emit(`[generate-topics] Evidence re-retrieval failed: ${String(e?.message ?? e).slice(0, 140)}`);
       }
-      await rebuildEvidenceTx(query, { topicId: existing.id, backfillFingerprint: true, fingerprint, cards });
+      await rebuildEvidenceTx(transaction, { topicId: existing.id, backfillFingerprint: true, fingerprint, cards });
       repaired = "rebuild-legacy-evidence";
       emit(`[generate-topics] healed legacy row ${tomorrow}: fingerprint stamped, evidence rebuilt (${cards.length} card(s))`);
     } else if (fingerprintSupported) {
@@ -1119,7 +1194,7 @@ async function alreadyPresent(query, existing, tomorrow, fingerprintSupported, r
         } catch (e) {
           emit(`[generate-topics] Evidence re-retrieval failed: ${String(e?.message ?? e).slice(0, 140)}`);
         }
-        await rebuildEvidenceTx(query, { topicId: existing.id, backfillFingerprint: false, fingerprint, cards });
+        await rebuildEvidenceTx(transaction, { topicId: existing.id, backfillFingerprint: false, fingerprint, cards });
         repaired = before.mismatched > 0 ? "replaced-stale-evidence" : "removed-unstamped-evidence";
         emit(`[generate-topics] rebuilt ${before.mismatched} stale and ${before.unstamped} untrusted evidence card(s) for ${tomorrow}`);
       } else if (before.total === 0) {
@@ -1130,7 +1205,7 @@ async function alreadyPresent(query, existing, tomorrow, fingerprintSupported, r
           emit(`[generate-topics] Evidence re-retrieval failed: ${String(e?.message ?? e).slice(0, 140)}`);
         }
         if (cards.length) {
-          await rebuildEvidenceTx(query, { topicId: existing.id, backfillFingerprint: false, fingerprint, cards });
+          await rebuildEvidenceTx(transaction, { topicId: existing.id, backfillFingerprint: false, fingerprint, cards });
           repaired = repaired ?? "re-retrieved-evidence";
           emit(`[generate-topics] re-retrieved ${cards.length} evidence card(s) for unchanged topic ${tomorrow}`);
         }

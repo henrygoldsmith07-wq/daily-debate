@@ -15,15 +15,20 @@ import {
   buildOpsHealthReport,
   MIGRATION_REQUIRED_COLUMNS,
   type AiProductionEvidence,
+  type DurableProofFacts,
   deriveDelayWitness,
   mergeDelayWitnesses,
+  matchesExactAiTelemetry,
+  parseArtifactWitness,
   type EvidenceSection,
   type OpsHealthReport,
+  type TopicArtifactWitness,
   type TopicRunTelemetryRow,
   type TopicScheduledRun,
   type TrainingEvidence,
   type WorkflowStatusInput,
 } from "./opsHealth";
+import { findZipEntry } from "./zipEntry";
 import { computeCorpusMetrics, type MetricItem, type MetricRating } from "./corpusMetrics";
 import { buildRepairOutcomeFunnel } from "./productFunnel";
 import { loadFunnelData } from "./productFunnelServer";
@@ -98,11 +103,12 @@ async function fetchTopicGenerationRuns(token?: string): Promise<TopicScheduledR
     );
     if (!res.ok) return null;
     const data = (await res.json()) as {
-      workflow_runs?: Array<{ event?: string; status?: string; conclusion?: string | null; created_at?: string }>;
+      workflow_runs?: Array<{ id?: number; event?: string; status?: string; conclusion?: string | null; created_at?: string }>;
     };
     return (data.workflow_runs ?? [])
       .filter((r) => r.created_at)
       .map((r) => ({
+        id: r.id,
         event: r.event ?? "unknown",
         status: r.status ?? "unknown",
         conclusion: r.conclusion ?? null,
@@ -112,6 +118,54 @@ async function fetchTopicGenerationRuns(token?: string): Promise<TopicScheduledR
     return null;
   }
 }
+
+/**
+ * Exact scheduler-witness artifacts (item: never infer a slot when exact
+ * evidence exists). For a bounded number of recent topic-generation runs,
+ * download the run's own uploaded `topic-run-evidence-{id}` artifact and
+ * read its cronSlot / scheduledFor / actual start / schedulerDelayMs (parsing
+ * lives in the pure parseArtifactWitness in opsHealth.ts). The map feeds
+ * deriveDelayWitness, which prefers these over nearest-slot inference.
+ * Token optional; failures degrade to an empty map (inference then remains
+ * as the FINAL fallback, never the other way round).
+ */
+async function fetchArtifactWitnesses(
+  token: string | undefined,
+  runs: TopicScheduledRun[],
+): Promise<Map<number, TopicArtifactWitness>> {
+  const out = new Map<number, TopicArtifactWitness>();
+  if (!token) return out;
+  const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}` };
+  for (const run of runs) {
+    if (run.id === undefined || out.size >= 4) continue; // bounded: recent runs only
+    try {
+      const listRes = await fetch(`https://api.github.com/repos/${REPO}/actions/runs/${run.id}/artifacts`, {
+        headers,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!listRes.ok) continue;
+      const list = (await listRes.json()) as {
+        artifacts?: Array<{ id: number; name: string; expired?: boolean; archive_url: string }>;
+      };
+      const artifact = (list.artifacts ?? []).find(
+        (a) => a.name === `topic-run-evidence-${run.id}` && !a.expired,
+      );
+      if (!artifact) continue;
+      const zipRes = await fetch(artifact.archive_url, { headers, signal: AbortSignal.timeout(10_000) });
+      if (!zipRes.ok) continue;
+      const bytes = Buffer.from(await zipRes.arrayBuffer());
+      const jsonBytes = findZipEntry(bytes, "topic-run-evidence.json");
+      if (!jsonBytes) continue;
+      const parsed = JSON.parse(jsonBytes.toString("utf8")) as Record<string, unknown>;
+      const witness = parseArtifactWitness(parsed);
+      if (witness) out.set(run.id, witness);
+    } catch {
+      // artifact unavailable for this run — inference stays as final fallback
+    }
+  }
+  return out;
+}
+
 
 function readJudgeArtifact(): {
   at: string;
@@ -231,11 +285,19 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   // table or unreadable rows degrade to "no telemetry", never to errors.
   const topicRuns = await fetchTopicGenerationRuns(token);
   const dbTelemetry = await loadTopicRunTelemetry();
+  // Durable proofs come from topic_run_log over its WHOLE table — an old
+  // manual run must not fall outside an eight-run GitHub page and erase the
+  // manual→scheduled fact. GitHub history stays the fallback when the DB
+  // aggregate is unreadable (and for current scheduler state/failures).
+  const durableProofs = await loadDurableProofFacts();
   // Second witness: when topic_run_log is unreachable (the DB is down),
-  // scheduler-delay telemetry is derived from GitHub run history instead, so
-  // a platform-vs-database question stays answerable during an outage. DB
-  // rows stay primary; witnesses only fill gaps (see mergeDelayWitnesses).
-  const telemetry = mergeDelayWitnesses(dbTelemetry, topicRuns ? deriveDelayWitness(topicRuns) : []);
+  // scheduler-delay telemetry comes from the runs' OWN uploaded artifacts
+  // (exact cron slot), with nearest-slot GitHub inference only as the final
+  // fallback — so a platform-vs-database question stays answerable during an
+  // outage without understating large delays. DB rows stay primary; witness
+  // rows only fill gaps (see mergeDelayWitnesses).
+  const artifactWitnesses = topicRuns ? await fetchArtifactWitnesses(token, topicRuns) : new Map<number, TopicArtifactWitness>();
+  const telemetry = mergeDelayWitnesses(dbTelemetry, deriveDelayWitness(topicRuns ?? [], artifactWitnesses));
   const aiEvidence = topicStoreReadable ? await loadAiProductionEvidence(telemetry) : null;
   const topicSlo = assessTopicSlo(
     {
@@ -244,6 +306,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       tomorrowReady: topic.tomorrowReady,
       telemetry,
       aiEvidence,
+      durableProofs,
     },
     now,
   );
@@ -294,6 +357,19 @@ async function probeMigrationColumns(): Promise<Map<string, Set<string>> | null>
       if (!cols) map.set(r.table_name, (cols = new Set()));
       cols.add(r.column_name);
     }
+    // Constraints ride the same map (prefixed) so 019 readiness needs its
+    // VALUE constraint present too — the column alone would accept any value.
+    const constraints = await queryRows<{ table_name: string; constraint_name: string }>(
+      `SELECT table_name, constraint_name FROM information_schema.table_constraints
+        WHERE table_schema = 'public' AND constraint_type = 'CHECK'
+          AND table_name IN (${tables.map((_, i) => `$${i + 1}`).join(", ")})`,
+      tables,
+    );
+    for (const c of constraints) {
+      let cols = map.get(c.table_name);
+      if (!cols) map.set(c.table_name, (cols = new Set()));
+      cols.add(`constraint:${c.constraint_name}`);
+    }
     return map;
   } catch {
     return null;
@@ -302,8 +378,10 @@ async function probeMigrationColumns(): Promise<Map<string, Set<string>> | null>
 
 /**
  * Real-AI end-to-end evidence: the newest AI-provenance row with surviving
- * non-empty sources, matched against a verified AI telemetry row for the
- * same target date. A fallback standing in for AI can never satisfy this.
+ * non-empty sources, matched by ONE telemetry row satisfying the entire
+ * exact-fingerprint predicate (see matchesExactAiTelemetry). A fallback
+ * standing in for AI — or a fingerprint verified by a DIFFERENT run — can
+ * never satisfy this.
  */
 async function loadAiProductionEvidence(
   telemetry: TopicRunTelemetryRow[],
@@ -324,29 +402,59 @@ async function loadAiProductionEvidence(
       topic_fingerprint: string | null;
     }>;
     if (!list.length) {
-      return { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, telemetryVerifiedAi: false, rowFingerprint: null, fingerprintMatched: false };
+      return { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, rowFingerprint: null, exactVerifiedAiTelemetry: false };
     }
-    for (const row of list) {
-      const sources = Array.isArray(row.sources) ? row.sources : [];
-      const targetDate = String(row.topic_date).slice(0, 10);
-      const rowFingerprint = row.topic_fingerprint ?? null;
-      const verified = telemetry.some(
-        (t) => t.targetDate === targetDate && t.generatorResult === "ai" && t.freshnessOk === true,
-      );
-      // EXACT fingerprint identity: a verified AI telemetry row for this
-      // date counts only when its fingerprint equals this row's. Date-only
-      // matching let rebuilt rows ride an old run's proof.
-      const fingerprintMatched =
-        rowFingerprint != null &&
-        telemetry.some(
-          (t) => t.targetDate === targetDate && t.topicFingerprint === rowFingerprint && t.freshnessOk === true,
-        );
-      if (sources.length > 0) {
-        return { targetDate, aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: verified, rowFingerprint, fingerprintMatched };
-      }
-      return { targetDate, aiRowPresent: true, sourcesNonEmpty: false, telemetryVerifiedAi: verified, rowFingerprint, fingerprintMatched };
-    }
+    const row = list[0];
+    const sources = Array.isArray(row.sources) ? row.sources : [];
+    const targetDate = String(row.topic_date).slice(0, 10);
+    const rowFingerprint = row.topic_fingerprint ?? null;
+    return {
+      targetDate,
+      aiRowPresent: true,
+      sourcesNonEmpty: sources.length > 0,
+      rowFingerprint,
+      exactVerifiedAiTelemetry: matchesExactAiTelemetry(telemetry, { targetDate, rowFingerprint }),
+    };
+  } catch {
     return null;
+  }
+}
+
+/**
+ * Durable production-proof facts (item: proofs must not live inside a
+ * GitHub API page): one aggregate over the WHOLE topic_run_log.
+ *
+ *   manualSuccess = exists workflow_dispatch ∧ result=success ∧ freshnessOk
+ *   scheduledSuccessAfterManual = exists such a manual M AND such a
+ *     scheduled S with S.started_at > M.started_at
+ *
+ * null when the table/columns are unreadable (pre-014 schema or DB down) —
+ * assessTopicSlo then falls back to the GitHub run window, never to a guess.
+ */
+async function loadDurableProofFacts(): Promise<DurableProofFacts | null> {
+  try {
+    const { queryRows } = await import("./backend/sql");
+    const rows = await queryRows<{ manual_success: boolean; scheduled_after_manual: boolean }>(
+      `SELECT
+         EXISTS (
+           SELECT 1 FROM topic_run_log
+            WHERE event = 'workflow_dispatch' AND result = 'success' AND freshness_ok IS TRUE
+         ) AS manual_success,
+         EXISTS (
+           SELECT 1 FROM topic_run_log m
+            WHERE m.event = 'workflow_dispatch' AND m.result = 'success' AND m.freshness_ok IS TRUE
+              AND EXISTS (
+                SELECT 1 FROM topic_run_log s
+                 WHERE s.event = 'schedule' AND s.result = 'success' AND s.freshness_ok IS TRUE
+                   AND s.started_at > m.started_at
+              )
+         ) AS scheduled_after_manual`,
+    );
+    if (!rows.length) return null;
+    return {
+      manualSuccess: rows[0].manual_success === true,
+      scheduledSuccessAfterManual: rows[0].scheduled_after_manual === true,
+    };
   } catch {
     return null;
   }

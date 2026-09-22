@@ -172,7 +172,11 @@ async function main() {
         failedStepName,
         configStepFailed: /config/i.test(failedStepName ?? ""),
         probe: probe
-          ? { topicFingerprintSchemaReady: probe.topicFingerprintSchemaReady ?? null, databaseReachable: probe.databaseReachable ?? null }
+          ? {
+              topicFingerprintSchemaReady: probe.topicFingerprintSchemaReady ?? null,
+              generationReasonSchemaReady: probe.generationReasonSchemaReady ?? null,
+              databaseReachable: probe.databaseReachable ?? null,
+            }
           : null,
         heuristicConfigReason: heuristic.ok === false ? heuristic.reason : null,
       })

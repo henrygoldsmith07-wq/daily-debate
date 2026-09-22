@@ -21,42 +21,70 @@
  * Classify from the strongest available evidence, in order:
  *
  *   1. the failed workflow STEP name (GitHub jobs API) — real stage evidence;
- *   2. the health probe's migration-schema flag (018 readiness);
+ *   2. the health probe's migration-schema flags (018 + 019 readiness);
  *   3. the legacy heuristic (failed run with no later success) — phrased as
- *      a SUSPECT, never a fact.
+ *      a SUSPECTED configuration/schema failure, never as a fact.
  *
- * Stage vocabulary: configuration | migration/schema | provider | generation
- * | database write | freshness verification | telemetry | unknown.
+ * Canonical stage vocabulary:
+ *   configuration | migration/schema | provider | generation
+ *   | database-write | freshness-verification | telemetry | publication
+ *   | configuration/schema (heuristic suspect only) | unknown
  *
- * @param {{ failedStepName: string | null, configStepFailed: boolean, probe: { topicFingerprintSchemaReady: boolean | null, databaseReachable: boolean | null } | null, heuristicConfigReason: string | null }} input
+ * @param {{
+ *   failedStepName: string | null,
+ *   configStepFailed: boolean,
+ *   probe: { topicFingerprintSchemaReady: boolean | null, generationReasonSchemaReady?: boolean | null, databaseReachable: boolean | null } | null,
+ *   providerFailure?: boolean | null,
+ *   heuristicConfigReason: string | null,
+ * }} input
  * @returns {{ stage: string, reason: string, suspect: boolean } | null}
  */
 export function classifyFailureStage(input) {
   const step = (input.failedStepName ?? "").toLowerCase();
-  const probeReady = input.probe?.topicFingerprintSchemaReady ?? null;
+  const probe018 = input.probe?.topicFingerprintSchemaReady ?? null;
+  const probe019 = input.probe?.generationReasonSchemaReady ?? null;
+  if (/publish|artifact|upload/.test(step)) {
+    return { stage: "publication", reason: "artifact publication failed (automation path, not topic generation)", suspect: false };
+  }
   if (/freshness/.test(step)) {
-    const reason = probeReady === false
+    const reason = probe018 === false
       ? "migration 018 missing (topic fingerprint schema absent)"
       : input.heuristicConfigReason ?? "stored topic failed the freshness postconditions";
-    return { stage: "freshness verification", reason, suspect: false };
+    return { stage: "freshness-verification", reason, suspect: false };
   }
   if (/config/.test(step)) {
-    if (probeReady === false) {
+    if (probe018 === false) {
       return { stage: "migration/schema", reason: "required production topic fingerprint schema missing; apply database migrations before topic generation", suspect: false };
+    }
+    if (probe019 === false) {
+      return { stage: "migration/schema", reason: "required generation_reason schema missing; apply database migrations (019_generation_reason.sql) before topic generation", suspect: false };
     }
     return { stage: "configuration", reason: input.heuristicConfigReason ?? "config validation failed before any generation attempt", suspect: false };
   }
   if (/pre-generate|generation/.test(step)) {
+    if (input.providerFailure === true) {
+      return { stage: "provider", reason: "generation ran but the provider chain failed before producing candidates", suspect: false };
+    }
     if (input.probe?.databaseReachable === false) {
-      return { stage: "database write", reason: "generation ran but the production store is unreachable", suspect: false };
+      return { stage: "database-write", reason: "generation ran but the production store is unreachable", suspect: false };
     }
     return { stage: "generation", reason: "the generation step failed (provider chain or topic write)", suspect: false };
   }
   if (/telemetry/.test(step)) {
     return { stage: "telemetry", reason: "the telemetry step failed", suspect: false };
   }
+  // No step evidence. The probe's schema flags are still EXPLICIT facts (a
+  // schema the pipeline provably refuses to run without) — only when they
+  // are unavailable does the run-history heuristic get a say, and then it
+  // speaks as a SUSPECT, never as a confirmed classification (item 20).
   if (input.heuristicConfigReason) {
-    return { stage: "unknown", reason: input.heuristicConfigReason, suspect: true };
+    if (probe018 === false) {
+      return { stage: "migration/schema", reason: "required production topic fingerprint schema missing; apply database migrations before topic generation", suspect: false };
+    }
+    if (probe019 === false) {
+      return { stage: "migration/schema", reason: "required generation_reason schema missing; apply database migrations (019_generation_reason.sql) before topic generation", suspect: false };
+    }
+    return { stage: "configuration/schema", reason: input.heuristicConfigReason, suspect: true };
   }
   return null;
 }
@@ -145,10 +173,17 @@ export function decideOpsAlert(input) {
     severity = "critical";
   }
 
-  // --- stage-aware failure classification (item: no more broad guessing) ---
+  // --- stage-aware failure classification (no more broad guessing) ---------
   const stage = input.failureStage;
   if (stage) {
-    facts.push(`production topic pipeline failure — stage = ${stage.stage}, reason = ${stage.reason}${stage.suspect ? " (suspect, not confirmed)" : ""}`);
+    // Lack of evidence is never converted into certainty: a heuristic
+    // classification reads as "suspected … failure", an evidence-backed one
+    // names the stage flatly (item 20).
+    facts.push(
+      stage.suspect
+        ? `production topic pipeline failure — suspected ${stage.stage} failure (heuristic, no stage evidence): ${stage.reason}`
+        : `production topic pipeline failure — stage = ${stage.stage}, reason = ${stage.reason}`,
+    );
     severity = "critical";
   }
 

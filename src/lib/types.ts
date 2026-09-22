@@ -20,6 +20,11 @@ export interface DailyTopic {
   category: string | null;
   sources: TopicSource[];
   created_at: string;
+  /** Canonical provenance (migrations 009/018/019). Absent on legacy rows
+   *  written before those migrations; canonical writers always set them. */
+  generation_source?: "ai" | "fallback" | null;
+  generation_reason?: string | null;
+  topic_fingerprint?: string | null;
 }
 
 export interface TurnScores {

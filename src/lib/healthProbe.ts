@@ -25,6 +25,9 @@ export interface PublicHealthState {
   /** Is the migration-018 topic-fingerprint schema present? null = unknown.
    *  This is the fact whose absence caused scheduled-run failures #54-#59. */
   topicFingerprintSchemaReady: boolean | null;
+  /** Is the migration-019 generation_reason schema (column + value
+   *  constraint) present? null = unknown. Coarse boolean only. */
+  generationReasonSchemaReady: boolean | null;
   /** The production proofs (item 7), exposed as plain booleans. Typed as the
    *  canonical slice so upstream proof changes surface here at compile time. */
   proofs: OpsHealthReport["topicSlo"]["proofs"];
@@ -48,6 +51,7 @@ export function derivePublicHealthState(report: OpsHealthReport, nowIso: string)
     databaseReachable: report.database.reachable,
     databaseRequiredTablesOk: report.database.requiredTablesOk,
     topicFingerprintSchemaReady: report.database.migrationReadiness.migration018TopicFingerprintReady,
+    generationReasonSchemaReady: report.database.migrationReadiness.migration019GenerationReasonReady,
     proofs: { ...report.topicSlo.proofs },
     generatedAt: report.generatedAt,
     ageMs: Number.isFinite(generatedMs) && Number.isFinite(nowMs) ? Math.max(0, nowMs - generatedMs) : null,

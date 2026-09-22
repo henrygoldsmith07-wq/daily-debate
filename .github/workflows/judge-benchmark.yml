@@ -125,18 +125,19 @@ jobs:
             docs/judge-benchmark-attempts.json
       - name: Summarise execution vs publication health
         if: always()
-        run: |
+        env:
           # One glance separates the two health dimensions (item: publication
           # health must never be misread as judge quality, either direction).
-          {
-            echo "## Judge benchmark health"
-            echo "- benchmarkRan: ${{ steps.bench.outcome != 'skipped' }}"
-            echo "- benchmarkUsable: see docs/judge-benchmark-attempts.json entries for this run"
-            echo "- benchmarkGatesPassed: ${{ steps.bench.outcome == 'success' }}"
-            echo "- artifactUploaded: yes (Upload results step)"
-            echo "- artifactPrCreated: ${{ steps.openpr.outputs.pr_created == 'true' }}"
-            echo "- artifactMerged: see merge-artifact-pr job"
-          } >> "$GITHUB_STEP_SUMMARY"
+          # The truth table lives in scripts/lib/benchmark-publication.mjs and
+          # is unit-tested (scripts/lib/benchmark-publication.test.mjs) — this
+          # step only renders it, so the summary cannot drift from the tests.
+          BENCH_RAN: ${{ steps.bench.outcome != 'skipped' }}
+          BENCH_GATES: ${{ steps.bench.outcome == 'success' }}
+          BENCH_USABLE: ""
+          ARTIFACT_UPLOADED: "true"
+          PR_CREATED: ${{ steps.openpr.outputs.pr_created == 'true' }}
+          PR_MERGED: ""
+        run: node scripts/benchmark-publication-summary.mjs
 
       - name: Fail the job when gates were breached
         if: steps.bench.outcome == 'failure'

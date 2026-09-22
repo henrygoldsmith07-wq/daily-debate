@@ -167,3 +167,65 @@ d("freshness verifier (real Postgres)", () => {
     expect((json.checks as Record<string, unknown>).evidenceCards).toBe(0);
   });
 });
+
+d("migration 019 provenance honesty (real Postgres)", () => {
+  // Items 7/8/11 + required regressions: the backfill must NOT invent
+  // history, new writers must never emit legacy-unknown, and a genuinely
+  // historical row must still verify.
+
+  it("backfills historical fallback as legacy-unknown (never a confident guess) and historical ai as ai", async () => {
+    // Pre-019 shape: reason column present but this row predates reason
+    // tracking, so it is NULL — exactly what the backfill must resolve.
+    await pool.query(
+      `INSERT INTO daily_topics (topic_date, title, prompt, category, sources, generation_source, generation_reason, topic_fingerprint)
+       VALUES ('2026-10-06', 'Legacy fallback topic', 'A legacy prompt with enough complete words.', 'Policy', '[]'::jsonb, 'fallback', NULL, $1),
+              ('2026-10-07', 'Legacy AI topic', 'Another legacy prompt with enough complete words.', 'Policy', '[]'::jsonb, 'ai', NULL, $2)`,
+      ["c".repeat(64), "d".repeat(64)],
+    );
+    // Re-apply 019 exactly as `npm run db:migrate` would (idempotent DDL + backfill).
+    await pool.query(readFileSync(join(MIGRATIONS_DIR, "019_generation_reason.sql"), "utf8"));
+    const { rows } = await pool.query(
+      `SELECT generation_source, generation_reason FROM daily_topics
+        WHERE topic_date IN ('2026-10-06'::date, '2026-10-07'::date)
+        ORDER BY topic_date`,
+    );
+    expect(rows.map((r: { generation_source: string; generation_reason: string }) => [r.generation_source, r.generation_reason])).toEqual([
+      ["fallback", "legacy-unknown"], // unknown beats a confident-but-invented 'fallback-policy'
+      ["ai", "ai"],                   // unambiguous historical source
+    ]);
+  });
+
+  it("rejects legacy-unknown on a row created after 019 (new canonical writers must never emit it)", async () => {
+    await seedTopic("2026-10-08");
+    await pool.query(
+      `UPDATE daily_topics
+          SET generation_reason = 'legacy-unknown',
+              created_at = now() + interval '1 day' -- strictly postdates the 019 boundary
+        WHERE topic_date = '2026-10-08'::date`,
+    );
+    const { status, json, stderr } = runVerifier("2026-10-08");
+    expect(status, `json: ${JSON.stringify(json)} stderr: ${stderr}`).toBe(1);
+    const failures = json.failures as string[];
+    expect(failures.some((f) => /legacy-unknown/.test(f))).toBe(true);
+  });
+
+  it("accepts legacy-unknown on a genuinely pre-019 row (historical evidence stays auditable)", async () => {
+    // The dating rule needs a ledger boundary; CI's db:migrate usually
+    // provides it, but the db tests apply SQL directly — ensure it exists.
+    await pool.query(
+      `INSERT INTO app_migrations (name) VALUES ('019_generation_reason.sql')
+       ON CONFLICT (name) DO NOTHING`,
+    );
+    await seedTopic("2026-10-09");
+    await pool.query(
+      `UPDATE daily_topics
+          SET generation_reason = 'legacy-unknown',
+              created_at = '2000-01-01T00:00:00Z'::timestamptz -- predates any 019 application
+        WHERE topic_date = '2026-10-09'::date`,
+    );
+    const { status, json, stderr } = runVerifier("2026-10-09");
+    expect(status, `json: ${JSON.stringify(json)} stderr: ${stderr}`).toBe(0);
+    expect(json.ok).toBe(true);
+    expect((json.checks as Record<string, unknown>).generationReason).toBe("legacy-unknown");
+  });
+});
