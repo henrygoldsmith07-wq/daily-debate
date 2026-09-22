@@ -9,7 +9,7 @@ import {
 } from "./adaptiveCoach";
 import type { SkillMetricPoint } from "./skillLedger";
 
-function point(i: number, m: Partial<Record<string, number>>): SkillMetricPoint {
+function point(i: number, m: Partial<Record<string, number | null>>): SkillMetricPoint {
   const metrics = {
     unsupportedClaimRate: null,
     rebuttalCoverage: null,
