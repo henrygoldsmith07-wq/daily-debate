@@ -138,11 +138,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     console.error("Failed to link repair to drill assignment:", error);
   }
 
-  void recordProductEvent("repair_completed", {
-    repairScore: result.score,
-    reason: succeeded ? "succeeded" : "retry",
-    debateId,
-  });
+  // Product funnel "completion" means the repair crossed the success
+  // threshold. Failed submissions are still persisted in repair_results as
+  // practice history, but must not inflate repair-completion/retention metrics.
+  if (succeeded) {
+    void recordProductEvent("repair_completed", {
+      repairScore: result.score,
+      reason: "succeeded",
+      debateId,
+    });
+  }
 
   return NextResponse.json({
     target,
