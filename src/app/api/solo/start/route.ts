@@ -7,7 +7,11 @@ import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidOpening } from "@/lib/aiSchema";
 import type { DebateSide } from "@/lib/types";
 import { resolveDebateFormat, type DebateFormat } from "@/lib/sprint";
-import { assignChallengeSide, type SideHistoryItem } from "@/lib/challengeMe";
+import {
+  assignChallengeSide,
+  normaliseSoloPerformance,
+  type SideHistoryItem,
+} from "@/lib/challengeMe";
 import { pickFocusDimension } from "@/lib/coachingGoal";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { recordProductEvent } from "@/lib/productEvents";
@@ -44,17 +48,41 @@ export async function POST(request: Request) {
   let side: DebateSide;
   let sideReason: string | null = null;
   if (body?.side === "challenge") {
+    // Fetch the actual newest debates (descending + reverse). The previous
+    // ascending-limit query quietly became "oldest 20" once a user had >20.
     const { data: historyRows } = await db
       .from("solo_debates")
-      .select("side, total_score")
+      .select("id, side, total_score")
       .eq("user_id", user.id)
       .eq("status", "completed")
-      .order("completed_at", { ascending: true })
-      .limit(20);
-    const history: SideHistoryItem[] = (historyRows ?? []).map((row) => ({
-      side: row.side as DebateSide,
-      totalScore: typeof row.total_score === "number" ? row.total_score : null,
-    }));
+      .order("completed_at", { ascending: false })
+      .limit(8);
+
+    const debateIds = (historyRows ?? []).map((row) => row.id);
+    const answeredByDebate = new Map<string, number>();
+    if (debateIds.length) {
+      const { data: answeredTurns } = await db
+        .from("solo_debate_turns")
+        .select("debate_id, id")
+        .in("debate_id", debateIds)
+        .not("user_message", "is", null);
+      for (const row of answeredTurns ?? []) {
+        answeredByDebate.set(
+          row.debate_id,
+          (answeredByDebate.get(row.debate_id) ?? 0) + 1,
+        );
+      }
+    }
+
+    const history: SideHistoryItem[] = [...(historyRows ?? [])]
+      .reverse()
+      .map((row) => ({
+        side: row.side as DebateSide,
+        performanceScore: normaliseSoloPerformance(
+          typeof row.total_score === "number" ? row.total_score : null,
+          answeredByDebate.get(row.id) ?? 0,
+        ),
+      }));
     const assignment = assignChallengeSide(history);
     side = assignment.side;
     sideReason = assignment.reason;
