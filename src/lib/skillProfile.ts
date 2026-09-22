@@ -21,8 +21,11 @@ export const PROFILE_DIMENSIONS: Array<{
   label: string;
   sources: MetricKey[];
 }> = [
-  { key: "claim-clarity", label: "Claim clarity", sources: ["clarity", "unsupportedClaimRate"] },
-  { key: "evidence",      label: "Evidence",       sources: ["evidenceGrounding", "uncitedEvidenceRate"] },
+  { key: "claim-clarity", label: "Claim clarity", sources: ["clarity"] },
+  // Unsupported claims are an evidence failure, not a clarity failure.
+  // Including the rate keeps Evidence measurable when the user supplies no
+  // cited/strong evidence at all (grounding/uncited metrics are then null).
+  { key: "evidence",      label: "Evidence",       sources: ["unsupportedClaimRate", "evidenceGrounding", "uncitedEvidenceRate"] },
   { key: "reasoning",     label: "Reasoning",      sources: ["fallacyRate", "causalOverclaims"] },
   { key: "rebuttal",      label: "Rebuttal",       sources: ["rebuttalCoverage", "rebuttalTargeting"] },
   { key: "weighing",      label: "Weighing",       sources: ["impactHandling"] },
