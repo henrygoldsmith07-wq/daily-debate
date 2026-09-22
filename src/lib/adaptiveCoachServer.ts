@@ -3,8 +3,10 @@ import "server-only";
 import { createServiceClient } from "@/lib/backend/server";
 import {
   COACH_DIMENSIONS,
+  movementAround,
   type CoachDimension,
 } from "./adaptiveCoach";
+import type { SkillMetricPoint } from "./skillLedger";
 
 /**
  * Latest measured drill movement per dimension.
@@ -15,27 +17,44 @@ import {
  */
 export async function latestDrillOutcomes(
   userId: string,
+  points: SkillMetricPoint[],
 ): Promise<Partial<Record<CoachDimension, number>>> {
   const service = createServiceClient();
   const { data } = await service
     .from("drill_assignments")
-    .select("dimension, movement")
+    .select("id, dimension, created_at")
     .eq("user_id", userId)
-    .not("movement", "is", null)
+    .eq("status", "attempted")
     .order("created_at", { ascending: false })
-    .limit(12);
+    .limit(30);
 
   const valid = new Set<string>(COACH_DIMENSIONS);
   const outcomes: Partial<Record<CoachDimension, number>> = {};
+  const persistence: Array<Promise<unknown>> = [];
+
   for (const row of data ?? []) {
-    if (
-      !valid.has(row.dimension) ||
-      typeof row.movement !== "number" ||
-      outcomes[row.dimension as CoachDimension] !== undefined
-    ) {
-      continue;
+    if (!valid.has(row.dimension)) continue;
+    const dimension = row.dimension as CoachDimension;
+    const measured = movementAround(points, dimension, row.created_at);
+    if (measured?.delta === null || measured?.delta === undefined) continue;
+
+    // First row per dimension wins because rows are newest-first.
+    if (outcomes[dimension] === undefined) {
+      outcomes[dimension] = measured.delta;
     }
-    outcomes[row.dimension as CoachDimension] = row.movement;
+
+    // Persist as a cache/audit field, but selection above already uses the
+    // freshly computed value. Navigation order can no longer change coaching.
+    persistence.push(
+      Promise.resolve(
+        service
+          .from("drill_assignments")
+          .update({ movement: measured.delta })
+          .eq("id", row.id),
+      ),
+    );
   }
+
+  await Promise.allSettled(persistence);
   return outcomes;
 }
