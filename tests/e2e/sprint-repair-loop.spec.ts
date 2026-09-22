@@ -86,9 +86,12 @@ test.describe("daily sprint repair loop", () => {
     await page.getByTestId("toggle-full-analysis").click();
     await expect(page.getByTestId("full-analysis")).toBeVisible();
 
-    // 9. Back to Today — the loop restarts with updated coaching focus.
+    // 9. Back to Today — the repaired skill is now the explicit next-debate
+    // retest, rather than being silently replaced by the generic weakest-skill
+    // selector.
     await page.goto("/");
     await expect(page.getByTestId("start-sprint")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Retest after repair", { exact: true })).toBeVisible();
 
     // 10. Replay uses the same hierarchy: repair already done → status shown,
     // no Fix-this-now CTA, and the graph stays collapsed until asked for.
