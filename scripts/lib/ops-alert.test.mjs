@@ -115,7 +115,7 @@ test("classifyFailureStage: freshness-verification failure with schema evidence 
     probe: { topicFingerprintSchemaReady: false, databaseReachable: true },
     heuristicConfigReason: "scheduled run failed with no later success — config/db gate suspect",
   });
-  assert.equal(c.stage, "freshness verification");
+  assert.equal(c.stage, "freshness-verification");
   assert.equal(c.suspect, false);
   assert.match(c.reason, /migration 018 missing/);
 });
@@ -138,15 +138,79 @@ test("classifyFailureStage: no step evidence falls back to the labelled suspect"
     probe: null,
     heuristicConfigReason: "scheduled run failed with no later successful run — the config/db gate is the prime suspect",
   });
-  assert.equal(c.stage, "unknown");
+  assert.equal(c.stage, "configuration/schema");
   assert.equal(c.suspect, true);
+});
+
+test("classifyFailureStage: missing generation_reason schema reports migration/schema with 019", () => {
+  const c = classifyFailureStage({
+    failedStepName: "Validate topic-generation configuration (fail fast, no writes)",
+    configStepFailed: true,
+    probe: { topicFingerprintSchemaReady: true, generationReasonSchemaReady: false, databaseReachable: true },
+    heuristicConfigReason: null,
+  });
+  assert.equal(c.stage, "migration/schema");
+  assert.match(c.reason, /019_generation_reason\.sql/);
+  assert.equal(c.suspect, false);
+});
+
+test("classifyFailureStage: probe schema facts are evidence even without a failed step", () => {
+  // Explicit schema fact (019 missing) outranks the run-history heuristic —
+  // and being evidence, it is NOT phrased as a suspect.
+  const c = classifyFailureStage({
+    failedStepName: null,
+    configStepFailed: false,
+    probe: { topicFingerprintSchemaReady: true, generationReasonSchemaReady: false, databaseReachable: true },
+    heuristicConfigReason: "scheduled run failed with no later success — config/db gate suspect",
+  });
+  assert.equal(c.stage, "migration/schema");
+  assert.equal(c.suspect, false);
+  assert.match(c.reason, /019_generation_reason\.sql/);
+});
+
+test("classifyFailureStage: publication and provider stages exist for explicit evidence", () => {
+  const pub = classifyFailureStage({
+    failedStepName: "Upload results",
+    configStepFailed: false,
+    probe: null,
+    heuristicConfigReason: null,
+  });
+  assert.equal(pub.stage, "publication");
+  assert.equal(pub.suspect, false);
+
+  const provider = classifyFailureStage({
+    failedStepName: "Pre-generate tomorrow's debate topic",
+    configStepFailed: false,
+    probe: { topicFingerprintSchemaReady: true, generationReasonSchemaReady: true, databaseReachable: true },
+    providerFailure: true,
+    heuristicConfigReason: null,
+  });
+  assert.equal(provider.stage, "provider");
+  assert.equal(provider.suspect, false);
+});
+
+test("heuristic classification reads as SUSPECTED, never as a confirmed stage", () => {
+  const d = decideOpsAlert(probeUnavailable({
+    latestConfigCheck: { ok: true, reason: null },
+    failureStage: {
+      stage: "configuration/schema",
+      reason: "scheduled run failed with no later successful run — config/db gate suspect",
+      suspect: true,
+    },
+  }));
+  assert.equal(d.severity, "critical");
+  assert.ok(
+    d.facts.some((f) => f.includes("suspected configuration/schema failure") && f.includes("heuristic, no stage evidence")),
+    `expected suspected wording, got: ${d.facts.join(" | ")}`,
+  );
+  assert.ok(!d.facts.some((f) => f.includes("stage = configuration/schema")), "a suspect must never read as confirmed");
 });
 
 test("ops alert reports the classified stage, not a broad guess", () => {
   const d = decideOpsAlert(probeUnavailable({
     latestConfigCheck: { ok: true, reason: null },
-    failureStage: { stage: "freshness verification", reason: "migration 018 missing (topic fingerprint schema absent)", suspect: false },
+    failureStage: { stage: "freshness-verification", reason: "migration 018 missing (topic fingerprint schema absent)", suspect: false },
   }));
   assert.equal(d.severity, "critical");
-  assert.ok(d.facts.some((f) => f.includes("stage = freshness verification") && f.includes("migration 018")));
+  assert.ok(d.facts.some((f) => f.includes("stage = freshness-verification") && f.includes("migration 018")));
 });

@@ -31,9 +31,12 @@ function todayIso(): string {
 
 /**
  * THE canonical durable topic write for application code. Write-once:
- * ON CONFLICT DO NOTHING on the topic_date unique constraint, so a
- * request-time fallback can never replace a scheduled topic (or lose a race
- * — callers re-read the winner). The row carries the full canonical shape,
+ * `insertIgnore(..., { onConflict: "topic_date" })` generates
+ * `INSERT ... ON CONFLICT (topic_date) DO NOTHING RETURNING *`, so a
+ * request-time fallback can never replace a scheduled topic. The conflict is
+ * not an error: zero rows returned means another writer won the date, and we
+ * re-read ITS row — losing the insert race must return the stored winner,
+ * never an in-memory divergence. The row carries the full canonical shape,
  * including the content fingerprint: an unfingerprinted row would re-create
  * the legacy state that made stale evidence undetectable.
  *
@@ -55,16 +58,19 @@ async function insertCanonicalTopicOnce(
   });
   const { data, error } = await db
     .from("daily_topics")
-    .insert({
-      topic_date: targetDate,
-      title: topic.title,
-      prompt: topic.prompt,
-      category: topic.category,
-      sources: topic.sources,
-      generation_source: generationSource,
-      generation_reason: generationReason,
-      topic_fingerprint: fingerprint,
-    })
+    .insertIgnore(
+      {
+        topic_date: targetDate,
+        title: topic.title,
+        prompt: topic.prompt,
+        category: topic.category,
+        sources: topic.sources,
+        generation_source: generationSource,
+        generation_reason: generationReason,
+        topic_fingerprint: fingerprint,
+      },
+      { onConflict: "topic_date" },
+    )
     .select("*")
     .maybeSingle();
   if (error) {
@@ -72,7 +78,9 @@ async function insertCanonicalTopicOnce(
     return null;
   }
   if (data) return data as unknown as DailyTopic;
-  // ON CONFLICT DO NOTHING skipped (another writer won the date): read theirs.
+  // DO NOTHING skipped the write (another writer won the date — a normal
+  // outcome, not a failure): read THEIR row so every caller converges on the
+  // one stored topic.
   const { data: winner } = await db
     .from("daily_topics")
     .select("*")

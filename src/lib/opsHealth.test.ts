@@ -4,10 +4,13 @@ import {
   assessDatabaseHealth,
   assessHumanValidation,
   assessJudgeHealth,
+  assessMigrationReadiness,
   assessTopicHealth,
   assessTopicSlo,
   deriveDelayWitness,
+  matchesExactAiTelemetry,
   mergeDelayWitnesses,
+  parseArtifactWitness,
   assessTrainingEvidence,
   buildOpsHealthReport,
   rollupOverall,
@@ -341,7 +344,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     const s = assessTopicSlo(
       {
         runs: [schedule, dispatch, ...schedOk], productionDbReadable: true, tomorrowReady: true, telemetry,
-        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: true, rowFingerprint: "a".repeat(64), fingerprintMatched: true },
+        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, rowFingerprint: "a".repeat(64), exactVerifiedAiTelemetry: true },
       },
       "2026-09-15T23:00:00Z",
     );
@@ -463,7 +466,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     const full = assessTopicSlo(
       {
         runs: [], productionDbReadable: true, tomorrowReady: true, telemetry,
-        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: true, rowFingerprint: fp, fingerprintMatched: true },
+        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, rowFingerprint: fp, exactVerifiedAiTelemetry: true },
       },
       "2026-09-15T23:00:00Z",
     );
@@ -473,7 +476,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     const rebuilt = assessTopicSlo(
       {
         runs: [], productionDbReadable: true, tomorrowReady: true, telemetry,
-        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: true, rowFingerprint: "d".repeat(64), fingerprintMatched: false },
+        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, rowFingerprint: "d".repeat(64), exactVerifiedAiTelemetry: false },
       },
       "2026-09-15T23:00:00Z",
     );
@@ -497,7 +500,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     const fallbackOnly = assessTopicSlo(
       {
         runs: [], productionDbReadable: true, tomorrowReady: true, telemetry: [],
-        aiEvidence: { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, telemetryVerifiedAi: false, rowFingerprint: null, fingerprintMatched: false },
+        aiEvidence: { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, rowFingerprint: null, exactVerifiedAiTelemetry: false },
       },
       "2026-09-16T12:00:00Z",
     );
@@ -657,5 +660,213 @@ describe("second-witness scheduler-delay telemetry (derived from GitHub run hist
     );
     expect(s.scheduling.latestDelayMs).toBe(60 * 60_000); // platform lateness still measurable
     expect(s.availability.state).toBe("unknown"); // content facts stay honest
+  });
+});
+
+describe("migration readiness (actual schema, never migration counts)", () => {
+  it("019 readiness needs BOTH the generation_reason column and its value constraint", () => {
+    const withBoth = new Map<string, Set<string>>();
+    withBoth.set("daily_topics", new Set(["generation_reason", "constraint:daily_topics_generation_reason_check"]));
+    expect(assessMigrationReadiness(withBoth).migration019GenerationReasonReady).toBe(true);
+
+    const columnOnly = new Map<string, Set<string>>();
+    columnOnly.set("daily_topics", new Set(["generation_reason"]));
+    expect(assessMigrationReadiness(columnOnly).migration019GenerationReasonReady).toBe(false);
+
+    // Unreadable schema -> unknown, never a guess.
+    expect(assessMigrationReadiness(null).migration019GenerationReasonReady).toBeNull();
+  });
+
+  it("names 019 in the readiness note when it is the missing migration", () => {
+    const present = new Map<string, Set<string>>();
+    present.set("daily_topics", new Set(["generation_reason"])); // constraint missing
+    const readiness = assessMigrationReadiness(present);
+    expect(readiness.note).toMatch(/019_generation_reason\.sql/);
+    expect(readiness.note).toMatch(/refuse to generate/);
+  });
+});
+
+describe("AI production proof: ONE exact telemetry row (items 12-13)", () => {
+  const row = { targetDate: "2026-09-16", rowFingerprint: "a".repeat(64) };
+  const t = (over: Record<string, unknown> = {}) => ({
+    event: "schedule",
+    at: "2026-09-15T20:02:00Z",
+    delayMs: 120_000,
+    targetDate: "2026-09-16",
+    completedBeforeDeadline: true,
+    result: "success",
+    freshnessOk: true,
+    topicFingerprint: "a".repeat(64),
+    generatorResult: "ai",
+    ...over,
+  });
+
+  it("is satisfied only by a single row carrying every required fact", () => {
+    expect(matchesExactAiTelemetry([t()], row)).toBe(true);
+    // AI + correct fingerprint but freshness failed -> false
+    expect(matchesExactAiTelemetry([t({ freshnessOk: false })], row)).toBe(false);
+    // AI + correct fingerprint but run failed -> false
+    expect(matchesExactAiTelemetry([t({ result: "failure" })], row)).toBe(false);
+    // fallback stored row / absent fingerprint -> false
+    expect(matchesExactAiTelemetry([t()], { targetDate: "2026-09-16", rowFingerprint: null })).toBe(false);
+    expect(matchesExactAiTelemetry([], row)).toBe(false);
+  });
+
+  it("cannot be satisfied by TWO different rows (the split-predicate bug)", () => {
+    // A fallback verifier row carrying the exact fingerprint PLUS a separate
+    // AI telemetry row for the date: the old two-independent-some() logic
+    // read TRUE here. One row must carry BOTH the ai generator result AND
+    // the exact fingerprint.
+    const splitRows = [
+      t({ generatorResult: "fallback-by-policy" }), // fp matches, generator does not
+      t({ topicFingerprint: "b".repeat(64) }), // generator matches, fp does not
+    ];
+    expect(matchesExactAiTelemetry(splitRows, row)).toBe(false);
+    // An AI row with a WRONG fingerprint (row rebuilt after verification):
+    expect(matchesExactAiTelemetry([t({ topicFingerprint: "b".repeat(64) })], row)).toBe(false);
+  });
+
+  it("keeps availability independent: a fallback stored row never satisfies the proof", () => {
+    const s = assessTopicSlo(
+      {
+        runs: [],
+        productionDbReadable: true,
+        tomorrowReady: true,
+        telemetry: [t()],
+        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: false, sourcesNonEmpty: false, rowFingerprint: "a".repeat(64), exactVerifiedAiTelemetry: true },
+      },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(s.availability.state).toBe("ready"); // availability holds...
+    expect(s.proofs.aiGeneratedProductionSuccess).toBe(false); // ...while the AI proof stays false
+  });
+});
+
+describe("durable production proofs (items 14-15: outside any GitHub API page)", () => {
+  const run = (event: string, conclusion: string, createdAt: string) => ({
+    event,
+    status: "completed",
+    conclusion,
+    createdAt,
+  });
+  const NOW = "2026-09-20T00:00:00Z";
+
+  it("manual→scheduled survives Actions pagination (empty run window, durable facts)", () => {
+    const s = assessTopicSlo(
+      {
+        runs: [], // per_page window saw NOTHING — the old runs scrolled out
+        productionDbReadable: true,
+        tomorrowReady: true,
+        telemetry: [],
+        durableProofs: { manualSuccess: true, scheduledSuccessAfterManual: true },
+      },
+      NOW,
+    );
+    expect(s.proofs.manualSuccess).toBe(true);
+    expect(s.proofs.scheduledSuccessAfterManual).toBe(true);
+  });
+
+  it("readable durable telemetry is authoritative over a coincidental run window", () => {
+    const s = assessTopicSlo(
+      {
+        runs: [
+          run("workflow_dispatch", "success", "2026-09-19T10:00:00Z"),
+          run("schedule", "success", "2026-09-19T20:00:00Z"),
+        ], // GitHub window WOULD prove the pair...
+        productionDbReadable: true,
+        tomorrowReady: true,
+        telemetry: [],
+        durableProofs: { manualSuccess: true, scheduledSuccessAfterManual: false },
+      },
+      NOW,
+    );
+    expect(s.proofs.manualSuccess).toBe(true);
+    expect(s.proofs.scheduledSuccessAfterManual).toBe(false); // ...but the durable record wins
+  });
+
+  it("falls back to the run window when the durable aggregate is unreadable", () => {
+    const s = assessTopicSlo(
+      {
+        runs: [
+          run("workflow_dispatch", "success", "2026-09-19T10:00:00Z"),
+          run("schedule", "success", "2026-09-19T20:00:00Z"),
+        ],
+        productionDbReadable: true,
+        tomorrowReady: true,
+        telemetry: [],
+        durableProofs: null, // DB down / pre-014 schema
+      },
+      NOW,
+    );
+    expect(s.proofs.manualSuccess).toBe(true);
+    expect(s.proofs.scheduledSuccessAfterManual).toBe(true);
+  });
+});
+
+describe("exact artifact scheduler-witness (items 17-18)", () => {
+  const run = (id: number, createdAt: string) => ({
+    id,
+    event: "schedule",
+    status: "completed",
+    conclusion: "failure",
+    createdAt,
+  });
+
+  it("reports the TRUE 125-min delay from the artifact, not the 35-min inferred slot", () => {
+    // cronSlot 20:00, runner actually started 22:05 — nearest-slot inference
+    // would blame the 21:30 slot (35 min) and hide the missed start.
+    const r = run(1, "2026-09-20T22:05:00Z");
+    const exact = deriveDelayWitness(
+      [r],
+      new Map([
+        [1, { cronSlot: "0 20 * * *", scheduledFor: "2026-09-20T20:00:00Z", actualCreatedAt: "2026-09-20T22:05:00Z", actualStartedAt: "2026-09-20T22:05:00Z", schedulerDelayMs: 125 * 60_000 }],
+      ]),
+    );
+    expect(exact).toHaveLength(1);
+    expect(exact[0].delayMs).toBe(125 * 60_000);
+    expect(exact[0].delayMs).toBeGreaterThan(90 * 60_000); // the missed-start threshold fires
+    expect(exact[0].at).toBe("2026-09-20T22:05:00Z"); // exact actual start, not createdAt guess
+
+    // With NO artifact, inference remains the final fallback — and understates:
+    const inferred = deriveDelayWitness([r]);
+    expect(inferred[0].delayMs).toBe(35 * 60_000);
+  });
+
+  it("keeps the exact delay for all six ladder slots, including cross-midnight starts", () => {
+    const cases: Array<[string, string, string]> = [
+      ["0 20 * * *", "2026-09-20T20:00:00Z", "2026-09-20T22:05:00Z"],
+      ["30 21 * * *", "2026-09-20T21:30:00Z", "2026-09-20T23:35:00Z"],
+      ["45 22 * * *", "2026-09-20T22:45:00Z", "2026-09-21T00:50:00Z"], // crosses midnight
+      ["40 23 * * *", "2026-09-20T23:40:00Z", "2026-09-21T01:45:00Z"], // crosses midnight
+      ["15 0 * * *", "2026-09-21T00:15:00Z", "2026-09-21T02:20:00Z"],
+      ["15 2 * * *", "2026-09-21T02:15:00Z", "2026-09-21T04:20:00Z"],
+    ];
+    for (const [cron, slot, started] of cases) {
+      // Bait: createdAt sits 30s before the start, so inference would pick a
+      // LATER slot than the true trigger — the artifact must win anyway.
+      const createdAt = new Date(Date.parse(started) - 30_000).toISOString();
+      const r = run(7, createdAt);
+      const w = { cronSlot: cron, scheduledFor: slot, actualCreatedAt: createdAt, actualStartedAt: started, schedulerDelayMs: 125 * 60_000 };
+      const [witness] = deriveDelayWitness([r], new Map([[7, w]]));
+      expect(witness.delayMs, `slot ${cron}`).toBe(125 * 60_000);
+    }
+  });
+
+  it("parses only usable artifacts; garbage degrades to inference", () => {
+    const ok = parseArtifactWitness({
+      cronSlot: "0 20 * * *",
+      scheduledFor: "2026-09-20T20:00:00Z",
+      actualCreatedAt: "2026-09-20T22:05:00Z",
+      actualStartedAt: "2026-09-20T22:05:00Z",
+      schedulerDelayMs: 125 * 60_000,
+    });
+    expect(ok?.schedulerDelayMs).toBe(125 * 60_000);
+    // No scheduledFor -> cannot pin the slot at all:
+    expect(parseArtifactWitness({ cronSlot: "0 20 * * *", schedulerDelayMs: 1 })).toBeNull();
+    expect(parseArtifactWitness({})).toBeNull();
+    // Non-finite delay but a real start time is still exact-slot evidence:
+    const startOnly = parseArtifactWitness({ scheduledFor: "2026-09-20T20:00:00Z", schedulerDelayMs: NaN, actualStartedAt: "2026-09-20T22:05:00Z" });
+    expect(startOnly?.schedulerDelayMs).toBeNull();
+    expect(startOnly?.actualStartedAt).toBe("2026-09-20T22:05:00Z");
   });
 });

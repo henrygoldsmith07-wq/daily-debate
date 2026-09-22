@@ -119,6 +119,31 @@ describe("generate-topics CLI contract", () => {
     expect(result.ok).toBe(true);
     expect(result.checks.topic_fingerprint_supported).toBe(true);
   });
+
+  it("missing migration 019 fails the config gate BEFORE any generation attempt", async () => {
+    // 018 fully present, but generation_reason (column) absent — the gate must
+    // report config-failure (not burn a retry slot generating into a schema
+    // that cannot store honest provenance).
+    const sqlFactory = async () => async (text: string) => {
+      const q = text.replace(/\s+/g, " ").trim();
+      if (/^SELECT 1$/i.test(q)) return [];
+      if (/information_schema\.tables/i.test(q)) return [{ table_name: "daily_topics" }, { table_name: "topic_evidence" }];
+      if (/constraint_name = 'daily_topics_generation_reason_check'/i.test(q)) return [{ ok: 1 }];
+      if (/table_constraints/i.test(q)) return [{ ok: 1 }]; // UNIQUE topic_date
+      if (/column_name = 'topic_fingerprint'/i.test(q)) {
+        return [{ table_name: "daily_topics" }, { table_name: "topic_evidence" }, { table_name: "topic_run_log" }];
+      }
+      if (/column_name = 'generation_reason'/i.test(q)) return []; // 019 column absent
+      if (/information_schema\.columns/i.test(q)) return [];
+      throw new Error(`unexpected: ${q.slice(0, 60)}`);
+    };
+    const result = await checkConfig({ DATABASE_URL: "postgres://fake" } as unknown as NodeJS.ProcessEnv, sqlFactory);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/config-failure/);
+    expect(result.reason).toMatch(/generation_reason schema missing/i);
+    expect(result.reason).toMatch(/019_generation_reason\.sql/);
+    expect(result.checks.generation_reason_supported).toBe(false);
+  });
 });
 
 describe("curated fallback selection", () => {
@@ -198,11 +223,9 @@ function fakeDb(opts: FakeDbOpts = {}): Fake {
     if (typeof value !== "string") throw new Error(`invalid input syntax for type json (${column})`);
     JSON.parse(value);
     return value;
-  };
-  const query = async (text: string, params: unknown[] = []): Promise<Row[]> => {
+  };    const query = async (text: string, params: unknown[] = []): Promise<Row[]> => {
     const sql = text.replace(/\s+/g, " ").trim();
     queries.push(sql.slice(0, 60));
-    if (/^(BEGIN|COMMIT|ROLLBACK);?$/.test(sql)) return []; // transactional control statements
     if (/^SELECT column_name FROM information_schema/i.test(sql)) {
       if (opts.legacySchema) return [];
       const col = /column_name = '([a-z_]+)'/.exec(sql)?.[1] ?? "topic_fingerprint";
@@ -217,26 +240,28 @@ function fakeDb(opts: FakeDbOpts = {}): Fake {
       return row ? [{ ...row }] : [];
     }
     if (/^INSERT INTO daily_topics/i.test(sql)) {
-      const [date, title, prompt, category, sources, source, fingerprint] = params as [
-        string, string, string, string, unknown, string, string?,
+      const [date, title, prompt, category, sources, source, fingerprint, reason] = params as [
+        string, string, string, string, unknown, string, string?, string?,
       ];
       asJsonb(sources, "daily_topics.sources");
       if (topics.has(date)) return []; // ON CONFLICT DO NOTHING: first writer wins
       const row = {
         id: ++seq, topic_date: date, title, prompt, category, sources,
         generation_source: source, topic_fingerprint: fingerprint ?? null,
+        generation_reason: reason ?? null,
       } as Row & { id: number };
       topics.set(date, row);
       return [{ id: row.id }];
     }
     if (/^UPDATE daily_topics SET title/i.test(sql)) {
-      const [date, title, prompt, category, sources, source, fingerprint] = params as [
-        string, string, string, string, unknown, string, string?,
+      const [date, title, prompt, category, sources, source, fingerprint, reason] = params as [
+        string, string, string, string, unknown, string, string?, string?,
       ];
       const row = topics.get(date);
       if (!row) return [];
       Object.assign(row, { title, prompt, category, sources: asJsonb(sources, "daily_topics.sources"), generation_source: source });
       if (fingerprint !== undefined) row.topic_fingerprint = fingerprint;
+      if (reason !== undefined) row.generation_reason = reason;
       return [{ id: row.id }];
     }
     if (/^UPDATE daily_topics SET topic_fingerprint/i.test(sql)) {
@@ -935,7 +960,6 @@ describe("jsonb parameter binding (production write regression)", () => {
 
     const query = async (text: string, params: unknown[] = []): Promise<Row[]> => {
       const sql = text.replace(/\s+/g, " ").trim();
-      if (/^(BEGIN|COMMIT|ROLLBACK);?$/.test(sql)) return []; // transactional control statements
       if (/^SELECT column_name FROM information_schema/i.test(sql)) {
         const col = /column_name = '([a-z_]+)'/.exec(sql)?.[1] ?? "topic_fingerprint";
         return [{ column_name: col }];
@@ -949,8 +973,8 @@ describe("jsonb parameter binding (production write regression)", () => {
         return row ? [{ ...row }] : [];
       }
       if (/^INSERT INTO daily_topics/i.test(sql)) {
-        const [date, title, prompt, category, sources, source, fingerprint] = params as [
-          string, string, string, string, unknown, string, string?,
+        const [date, title, prompt, category, sources, source, fingerprint, reason] = params as [
+          string, string, string, string, unknown, string, string?, string?,
         ];
         if (topics.has(date)) return []; // ON CONFLICT DO NOTHING
         topics.set(date, {
@@ -962,6 +986,7 @@ describe("jsonb parameter binding (production write regression)", () => {
           sources: asJsonb(sources, "daily_topics.sources"),
           generation_source: source,
           topic_fingerprint: fingerprint ?? null,
+          generation_reason: reason ?? null,
         });
         return [{ id: seq }];
       }
