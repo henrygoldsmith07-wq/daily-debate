@@ -1,0 +1,89 @@
+name: db-migrate
+
+# Applies PENDING database migrations to the production database using the
+# repository's own ledger-based, idempotent migrate script — the same
+# `npm run db:migrate` documented in docs/operations.md. It exists because
+# production DATABASE_URL lives only as a repo secret, so "run the migrate
+# script" must execute inside Actions, not on a developer laptop.
+#
+# Safety properties:
+#   - workflow_dispatch ONLY (no schedule, no push trigger): migrations are
+#     applied by an explicit human decision, never unattended.
+#   - The `confirm` input must be exactly "migrate" so a stray dispatch
+#     cannot run DDL by accident.
+#   - scripts/migrate.mjs is idempotent: an app_migrations ledger means
+#     re-running applies nothing twice (`skip` for every applied file).
+#   - No manual SQL is ever issued against production; the script runs the
+#     reviewed files under database/migrations verbatim.
+#   - A post-migration `--check-config` (no writes) proves the schema gate
+#     is now green BEFORE any topic-generation dispatch spends a retry slot.
+#   - `environment: production` gives repo admins a place to add required
+#     reviewer approval (Settings → Environments → production) without code
+#     changes.
+#
+# The migrate step prints `applied <file>` / `skip <file>` lines, mirrored
+# into the run summary as the auditable record of what changed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "migrate" to confirm applying pending migrations'
+        required: true
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+
+      - name: Verify confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "migrate" ]; then
+            echo "Refusing to run: the confirm input must be exactly 'migrate'." >&2
+            exit 1
+          fi
+
+      - name: Apply pending migrations (ledger-based, idempotent, no manual SQL)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -o pipefail
+          npm run db:migrate 2>&1 | tee migrate-output.txt
+
+      - name: Prove schema readiness (config gate, no writes)
+        # The same gate topic-generation enforces before generating. If this
+        # is red, a dispatch of topic-generation would only burn a retry slot
+        # failing at config — fix the schema first.
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          UNOROUTER_API_KEY: ${{ secrets.UNOROUTER_API_KEY }}
+          KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
+        run: node scripts/generate-topics.mjs --check-config
+
+      - name: Record applied migrations in the run summary
+        if: always()
+        run: |
+          {
+            echo "## db-migrate — ${{ github.run_id }}"
+            echo '```'
+            cat migrate-output.txt 2>/dev/null || echo "(migrate output unavailable)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
