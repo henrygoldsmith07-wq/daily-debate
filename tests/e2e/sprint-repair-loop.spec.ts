@@ -72,15 +72,30 @@ test.describe("daily sprint repair loop", () => {
     await expect(page.getByTestId("repair-feedback")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/not there yet/i).first()).toBeVisible();
 
+    // A failed attempt is practice history, NOT a completed repair. Leaving
+    // the page must not schedule a retest or strand the user without a retry.
+    await page.goto("/");
+    await expect(page.getByTestId("start-sprint")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Retest after repair", { exact: true })).toHaveCount(0);
+
+    await page.goto(debateUrl);
+    await expect(page.getByText(/Replay/i).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("repair-status")).toHaveCount(0);
+    await expect(page.getByTestId("fix-this-now")).toBeVisible();
+    await page.getByTestId("fix-this-now").click();
+    await expect(page.getByTestId("repair-panel")).toBeVisible();
+
     // This two-sentence version clears every deterministic repair rubric:
     // source/evidence, contrast, reasoning bridge, weighing, structure and
     // short-sentence clarity.
-    await repairBox.fill(
+    const retryBox = page.getByLabel("Improved argument move");
+    await retryBox.fill(
       "However, NREL data supports solar cost declines because deployment scaled, making the evidence stronger than the reliability objection. Therefore storage trends matter more because they directly affect total system costs."
     );
     await page.getByTestId("submit-repair").click();
     await expect(page.getByTestId("repair-feedback")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/repair recorded/i).first()).toBeVisible();
+    await expect(page.getByTestId("repair-status")).toBeVisible();
 
     // 8. Advanced analysis opens only on explicit request.
     await page.getByTestId("toggle-full-analysis").click();
