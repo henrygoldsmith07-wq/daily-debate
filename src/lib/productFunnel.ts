@@ -77,7 +77,7 @@ export interface FunnelReport {
   debateCompletion: FunnelRate;
   /** debate_completed → repair_started (client CTA click) */
   repairStart: FunnelRate;
-  /** repair_started → repair_completed (server-confirmed submission) */
+  /** repair_started → successful repair_completed */
   repairCompletion: FunnelRate;
   /** debate_completed → full_analysis_opened */
   fullAnalysisOpen: FunnelRate;
@@ -233,6 +233,15 @@ export function returnRate(
 
 const DEBATE_STARTS = new Set(["sprint_started", "full_debate_started", "debate_started"]);
 
+/**
+ * Historical compatibility: before repair-success semantics were tightened,
+ * failed retries were emitted as repair_completed with reason="retry".
+ * Treat only successful/legacy completion rows as genuine completion.
+ */
+export function isSuccessfulRepairCompletion(row: FunnelEventRow): boolean {
+  return row.name === "repair_completed" && row.reason !== "retry";
+}
+
 // ── Deeper product validation metrics ───────────────────────────────────────
 
 export interface TimeToFirstValue {
@@ -342,7 +351,7 @@ export interface RepairRetainComparison {
 export function repairRetentionComparison(rows: FunnelEventRow[], now: string, minSample = FUNNEL_MIN_SAMPLE): RepairRetainComparison {
   const today = dayOf(now);
   const completedUsers = new Set(rows.filter((r) => r.name === "debate_completed").map((r) => r.user_id));
-  const repairers = new Set(rows.filter((r) => r.name === "repair_completed").map((r) => r.user_id));
+  const repairers = new Set(rows.filter(isSuccessfulRepairCompletion).map((r) => r.user_id));
   const eventDays = new Map<string, Set<string>>();
   const firstCompleted = new Map<string, string>();
   for (const r of rows) {
@@ -469,7 +478,9 @@ export function buildSessionFunnel(
   }
   const completedSessions = new Set(bySession("debate_completed").keys());
   const repairStartedSessions = new Set(bySession("repair_started").keys());
-  const repairCompletedSessions = new Set(bySession("repair_completed").keys());
+  const repairCompletedSessions = new Set(
+    sessionRows.filter(isSuccessfulRepairCompletion).map((r) => r.debate_id!),
+  );
   const analysisOpenSessions = new Set(bySession("full_analysis_opened").keys());
 
   const sprintIds = [...startedSessions.entries()].filter(([, f]) => f === "sprint").map(([id]) => id);
@@ -531,7 +542,7 @@ export function buildFunnelReport(
   const sprintCompleted = completed.filter((r) => r.format === "sprint");
   const fullCompleted = completed.filter((r) => r.format === "full");
   const repairStarted = byName(["repair_started"]);
-  const repairCompleted = byName(["repair_completed"]);
+  const repairCompleted = inWindow.filter(isSuccessfulRepairCompletion);
   const analysisOpened = byName(["full_analysis_opened"]);
   const challengeMe = byName(["challenge_me_selected"]);
   const challengeCreated = byName(["challenge_link_created"]);
