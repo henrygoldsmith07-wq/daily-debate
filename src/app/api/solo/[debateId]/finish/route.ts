@@ -199,27 +199,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
   // ── Coaching loop: assess today's goal and persist the snapshot ─────────
   const coaching = (debate.coaching ?? {}) as CoachingRecord;
-  const goalDimension = coaching.dimension ?? null;
+  const goalDimension = (coaching.dimension ?? null) as import("@/lib/adaptiveCoach").CoachDimension | null;
 
+  // The result story must receive the goal dimension. Without it the
+  // user-facing "Today's focus outcome" panel is empty even though the debate
+  // was started with a coaching goal.
   const snapshot = buildResultSnapshot(finalAssessment, {
     format,
     summary,
     priorDebates: priorDebateKinds,
+    goalDimension,
   });
   let coachingUpdate: CoachingRecord = { ...coaching, snapshot: null, demonstrated: null };
   if (goalDimension && finalAssessment?.features?.a) {
-    // Single source of truth for the coaching snapshot (coachingGoal.ts) —
-    // no inline duplicate of the behaviour extraction.
+    // One source of truth: buildResultSnapshot delegates to
+    // coachingGoal.assessGoalOutcome, and the persisted result reuses it.
     const behaviourSnapshot = snapshotFromAssessment(finalAssessment);
-    let demonstrated: boolean | null = null;
-    if (behaviourSnapshot && goalDimension === "rebuttal" && behaviourSnapshot.responseOpportunities > 0) {
-      demonstrated = behaviourSnapshot.responsesAnswered >= behaviourSnapshot.responseOpportunities * 0.8;
-    } else if (behaviourSnapshot && goalDimension === "evidence" && behaviourSnapshot.majorClaims > 0) {
-      demonstrated = behaviourSnapshot.unsupportedClaims === 0;
-    } else if (behaviourSnapshot && goalDimension === "structure") {
-      demonstrated = behaviourSnapshot.droppedOwn === 0;
-    }
-    coachingUpdate = { ...coaching, snapshot: behaviourSnapshot, demonstrated, weaknessKind: snapshot.weakness?.kind ?? null, recurrenceCount: snapshot.recurrence?.count ?? 0 };
+    coachingUpdate = {
+      ...coaching,
+      snapshot: behaviourSnapshot,
+      demonstrated: snapshot.goalOutcome.demonstrated,
+      weaknessKind: snapshot.weakness?.kind ?? null,
+      recurrenceCount: snapshot.recurrence?.count ?? 0,
+    };
     await db.from("solo_debates").update({ coaching: coachingUpdate }).eq("id", debateId);
   }
 
