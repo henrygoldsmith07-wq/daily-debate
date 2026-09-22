@@ -13,6 +13,7 @@ import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { recordProductEvent } from "@/lib/productEvents";
 import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
 import { pendingRepairRetest } from "@/lib/repairRetest";
+import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "solo-start", limit: 10, windowMs: 60_000 });
@@ -71,14 +72,15 @@ export async function POST(request: Request) {
     | { repairDebateId: string; targetKind: string; attemptedAt: string }
     | null = null;
   try {
-    const [ledger, repairAnchor] = await Promise.all([
+    const [ledger, repairAnchor, drillOutcomes] = await Promise.all([
       buildLedgerForUser(user.id),
       latestRepairRetestAnchor(user.id),
+      latestDrillOutcomes(user.id),
     ]);
     const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
     coachingDimension = pickFocusDimension(
       ledger.points,
-      {},
+      drillOutcomes,
       pendingRetest?.dimension ?? null,
     );
     repairRetest = pendingRetest
