@@ -22,7 +22,7 @@ export async function latestDrillOutcomes(
   const service = createServiceClient();
   const { data } = await service
     .from("drill_assignments")
-    .select("id, dimension, created_at")
+    .select("id, dimension, created_at, movement")
     .eq("user_id", userId)
     .eq("status", "attempted")
     .order("created_at", { ascending: false })
@@ -45,14 +45,16 @@ export async function latestDrillOutcomes(
 
     // Persist as a cache/audit field, but selection above already uses the
     // freshly computed value. Navigation order can no longer change coaching.
-    persistence.push(
-      Promise.resolve(
-        service
-          .from("drill_assignments")
-          .update({ movement: measured.delta })
-          .eq("id", row.id),
-      ),
-    );
+    if (row.movement !== measured.delta) {
+      persistence.push(
+        Promise.resolve(
+          service
+            .from("drill_assignments")
+            .update({ movement: measured.delta })
+            .eq("id", row.id),
+        ),
+      );
+    }
   }
 
   await Promise.allSettled(persistence);
