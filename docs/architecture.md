@@ -35,7 +35,8 @@ User-facing explanation (Today, result screen, Progress, DNA)
 | `evidenceVerification.ts`, `citationVerifier.ts`, `quoteVerification.ts` | Evidence grounding and verification |
 | `skillLedger.ts`, `skillLedgerServer.ts` | Longitudinal metric vectors and trajectories |
 | `adaptiveCoach.ts` | 7-dimension profile, focus selection, drills, attempt scoring |
-| `coachingGoal.ts`, `resultSnapshot.ts` | The daily goal and the one-weakness result story |
+| `coachingGoal.ts`, `resultSnapshot.ts` | The daily goal, goal outcome and one-weakness result story |
+| `repairRetest.ts`, `repairRetestServer.ts` | Repair → deliberate next-debate retest policy; opportunity-aware release back to generic coaching |
 | `sprint.ts` | Sprint/full format rules and measurement honesty |
 | `challengeMe.ts` | Explainable side assignment |
 | `argumentRepair.ts` | Repair target selection, structural repair paths + deterministic rewrite scoring |
@@ -92,6 +93,10 @@ shadow-route agreement in `rhetoricalRoleEvaluation.ts`, all covered by
 ## Data model (migrations 001–015)
 
 Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics`, `solo_debates` (+ `format`, `coaching`), `solo_debate_turns` (with `assessment` jsonb), `pvp_queue`, `pvp_matches`, `pvp_turns`, `rate_limits`, `benchmark_corpus`, `match_appeals`, `reports`, `corpus_items`, `corpus_ratings`, `drill_assignments`, `topic_evidence`, plus 004's `repair_results`, `challenge_invites`, `product_events`. Hand-written row types live in `src/lib/backend/database.types.ts`. Migration 015 extends `ai_call_log` with bounded structural-routing fields: taxonomy version, batch/input counts, route, fallback/ambiguity counts, and expensive judge legs avoided.
+
+### Repair retest invariant
+
+A persisted repair does not merely change copy. The latest repair attempt can create a pending retest dimension. Today, the drill coach and solo-debate start all read the same pure `pendingRepairRetest` policy. The repaired debate cannot satisfy its own retest; a distinct later skill-ledger point must expose the target metric. Failed-but-observable retests count as tested, while no-opportunity debates keep the retest pending. The debate stores `coaching.repairRetest` provenance so result/replay surfaces can distinguish deliberate retests from coincidental focus selection.
 
 ## Reliability & security
 
