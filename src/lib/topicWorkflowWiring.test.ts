@@ -123,7 +123,7 @@ describe("production proof separation (six independent facts)", () => {
           { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-17", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "ai" },
           { event: "schedule", at: "2026-09-16T02:00:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-17", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "ai" },
         ],
-        aiEvidence: { targetDate: "2026-09-17", aiRowPresent: true, sourcesNonEmpty: true, telemetryVerifiedAi: true },
+        aiEvidence: { targetDate: "2026-09-17", aiRowPresent: true, sourcesNonEmpty: true, rowFingerprint: fp, exactVerifiedAiTelemetry: true },
       },
       now,
     );

@@ -74,6 +74,36 @@ test("the verifier's evidence count is authoritative when both sources report on
   assert.equal(evidence.evidenceCards, FRESHNESS.checks.evidenceCards);
 });
 
+test("exact scheduler-slot witness fields preserve the TRUE trigger, not a nearest-slot guess", () => {
+  // The 20:00 slot whose run was created at 22:05: a nearest-clock-slot
+  // witness would report 35 min (against 21:30); the artifact records the
+  // exact scheduled slot, so the true 125-min delay survives.
+  const evidence = buildEvidence({
+    generator: GENERATOR,
+    freshness: FRESHNESS,
+    ...RUN,
+    cron: "0 20 * * *",
+    scheduledFor: "2026-09-20T20:00:00Z",
+    runCreatedAt: "2026-09-20T22:05:00Z",
+    startedAt: "2026-09-20T22:05:30Z",
+  });
+  assert.equal(evidence.cronSlot, "0 20 * * *");
+  assert.equal(evidence.scheduledFor, "2026-09-20T20:00:00Z");
+  assert.equal(evidence.actualCreatedAt, "2026-09-20T22:05:00Z");
+  assert.equal(evidence.actualStartedAt, "2026-09-20T22:05:30Z");
+  assert.equal(evidence.schedulerDelayMs, 2 * 3_600_000 + 5 * 60_000 + 30_000); // 125.5 min
+  // The nearest-slot inference would have claimed 35 min (21:30 slot); the
+  // artifact preserves the TRUE 125-min delay against the 20:00 slot.
+  assert.ok(evidence.schedulerDelayMs > 90 * 60_000, "the missed-start threshold would have been visible");
+});
+
+test("slot witness fields stay null (never guessed) when the workflow did not provide them", () => {
+  const evidence = buildEvidence({ generator: GENERATOR, freshness: FRESHNESS, ...RUN });
+  assert.equal(evidence.cronSlot, null);
+  assert.equal(evidence.scheduledFor, null);
+  assert.equal(evidence.schedulerDelayMs, null);
+});
+
 test("a stage that never ran degrades to explicit nulls without throwing", () => {
   const evidence = buildEvidence({ generator: null, freshness: null, ...RUN });
   assert.equal(evidence.targetDate, null);

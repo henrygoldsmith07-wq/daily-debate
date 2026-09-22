@@ -60,7 +60,7 @@ function isMissingColumnError(e, column) {
 
 const rows = await query(
   `SELECT id, topic_date::text AS topic_date, title, prompt, category,
-          generation_source, topic_fingerprint
+          generation_source, generation_reason, topic_fingerprint, created_at
      FROM daily_topics WHERE topic_date = $1::date`,
   [targetDate],
 ).catch((e) => {
@@ -69,6 +69,18 @@ const rows = await query(
   if (isMissingColumnError(e, "topic_fingerprint")) {
     failures.push("topic_fingerprint column missing — apply migration 018_topic_fingerprint.sql before trusting revision checks");
     return "fingerprint-column-missing";
+  }
+  if (isMissingColumnError(e, "generation_reason")) {
+    // 019 pending: reason validation is deferred (readiness reports it);
+    // fingerprint + provenance checks still run with a NULL placeholder.
+    checks.generationReasonColumn = false;
+    return query(
+      `SELECT id, topic_date::text AS topic_date, title, prompt, category,
+              generation_source, NULL::text AS generation_reason, topic_fingerprint,
+              created_at
+         FROM daily_topics WHERE topic_date = $1::date`,
+      [targetDate],
+    );
   }
   throw e;
 });
@@ -86,11 +98,47 @@ if (rows !== "fingerprint-column-missing") {
     if (!String(row.title ?? "").trim()) failures.push("stored topic has an empty title");
     if (!String(row.prompt ?? "").trim()) failures.push("stored topic has an empty prompt");
     if (!String(row.category ?? "").trim()) failures.push("stored topic has an empty category");
-    // 2b: provenance is a valid stored source.
+    // 2b: provenance is a valid stored source, and the ORIGINAL creation
+    // reason (when recorded) is a known value. A NULL reason on a migrated
+    // database means the row was written by a non-canonical writer.
     if (row.generation_source !== "ai" && row.generation_source !== "fallback") {
       failures.push(`invalid generation provenance: ${JSON.stringify(row.generation_source)}`);
     }
     checks.provenance = row.generation_source;
+    const KNOWN_REASONS = ["ai", "fallback-provider-failure", "fallback-policy", "request-time-fallback", "legacy-unknown"];
+    if (row.generation_reason !== null && row.generation_reason !== undefined && !KNOWN_REASONS.includes(row.generation_reason)) {
+      failures.push(`invalid generation_reason: ${JSON.stringify(row.generation_reason)}`);
+    }
+    if ((row.generation_reason ?? null) === null && checks.generationReasonColumn !== false) {
+      failures.push("generation_reason missing — the row was not written by a canonical writer (migration 019 backfills legacy rows)");
+    }
+    checks.generationReason = row.generation_reason ?? null;
+
+    // legacy-unknown is reserved for HISTORICAL rows: only migration 019's
+    // backfill may write it, so it is valid iff the row predates the moment
+    // 019 applied (app_migrations.applied_at). A new canonical writer
+    // emitting it would be laundering an unproven claim into provenance —
+    // and an undatable claim (ledger missing) fails rather than passes.
+    if (row.generation_reason === "legacy-unknown") {
+      checks.generationReasonLegacy = true;
+      let appliedAt = NaN;
+      try {
+        const ledger = await query(
+          `SELECT applied_at FROM app_migrations WHERE name = '019_generation_reason.sql'`,
+        );
+        appliedAt = ledger[0]?.applied_at ? Date.parse(String(ledger[0].applied_at)) : NaN;
+      } catch {
+        appliedAt = NaN; // no ledger table => boundary undatable => unprovable
+      }
+      const createdAt = Date.parse(String(row.created_at ?? ""));
+      if (!Number.isFinite(appliedAt) || !Number.isFinite(createdAt) || createdAt > appliedAt) {
+        failures.push(
+          "generation_reason 'legacy-unknown' is only valid on pre-019 rows — " +
+            "the row postdates migration 019 (or its ledger boundary is undatable); " +
+            "new canonical writers must never emit legacy-unknown",
+        );
+      }
+    }
 
     // 3: the canonical fingerprint recomputes and matches the record.
     const expected = topicFingerprint({

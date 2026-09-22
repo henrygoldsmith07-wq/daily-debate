@@ -20,6 +20,7 @@
 // jq binary being present and behaving identically across runners.
 
 import fs from "node:fs";
+import { scheduledForCron } from "./record-topic-run.mjs";
 
 /** Fields that must never be null when the source files carry a value. */
 export const REQUIRED_FIELDS = ["targetDate", "source", "evidenceCards", "fingerprint"];
@@ -28,7 +29,7 @@ export const REQUIRED_FIELDS = ["targetDate", "source", "evidenceCards", "finger
  * Map the two source documents onto one flat evidence record.
  * Every stage that genuinely never ran stays an explicit null.
  */
-export function buildEvidence({ generator, freshness, runId, runAttempt, runType, startedAt }) {
+export function buildEvidence({ generator, freshness, runId, runAttempt, runType, startedAt, cron, scheduledFor, runCreatedAt }) {
   const gen = generator ?? null;
   const ver = freshness ?? null;
   return {
@@ -36,6 +37,20 @@ export function buildEvidence({ generator, freshness, runId, runAttempt, runType
     runAttempt: runAttempt ?? null,
     runType: runType ?? null,
     startedAt: startedAt ?? null,
+    // EXACT scheduler-slot facts (item: second witness must preserve the true
+    // slot). These come from the workflow itself — github.event.schedule plus
+    // the runtimes step — so a witness consumer never has to INFER the
+    // triggering cron from the nearest clock slot, which understates large
+    // delays (a 20:00 trigger created at 22:05 must report 125 min, not the
+    // 35 min a nearest-slot guess produces).
+    cronSlot: cron ?? null,
+    scheduledFor: scheduledFor ?? null,
+    actualCreatedAt: runCreatedAt ?? null,
+    actualStartedAt: startedAt ?? null,
+    schedulerDelayMs:
+      scheduledFor && startedAt && Number.isFinite(Date.parse(scheduledFor)) && Number.isFinite(Date.parse(startedAt))
+        ? Date.parse(startedAt) - Date.parse(scheduledFor)
+        : null,
     // `date` lives on the generator; `targetDate` on the verifier. Prefer the
     // generator (it is what generation actually targeted) and fall back to
     // what the verifier re-read from the database.
@@ -85,6 +100,12 @@ export function main(env = process.env) {
     runAttempt: env.ATTEMPT,
     runType: env.EVENT,
     startedAt: env.STARTED,
+    cron: env.CRON,
+    // Prefer an explicitly provided slot; otherwise derive it from the exact
+    // cron expression + run creation time (the workflow's own truth — never a
+    // nearest-clock-slot guess).
+    scheduledFor: env.SCHEDULED_FOR?.trim() || scheduledForCron(env.CRON, env.RUN_CREATED_AT ?? env.STARTED),
+    runCreatedAt: env.RUN_CREATED_AT,
   });
 
   const json = JSON.stringify(evidence, null, 2) + "\n";

@@ -1,0 +1,44 @@
+name: neon-live
+
+# Optional LIVE Neon transport contract (item 25). Every PR proves TCP
+# Postgres behaviour; production speaks Neon HTTP, where each query() is its
+# own session. This workflow re-runs the same guarantees (JSONB, insert-ignore,
+# transaction commit/rollback, schema gate, fingerprint identity) against a
+# real Neon URL — but never blocks PRs, because the live URL is a secret.
+#
+#   secret NEON_TEST_DATABASE_URL  -> points at a SCRATCH Neon branch.
+#      When unset the run reports SKIPPED and stays green (optional by
+#      design). Never point it at production: the suite applies migrations
+#      and writes only 2099-dated rows, then cleans up.
+#
+# Evidence order stays: PR contract tests (every push) -> this live contract
+# (manual/weekly) -> production proofs. Transports are never ASSUMED equal.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1" # Mondays 05:00 UTC, clear of the topic windows
+
+permissions:
+  contents: read
+
+jobs:
+  live-transport:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Live Neon transport contract
+        env:
+          NEON_TEST_DATABASE_URL: ${{ secrets.NEON_TEST_DATABASE_URL }}
+        run: |
+          if [ -z "$NEON_TEST_DATABASE_URL" ]; then
+            echo "NEON_TEST_DATABASE_URL secret not configured — live transport contract SKIPPED."
+            echo "Set it to a SCRATCH Neon branch URL to enable this optional witness."
+            exit 0
+          fi
+          npx vitest run src/lib/neonTransport.live.test.ts

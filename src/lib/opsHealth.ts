@@ -159,10 +159,42 @@ const AVAILABILITY_SEVERITY: Record<AvailabilityState, number> = {
 };
 
 export interface TopicScheduledRun {
+  id?: number; // Actions run id — key for exact artifact-witness lookup
   event: string; // "schedule" | "workflow_dispatch" | "push"...
   status: string; // "completed" | "in_progress" | "queued"...
   conclusion: string | null; // success | failure | cancelled | ...
   createdAt: string;
+}
+
+/**
+ * Exact scheduler-witness facts from a run's OWN uploaded artifact
+ * (topic-run-evidence.json): the true triggering cron slot plus its exact
+ * delay — the second witness when topic_run_log is unreachable, and the ONLY
+ * acceptable non-DB source. Nearest-slot inference below is the last resort.
+ */
+export interface TopicArtifactWitness {
+  cronSlot: string | null;
+  scheduledFor: string | null;
+  actualCreatedAt: string | null;
+  actualStartedAt: string | null;
+  schedulerDelayMs: number | null;
+}
+
+/** Validate a downloaded artifact's exact-slot fields; null when unusable. */
+export function parseArtifactWitness(parsed: Record<string, unknown>): TopicArtifactWitness | null {
+  const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const witness: TopicArtifactWitness = {
+    cronSlot: str(parsed.cronSlot),
+    scheduledFor: str(parsed.scheduledFor),
+    actualCreatedAt: str(parsed.actualCreatedAt),
+    actualStartedAt: str(parsed.actualStartedAt),
+    schedulerDelayMs: num(parsed.schedulerDelayMs),
+  };
+  // Usable as exact evidence only when it can pin the true slot + a delay.
+  return witness.scheduledFor && (witness.schedulerDelayMs !== null || witness.actualStartedAt !== null)
+    ? witness
+    : null;
 }
 
 /** One bounded provider/model attempt as persisted in topic_run_log.provider_attempts. */
@@ -197,10 +229,144 @@ export interface AiProductionEvidence {
   targetDate: string | null;
   aiRowPresent: boolean;
   sourcesNonEmpty: boolean;
-  telemetryVerifiedAi: boolean;
+  /** The stored row's topic_fingerprint (null when absent/unreadable). */
+  rowFingerprint: string | null;
+  /**
+   * ONE telemetry row satisfies the WHOLE predicate at once:
+   *   result = success ∧ targetDate matches ∧ topicFingerprint equals this
+   *   EXACT row ∧ generatorResult = ai ∧ freshnessOk = true.
+   * Not two independent `some()` checks — those could be satisfied by two
+   * different rows (an AI row plus a fallback row's fingerprint match).
+   */
+  exactVerifiedAiTelemetry: boolean;
+}
+
+/**
+ * Pure single-predicate matcher for the AI proof: does ONE telemetry row
+ * carry every required fact for this stored row? Exported so the truth table
+ * (item: AI+fp+fresh+success true; every mixed case false) is unit-testable,
+ * not just the server-side loader that assembles evidence.
+ */
+export function matchesExactAiTelemetry(
+  telemetry: TopicRunTelemetryRow[],
+  row: { targetDate: string | null; rowFingerprint: string | null },
+): boolean {
+  if (!row.targetDate || !row.rowFingerprint) return false;
+  return telemetry.some(
+    (t) =>
+      t.result === "success" &&
+      t.targetDate === row.targetDate &&
+      t.topicFingerprint === row.rowFingerprint &&
+      t.generatorResult === "ai" &&
+      t.freshnessOk === true,
+  );
 }
 
 export const TOPIC_MISSED_START_THRESHOLD_MS = 90 * 60_000;
+
+/**
+ * Canonical topic-generation cron slots in UTC (mirror of
+ * .github/workflows/topic-generation.yml — update both together). Used by the
+ * second-witness delay derivation below; the workflow itself records the
+ * exact slot via github.event.schedule into topic_run_log, which stays the
+ * PRIMARY source. This mirror only fills gaps when the DB is unreachable.
+ */
+export const TOPIC_LADDER_SLOTS_UTC_MINUTES = [20 * 60, 21 * 60 + 30, 22 * 60 + 45, 23 * 60 + 40, 15, 2 * 60 + 15];
+
+/**
+ * Most recent ladder slot (UTC, wrapping midnight) strictly <= nowMs.
+ * Mirrors scheduledForCron in scripts/record-topic-run.mjs for the fixed
+ * daily-slot ladder; a shared module was rejected to keep the Next runtime
+ * free of cross-imports from scripts/.
+ */
+export function mostRecentTopicSlot(nowMs: number): number | null {
+  const d = new Date(nowMs);
+  for (const offsetDays of [0, 1, 2]) {
+    const dayStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    const candidates = TOPIC_LADDER_SLOTS_UTC_MINUTES.map((m) => dayStart - offsetDays * 86_400_000 + m * 60_000);
+    const best = Math.max(...candidates.filter((t) => t <= nowMs));
+    if (candidates.some((t) => t <= nowMs)) return best;
+  }
+  return null;
+}
+
+/**
+ * SECOND-WITNESS scheduler-delay telemetry, derived from GitHub run history
+ * alone. The primary source is topic_run_log (recorded by the run itself,
+ * with the exact cron slot). But that telemetry lives in the same database
+ * the pipeline needs: when the DB is down — precisely when you want to know
+ * whether the platform or the store failed — the delay log disappears with
+ * it. This derivation reconstructs approximate delays from run_created_at
+ * vs the most recent ladder slot so the scheduler-delay view keeps working.
+ *
+ * Approximate by design: the actual slot a run belonged to is inferred
+ * (created_at vs started_at also differ slightly). Only schedule runs are
+ * witnessed; targetDate stays null so these rows can never contribute to
+ * the availability proofs — those remain DB-backed.
+ */
+export function deriveDelayWitness(
+  runs: TopicScheduledRun[],
+  exactByRunId?: Map<number, TopicArtifactWitness>,
+): TopicRunTelemetryRow[] {
+  const out: TopicRunTelemetryRow[] = [];
+  for (const r of runs) {
+    if (r.event !== "schedule") continue;
+    const at = Date.parse(r.createdAt);
+    if (!Number.isFinite(at)) continue;
+
+    // EXACT artifact evidence FIRST: the run's uploaded artifact carries the
+    // true triggering slot (github.event.schedule) and its exact delay.
+    // Inferring "nearest slot before createdAt" here would UNDERSTATE large
+    // delays — a 20:00 trigger whose run was created at 22:05 is a 125-min
+    // missed start, not a 35-min one against the 21:30 slot. Approximate
+    // inference is used ONLY when no exact artifact exists for this run.
+    const exact = r.id !== undefined ? exactByRunId?.get(r.id) : undefined;
+    if (exact?.scheduledFor && Number.isFinite(Date.parse(exact.scheduledFor))) {
+      const startedMs = Date.parse(exact.actualStartedAt ?? "");
+      const delayMs =
+        typeof exact.schedulerDelayMs === "number" && Number.isFinite(exact.schedulerDelayMs)
+          ? exact.schedulerDelayMs
+          : at - Date.parse(exact.scheduledFor); // exact slot; start approximated by creation
+      out.push({
+        event: "schedule",
+        at: Number.isFinite(startedMs) ? (exact.actualStartedAt as string) : r.createdAt,
+        runCreatedAt: exact.actualCreatedAt ?? null,
+        result: r.status === "completed" ? r.conclusion ?? "unknown" : r.status,
+        delayMs,
+        targetDate: null,
+        completedBeforeDeadline: null,
+      });
+      continue;
+    }
+
+    const slot = mostRecentTopicSlot(at);
+    if (slot === null) continue;
+    out.push({
+      event: "schedule",
+      at: r.createdAt,
+      result: r.status === "completed" ? r.conclusion ?? "unknown" : r.status,
+      delayMs: at - slot,
+      targetDate: null,
+      completedBeforeDeadline: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Merge DB-recorded telemetry (primary) with derived witness rows: a DB row
+ * within ±5 minutes of a witness covers it (same run recorded precisely),
+ * so nothing is double-counted; witness rows only fill real gaps.
+ */
+export function mergeDelayWitnesses(dbRows: TopicRunTelemetryRow[], witnesses: TopicRunTelemetryRow[]): TopicRunTelemetryRow[] {
+  const covered = (w: TopicRunTelemetryRow) =>
+    dbRows.some((d) => {
+      const a = Date.parse(d.at);
+      const b = Date.parse(w.at);
+      return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 5 * 60_000;
+    });
+  return [...dbRows, ...witnesses.filter((w) => !covered(w))];
+}
 
 export interface TopicSloInput {
   runs: TopicScheduledRun[];
@@ -217,10 +383,23 @@ export interface TopicSloInput {
   telemetry?: TopicRunTelemetryRow[];
   /**
    * Real-AI end-to-end evidence for the aiGeneratedProductionSuccess proof:
-   * an AI row with surviving non-empty sources plus a matching verified AI
-   * telemetry row. null/undefined = unevidenced (proof stays false).
+   * an AI row with surviving non-empty sources plus ONE telemetry row that
+   * satisfies the entire exact-fingerprint predicate. null/undefined =
+   * unevidenced (proof stays false).
    */
   aiEvidence?: AiProductionEvidence | null;
+  /**
+   * Durable proof facts computed from topic_run_log directly (an aggregate
+   * over the WHOLE table, not a GitHub API page). null/undefined = telemetry
+   * unreadable → fall back to the workflow-run window.
+   */
+  durableProofs?: DurableProofFacts | null;
+}
+
+/** manual→scheduled existence proofs read from durable telemetry. */
+export interface DurableProofFacts {
+  manualSuccess: boolean;
+  scheduledSuccessAfterManual: boolean;
 }
 
 export interface TopicSlo {
@@ -421,27 +600,40 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
   const sev = Math.max(SCHEDULER_SEVERITY[scheduler], AVAILABILITY_SEVERITY[availability]);
   const status: HealthState = SEVERITY_STATES[sev] ?? "unknown";
 
-  const dispatchSuccess = input.runs
+  // An existence proof, not a "latest manual run" proof: #45 manual → #52
+  // scheduled → #53 manual still proves a scheduled run followed a manual
+  // one. The newest-manual formulation erased that historical fact.
+  const successfulManuals = input.runs
     .filter((r) => r.event === "workflow_dispatch" && successBy(r))
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] ?? null;
-  const scheduledSuccessAfterManual = dispatchSuccess
-    ? scheduled.some((r) => successBy(r) && Date.parse(r.createdAt) > Date.parse(dispatchSuccess.createdAt))
-    : false;
+    .map((r) => Date.parse(r.createdAt))
+    .filter(Number.isFinite);
+  const ghScheduledAfterManual = successfulManuals.some((manualAt) =>
+    scheduled.some((r) => successBy(r) && Date.parse(r.createdAt) > manualAt),
+  );
+  // Durable-first (item: proofs must not live inside an eight-run GitHub API
+  // window). topic_run_log is queried over its WHOLE table by the server
+  // loader; when that aggregate is available it is authoritative — old runs
+  // falling outside a Actions page cannot erase a proven historical fact,
+  // and a readable DB that says "no qualifying pair" is not overruled by a
+  // coincidental GitHub window. durableProofs = null → GitHub fallback.
+  const durable = input.durableProofs ?? null;
+  const manualSuccess = durable ? durable.manualSuccess : successfulManuals.length > 0;
+  const scheduledSuccessAfterManual = durable ? durable.scheduledSuccessAfterManual : ghScheduledAfterManual;
 
   // -- production proofs: six independent facts, no telemetry coincidences --
-  // Idempotence needs matching fingerprints from SEPARATE verified attempts
-  // with the same provenance semantics — two bare successes prove nothing
-  // under write-once semantics (the second run may simply have verified).
+  // Content idempotence = same target date, same non-null SHA-256 content
+  // fingerprint, both attempts successful AND freshness-verified. NOTHING
+  // else: coupling identity to generatorResult produced false negatives
+  // ("generated" vs "verified" is an operational fact, not a content fact).
   const verifiedSuccesses = telemetry.filter(
-    (r) => r.result === "success" && r.targetDate && r.freshnessOk === true && r.topicFingerprint && r.generatorResult,
+    (r) => r.result === "success" && r.targetDate && r.freshnessOk === true && r.topicFingerprint,
   );
   const sameDateContentIdempotence = verifiedSuccesses.some((r1) =>
     verifiedSuccesses.some(
       (r2) =>
         r1 !== r2 &&
         r1.targetDate === r2.targetDate &&
-        r1.topicFingerprint === r2.topicFingerprint &&
-        r1.generatorResult === r2.generatorResult,
+        r1.topicFingerprint === r2.topicFingerprint,
     ),
   );
   const tomorrowIso = addDaysUtc(todayIsoUtc(nowIso), 1);
@@ -452,10 +644,16 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
       (r) => r.targetDate === tomorrowIso && r.completedBeforeDeadline === true && r.freshnessOk === true,
     );
   const aiEvidence = input.aiEvidence ?? null;
+  // AI proof requires END-TO-END identity through ONE telemetry row: an AI
+  // row with non-empty sources whose EXACT fingerprint that single row also
+  // reports as ai-generated, successful and freshness-verified. Two separate
+  // `some()` checks could be satisfied by DIFFERENT rows (an AI row plus a
+  // fallback run's fingerprint match) — the single predicate closes that.
   const aiGeneratedProductionSuccess =
     aiEvidence?.aiRowPresent === true &&
     aiEvidence?.sourcesNonEmpty === true &&
-    aiEvidence?.telemetryVerifiedAi === true;
+    aiEvidence?.rowFingerprint != null &&
+    aiEvidence?.exactVerifiedAiTelemetry === true;
 
   const scheduling = assessScheduling(telemetry);
   const providerSummary = summariseProviderAttempts(telemetry);
@@ -474,7 +672,7 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
     lastSuccessfulRun: newestSuccessFirst ? { at: newestSuccessFirst.createdAt, event: newestSuccessFirst.event } : null,
     proofs: {
       databaseReachable: input.productionDbReadable,
-      manualSuccess: Boolean(dispatchSuccess),
+      manualSuccess,
       scheduledSuccessAfterManual,
       sameDateContentIdempotence,
       onTimeBeforeDeadline,
@@ -578,7 +776,91 @@ export interface DatabaseHealth {
   requiredTablesOk: boolean | null;
   missingTables: string[];
   topicRunLogFidelity: TopicRunLogFidelity;
+  /** Per-migration schema readiness: actual columns, not migration counts. */
+  migrationReadiness: MigrationReadiness;
   note: string | null;
+}
+
+/** Explicit readiness per migration the production topic pipeline depends on. */
+export interface MigrationReadiness {
+  /** 016: topic_run_log telemetry columns (run_created_at, queue_delay_ms, generator_result, provider_health). */
+  migration016TelemetryReady: boolean | null;
+  /** 017: route_lifecycle table with its required lifecycle columns. */
+  migration017RouteLifecycleReady: boolean | null;
+  /** 018: topic_fingerprint columns + provider_attempts ledger (topic pipeline hard requirement). */
+  migration018TopicFingerprintReady: boolean | null;
+  /** 019: generation_reason column + its value constraint (canonical provenance). */
+  migration019GenerationReasonReady: boolean | null;
+  note: string | null;
+}
+
+/**
+ * Canonical required-schema definitions for the readiness checks above.
+ * A `constraint:`-prefixed entry matches a constraint name supplied by the
+ * schema probe (constraints ride the same map, keyed by table), so column
+ * AND value-constraint readiness are both derived from actual schema — never
+ * from a migration count.
+ */
+export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019", Array<{ table: string; columns: string[] }>> = {
+  "016": [{ table: "topic_run_log", columns: ["run_created_at", "queue_delay_ms", "generator_result", "provider_health"] }],
+  "017": [
+    {
+      table: "route_lifecycle",
+      columns: [
+        "route", "registration_version", "state", "evaluated_at", "sample_window", "sample_n",
+        "gate_result", "human_result", "adopted_at", "suspended_at", "reason", "updated_at",
+      ],
+    },
+  ],
+  "018": [
+    { table: "daily_topics", columns: ["topic_fingerprint"] },
+    { table: "topic_evidence", columns: ["topic_fingerprint"] },
+    { table: "topic_run_log", columns: ["topic_fingerprint", "provider_attempts"] },
+  ],
+  "019": [
+    {
+      table: "daily_topics",
+      columns: ["generation_reason", "constraint:daily_topics_generation_reason_check"],
+    },
+  ],
+};
+
+/**
+ * Pure per-migration readiness from an information_schema column listing.
+ * unknown (null) when the schema itself is unreadable — never a guess.
+ */
+export function assessMigrationReadiness(
+  present: Map<string, Set<string>> | null,
+): MigrationReadiness {
+  if (!present) {
+    return {
+      migration016TelemetryReady: null,
+      migration017RouteLifecycleReady: null,
+      migration018TopicFingerprintReady: null,
+      migration019GenerationReasonReady: null,
+      note: "Schema unreadable — migration readiness could not be verified.",
+    };
+  }
+  const check = (key: "016" | "017" | "018" | "019"): boolean =>
+    MIGRATION_REQUIRED_COLUMNS[key].every(({ table, columns }) => {
+      const cols = present.get(table);
+      return !!cols && columns.every((c) => cols.has(c));
+    });
+  const ready18 = check("018");
+  const ready19 = check("019");
+  const missing = [
+    ...(ready18 ? [] : ["018_topic_fingerprint.sql"]),
+    ...(ready19 ? [] : ["019_generation_reason.sql"]),
+  ];
+  return {
+    migration016TelemetryReady: check("016"),
+    migration017RouteLifecycleReady: check("017"),
+    migration018TopicFingerprintReady: ready18,
+    migration019GenerationReasonReady: ready19,
+    note: missing.length
+      ? `Migration ${missing.join(" and ")} not fully applied — the production topic pipeline will refuse to generate until it is.`
+      : null,
+  };
 }
 
 export function assessDatabaseHealth(input: {
@@ -587,6 +869,7 @@ export function assessDatabaseHealth(input: {
   migrationsApplied?: number | null;
   missingTables?: string[];
   topicRunLogFidelity?: TopicRunLogFidelity;
+  migrationReadiness?: MigrationReadiness;
 }): DatabaseHealth {
   if (!input.reachable) {
     return {
@@ -597,6 +880,7 @@ export function assessDatabaseHealth(input: {
       requiredTablesOk: null,
       missingTables: [],
       topicRunLogFidelity: "unknown",
+      migrationReadiness: input.migrationReadiness ?? assessMigrationReadiness(null),
       note: "Database unreachable — every DB-backed surface is down, not just slow.",
     };
   }
@@ -610,9 +894,11 @@ export function assessDatabaseHealth(input: {
       requiredTablesOk: false,
       missingTables,
       topicRunLogFidelity: input.topicRunLogFidelity ?? "unknown",
+      migrationReadiness: input.migrationReadiness ?? assessMigrationReadiness(null),
       note: `Required tables missing (${missingTables.join(", ")}) — run migrations before trusting any stored data.`,
     };
   }
+  const readiness = input.migrationReadiness ?? assessMigrationReadiness(null);
   if (input.topicRunLogFidelity === "legacy") {
     return {
       status: "degraded",
@@ -622,6 +908,7 @@ export function assessDatabaseHealth(input: {
       requiredTablesOk: true,
       missingTables: [],
       topicRunLogFidelity: "legacy",
+      migrationReadiness: readiness,
       note: "topic_run_log lacks migration 016 columns (run_created_at, queue_delay_ms, generator_result, provider_health) — apply 016_topic_run_telemetry.sql; telemetry writers keep working in compatibility mode.",
     };
   }
@@ -634,18 +921,24 @@ export function assessDatabaseHealth(input: {
       requiredTablesOk: true,
       missingTables: [],
       topicRunLogFidelity: input.topicRunLogFidelity ?? "unknown",
+      migrationReadiness: readiness,
       note: `Database reachable but slow (SELECT 1 took ${input.latencyMs}ms).`,
     };
   }
+  // A database can be reachable with every table present and still lack the
+  // 018 fingerprint schema the production pipeline requires — that is a real
+  // degradation, surfaced here without collapsing the two dimensions.
+  const schemaDegraded = readiness.migration018TopicFingerprintReady === false;
   return {
-    status: "healthy",
+    status: schemaDegraded ? "degraded" : "healthy",
     reachable: true,
     latencyMs: input.latencyMs ?? null,
     migrationsApplied: input.migrationsApplied ?? null,
     requiredTablesOk: true,
     missingTables: [],
     topicRunLogFidelity: input.topicRunLogFidelity ?? "unknown",
-    note: null,
+    migrationReadiness: readiness,
+    note: readiness.note,
   };
 }
 
