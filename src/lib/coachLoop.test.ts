@@ -89,7 +89,7 @@ describe("checkRetention", () => {
 });
 
 describe("computeLoopStatuses", () => {
-  it("full lifecycle: detected → practised → improved in drill → improved in debate", () => {
+  it("full lifecycle: detected → practised → improved in debate → retained", () => {
     const points = [
       pt(0, { impactHandling: 0.3 }),
       pt(1, { impactHandling: 0.35 }),
@@ -107,7 +107,7 @@ describe("computeLoopStatuses", () => {
     expect(s.debateMovement).not.toBeNull();
   });
 
-  it("advances to improved_in_drill on strong attempt score alone", () => {
+  it("does not infer skill improvement from an incomparable drill rubric score", () => {
     const points = [
       pt(0, { impactHandling: 0.3 }),
       pt(1, { impactHandling: 0.35 }),
@@ -117,22 +117,23 @@ describe("computeLoopStatuses", () => {
       createdAt: "2026-01-02T12:00:00Z",
       status: "attempted" as const,
       beforeScore: 30,
-      attemptScore: 60,
+      attemptScore: 95,
     }];
     const statuses = computeLoopStatuses(points, assignments);
-    // Attempt score 60 > before 30, so improved_in_drill — no future debates needed yet
-    expect(statuses[0].stage).toBe("improved_in_drill");
+    expect(statuses[0].stage).toBe("practised");
+    expect(statuses[0].summary).toContain("formative score 95/100");
+    expect(statuses[0].summary).not.toMatch(/improv|up from/i);
   });
 
-  it("does not claim improved_in_drill without a recorded baseline", () => {
+  it("keeps an attempted drill at practised without a recorded baseline", () => {
     const statuses = computeLoopStatuses([], [
       { ...assignment(), beforeScore: null, attemptScore: 70 },
     ]);
     expect(statuses[0].stage).toBe("practised");
-    expect(statuses[0].summary).not.toMatch(/up from/);
+    expect(statuses[0].summary).not.toMatch(/improv|up from/i);
   });
 
-  it("does not claim improved_in_drill for an unscored attempt", () => {
+  it("keeps an unscored attempt at practised", () => {
     const statuses = computeLoopStatuses([], [
       { ...assignment(), beforeScore: 40, attemptScore: null },
     ]);
@@ -169,6 +170,8 @@ describe("formatCoachPrompt", () => {
     );
     expect(p.show).toBe(true);
     expect(p.detail).toContain("next debate");
+    expect(p.detail).toContain("transfers");
+    expect(p.detail).not.toContain("improvement");
   });
 
   it("hides prompt with insufficient data", () => {
