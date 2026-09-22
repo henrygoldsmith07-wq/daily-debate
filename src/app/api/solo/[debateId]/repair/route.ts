@@ -122,7 +122,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   }
 
   // Link the repair into the coaching system: if today's drill assignment
-  // targets the same dimension, the repair counts as its attempt.
+  // targets the same dimension, the latest submitted rewrite becomes the
+  // assignment's formative attempt. Do this for retries too — otherwise a
+  // better second draft is persisted in repair_results while coaching remains
+  // stuck on the first draft. We deliberately do NOT compare the two scores:
+  // repair and drill rubrics are formative signals, not a shared skill scale.
   try {
     const service = createServiceClient();
     const today = new Date().toISOString().slice(0, 10);
@@ -136,8 +140,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       })
       .eq("user_id", user.id)
       .eq("assigned_date", today)
-      .eq("dimension", dimension)
-      .eq("status", "open");
+      .eq("dimension", dimension);
   } catch (error) {
     // Non-critical: the repair is already persisted.
     console.error("Failed to link repair to drill assignment:", error);
