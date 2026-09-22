@@ -154,6 +154,19 @@ describe("movementAround", () => {
     expect(m.delta!).toBeGreaterThan(0);
   });
 
+  it("includes the first debate after a drill assigned between debates", () => {
+    const points = [
+      point(0, { impactHandling: 0.2 }),
+      point(1, { impactHandling: 0.3 }),
+      point(2, { impactHandling: 0.8 }),
+    ];
+    const m = movementAround(points, "impact", "2026-01-02T12:00:00Z", 2);
+    expect(m).not.toBeNull();
+    expect(m?.before).toBeCloseTo(0.25, 3);
+    expect(m?.after).toBeCloseTo(0.8, 3);
+    expect(m?.delta).toBeCloseTo(0.55, 3);
+  });
+
   it("returns null when there is no after window yet", () => {
     const points = [point(0, { fallacyRate: 0.2 }), point(1, { fallacyRate: 0.1 })];
     expect(movementAround(points, "logic", points[1].completedAt)).toBeNull();
