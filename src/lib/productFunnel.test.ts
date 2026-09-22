@@ -405,6 +405,33 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     expect(rows[0].eligibleRetests).toBe(2);
   });
 
+  it("collapses retry submissions into one training-loop repair episode", () => {
+    const repairs: RepairRow[] = [
+      { ...repair("u1", "d0", "evidence", T0), score: 35, succeeded: false },
+      { ...repair("u1", "d0", "evidence", "2026-06-01T12:05:00Z"), score: 82, succeeded: true },
+      { ...repair("u1", "d0", "evidence", "2026-06-01T12:08:00Z"), score: 76, succeeded: true },
+    ];
+    const debates = [
+      debateRow("u1", "d1", "2026-06-02T12:00:00Z", { evidence: 0 }),
+    ];
+    const events = [
+      ev("u1", "repair_started", "2026-06-01T11:59:00Z", "d0"),
+    ];
+
+    const rows = buildRepairOutcomeRows(repairs, debates, events);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].createdAt).toBe(T0);
+    expect(rows[0].firstRetestDebateId).toBe("d1");
+
+    const funnel = buildRepairOutcomeFunnel(repairs, debates, events, { now: NOW2, minSample: 1 });
+    expect(funnel.attempts).toBe(3);
+    expect(funnel.repairs).toBe(1);
+    expect(funnel.retryAttemptsCollapsed).toBe(2);
+    expect(funnel.acceptance.denominator).toBe(1);
+    expect(funnel.retestsObserved).toBe(1);
+    expect(funnel.note).toMatch(/one repair episode/i);
+  });
+
   it("measures later recurrence per eligible retest, not 'any later debate'", () => {
     // A long-exposure repair (weakness back once among six retests) and a
     // short one (back on its only second retest) are compared on the SAME
