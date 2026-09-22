@@ -72,6 +72,7 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
       .from("repair_results")
       .select("id, created_at")
       .eq("debate_id", debateId)
+      .eq("succeeded", true)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
