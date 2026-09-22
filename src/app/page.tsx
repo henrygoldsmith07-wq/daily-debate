@@ -12,6 +12,8 @@ import { buildCoachingGoal, type CoachingSnapshot } from "@/lib/coachingGoal";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
 import { recordProductEvent } from "@/lib/productEvents";
 import { isDatabaseConfigured } from "@/lib/backend/env";
+import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
+import { pendingRepairRetest } from "@/lib/repairRetest";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +43,7 @@ export default async function DashboardPage() {
   const topic = await getTodayTopic();
   void recordProductEvent("daily_viewed");
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger] =
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger, repairAnchor] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -68,6 +70,7 @@ export default async function DashboardPage() {
         .limit(1)
         .maybeSingle(),
       buildLedgerForUser(user.id),
+      latestRepairRetestAnchor(user.id),
     ]);
 
   let previousDebateTitle: string | null = null;
@@ -89,7 +92,13 @@ export default async function DashboardPage() {
   // Daily coaching goal: one focus, grounded in the previous debate's
   // observed behaviour (not a wall of metrics — one line of evidence).
   const lastCoaching = (previousDebate?.coaching ?? null) as { snapshot?: CoachingSnapshot | null } | null;
-  const goal = buildCoachingGoal(ledger?.points ?? [], lastCoaching?.snapshot ?? null);
+  const pendingRetest = pendingRepairRetest(ledger?.points ?? [], repairAnchor);
+  const goal = buildCoachingGoal(
+    ledger?.points ?? [],
+    lastCoaching?.snapshot ?? null,
+    {},
+    pendingRetest?.dimension ?? null,
+  );
   const focusDimension: CoachDimension | null = goal?.dimension ?? null;
 
   const today = new Intl.DateTimeFormat("en-GB", {
@@ -121,7 +130,7 @@ export default async function DashboardPage() {
         evidenceCards={(evidenceRows ?? []) as unknown as EvidenceCardView[]}
         goalLine={goal?.headline ?? "Use evidence for major claims."}
         lastLine={goal?.lastLine ?? null}
-        focusLabel="Today's focus"
+        focusLabel={pendingRetest ? "Retest after repair" : "Today's focus"}
         isFirstVisit={!previousDebate}
       />
 
