@@ -31,7 +31,7 @@ function point(i: number, m: Partial<Record<string, number>>): SkillMetricPoint 
 
 describe("buildCoachProfile", () => {
   it("maps ledger metrics to the seven dimensions", () => {
-    const points = [point(0, { evidenceGrounding: 0.82, rebuttalCoverage: 0.64, fallacyRate: 0.09, clarity: 0.73, impactHandling: 0.51, steelmanQuality: 0.44, droppedArguments: 0.25 })];
+    const points = [point(0, { unsupportedClaimRate: 0.18, evidenceGrounding: 0.82, rebuttalCoverage: 0.64, fallacyRate: 0.09, clarity: 0.73, impactHandling: 0.51, steelmanQuality: 0.44, droppedArguments: 0.25 })];
     const { dims } = buildCoachProfile(points);
     const by = Object.fromEntries(dims.map((d) => [d.key, d.score]));
     expect(by.evidence).toBe(82);
@@ -42,6 +42,28 @@ describe("buildCoachProfile", () => {
     expect(by.steelmanning).toBe(44);
     expect(by.structure).toBeGreaterThan(0);
     expect(dims.every((d) => d.hasData)).toBe(true);
+  });
+
+  it("treats making claims with no support as measurable weak evidence, not no data", () => {
+    const { dims } = buildCoachProfile([
+      point(0, { unsupportedClaimRate: 1, evidenceGrounding: null }),
+      point(1, { unsupportedClaimRate: 1, evidenceGrounding: null }),
+    ]);
+    const evidence = dims.find((d) => d.key === "evidence")!;
+    expect(evidence.hasData).toBe(true);
+    expect(evidence.score).toBe(0);
+  });
+
+  it("normalises lower-is-better slopes into positive improvement movement", () => {
+    const { slopes } = buildCoachProfile([
+      point(0, { fallacyRate: 0.4, droppedArguments: 2 }),
+      point(1, { fallacyRate: 0.25, droppedArguments: 1 }),
+      point(2, { fallacyRate: 0.1, droppedArguments: 0 }),
+    ]);
+    expect(slopes.logic).not.toBeNull();
+    expect(slopes.logic!).toBeGreaterThan(0);
+    expect(slopes.structure).not.toBeNull();
+    expect(slopes.structure!).toBeGreaterThan(0);
   });
 
   it("marks dimensions without data", () => {
@@ -67,6 +89,20 @@ describe("focus selection", () => {
     const slopes = { clarity: 0.08, impact: null } as Record<string, number | null>;
     const { focus } = selectFocus(dims, slopes as never);
     expect(focus?.key).toBe("impact");
+  });
+
+  it("deprioritises a lower-is-better dimension when its raw failures are falling", () => {
+    const points = [
+      point(0, { fallacyRate: 0.4, clarity: 0.45 }),
+      point(1, { fallacyRate: 0.25, clarity: 0.45 }),
+      point(2, { fallacyRate: 0.1, clarity: 0.45 }),
+    ];
+    const { dims, slopes } = buildCoachProfile(points);
+    // Logic's score is still weak, but its failures are falling quickly. The
+    // normalized positive slope should lift it away from immediate focus.
+    const { focus } = selectFocus(dims, slopes);
+    expect(slopes.logic!).toBeGreaterThan(0);
+    expect(focus?.key).not.toBe("logic");
   });
 
   it("skips a dimension whose previous drill produced negative movement", () => {
