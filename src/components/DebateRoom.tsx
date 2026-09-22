@@ -366,11 +366,11 @@ export default function DebateRoom({
           )}
         </div>
 
-        {/* The repair exercise: failed attempts stay retryable. On a fresh
-            successful repair, keep the panel mounted so the user can read the
-            feedback they just earned; replays collapse it to the completed
-            status above. */}
-        {view.argGraph && weakness && (!view.repaired || view.fresh) && (
+        {/* The repair exercise: failed attempts stay retryable. A replay
+            that was ALREADY successfully repaired before this page load starts
+            collapsed; if success happens during this visit, keep the mounted
+            panel so the user can read the feedback they just earned. */}
+        {view.argGraph && weakness && !completedResult?.repaired && (
           <div ref={repairRef}>
             <ArgumentRepair
               graph={view.argGraph}
