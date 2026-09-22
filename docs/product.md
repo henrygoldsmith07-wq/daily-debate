@@ -55,7 +55,10 @@ Replays of finished debates render the same hierarchy server-side (strength, wea
 - is scored server-side against observable moves (deterministic rubric — practice feedback, not a verdict);
 - explains what worked / what to add;
 - is **persisted** in `repair_results` with success flag and signals;
-- **links into coaching**: a repair on the day's drill dimension marks that drill attempted, feeding the next coaching decision.
+- **links into coaching**: a repair on the day's drill dimension marks that drill attempted, feeding the next coaching decision;
+- retries remain raw practice history, but the latest retry refreshes the linked formative drill attempt so coaching never stays stuck on an abandoned first draft.
+
+For longitudinal measurement, multiple rewrite submissions for the same user + debate + weakness kind are one **repair episode**. The first attempt anchors the episode; retries are preserved but cannot inflate repair denominators or create fake intervention cutoffs.
 
 The debate's own score never changes.
 
@@ -121,7 +124,8 @@ weakness detected → repair completed → next relevant debates → improved / 
 - Excludes the repaired debate itself; only debates that could actually express the weakness count, and weakness counts are **side-scoped** (an opponent's fallacies or contradictions never register as the user's weakness).
 - **Dropped-argument direction is explicit**: `DroppedArgument.owner` is the side whose argument went unanswered, so a user's rebuttal/structure failure is opponent-owned entries — arguments the user left unanswered. Weakness counts and drop detection read the canonical unanswered-opportunity set from `src/lib/opportunity.ts`; scoring (`groundedDroppedArguments`) and weakness measurement read the same canonical set from opposite sides, deliberately.
 - **Opportunity gate**: debates that could not express the weakness are invisible to the measurement — evidence/structure/logic/impact repairs need user claims, rebuttal repairs need eligible canonical opponent opportunities. A clean debate with no opportunity is never counted as improvement.
-- **No double-counting**: after-windows stop at the next same-user same-kind repair, so repeated repairs never measure the same debates twice.
+- **No retry inflation**: raw rewrite attempts are collapsed to one repair episode per user + repaired debate + weakness kind. The first attempt anchors follow-up; the best formative score / any-success state remain available for diagnostics, and retry counts stay visible in the admin report.
+- **No double-counting across distinct repair episodes**: after-windows stop at the next same-user same-kind repair episode, so later repairs never measure the same debates twice.
 - **Chronological first retest**: debates are sorted explicitly by completion time; "first retest" means the chronologically earliest eligible debate after the repair, never query order.
 - Repair kinds without a genuine deterministic detector — `clarity` today — are hard-classified **not currently measurable** and can never enter the comparison, not even by comparing 0% vs 0%.
 - No later debates → "not yet measurable"; no earlier debates → "insufficient baseline". Nothing is silently dropped.
