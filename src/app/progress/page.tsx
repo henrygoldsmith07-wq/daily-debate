@@ -12,6 +12,7 @@ import { recordProductEvent } from "@/lib/productEvents";
 import { computeLoopStatuses, type DrillAssignmentLite, type LoopStage } from "@/lib/coachLoop";
 import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
 import { pendingRepairRetest } from "@/lib/repairRetest";
+import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 
 export const dynamic = "force-dynamic";
 
@@ -84,9 +85,10 @@ export default async function ProgressPage() {
 
   void recordProductEvent("progress_viewed");
 
-  const [ledger, repairAnchor] = await Promise.all([
+  const [ledger, repairAnchor, drillOutcomes] = await Promise.all([
     buildLedgerForUser(user.id),
     latestRepairRetestAnchor(user.id),
+    latestDrillOutcomes(user.id),
   ]);
   const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
   const service = createServiceClient();
@@ -116,7 +118,7 @@ export default async function ProgressPage() {
   const goal = buildCoachingGoal(
     ledger.points,
     null,
-    {},
+    drillOutcomes,
     pendingRetest?.dimension ?? null,
   );
   const focusLabel = goal?.dimension
