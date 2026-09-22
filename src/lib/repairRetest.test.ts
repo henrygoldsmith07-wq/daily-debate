@@ -11,6 +11,7 @@ function point(
   debateId: string,
   completedAt: string,
   values: Partial<Record<MetricKey, number | null>> = {},
+  opportunities?: { majorClaims: number; opponentMoves: number },
 ): SkillMetricPoint {
   const metrics = {
     unsupportedClaimRate: null,
@@ -28,7 +29,7 @@ function point(
     clarity: null,
     ...values,
   } satisfies Record<MetricKey, number | null>;
-  return { debateId, completedAt, metrics };
+  return { debateId, completedAt, metrics, opportunities };
 }
 
 const anchor: RepairRetestAnchor = {
@@ -84,16 +85,61 @@ describe("repair retest policy", () => {
   it("uses either structural metric as an observable structure retest", () => {
     expect(
       pointMeasuresDimension(
-        point("d", "2026-06-11T12:00:00Z", { droppedArguments: 0 }),
+        point(
+          "d",
+          "2026-06-11T12:00:00Z",
+          { droppedArguments: 0 },
+          { majorClaims: 1, opponentMoves: 0 },
+        ),
         "structure",
       ),
     ).toBe(true);
     expect(
       pointMeasuresDimension(
-        point("d", "2026-06-11T12:00:00Z", { contradictions: 0 }),
+        point(
+          "d",
+          "2026-06-11T12:00:00Z",
+          { contradictions: 0 },
+          { majorClaims: 2, opponentMoves: 0 },
+        ),
         "structure",
       ),
     ).toBe(true);
+  });
+
+  it("does not clear structure or impact when the debate had no genuine opportunity", () => {
+    const structure = point(
+      "s",
+      "2026-06-11T12:00:00Z",
+      { droppedArguments: 0, contradictions: 0 },
+      { majorClaims: 0, opponentMoves: 0 },
+    );
+    expect(pointMeasuresDimension(structure, "structure")).toBe(false);
+
+    const impact = point(
+      "i",
+      "2026-06-11T12:00:00Z",
+      { impactHandling: 0 },
+      { majorClaims: 1, opponentMoves: 0 },
+    );
+    expect(pointMeasuresDimension(impact, "impact")).toBe(false);
+  });
+
+  it("clears impact only when there was something real to weigh", () => {
+    const versusOpponent = point(
+      "i1",
+      "2026-06-11T12:00:00Z",
+      { impactHandling: 0 },
+      { majorClaims: 1, opponentMoves: 1 },
+    );
+    const twoOwnClaims = point(
+      "i2",
+      "2026-06-11T12:00:00Z",
+      { impactHandling: 0 },
+      { majorClaims: 2, opponentMoves: 0 },
+    );
+    expect(pointMeasuresDimension(versusOpponent, "impact")).toBe(true);
+    expect(pointMeasuresDimension(twoOwnClaims, "impact")).toBe(true);
   });
 
   it("ignores invalid timestamps rather than manufacturing a retest", () => {
