@@ -287,16 +287,33 @@ export function movementAround(
   window = 2,
 ): MovementResult | null {
   const metric = DIMENSION_METRIC[dim];
-  const idx = points.findIndex((p) => p.completedAt >= atIso);
-  if (idx === -1 || points.length < 2) return null;
+  const anchor = Date.parse(atIso);
+  if (!Number.isFinite(anchor) || points.length < 2) return null;
+
   const val = (p: SkillMetricPoint): number | null => {
     const raw = p.metrics[metric];
     if (raw === null) return null;
     const lowerIsBetter = !HIGHER_IS_BETTER[metric];
-    return lowerIsBetter ? 1 - Math.min(1, raw) : raw; // goodness-normalised where possible
+    return lowerIsBetter ? 1 - Math.min(1, Math.max(0, raw)) : raw;
   };
-  const beforeSlice = points.slice(Math.max(0, idx - window), idx).map(val).filter((v): v is number => v !== null);
-  const afterSlice = points.slice(idx + 1, idx + 1 + window).map(val).filter((v): v is number => v !== null);
+
+  // Split by the actual assignment timestamp rather than a positional index.
+  // When a drill is assigned BETWEEN debates, the first later debate is a
+  // real post-drill observation and must not be skipped.
+  const chronological = [...points].sort(
+    (a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt),
+  );
+  const beforeSlice = chronological
+    .filter((p) => Date.parse(p.completedAt) < anchor)
+    .map(val)
+    .filter((v): v is number => v !== null)
+    .slice(-window);
+  const afterSlice = chronological
+    .filter((p) => Date.parse(p.completedAt) > anchor)
+    .map(val)
+    .filter((v): v is number => v !== null)
+    .slice(0, window);
+
   if (!beforeSlice.length || !afterSlice.length) return null;
   const before = +(beforeSlice.reduce((s, v) => s + v, 0) / beforeSlice.length).toFixed(3);
   const after = +(afterSlice.reduce((s, v) => s + v, 0) / afterSlice.length).toFixed(3);
