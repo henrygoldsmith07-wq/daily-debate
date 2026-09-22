@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildRepairEffectiveness,
   classifyRepair,
+  collapseRepairAttempts,
   countWeaknessesForSide,
   NOT_CURRENTLY_MEASURABLE_KINDS,
   REPAIR_MIN_MEASURABLE,
@@ -36,6 +37,36 @@ function daysBefore(iso: string, n: number): string {
 function daysAfter(iso: string, n: number): string {
   return new Date(Date.parse(iso) + n * DAY).toISOString();
 }
+
+describe("collapseRepairAttempts", () => {
+  it("treats retries on the same debate and weakness as one repair episode", () => {
+    const attempts: RepairRow[] = [
+      { ...repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r"), score: 35, succeeded: false },
+      { ...repair("u1", "evidence", "2026-06-10T12:03:00Z", "d-r"), score: 72, succeeded: true },
+      { ...repair("u1", "evidence", "2026-06-10T12:05:00Z", "d-r"), score: 66, succeeded: true },
+    ];
+    const episodes = collapseRepairAttempts(attempts);
+    expect(episodes).toHaveLength(1);
+    expect(episodes[0]).toMatchObject({
+      user_id: "u1",
+      debate_id: "d-r",
+      target_kind: "evidence",
+      created_at: "2026-06-10T12:00:00Z",
+      score: 72,
+      succeeded: true,
+      attempts: 3,
+    });
+  });
+
+  it("keeps a later repair of the same weakness on a different debate as a new episode", () => {
+    const episodes = collapseRepairAttempts([
+      repair("u1", "evidence", "2026-06-01T12:00:00Z", "d-1"),
+      repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-2"),
+    ]);
+    expect(episodes).toHaveLength(2);
+    expect(episodes.map((e) => e.debate_id)).toEqual(["d-1", "d-2"]);
+  });
+});
 
 describe("weaknessKindsFor", () => {
   it("maps repair kinds onto observable weakness kinds", () => {
@@ -427,6 +458,28 @@ describe("opportunity filter (no-opportunity debates are invisible)", () => {
     ];
     const detail = classifyRepair(r, debates);
     expect(detail.outcome).toBe("not-yet-measurable");
+  });
+});
+
+describe("retry attempts do not inflate effectiveness denominators", () => {
+  it("counts one episode, keeps the first-attempt anchor, and reports collapsed retries", () => {
+    const first = "2026-06-10T12:00:00Z";
+    const repairs: RepairRow[] = [
+      { ...repair("u1", "evidence", first, "d-r"), score: 40, succeeded: false },
+      { ...repair("u1", "evidence", "2026-06-10T12:05:00Z", "d-r"), score: 85, succeeded: true },
+    ];
+    const debates = [
+      debate("u1", daysBefore(first, 2), { evidence: 1 }, "d-before"),
+      debate("u1", daysAfter(first, 2), {}, "d-after"),
+    ];
+    const report = buildRepairEffectiveness(repairs, debates, { now: NOW });
+    expect(report.totalAttempts).toBe(2);
+    expect(report.totalRepairs).toBe(1);
+    expect(report.retryAttemptsCollapsed).toBe(1);
+    expect(report.overall.repairs).toBe(1);
+    expect(report.overall.measurable).toBe(1);
+    expect(report.overall.improved).toBe(1);
+    expect(report.honestyNote).toMatch(/collapsed to one episode/i);
   });
 });
 
