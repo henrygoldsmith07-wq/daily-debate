@@ -59,17 +59,28 @@ test.describe("daily sprint repair loop", () => {
     await expect(page.getByTestId("repair-panel")).toBeVisible();
     await expect(page.getByTestId("full-analysis")).toBeHidden();
 
-    // 7. Submit a repair; feedback arrives with recorded persistence. The
-    // rewrite covers every repair rubric (source, contrast, reasoning, weighing)
-    // so it scores high regardless of which weakness got flagged.
+    // 7. Submit a deliberately weak first draft, then retry. Retry is a core
+    // product behaviour: both attempts remain practice history, but analytics
+    // must treat them as one repair episode and coaching must reflect the
+    // latest submitted draft rather than getting stuck on attempt one.
     const repairBox = page.getByLabel("Improved argument move");
     await expect(repairBox).toBeVisible();
     await expect(repairBox).toBeFocused();
+
+    await repairBox.fill("I disagree with this point.");
+    await page.getByTestId("submit-repair").click();
+    await expect(page.getByTestId("repair-feedback")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/not there yet/i).first()).toBeVisible();
+
+    // This two-sentence version clears every deterministic repair rubric:
+    // source/evidence, contrast, reasoning bridge, weighing, structure and
+    // short-sentence clarity.
     await repairBox.fill(
-      "However, according to NREL data, utility-scale solar LCOE fell below gas because deployment scaled; this matters more than the reliability objection because storage costs are falling too."
+      "However, NREL data supports solar cost declines because deployment scaled, making the evidence stronger than the reliability objection. Therefore storage trends matter more because they directly affect total system costs."
     );
     await page.getByTestId("submit-repair").click();
     await expect(page.getByTestId("repair-feedback")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/repair recorded/i).first()).toBeVisible();
 
     // 8. Advanced analysis opens only on explicit request.
     await page.getByTestId("toggle-full-analysis").click();
