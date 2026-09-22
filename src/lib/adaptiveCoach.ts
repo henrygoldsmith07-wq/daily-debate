@@ -4,7 +4,12 @@
 // improvement stop being recommended), and scores drill attempts with a
 // deterministic rubric. Pure — routes handle persistence.
 
-import { trajectoryFor, type SkillMetricPoint, type MetricKey } from "./skillLedger";
+import {
+  HIGHER_IS_BETTER,
+  trajectoryFor,
+  type SkillMetricPoint,
+  type MetricKey,
+} from "./skillLedger";
 import { classifyFallacies } from "./graphEnrichers";
 
 export type CoachDimension =
@@ -38,7 +43,10 @@ export const DIMENSION_LABELS: Record<CoachDimension, string> = {
 
 /** Which ledger metric backs each coach dimension. */
 const DIMENSION_METRIC: Record<CoachDimension, MetricKey> = {
-  evidence: "evidenceGrounding",
+  // unsupportedClaimRate stays measurable when the user gives NO evidence at
+  // all. evidenceGrounding is null in that case, which used to hide the very
+  // weakness the coach most needed to train.
+  evidence: "unsupportedClaimRate",
   rebuttal: "rebuttalCoverage",
   logic: "fallacyRate",
   clarity: "clarity",
@@ -63,9 +71,12 @@ function dimScore(points: SkillMetricPoint[], metric: MetricKey): number | null 
   const values = points.map((p) => p.metrics[metric]).filter((v): v is number => v !== null);
   const mean = avg(values);
   if (mean === null) return null;
-  // fallacyRate / droppedArguments are "bad" quantities on 0..~1 scales.
+  // Lower-is-better metrics need explicit goodness conversion. Counts such as
+  // droppedArguments retain their count-specific penalty; bounded rates use
+  // their natural 0..1 inverse.
   if (metric === "fallacyRate") return Math.round(Math.max(0, 100 - mean * 250));
   if (metric === "droppedArguments") return Math.round(Math.max(0, 100 - mean * 40));
+  if (metric === "unsupportedClaimRate") return Math.round(Math.max(0, 100 - mean * 100));
   return Math.round(mean * 100);
 }
 
@@ -91,8 +102,18 @@ export function buildCoachProfile(points: SkillMetricPoint[]): {
 
   const slopes = Object.fromEntries(
     COACH_DIMENSIONS.map((key) => {
-      const t = trajectoryFor(points, DIMENSION_METRIC[key]);
-      return [key, t.slopePerDebate];
+      const metric = DIMENSION_METRIC[key];
+      const rawSlope = trajectoryFor(points, metric).slopePerDebate;
+      // Focus policy consumes GOODNESS movement: positive always means the
+      // skill is improving, regardless of whether the raw metric itself is
+      // higher-is-better (coverage) or lower-is-better (fallacies/drops).
+      const goodnessSlope =
+        rawSlope === null
+          ? null
+          : HIGHER_IS_BETTER[metric]
+            ? rawSlope
+            : -rawSlope;
+      return [key, goodnessSlope];
     }),
   ) as Record<CoachDimension, number | null>;
 
@@ -271,8 +292,8 @@ export function movementAround(
   const val = (p: SkillMetricPoint): number | null => {
     const raw = p.metrics[metric];
     if (raw === null) return null;
-    const badMetric = metric === "fallacyRate" || metric === "droppedArguments";
-    return badMetric ? 1 - Math.min(1, raw) : raw; // goodness-normalised where possible
+    const lowerIsBetter = !HIGHER_IS_BETTER[metric];
+    return lowerIsBetter ? 1 - Math.min(1, raw) : raw; // goodness-normalised where possible
   };
   const beforeSlice = points.slice(Math.max(0, idx - window), idx).map(val).filter((v): v is number => v !== null);
   const afterSlice = points.slice(idx + 1, idx + 1 + window).map(val).filter((v): v is number => v !== null);
