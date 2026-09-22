@@ -66,9 +66,9 @@ async function seedTopic(date: string, over: {
     ? topicFingerprint({ topicDate: date, title, prompt, category })
     : over.fingerprint;
   const { rows } = await pool.query(
-    `INSERT INTO daily_topics (topic_date, title, prompt, category, sources, generation_source, topic_fingerprint)
-     VALUES ($1, $2, $3, $4, '[]'::jsonb, $5, $6) RETURNING id`,
-    [date, title, prompt, category, over.source ?? "fallback", fp],
+    `INSERT INTO daily_topics (topic_date, title, prompt, category, sources, generation_source, generation_reason, topic_fingerprint)
+     VALUES ($1, $2, $3, $4, '[]'::jsonb, $5, $6, $7) RETURNING id`,
+    [date, title, prompt, category, over.source ?? "fallback", over.source === "ai" ? "ai" : "fallback-policy", fp],
   );
   const topicId = rows[0].id as string;
   for (const [i, card] of (over.cards ?? []).entries()) {
@@ -81,31 +81,45 @@ async function seedTopic(date: string, over: {
   return { topicId, fingerprint: fp };
 }
 
-function runVerifier(date: string): { status: number; json: Record<string, unknown> } {
+function runVerifier(date: string): {
+  status: number;
+  json: Record<string, unknown>;
+  stderr: string;
+} {
   try {
     const stdout = execFileSync(process.execPath, [VERIFY_SCRIPT, "--date", date], {
       env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL?.trim() ?? "" },
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }) as unknown as string;
-    return { status: 0, json: JSON.parse(stdout) as Record<string, unknown> };
+    return { status: 0, json: JSON.parse(stdout) as Record<string, unknown>, stderr: "" };
   } catch (e: unknown) {
-    const err = e as { status?: number; stdout?: unknown };
+    const err = e as { status?: number; stdout?: unknown; stderr?: unknown };
     let json: Record<string, unknown> = {};
     try {
       json = JSON.parse(String(err.stdout ?? "{}")) as Record<string, unknown>;
     } catch {
       json = {};
     }
-    return { status: typeof err.status === "number" ? err.status : 1, json };
+    return {
+      status: typeof err.status === "number" ? err.status : 1,
+      json,
+      // Captured so a failing assertion can distinguish "verifier rejected the
+      // data" (failures JSON) from "verifier subprocess crashed" (empty JSON,
+      // stack here) instead of hiding both behind `expected 1 to be +0`.
+      stderr: String(err.stderr ?? ""),
+    };
   }
 }
 
 d("freshness verifier (real Postgres)", () => {
   it("passes a valid fingerprinted topic with stamped evidence", async () => {
     const { fingerprint } = await seedTopic("2026-10-01", { cards: [{}, {}] });
-    const { status, json } = runVerifier("2026-10-01");
-    expect(status).toBe(0);
+    const { status, json, stderr } = runVerifier("2026-10-01");
+    expect(
+      status,
+      `verifier exited ${status} — json: ${JSON.stringify(json)} stderr: ${stderr}`,
+    ).toBe(0);
     expect(json.ok).toBe(true);
     const checks = json.checks as Record<string, unknown>;
     expect(checks.fingerprintValid).toBe(true);
@@ -144,8 +158,11 @@ d("freshness verifier (real Postgres)", () => {
 
   it("passes a valid topic with zero evidence (bounded and consistent)", async () => {
     await seedTopic("2026-10-05", { cards: [] });
-    const { status, json } = runVerifier("2026-10-05");
-    expect(status).toBe(0);
+    const { status, json, stderr } = runVerifier("2026-10-05");
+    expect(
+      status,
+      `verifier exited ${status} — json: ${JSON.stringify(json)} stderr: ${stderr}`,
+    ).toBe(0);
     expect(json.ok).toBe(true);
     expect((json.checks as Record<string, unknown>).evidenceCards).toBe(0);
   });

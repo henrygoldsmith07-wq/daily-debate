@@ -31,6 +31,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       pr_number: ${{ steps.openpr.outputs.pr_number }}
+      # Publication health is SEPARATE from benchmark health (item: a PR
+      # failure is an automation failure, never a judge-quality failure):
+      #   benchmark_ran   the live benchmark actually executed
+      #   gates_passed    the judge quality gates held (--enforce)
+      #   pr_created      the artifact PR was successfully opened
+      benchmark_ran: ${{ steps.bench.outcome != 'skipped' }}
+      gates_passed: ${{ steps.bench.outcome == 'success' }}
+      pr_created: ${{ steps.openpr.outputs.pr_created }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -76,6 +84,7 @@ jobs:
           # usable judge never overwrites docs/latest-judge-benchmark.json or
           # the leaderboard — it is only appended to the attempts log. The
           # zero-usable case is visible in the job log and the exit code.
+          echo "pr_created=false" >> "$GITHUB_OUTPUT"
           git config user.name "judge-benchmark-bot"
           git config user.email "actions@users.noreply.github.com"
           branch="chore/judge-benchmark-$(date -u +%Y%m%d-%H%M%S)"
@@ -83,17 +92,28 @@ jobs:
           git add docs/judge-leaderboard.md docs/latest-judge-benchmark.json docs/judge-benchmark-attempts.json
           if git diff --cached --quiet; then
             echo "No changes to the validation record; nothing to propose."
-            echo "pr_number=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git commit -m "chore(judge): refresh live benchmark results"
           git push origin "$branch"
-          number=$(gh pr create --base main --head "$branch" \
+          # GUARDED PR creation: 'GitHub Actions is not permitted to create or
+          # approve pull requests' is a repository-settings condition, NOT a
+          # judge-quality failure. Report it honestly, leave the record on the
+          # pushed branch + uploaded artifact, and keep the benchmark verdict
+          # separate from the publication verdict. Branch protection is never
+          # bypassed: enabling the setting (or a bot PAT) restores the PR path.
+          if number=$(gh pr create --base main --head "$branch" \
             --title "chore(judge): refresh live benchmark results" \
-            --body "Automated weekly judge benchmark artifact refresh. Merges only after the required application checks (verify, e2e, topic-pipeline) pass; the ruleset has no bypass actors." \
-            | grep -oE '[0-9]+$')
-          echo "Opened validation-record PR #$number (branch $branch)"
-          echo "pr_number=$number" >> "$GITHUB_OUTPUT"
+            --body "Automated weekly judge benchmark artifact refresh. Merges only after the required application checks (verify, e2e, topic-pipeline) pass; the ruleset has no bypass actors." 2>pr-create.err \
+            | grep -oE '[0-9]+$'); then
+            echo "Opened validation-record PR #$number (branch $branch)"
+            echo "pr_number=$number" >> "$GITHUB_OUTPUT"
+            echo "pr_created=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Benchmark artifact PR was NOT created (automation permission, not a judge failure). Enable 'Allow GitHub Actions to create and approve pull requests' in Settings > Actions > General, or use a bot PAT. The refreshed record is on branch $branch and in the uploaded artifact."
+            cat pr-create.err || true
+            echo "Publication: PR not created (repository setting). Benchmark verdict: see gates_passed."
+          fi
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
@@ -103,6 +123,21 @@ jobs:
             docs/judge-leaderboard.md
             docs/latest-judge-benchmark.json
             docs/judge-benchmark-attempts.json
+      - name: Summarise execution vs publication health
+        if: always()
+        run: |
+          # One glance separates the two health dimensions (item: publication
+          # health must never be misread as judge quality, either direction).
+          {
+            echo "## Judge benchmark health"
+            echo "- benchmarkRan: ${{ steps.bench.outcome != 'skipped' }}"
+            echo "- benchmarkUsable: see docs/judge-benchmark-attempts.json entries for this run"
+            echo "- benchmarkGatesPassed: ${{ steps.bench.outcome == 'success' }}"
+            echo "- artifactUploaded: yes (Upload results step)"
+            echo "- artifactPrCreated: ${{ steps.openpr.outputs.pr_created == 'true' }}"
+            echo "- artifactMerged: see merge-artifact-pr job"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Fail the job when gates were breached
         if: steps.bench.outcome == 'failure'
         run: |
@@ -111,7 +146,7 @@ jobs:
 
   merge-artifact-pr:
     needs: benchmark
-    if: always() && needs.benchmark.outputs.pr_number != ''
+    if: always() && needs.benchmark.outputs.pr_created == 'true' && needs.benchmark.outputs.pr_number != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write

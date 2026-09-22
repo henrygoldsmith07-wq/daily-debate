@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  checkConfig,
   modelTimeoutMs,
   pickFallback,
   resolveTargetDate,
@@ -83,6 +84,40 @@ describe("generate-topics CLI contract", () => {
     const r = runScript([], {});
     expect(r.status).toBe(1);
     expect(r.stdout + r.stderr).toMatch(/outcome=config-failure/);
+  });
+
+  it("missing migration 018 fails the config gate BEFORE any generation attempt", async () => {
+    // Fake executor: reachable DB, required tables present, unique constraint
+    // present — but NO topic_fingerprint columns anywhere (018 unapplied).
+    const sqlFactory = async () => async (text: string) => {
+      const q = text.replace(/\s+/g, " ").trim();
+      if (/^SELECT 1$/i.test(q)) return [];
+      if (/information_schema\.tables/i.test(q)) return [{ table_name: "daily_topics" }, { table_name: "topic_evidence" }];
+      if (/table_constraints/i.test(q)) return [{ ok: 1 }];
+      if (/information_schema\.columns/i.test(q)) return []; // 018 missing
+      throw new Error(`unexpected: ${q.slice(0, 60)}`);
+    };
+    const result = await checkConfig({ DATABASE_URL: "postgres://fake" } as unknown as NodeJS.ProcessEnv, sqlFactory);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/fingerprint schema missing/i);
+    expect(result.reason).toMatch(/migrations/i);
+    expect(result.checks.topic_fingerprint_supported).toBe(false);
+  });
+
+  it("a fully migrated database passes the config gate", async () => {
+    const sqlFactory = async () => async (text: string) => {
+      const q = text.replace(/\s+/g, " ").trim();
+      if (/^SELECT 1$/i.test(q)) return [];
+      if (/information_schema\.tables/i.test(q)) return [{ table_name: "daily_topics" }, { table_name: "topic_evidence" }];
+      if (/table_constraints/i.test(q)) return [{ ok: 1 }];
+      if (/information_schema\.columns/i.test(q)) {
+        return [{ table_name: "daily_topics" }, { table_name: "topic_evidence" }, { table_name: "topic_run_log" }];
+      }
+      throw new Error(`unexpected: ${q.slice(0, 60)}`);
+    };
+    const result = await checkConfig({ DATABASE_URL: "postgres://fake" } as unknown as NodeJS.ProcessEnv, sqlFactory);
+    expect(result.ok).toBe(true);
+    expect(result.checks.topic_fingerprint_supported).toBe(true);
   });
 });
 
@@ -167,8 +202,11 @@ function fakeDb(opts: FakeDbOpts = {}): Fake {
   const query = async (text: string, params: unknown[] = []): Promise<Row[]> => {
     const sql = text.replace(/\s+/g, " ").trim();
     queries.push(sql.slice(0, 60));
+    if (/^(BEGIN|COMMIT|ROLLBACK);?$/.test(sql)) return []; // transactional control statements
     if (/^SELECT column_name FROM information_schema/i.test(sql)) {
-      return opts.legacySchema ? [] : [{ column_name: "topic_fingerprint" }];
+      if (opts.legacySchema) return [];
+      const col = /column_name = '([a-z_]+)'/.exec(sql)?.[1] ?? "topic_fingerprint";
+      return [{ column_name: col }];
     }
     if (/^SELECT title FROM daily_topics/i.test(sql)) {
       return [...topics.values()].map((r) => ({ title: r.title }));
@@ -208,10 +246,10 @@ function fakeDb(opts: FakeDbOpts = {}): Fake {
     }
     if (/^DELETE FROM topic_evidence WHERE topic_id = \$1 AND topic_fingerprint/i.test(sql)) {
       const [topicId, fp] = params as [number, string];
-      // Mirrors production: stamped-for-another-revision goes, unstamped
-      // legacy rows survive for backfilling (never deleted here).
+      // Mirrors production `IS DISTINCT FROM`: mismatched AND unstamped
+      // (legacy NULL) rows are deleted — untrusted evidence is never kept.
       for (let i = evidence.length - 1; i >= 0; i--) {
-        if (evidence[i].topic_id === topicId && evidence[i].topic_fingerprint != null && evidence[i].topic_fingerprint !== fp) {
+        if (evidence[i].topic_id === topicId && evidence[i].topic_fingerprint !== fp) {
           evidence.splice(i, 1);
         }
       }
@@ -220,13 +258,6 @@ function fakeDb(opts: FakeDbOpts = {}): Fake {
     if (/^DELETE FROM topic_evidence WHERE topic_id/i.test(sql)) {
       const [topicId] = params as [number];
       for (let i = evidence.length - 1; i >= 0; i--) if (evidence[i].topic_id === topicId) evidence.splice(i, 1);
-      return [];
-    }
-    if (/^UPDATE topic_evidence SET topic_fingerprint/i.test(sql)) {
-      const [topicId, fp] = params as [number, string];
-      for (const card of evidence) {
-        if (card.topic_id === topicId && card.topic_fingerprint == null) card.topic_fingerprint = fp;
-      }
       return [];
     }
     if (/^INSERT INTO topic_evidence/i.test(sql)) {
@@ -419,28 +450,75 @@ describe("immutable retries and concurrent convergence", () => {
     expect(db.evidence).toHaveLength(1);
   });
 
-  it("a legacy row without a fingerprint is backfilled, never rewritten or discarded", async () => {
+  it("legacy NULL evidence is deleted and rebuilt, never stamped (stale-production regression)", async () => {
+    // The exact production failure this pins: Topic A ("Space debris...")
+    // stored with Evidence A; the row was later OVERWRITTEN with Topic B
+    // ("Carbon border tariffs..."); the new retrieval returned 0, so
+    // Evidence A SURVIVED attached to Topic B. After migration 018 the row
+    // and the stale cards both carry NULL fingerprints. Healing must
+    // preserve Topic B's content, stamp its canonical fingerprint, DELETE
+    // the unknown-revision cards (not launder them by stamping), and rebuild
+    // evidence for Topic B — even when that means zero evidence.
     const db = fakeDb();
     const target = "2026-09-11";
-    const legacyTitle = "A legacy topic stored before fingerprints existed";
     db.topics.set(target, {
-      id: 1, topic_date: target, title: legacyTitle, prompt: "Should legacy survive?", category: "Policy",
-      sources: "[]", generation_source: "fallback", topic_fingerprint: null,
+      id: 1, topic_date: target,
+      title: "Carbon border tariffs should apply to imports from countries with weaker climate policies",
+      prompt: "Would carbon-border tariffs accelerate global emissions reduction or protect domestic industry?",
+      category: "Environment", sources: "[]", generation_source: "ai", topic_fingerprint: null,
     });
     db.evidence.push(
-      { topic_id: 1, claim: "c1", source_name: "NREL", url: "https://nrel.gov/1", topic_fingerprint: null },
-      { topic_id: 1, claim: "c2", source_name: "Pew", url: "https://pewresearch.org/2", topic_fingerprint: null },
+      { topic_id: 1, claim: "Space debris deorbit requirement", source_name: "NREL", url: "https://nrel.gov/legacy-a", topic_fingerprint: null },
+      { topic_id: 1, claim: "Orbital debris mitigation cost", source_name: "Pew", url: "https://pewresearch.org/legacy-a2", topic_fingerprint: null },
     );
     const result = await runGeneration({ query: db.query, env: {}, retrieve: async () => [], now: NOW, ...silent });
     expect(result.outcome).toBe("already-present");
-    expect(result.repaired).toBe("backfilled-fingerprint");
-    // Content untouched, evidence preserved (not deleted), all stamped.
-    expect(result.title).toBe(legacyTitle);
-    expect(db.topics.size).toBe(1);
-    expect(db.evidence).toHaveLength(2);
+    expect(result.repaired).toBe("rebuild-legacy-evidence");
+    // Topic B unchanged and now canonically fingerprinted.
     const row = [...db.topics.values()][0];
+    expect(result.title).toBe(row.title);
+    expect(row.title).toMatch(/Carbon border tariffs/);
+    expect(row.generation_source).toBe("ai");
     expect(row.topic_fingerprint).toBe(result.fingerprint);
-    expect(db.evidence.every((c) => c.topic_fingerprint === result.fingerprint)).toBe(true);
+    // Evidence A is gone, NOT stamped; retrieval returned nothing, so zero
+    // evidence is the honest retained outcome.
+    expect(db.evidence).toHaveLength(0);
+  });
+
+  it("legacy healing rebuilds evidence for the CURRENT topic, all stamped with its fingerprint", async () => {
+    const db = fakeDb();
+    const target = "2026-09-11";
+    db.topics.set(target, {
+      id: 1, topic_date: target,
+      title: "Carbon border tariffs should apply to imports from countries with weaker climate policies",
+      prompt: "Would carbon-border tariffs accelerate global emissions reduction or protect domestic industry?",
+      category: "Environment", sources: "[]", generation_source: "ai", topic_fingerprint: null,
+    });
+    db.evidence.push(
+      { topic_id: 1, claim: "Space debris deorbit requirement", source_name: "NREL", url: "https://nrel.gov/legacy-a", topic_fingerprint: null },
+    );
+    const rebuilt = await runGeneration({ query: db.query, env: {}, retrieve: stubRetrieve, now: NOW, ...silent });
+    expect(rebuilt.outcome).toBe("already-present");
+    expect(rebuilt.repaired).toBe("rebuild-legacy-evidence");
+    // Exactly the freshly retrieved cards survive — the legacy card does not.
+    expect(db.evidence).toHaveLength(1);
+    expect(db.evidence.every((c) => c.topic_fingerprint === rebuilt.fingerprint)).toBe(true);
+    expect(db.evidence.some((c) => c.claim === "Space debris deorbit requirement")).toBe(false);
+  });
+
+  it("unstamped cards on an already-fingerprinted topic are deleted and re-retrieved, never stamped", async () => {
+    const db = fakeDb();
+    const first = await runGeneration({ query: db.query, env: {}, retrieve: stubRetrieve, now: NOW, ...silent });
+    const topicId = [...db.topics.values()][0].id;
+    // A legacy-style card (NULL fingerprint) appears on a fingerprinted row.
+    db.evidence.push({ topic_id: topicId, claim: "pre-018 leftover", source_name: "NREL", url: "https://nrel.gov/leftover", topic_fingerprint: null });
+    const second = await runGeneration({ query: db.query, env: {}, retrieve: stubRetrieve, now: NOW, ...silent });
+    expect(second.outcome).toBe("already-present");
+    expect(second.fingerprint).toBe(first.fingerprint);
+    expect(second.repaired).toBe("removed-unstamped-evidence");
+    // The unstamped card was deleted; the re-retrieval rebuilt a clean set.
+    expect(db.evidence.every((c) => c.topic_fingerprint === first.fingerprint)).toBe(true);
+    expect(db.evidence.some((c) => c.claim === "pre-018 leftover")).toBe(false);
   });
 
   it("an invalid/corrupt row takes the deliberate repair path, never silent health", async () => {
@@ -857,8 +935,10 @@ describe("jsonb parameter binding (production write regression)", () => {
 
     const query = async (text: string, params: unknown[] = []): Promise<Row[]> => {
       const sql = text.replace(/\s+/g, " ").trim();
+      if (/^(BEGIN|COMMIT|ROLLBACK);?$/.test(sql)) return []; // transactional control statements
       if (/^SELECT column_name FROM information_schema/i.test(sql)) {
-        return [{ column_name: "topic_fingerprint" }];
+        const col = /column_name = '([a-z_]+)'/.exec(sql)?.[1] ?? "topic_fingerprint";
+        return [{ column_name: col }];
       }
       if (/^SELECT title FROM daily_topics/i.test(sql)) {
         return [...topics.values()].map((r) => ({ title: r.title }));

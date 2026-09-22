@@ -198,6 +198,10 @@ export interface AiProductionEvidence {
   aiRowPresent: boolean;
   sourcesNonEmpty: boolean;
   telemetryVerifiedAi: boolean;
+  /** The stored row's topic_fingerprint (null when absent/unreadable). */
+  rowFingerprint: string | null;
+  /** A verified AI telemetry row matched this EXACT fingerprint (not just the date). */
+  fingerprintMatched: boolean;
 }
 
 export const TOPIC_MISSED_START_THRESHOLD_MS = 90 * 60_000;
@@ -496,27 +500,31 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
   const sev = Math.max(SCHEDULER_SEVERITY[scheduler], AVAILABILITY_SEVERITY[availability]);
   const status: HealthState = SEVERITY_STATES[sev] ?? "unknown";
 
-  const dispatchSuccess = input.runs
+  // An existence proof, not a "latest manual run" proof: #45 manual → #52
+  // scheduled → #53 manual still proves a scheduled run followed a manual
+  // one. The newest-manual formulation erased that historical fact.
+  const successfulManuals = input.runs
     .filter((r) => r.event === "workflow_dispatch" && successBy(r))
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] ?? null;
-  const scheduledSuccessAfterManual = dispatchSuccess
-    ? scheduled.some((r) => successBy(r) && Date.parse(r.createdAt) > Date.parse(dispatchSuccess.createdAt))
-    : false;
+    .map((r) => Date.parse(r.createdAt))
+    .filter(Number.isFinite);
+  const scheduledSuccessAfterManual = successfulManuals.some((manualAt) =>
+    scheduled.some((r) => successBy(r) && Date.parse(r.createdAt) > manualAt),
+  );
 
   // -- production proofs: six independent facts, no telemetry coincidences --
-  // Idempotence needs matching fingerprints from SEPARATE verified attempts
-  // with the same provenance semantics — two bare successes prove nothing
-  // under write-once semantics (the second run may simply have verified).
+  // Content idempotence = same target date, same non-null SHA-256 content
+  // fingerprint, both attempts successful AND freshness-verified. NOTHING
+  // else: coupling identity to generatorResult produced false negatives
+  // ("generated" vs "verified" is an operational fact, not a content fact).
   const verifiedSuccesses = telemetry.filter(
-    (r) => r.result === "success" && r.targetDate && r.freshnessOk === true && r.topicFingerprint && r.generatorResult,
+    (r) => r.result === "success" && r.targetDate && r.freshnessOk === true && r.topicFingerprint,
   );
   const sameDateContentIdempotence = verifiedSuccesses.some((r1) =>
     verifiedSuccesses.some(
       (r2) =>
         r1 !== r2 &&
         r1.targetDate === r2.targetDate &&
-        r1.topicFingerprint === r2.topicFingerprint &&
-        r1.generatorResult === r2.generatorResult,
+        r1.topicFingerprint === r2.topicFingerprint,
     ),
   );
   const tomorrowIso = addDaysUtc(todayIsoUtc(nowIso), 1);
@@ -527,10 +535,16 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
       (r) => r.targetDate === tomorrowIso && r.completedBeforeDeadline === true && r.freshnessOk === true,
     );
   const aiEvidence = input.aiEvidence ?? null;
+  // AI proof requires END-TO-END fingerprint identity: an AI row with non-
+  // empty sources whose EXACT fingerprint was verified fresh by a telemetry
+  // row for the same date. Date-only matching is insufficient under
+  // fingerprints — an unverified or rebuilt row must not ride an old proof.
   const aiGeneratedProductionSuccess =
     aiEvidence?.aiRowPresent === true &&
     aiEvidence?.sourcesNonEmpty === true &&
-    aiEvidence?.telemetryVerifiedAi === true;
+    aiEvidence?.telemetryVerifiedAi === true &&
+    aiEvidence?.rowFingerprint != null &&
+    aiEvidence?.fingerprintMatched === true;
 
   const scheduling = assessScheduling(telemetry);
   const providerSummary = summariseProviderAttempts(telemetry);
@@ -549,7 +563,7 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
     lastSuccessfulRun: newestSuccessFirst ? { at: newestSuccessFirst.createdAt, event: newestSuccessFirst.event } : null,
     proofs: {
       databaseReachable: input.productionDbReadable,
-      manualSuccess: Boolean(dispatchSuccess),
+      manualSuccess: successfulManuals.length > 0,
       scheduledSuccessAfterManual,
       sameDateContentIdempotence,
       onTimeBeforeDeadline,
@@ -653,7 +667,68 @@ export interface DatabaseHealth {
   requiredTablesOk: boolean | null;
   missingTables: string[];
   topicRunLogFidelity: TopicRunLogFidelity;
+  /** Per-migration schema readiness: actual columns, not migration counts. */
+  migrationReadiness: MigrationReadiness;
   note: string | null;
+}
+
+/** Explicit readiness per migration the production topic pipeline depends on. */
+export interface MigrationReadiness {
+  /** 016: topic_run_log telemetry columns (run_created_at, queue_delay_ms, generator_result, provider_health). */
+  migration016TelemetryReady: boolean | null;
+  /** 017: route_lifecycle table with its required lifecycle columns. */
+  migration017RouteLifecycleReady: boolean | null;
+  /** 018: topic_fingerprint columns + provider_attempts ledger (topic pipeline hard requirement). */
+  migration018TopicFingerprintReady: boolean | null;
+  note: string | null;
+}
+
+/** Canonical required-schema definitions for the readiness checks above. */
+export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018", Array<{ table: string; columns: string[] }>> = {
+  "016": [{ table: "topic_run_log", columns: ["run_created_at", "queue_delay_ms", "generator_result", "provider_health"] }],
+  "017": [
+    {
+      table: "route_lifecycle",
+      columns: [
+        "route", "registration_version", "state", "evaluated_at", "sample_window", "sample_n",
+        "gate_result", "human_result", "adopted_at", "suspended_at", "reason", "updated_at",
+      ],
+    },
+  ],
+  "018": [
+    { table: "daily_topics", columns: ["topic_fingerprint"] },
+    { table: "topic_evidence", columns: ["topic_fingerprint"] },
+    { table: "topic_run_log", columns: ["topic_fingerprint", "provider_attempts"] },
+  ],
+};
+
+/**
+ * Pure per-migration readiness from an information_schema column listing.
+ * unknown (null) when the schema itself is unreadable — never a guess.
+ */
+export function assessMigrationReadiness(
+  present: Map<string, Set<string>> | null,
+): MigrationReadiness {
+  if (!present) {
+    return {
+      migration016TelemetryReady: null,
+      migration017RouteLifecycleReady: null,
+      migration018TopicFingerprintReady: null,
+      note: "Schema unreadable — migration readiness could not be verified.",
+    };
+  }
+  const check = (key: "016" | "017" | "018"): boolean =>
+    MIGRATION_REQUIRED_COLUMNS[key].every(({ table, columns }) => {
+      const cols = present.get(table);
+      return !!cols && columns.every((c) => cols.has(c));
+    });
+  const ready18 = check("018");
+  return {
+    migration016TelemetryReady: check("016"),
+    migration017RouteLifecycleReady: check("017"),
+    migration018TopicFingerprintReady: ready18,
+    note: ready18 ? null : "Migration 018_topic_fingerprint.sql is not fully applied — the production topic pipeline will refuse to generate until it is.",
+  };
 }
 
 export function assessDatabaseHealth(input: {
@@ -662,6 +737,7 @@ export function assessDatabaseHealth(input: {
   migrationsApplied?: number | null;
   missingTables?: string[];
   topicRunLogFidelity?: TopicRunLogFidelity;
+  migrationReadiness?: MigrationReadiness;
 }): DatabaseHealth {
   if (!input.reachable) {
     return {
@@ -672,6 +748,7 @@ export function assessDatabaseHealth(input: {
       requiredTablesOk: null,
       missingTables: [],
       topicRunLogFidelity: "unknown",
+      migrationReadiness: input.migrationReadiness ?? assessMigrationReadiness(null),
       note: "Database unreachable — every DB-backed surface is down, not just slow.",
     };
   }
@@ -685,9 +762,11 @@ export function assessDatabaseHealth(input: {
       requiredTablesOk: false,
       missingTables,
       topicRunLogFidelity: input.topicRunLogFidelity ?? "unknown",
+      migrationReadiness: input.migrationReadiness ?? assessMigrationReadiness(null),
       note: `Required tables missing (${missingTables.join(", ")}) — run migrations before trusting any stored data.`,
     };
   }
+  const readiness = input.migrationReadiness ?? assessMigrationReadiness(null);
   if (input.topicRunLogFidelity === "legacy") {
     return {
       status: "degraded",
@@ -697,6 +776,7 @@ export function assessDatabaseHealth(input: {
       requiredTablesOk: true,
       missingTables: [],
       topicRunLogFidelity: "legacy",
+      migrationReadiness: readiness,
       note: "topic_run_log lacks migration 016 columns (run_created_at, queue_delay_ms, generator_result, provider_health) — apply 016_topic_run_telemetry.sql; telemetry writers keep working in compatibility mode.",
     };
   }
@@ -709,18 +789,24 @@ export function assessDatabaseHealth(input: {
       requiredTablesOk: true,
       missingTables: [],
       topicRunLogFidelity: input.topicRunLogFidelity ?? "unknown",
+      migrationReadiness: readiness,
       note: `Database reachable but slow (SELECT 1 took ${input.latencyMs}ms).`,
     };
   }
+  // A database can be reachable with every table present and still lack the
+  // 018 fingerprint schema the production pipeline requires — that is a real
+  // degradation, surfaced here without collapsing the two dimensions.
+  const schemaDegraded = readiness.migration018TopicFingerprintReady === false;
   return {
-    status: "healthy",
+    status: schemaDegraded ? "degraded" : "healthy",
     reachable: true,
     latencyMs: input.latencyMs ?? null,
     migrationsApplied: input.migrationsApplied ?? null,
     requiredTablesOk: true,
     missingTables: [],
     topicRunLogFidelity: input.topicRunLogFidelity ?? "unknown",
-    note: null,
+    migrationReadiness: readiness,
+    note: readiness.note,
   };
 }
 

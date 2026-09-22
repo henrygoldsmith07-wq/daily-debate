@@ -148,6 +148,12 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
           STARTED: ${{ steps.runtimes.outputs.start }}
+          # Exact scheduler-slot witness facts: the artifact carries the TRUE
+          # triggering slot (github.event.schedule) so second-witness delay
+          # math never has to infer the slot from the nearest clock time,
+          # which understates large scheduler delays.
+          CRON: ${{ github.event.schedule }}
+          RUN_CREATED_AT: ${{ steps.runtimes.outputs.created }}
         run: |
           # Field mapping lives in a tested module: the generator file is
           # flat ({outcome, source, date, evidenceCards}) and so is the
