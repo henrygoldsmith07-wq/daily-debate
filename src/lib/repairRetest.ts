@@ -66,10 +66,15 @@ export function pointMeasuresDimension(
   switch (dimension) {
     case "evidence":
     case "logic":
-    case "structure":
       // These repairs need the user to make at least one claim-like move.
-      // A structural zero from an empty case is not evidence of transfer.
-      return opportunities ? opportunities.majorClaims > 0 : dimension !== "structure";
+      return opportunities ? opportunities.majorClaims > 0 : true;
+    case "structure":
+      // Structure is backed by dropped-argument and contradiction metrics.
+      // A debate with one own claim and no opposing move offers neither:
+      // dropped=0 and contradictions=0 are structural defaults, not proof.
+      return opportunities
+        ? opportunities.opponentMoves > 0 || opportunities.majorClaims >= 2
+        : false;
     case "rebuttal":
       // rebuttalCoverage itself is null at zero canonical opportunities, but
       // keep the explicit gate so future metric changes cannot weaken this.
