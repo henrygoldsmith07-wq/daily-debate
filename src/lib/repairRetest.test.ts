@@ -82,14 +82,14 @@ describe("repair retest policy", () => {
     expect(pendingRepairRetest(points, anchor)?.dimension).toBe("evidence");
   });
 
-  it("uses either structural metric as an observable structure retest", () => {
+  it("uses either structural metric when its underlying opportunity exists", () => {
     expect(
       pointMeasuresDimension(
         point(
           "d",
           "2026-06-11T12:00:00Z",
           { droppedArguments: 0 },
-          { majorClaims: 1, opponentMoves: 0 },
+          { majorClaims: 1, opponentMoves: 1 },
         ),
         "structure",
       ),
