@@ -15,7 +15,8 @@ import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { snapshotFromAssessment } from "@/lib/coachingGoal";
 import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
 import { recordProductEvent } from "@/lib/productEvents";
-import type { CoachingRecord } from "@/lib/types";
+import { MAX_ROUNDS, type CoachingRecord } from "@/lib/types";
+import { mergeSoloAssessmentsByDebate } from "@/lib/soloAssessmentHistory";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   const limited = await checkRateLimit(request, { name: "solo-finish", limit: 10, windowMs: 60_000 });
@@ -122,30 +123,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       .in("debate_id", priorDebates.map((d) => d.id))
       .not("assessment", "is", null)
       .order("round_number", { ascending: true })
-      .limit(30);
-    const byDebate = new Map<string, ObservableAssessment>();
-    const graphsByDebate = new Map<string, ObservableAssessment["graph"][]>();
-    for (const t of (priorTurns ?? []) as Array<{ debate_id: string; assessment: unknown }>) {
-      const a = t.assessment as ObservableAssessment;
-      if (a?.graph) {
-        byDebate.set(t.debate_id, a);
-        const list = graphsByDebate.get(t.debate_id) ?? [];
-        list.push(a.graph);
-        graphsByDebate.set(t.debate_id, list);
-      }
-    }
-    priorAssessments = [...byDebate.values()];
+      // Five full debates can contain up to 5 × MAX_ROUNDS assessed turns.
+      // The old hard limit of 30 silently truncated longer histories.
+      .limit(priorDebates.length * MAX_ROUNDS);
+
+    const mergedByDebate = mergeSoloAssessmentsByDebate(
+      (priorTurns ?? []) as Array<{ debate_id: string; assessment: unknown }>,
+    );
+    // Rewards now compare full prior debates with the full current debate.
+    // Previously this array kept only the final turn assessment per debate.
+    priorAssessments = priorDebates
+      .map((d) => mergedByDebate.get(d.id) ?? null)
+      .filter((assessment): assessment is ObservableAssessment => assessment !== null);
+
     priorDebateKinds = priorDebates
       .map((d) => {
-        const graphs = graphsByDebate.get(d.id);
-        if (!graphs?.length) return null;
-        const merged = assessArgumentGraph(mergeAssessmentGraphs(graphs), {
-          sideA: "a", sideB: "ai", extractionSource: "deterministic", labelA: "You", labelB: "AI opponent",
-        });
-        return { completedAt: d.completed_at ?? new Date().toISOString(), kinds: countWeaknessesForSide(merged.graph, "a") };
+        const merged = mergedByDebate.get(d.id);
+        if (!merged) return null;
+        return {
+          completedAt: d.completed_at ?? new Date().toISOString(),
+          kinds: countWeaknessesForSide(merged.graph, "a"),
+        };
       })
       .filter((x): x is { completedAt: string; kinds: Record<string, number> } => x !== null)
-      .reverse(); // oldest last
+      .reverse(); // chronological: oldest → newest
   }
   const { data: topicCategory } = await db
     .from("daily_topics").select("category").eq("id", debate.topic_id).single();
@@ -164,8 +165,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     : [];
   const bonusXP = totalBonusXP(rewardEvents);
 
-  // Award points atomically when possible (007_profile_points_atomic.sql);
-  // streak fields are idempotent per day so their read-modify-write is safe.
+  // Award points atomically through increment_total_points (defined in the
+  // owned-backend base migration); streak fields are idempotent per day.
   const { data: profile } = await db.from("profiles").select("total_points, last_activity_date, current_streak, longest_streak").eq("id", user.id).single();
   if (profile) {
     const today = new Date().toISOString().slice(0, 10);
