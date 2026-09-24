@@ -9,7 +9,11 @@ import {
 } from "./adaptiveCoach";
 import type { SkillMetricPoint } from "./skillLedger";
 
-function point(i: number, m: Partial<Record<string, number | null>>): SkillMetricPoint {
+function point(
+  i: number,
+  m: Partial<Record<string, number | null>>,
+  opportunities?: { majorClaims: number; opponentMoves: number },
+): SkillMetricPoint {
   const metrics = {
     unsupportedClaimRate: null,
     rebuttalCoverage: null,
@@ -26,7 +30,12 @@ function point(i: number, m: Partial<Record<string, number | null>>): SkillMetri
     clarity: null,
     ...m,
   } as SkillMetricPoint["metrics"];
-  return { debateId: `d${i}`, completedAt: `2026-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`, metrics };
+  return {
+    debateId: `d${i}`,
+    completedAt: `2026-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+    metrics,
+    opportunities,
+  };
 }
 
 describe("buildCoachProfile", () => {
@@ -64,6 +73,32 @@ describe("buildCoachProfile", () => {
     expect(slopes.logic!).toBeGreaterThan(0);
     expect(slopes.structure).not.toBeNull();
     expect(slopes.structure!).toBeGreaterThan(0);
+  });
+
+  it("does not treat an untestable impact zero as real skill data", () => {
+    const { dims } = buildCoachProfile([
+      point(
+        0,
+        { impactHandling: 0 },
+        { majorClaims: 1, opponentMoves: 0 },
+      ),
+    ]);
+    const impact = dims.find((d) => d.key === "impact")!;
+    expect(impact.hasData).toBe(false);
+    expect(impact.score).toBeNull();
+  });
+
+  it("does not award perfect structure from a debate with no structural opportunity", () => {
+    const { dims } = buildCoachProfile([
+      point(
+        0,
+        { droppedArguments: 0, contradictions: 0 },
+        { majorClaims: 1, opponentMoves: 0 },
+      ),
+    ]);
+    const structure = dims.find((d) => d.key === "structure")!;
+    expect(structure.hasData).toBe(false);
+    expect(structure.score).toBeNull();
   });
 
   it("marks dimensions without data", () => {
@@ -165,6 +200,54 @@ describe("movementAround", () => {
     expect(m?.before).toBeCloseTo(0.25, 3);
     expect(m?.after).toBeCloseTo(0.8, 3);
     expect(m?.delta).toBeCloseTo(0.55, 3);
+  });
+
+  it("ignores no-opportunity impact readings when measuring drill movement", () => {
+    const points = [
+      point(
+        0,
+        { impactHandling: 0.3 },
+        { majorClaims: 1, opponentMoves: 1 },
+      ),
+      point(
+        1,
+        { impactHandling: 0 },
+        { majorClaims: 1, opponentMoves: 0 },
+      ),
+    ];
+    expect(
+      movementAround(points, "impact", "2026-01-01T12:00:00Z", 2),
+    ).toBeNull();
+  });
+
+  it("skips structural zeroes from debates with no opponent move", () => {
+    const points = [
+      point(
+        0,
+        { droppedArguments: 1 },
+        { majorClaims: 1, opponentMoves: 1 },
+      ),
+      point(
+        1,
+        { droppedArguments: 0 },
+        { majorClaims: 1, opponentMoves: 0 },
+      ),
+      point(
+        2,
+        { droppedArguments: 0 },
+        { majorClaims: 1, opponentMoves: 1 },
+      ),
+    ];
+    const movement = movementAround(
+      points,
+      "structure",
+      "2026-01-01T12:00:00Z",
+      2,
+    );
+    expect(movement).not.toBeNull();
+    expect(movement?.before).toBe(0);
+    expect(movement?.after).toBe(1);
+    expect(movement?.delta).toBe(1);
   });
 
   it("returns null when there is no after window yet", () => {
