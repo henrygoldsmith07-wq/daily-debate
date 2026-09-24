@@ -87,6 +87,8 @@ Behind **How this was calculated**: metric trajectories, per-debate slopes, the 
 4. Same-day drill handling is conservative: an unattempted drill may be retargeted to the new repair focus, but an already-attempted drill is preserved as history rather than rewritten.
 5. The goal travels with the debate (`solo_debates.coaching.dimension`). At finish, the result snapshot receives that dimension, assesses the observable goal behaviour where a deterministic proxy exists, and the exact same outcome is persisted as `demonstrated`.
 6. The result screen labels deliberate retests explicitly. Dimensions without a valid one-debate pass/fail rule are reported as practised under debate conditions and left to longitudinal Progress measurement rather than receiving a guessed verdict.
+7. Longitudinal coaching only consumes **observable opportunities**. Default zeroes do not become fake success: Impact needs something to weigh; Structure needs an opposing move or enough own claims to expose a contradiction; Steelmanning needs an opposing move. The same opportunity filtering applies to profile scores, trend slopes and post-drill movement.
+8. Improvement rewards compare **whole prior debates with the whole current debate**. Turn-level assessments are merged per debate before the weakest-skill baseline is calculated, and the five-debate history fetch is sized for the full 12-round format rather than truncating at 30 turns.
 
 Goals are numeric only where previous behaviour justifies precision ("Answer at least 4 of 5" needs ≥3 opportunities last debate; otherwise the goal stays qualitative).
 
