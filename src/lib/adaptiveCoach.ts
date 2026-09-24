@@ -67,8 +67,63 @@ function avg(values: number[]): number | null {
   return values.reduce((s, v) => s + v, 0) / values.length;
 }
 
-function dimScore(points: SkillMetricPoint[], metric: MetricKey): number | null {
-  const values = points.map((p) => p.metrics[metric]).filter((v): v is number => v !== null);
+/**
+ * Return a metric only when this debate offered a genuine opportunity to
+ * demonstrate it. Legacy points without opportunity metadata retain their
+ * historical behaviour; newly extracted points are opportunity-aware.
+ */
+function observedMetricValue(
+  point: SkillMetricPoint,
+  dimension: CoachDimension,
+  metric: MetricKey,
+): number | null {
+  const raw = point.metrics[metric];
+  if (raw === null) return null;
+  const opportunities = point.opportunities;
+  if (!opportunities) return raw;
+
+  if (metric === "droppedArguments") {
+    return opportunities.opponentMoves > 0 ? raw : null;
+  }
+  if (metric === "contradictions") {
+    return opportunities.majorClaims >= 2 ? raw : null;
+  }
+
+  switch (dimension) {
+    case "impact":
+      return opportunities.majorClaims > 0 &&
+        (opportunities.opponentMoves > 0 || opportunities.majorClaims >= 2)
+        ? raw
+        : null;
+    case "steelmanning":
+      return opportunities.opponentMoves > 0 ? raw : null;
+    default:
+      return raw;
+  }
+}
+
+function observablePointsForMetric(
+  points: SkillMetricPoint[],
+  dimension: CoachDimension,
+  metric: MetricKey,
+): SkillMetricPoint[] {
+  return points.map((point) => ({
+    ...point,
+    metrics: {
+      ...point.metrics,
+      [metric]: observedMetricValue(point, dimension, metric),
+    },
+  }));
+}
+
+function dimScore(
+  points: SkillMetricPoint[],
+  dimension: CoachDimension,
+  metric: MetricKey,
+): number | null {
+  const values = points
+    .map((point) => observedMetricValue(point, dimension, metric))
+    .filter((v): v is number => v !== null);
   const mean = avg(values);
   if (mean === null) return null;
   // Lower-is-better metrics need explicit goodness conversion. Counts such as
@@ -88,14 +143,22 @@ export function buildCoachProfile(points: SkillMetricPoint[]): {
     let score: number | null;
     if (key === "structure") {
       // Structure composes the two structural failure counts.
-      const dropped = avg(points.map((p) => p.metrics.droppedArguments).filter((v): v is number => v !== null));
-      const contradictions = avg(points.map((p) => p.metrics.contradictions).filter((v): v is number => v !== null));
+      const dropped = avg(
+        points
+          .map((point) => observedMetricValue(point, "structure", "droppedArguments"))
+          .filter((v): v is number => v !== null),
+      );
+      const contradictions = avg(
+        points
+          .map((point) => observedMetricValue(point, "structure", "contradictions"))
+          .filter((v): v is number => v !== null),
+      );
       score =
         dropped === null && contradictions === null
           ? null
           : Math.max(0, Math.round(100 - 25 * ((dropped ?? 0) + (contradictions ?? 0))));
     } else {
-      score = dimScore(points, DIMENSION_METRIC[key]);
+      score = dimScore(points, key, DIMENSION_METRIC[key]);
     }
     return { key, label: DIMENSION_LABELS[key], score, hasData: score !== null };
   });
@@ -105,7 +168,13 @@ export function buildCoachProfile(points: SkillMetricPoint[]): {
       const metric = DIMENSION_METRIC[key];
       // trajectoryFor already normalizes direction: positive slope always
       // means goodness is increasing, including lower-is-better metrics.
-      return [key, trajectoryFor(points, metric).slopePerDebate];
+      return [
+        key,
+        trajectoryFor(
+          observablePointsForMetric(points, key, metric),
+          metric,
+        ).slopePerDebate,
+      ];
     }),
   ) as Record<CoachDimension, number | null>;
 
@@ -283,7 +352,7 @@ export function movementAround(
   if (!Number.isFinite(anchor) || points.length < 2) return null;
 
   const val = (p: SkillMetricPoint): number | null => {
-    const raw = p.metrics[metric];
+    const raw = observedMetricValue(p, dim, metric);
     if (raw === null) return null;
     const lowerIsBetter = !HIGHER_IS_BETTER[metric];
     return lowerIsBetter ? 1 - Math.min(1, Math.max(0, raw)) : raw;
