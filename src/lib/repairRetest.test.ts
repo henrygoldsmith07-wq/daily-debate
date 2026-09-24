@@ -125,6 +125,18 @@ describe("repair retest policy", () => {
     expect(pointMeasuresDimension(impact, "impact")).toBe(false);
   });
 
+  it("keeps structure pending with one own claim and no opposing move", () => {
+    const pointWithDefaultZeroes = point(
+      "s-one-claim",
+      "2026-06-11T12:00:00Z",
+      { droppedArguments: 0, contradictions: 0 },
+      { majorClaims: 1, opponentMoves: 0 },
+    );
+    expect(
+      pointMeasuresDimension(pointWithDefaultZeroes, "structure"),
+    ).toBe(false);
+  });
+
   it("clears impact only when there was something real to weigh", () => {
     const versusOpponent = point(
       "i1",
