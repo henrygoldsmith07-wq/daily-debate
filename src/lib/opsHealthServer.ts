@@ -235,19 +235,35 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   let topicStoreReadable = true;
   let topicReadSqlstate: string | null = null;
   let topicReadShapeMatrix: string | null = null;
+  // Bounded read-only retry: the original read sits behind a rapid burst of
+  // ~10 schema/table probes, and production evidence (failure matrix all-ok
+  // inside the same request) points at a transient burst-limit blip on the
+  // Neon HTTP transport rather than a query defect. Retry the READ with a
+  // short backoff — never the write path.
   try {
-    const rows = await service
-      .from("daily_topics")
-      .select("id, topic_date, title, generation_source, created_at")
-      .order("topic_date", { ascending: false })
-      .limit(5);
-    if (rows.error) {
-      // Preserve the builder error's code (usually the SQLSTATE) on the
-      // rethrow - a bare Error drops it, which blinded the SQLSTATE
-      // diagnostic on the public probe.
-      const err = new Error(rows.error.message ?? "daily_topics unreadable");
-      const code = (rows.error as { code?: unknown }).code;
-      if (typeof code === "string" && code) (err as { code?: string }).code = code;
+    const runTopicRead = () =>
+      service
+        .from("daily_topics")
+        .select("id, topic_date, title, generation_source, created_at")
+        .order("topic_date", { ascending: false })
+        .limit(5);
+    let last: { message?: string; code?: string } | null = null;
+    let rows: Awaited<ReturnType<typeof runTopicRead>> | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, attempt === 1 ? 200 : 500));
+      const attemptResult = await runTopicRead();
+      if (!attemptResult.error) {
+        rows = attemptResult;
+        break;
+      }
+      last = attemptResult.error;
+    }
+    if (!rows) {
+      // Every attempt returned a builder error: preserve the code (usually
+      // the SQLSTATE) on the rethrow — a bare Error drops it, which blinded
+      // the SQLSTATE diagnostic on the public probe.
+      const err = new Error(last?.message ?? "daily_topics unreadable");
+      if (last?.code) (err as { code?: string }).code = last.code;
       throw err;
     }
     const list = (rows.data ?? []) as Array<{
@@ -304,6 +320,17 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       probeShape("star", service.from("daily_topics").select("*").limit(1)),
       probeShape("ordered", service.from("daily_topics").select("id").order("topic_date", { ascending: false }).limit(1)),
       probeShape("eqfilter", service.from("topic_evidence").select("id", { count: "exact", head: true }).eq("topic_id", "00000000-0000-0000-0000-000000000000").limit(1)),
+      // The EXACT original query: if it succeeds here (after the DB burst
+      // has drained) while failing above, the cause is a transient burst-
+      // limit/cold-compute blip, not the query itself.
+      probeShape(
+        "orig",
+        service
+          .from("daily_topics")
+          .select("id, topic_date, title, generation_source, created_at")
+          .order("topic_date", { ascending: false })
+          .limit(5),
+      ),
     ]);
     console.error("[ops-health] topic read shape matrix:", shapes.join(" "));
     topicReadShapeMatrix = shapes.join(" ");
