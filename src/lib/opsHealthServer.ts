@@ -285,6 +285,12 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       // values themselves) — date columns can arrive as JS Date objects
       // depending on transport type-parsing, which poisons string compares.
       rowDateKind = typeof latest.topic_date;
+      // ROOT-CAUSE FIX: topic_date can arrive as a JS Date (transport
+      // type-parsing), but assessTopicHealth's comparisons and day-diff
+      // arithmetic require 'YYYY-MM-DD' strings. Normalise at the boundary.
+      const toDate = (v: unknown): string =>
+        v instanceof Date ? v.toISOString().slice(0, 10) : String(v);
+      const latestDate = toDate(latest.topic_date);
       failedStage = "cards";
       const cards = await service
         .from("topic_evidence")
@@ -293,7 +299,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       failedStage = "assess";
       topic = assessTopicHealth(
         {
-          topic_date: latest.topic_date,
+          topic_date: latestDate,
           title: latest.title,
           generation_source: latest.generation_source,
           evidence_cards: typeof cards.count === "number" ? cards.count : null,
