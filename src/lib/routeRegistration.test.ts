@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -9,7 +9,14 @@ import {
   PREREGISTERED_ROUTE_GATES,
   ROUTE_GATE_VERSION,
 } from "./routeShadowValidation";
-import { plannedRouteTransition } from "./routeLifecycle";
+import { applyRouteTransition, plannedRouteTransition } from "./routeLifecycle";
+
+const { upsertMock } = vi.hoisted(() => ({ upsertMock: vi.fn(async () => ({ error: null })) }));
+vi.mock("./backend/server", () => ({
+  createServiceClient: () => ({
+    from: () => ({ upsert: upsertMock }),
+  }),
+}));
 
 /**
  * IMMUTABLE ROUTE PREREGISTRATION (item 20).
@@ -125,5 +132,87 @@ describe("deliberate lifecycle transitions (item 22)", () => {
     expect(plannedRouteTransition({ current: "adopted", gatePassed: true }).next).toBe("adopted");
     expect(plannedRouteTransition({ current: "suspended", gatePassed: true }).next).toBe("eligible");
     expect(plannedRouteTransition({ current: "suspended", gatePassed: true }).deliberate).toBe(false);
+  });
+});
+
+describe("applyRouteTransition persistence (item 22)", () => {
+  function transition(overrides: Record<string, unknown> = {}) {
+    return {
+      route: "deterministic",
+      registrationVersion: ROUTE_GATE_VERSION,
+      previousState: "eligible",
+      newState: "adopted",
+      evaluatedAt: "2026-09-16T12:00:00Z",
+      sampleN: 250,
+      gateResult: { passed: true, n: 250 },
+      humanResult: { agreement: 0.72, items: 42 },
+      reason: "gate passing on 250 attempts; deliberate adoption recorded",
+      operator: "ops@example.com",
+      ...overrides,
+    } as Parameters<typeof applyRouteTransition>[0];
+  }
+
+  beforeEach(() => {
+    upsertMock.mockClear();
+    upsertMock.mockResolvedValue({ error: null });
+  });
+
+  it("rejects shadow → adopted (adoption only from eligible) without a database write", async () => {
+    const result = await applyRouteTransition(transition({ previousState: "shadow", newState: "adopted" }));
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/shadow → adopted|adoption requires/i);
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects adopted → eligible and adopted → shadow (only suspension or re-affirmation)", async () => {
+    for (const newState of ["eligible", "shadow"]) {
+      const result = await applyRouteTransition(transition({ previousState: "adopted", newState }));
+      expect(result.ok, `adopted → ${newState}`).toBe(false);
+    }
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects suspended → adopted and eligible → suspended (no invented paths)", async () => {
+    expect((await applyRouteTransition(transition({ previousState: "suspended", newState: "adopted" }))).ok).toBe(false);
+    expect((await applyRouteTransition(transition({ previousState: "eligible", newState: "suspended" }))).ok).toBe(false);
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it("persists eligible → adopted with the full audit payload", async () => {
+    const result = await applyRouteTransition(transition({}));
+    expect(result.ok).toBe(true);
+    expect(upsertMock).toHaveBeenCalledTimes(1);
+    const [row, options] = upsertMock.mock.calls[0] as unknown as [Record<string, unknown>, Record<string, unknown>];
+    expect(options).toEqual({ onConflict: "route" });
+    expect(row.route).toBe("deterministic");
+    expect(row.registration_version).toBe(ROUTE_GATE_VERSION);
+    expect(row.state).toBe("adopted");
+    expect(row.evaluated_at).toBe("2026-09-16T12:00:00Z");
+    expect(row.sample_n).toBe(250);
+    expect(JSON.parse(row.gate_result as string)).toEqual({ passed: true, n: 250 });
+    expect(JSON.parse(row.human_result as string)).toEqual({ agreement: 0.72, items: 42 });
+    expect(row.reason).toBe("gate passing on 250 attempts; deliberate adoption recorded");
+    expect(row.adopted_at).toBe("2026-09-16T12:00:00Z");
+    expect(row.suspended_at).toBeNull();
+    expect(typeof row.updated_at).toBe("string");
+  });
+
+  it("adopted → suspended stamps suspended_at and clears adopted_at", async () => {
+    const result = await applyRouteTransition(
+      transition({ previousState: "adopted", newState: "suspended", reason: "monitoring gate tripped" }),
+    );
+    expect(result.ok).toBe(true);
+    const [row] = upsertMock.mock.calls[0] as unknown as [Record<string, unknown>, unknown];
+    expect(row.state).toBe("suspended");
+    expect(row.suspended_at).toBe("2026-09-16T12:00:00Z");
+    expect(row.adopted_at).toBeNull();
+    expect(row.reason).toBe("monitoring gate tripped");
+  });
+
+  it("surfaces a database failure instead of throwing", async () => {
+    upsertMock.mockResolvedValue({ error: { message: "connection reset" } } as never);
+    const result = await applyRouteTransition(transition({}));
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/connection reset/);
   });
 });

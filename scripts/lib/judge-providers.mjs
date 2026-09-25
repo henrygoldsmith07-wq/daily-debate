@@ -201,19 +201,6 @@ export function chainFor(provider, env = process.env) {
   return [primary, ...fallbacks.filter((m) => m !== primary)];
 }
 
-/** OpenAI-style chain transport for topic generation: { url, key, models } or null. */
-export function generationChain(env = process.env) {
-  const [provider] = PROVIDERS.filter((p) => (env[p.keyEnv] ?? "").trim().length > 0);
-  if (!provider) return null;
-  return {
-    label: provider.label,
-    url: provider.url,
-    key: (env[provider.keyEnv] ?? "").trim(),
-    models: chainFor(provider, env),
-    extraHeaders: provider.extraHeaders ?? {},
-  };
-}
-
 /**
  * Every USABLE provider's chain in priority order, for provider-level
  * failover: exhaust provider A's models, then B's, and so on, before the
