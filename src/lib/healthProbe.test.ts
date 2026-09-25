@@ -62,6 +62,7 @@ describe("derivePublicHealthState (non-sensitive reduction)", () => {
       topicFingerprintSchemaReady: true,
       generationReasonSchemaReady: true,
       topicReadSqlstate: null,
+      topicReadShapeMatrix: null,
       proofs: { databaseReachable: true, manualSuccess: true, scheduledSuccessAfterManual: true, sameDateContentIdempotence: true, onTimeBeforeDeadline: true, aiGeneratedProductionSuccess: true },
       generatedAt: "2026-09-21T03:59:00.000Z",
       ageMs: 60_000,
@@ -104,6 +105,7 @@ describe("isUsableProbe (consumer-side sanity gate)", () => {
     topicFingerprintSchemaReady: true,
     generationReasonSchemaReady: true,
     topicReadSqlstate: null,
+    topicReadShapeMatrix: null,
     proofs: { databaseReachable: true, manualSuccess: true, scheduledSuccessAfterManual: true, sameDateContentIdempotence: true, onTimeBeforeDeadline: true, aiGeneratedProductionSuccess: true },
     generatedAt: "2026-09-21T03:50:00.000Z",
     ageMs: 600_000, // 10 minutes old at `now`
@@ -153,6 +155,7 @@ describe("GET /api/health (route contract)", () => {
         "proofs",
         "scheduler",
         "topicReadSqlstate",
+        "topicReadShapeMatrix",
         "topicStatus",
       ].sort(),
     );

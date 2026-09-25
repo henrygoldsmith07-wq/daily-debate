@@ -234,6 +234,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   let topic;
   let topicStoreReadable = true;
   let topicReadSqlstate: string | null = null;
+  let topicReadShapeMatrix: string | null = null;
   try {
     const rows = await service
       .from("daily_topics")
@@ -283,6 +284,29 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
     console.error("[ops-health] topic store read failed:", reason);
     const { sqlstateClass } = await import("./backend/sql");
     topicReadSqlstate = sqlstateClass(error);
+    // Failure-shape matrix (read-only, failure path only): which minimal
+    // read shapes survive? Discriminates projection vs ordering vs row-level
+    // vs filter-level failures. Reports labels + SQLSTATE classes only —
+    // never row data or messages.
+    const probeShape = async (
+      label: string,
+      q: PromiseLike<{ error: { code?: string } | null }>,
+    ): Promise<string> => {
+      try {
+        const r = await q;
+        return r.error ? `${label}:${r.error.code?.slice(0, 2) ?? "fail"}` : `${label}:ok`;
+      } catch (e) {
+        return `${label}:${sqlstateClass(e) ?? "fail"}`;
+      }
+    };
+    const shapes = await Promise.all([
+      probeShape("plain", service.from("daily_topics").select("id").limit(1)),
+      probeShape("star", service.from("daily_topics").select("*").limit(1)),
+      probeShape("ordered", service.from("daily_topics").select("id").order("topic_date", { ascending: false }).limit(1)),
+      probeShape("eqfilter", service.from("topic_evidence").select("id", { count: "exact", head: true }).eq("topic_id", "00000000-0000-0000-0000-000000000000").limit(1)),
+    ]);
+    console.error("[ops-health] topic read shape matrix:", shapes.join(" "));
+    topicReadShapeMatrix = shapes.join(" ");
     topicStoreReadable = false;
     topic = {
       ...assessTopicHealth(null, now),
@@ -332,7 +356,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
     now,
   );
 
-  return buildOpsHealthReport({ generatedAt: now, topic, topicReadSqlstate, topicSlo, judge, database, app, human, training });
+  return buildOpsHealthReport({ generatedAt: now, topic, topicReadSqlstate, topicReadShapeMatrix, topicSlo, judge, database, app, human, training });
 }
 
 /**
