@@ -233,13 +233,44 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   // --- Topic pipeline: latest rows, provenance, evidence -------------------
   let topic;
   let topicStoreReadable = true;
+  let topicReadSqlstate: string | null = null;
+  let topicReadShapeMatrix: string | null = null;
+  // Bounded read-only retry: the original read sits behind a rapid burst of
+  // ~10 schema/table probes, and production evidence (failure matrix all-ok
+  // inside the same request) points at a transient burst-limit blip on the
+  // Neon HTTP transport rather than a query defect. Retry the READ with a
+  // short backoff — never the write path.
+  // Stage marker: which statement threw (read | cards | assess)? The shape
+  // matrix proved every QUERY succeeds inside the failing request, so the
+  // thrower is somewhere between the reads and the assessment.
+  let failedStage = "read";
+  let rowDateKind: string | null = null;
   try {
-    const rows = await service
-      .from("daily_topics")
-      .select("id, topic_date, title, generation_source, created_at")
-      .order("topic_date", { ascending: false })
-      .limit(5);
-    if (rows.error) throw new Error(rows.error.message ?? "daily_topics unreadable");
+    const runTopicRead = () =>
+      service
+        .from("daily_topics")
+        .select("id, topic_date, title, generation_source, created_at")
+        .order("topic_date", { ascending: false })
+        .limit(5);
+    let last: { message?: string; code?: string } | null = null;
+    let rows: Awaited<ReturnType<typeof runTopicRead>> | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, attempt === 1 ? 200 : 500));
+      const attemptResult = await runTopicRead();
+      if (!attemptResult.error) {
+        rows = attemptResult;
+        break;
+      }
+      last = attemptResult.error;
+    }
+    if (!rows) {
+      // Every attempt returned a builder error: preserve the code (usually
+      // the SQLSTATE) on the rethrow — a bare Error drops it, which blinded
+      // the SQLSTATE diagnostic on the public probe.
+      const err = new Error(last?.message ?? "daily_topics unreadable");
+      if (last?.code) (err as { code?: string }).code = last.code;
+      throw err;
+    }
     const list = (rows.data ?? []) as Array<{
       id: string;
       topic_date: string;
@@ -250,13 +281,25 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       topic = assessTopicHealth(null, now);
     } else {
       const latest = list[0];
+      // Public-safe type diagnostics: JS kind of the row values (never the
+      // values themselves) — date columns can arrive as JS Date objects
+      // depending on transport type-parsing, which poisons string compares.
+      rowDateKind = typeof latest.topic_date;
+      // ROOT-CAUSE FIX: topic_date can arrive as a JS Date (transport
+      // type-parsing), but assessTopicHealth's comparisons and day-diff
+      // arithmetic require 'YYYY-MM-DD' strings. Normalise at the boundary.
+      const toDate = (v: unknown): string =>
+        v instanceof Date ? v.toISOString().slice(0, 10) : String(v);
+      const latestDate = toDate(latest.topic_date);
+      failedStage = "cards";
       const cards = await service
         .from("topic_evidence")
         .select("id", { count: "exact", head: true })
         .eq("topic_id", latest.id);
+      failedStage = "assess";
       topic = assessTopicHealth(
         {
-          topic_date: latest.topic_date,
+          topic_date: latestDate,
           title: latest.title,
           generation_source: latest.generation_source,
           evidence_cards: typeof cards.count === "number" ? cards.count : null,
@@ -264,12 +307,56 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
         now,
       );
     }
-  } catch {
+  } catch (error) {
+    // This catch previously DISCARDED the failure reason: a persistent
+    // daily_topics read failure surfaced only as proofs.databaseReachable
+    // = false with no diagnostic anywhere. Postgres error messages contain
+    // no secrets (no connection strings), so recording the message is safe
+    // and turns a silent degradation into a nameable, fixable defect.
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error("[ops-health] topic store read failed at stage", failedStage, "dateKind", rowDateKind, ":", reason);
+    const { sqlstateClass } = await import("./backend/sql");
+    topicReadSqlstate = sqlstateClass(error);
+    // Failure-shape matrix (read-only, failure path only): which minimal
+    // read shapes survive? Discriminates projection vs ordering vs row-level
+    // vs filter-level failures. Reports labels + SQLSTATE classes only —
+    // never row data or messages.
+    const probeShape = async (
+      label: string,
+      q: PromiseLike<{ error: { code?: string } | null }>,
+    ): Promise<string> => {
+      try {
+        const r = await q;
+        return r.error ? `${label}:${r.error.code?.slice(0, 2) ?? "fail"}` : `${label}:ok`;
+      } catch (e) {
+        return `${label}:${sqlstateClass(e) ?? "fail"}`;
+      }
+    };
+    const shapes = await Promise.all([
+      probeShape("plain", service.from("daily_topics").select("id").limit(1)),
+      probeShape("star", service.from("daily_topics").select("*").limit(1)),
+      probeShape("ordered", service.from("daily_topics").select("id").order("topic_date", { ascending: false }).limit(1)),
+      probeShape("eqfilter", service.from("topic_evidence").select("id", { count: "exact", head: true }).eq("topic_id", "00000000-0000-0000-0000-000000000000").limit(1)),
+      // The EXACT original query: if it succeeds here (after the DB burst
+      // has drained) while failing above, the cause is a transient burst-
+      // limit/cold-compute blip, not the query itself.
+      probeShape(
+        "orig",
+        service
+          .from("daily_topics")
+          .select("id, topic_date, title, generation_source, created_at")
+          .order("topic_date", { ascending: false })
+          .limit(5),
+      ),
+    ]);
+    console.error("[ops-health] topic read shape matrix:", shapes.join(" "));
+    // Stage/kind prefix LAST so it cannot be clobbered by this assignment.
+    topicReadShapeMatrix = `stage=${failedStage}${rowDateKind ? ` dateKind=${rowDateKind}` : ""}; ${shapes.join(" ")}`;
     topicStoreReadable = false;
     topic = {
       ...assessTopicHealth(null, now),
       status: "blocked" as const,
-      note: "Topic store unreadable — database or permissions failure, not just staleness.",
+      note: `Topic store unreadable — database or permissions failure, not just staleness. (${reason})`,
     };
   }
 
@@ -314,7 +401,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
     now,
   );
 
-  return buildOpsHealthReport({ generatedAt: now, topic, topicSlo, judge, database, app, human, training });
+  return buildOpsHealthReport({ generatedAt: now, topic, topicReadSqlstate, topicReadShapeMatrix, topicSlo, judge, database, app, human, training });
 }
 
 /**

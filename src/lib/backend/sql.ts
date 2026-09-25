@@ -103,3 +103,27 @@ export async function queryRows<T>(
   const exec = await getExecutor();
   return ((await exec.query(text, params)).map((row) => normalizeNumerics(row)) as T[]);
 }
+
+/**
+ * Extract the SQLSTATE error class (first two characters of the 5-char
+ * standard code) from a thrown query error, when the transport provides one.
+ * Pure and transport-agnostic: node-postgres exposes `code`, the Neon HTTP
+ * driver nests it on `cause`. Used by health surfaces to report a PUBLIC-SAFE
+ * diagnostic — a standard SQL error class (e.g. "42" undefined-object,
+ * "28" insufficient-privilege, "08" connection) never contains data or
+ * credentials.
+ */
+export function sqlstateClass(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const candidate = current as { code?: unknown; cause?: unknown };
+    if (typeof candidate.code === "string" && /^[0-9A-Z]{5}$/.test(candidate.code)) {
+      return candidate.code.slice(0, 2);
+    }
+    current = candidate.cause;
+  }
+  return null;
+}

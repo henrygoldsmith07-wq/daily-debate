@@ -76,8 +76,11 @@ export default async function ShadowValidationPage() {
   const lifecycleStates = await getRouteLifecycleStates();
 
   // Stored verdicts only — bounded metadata, never raw transcripts.
+  // dataState distinguishes "DB failed / no rows loaded" from "genuinely
+  // zero eligible shadow attempts" — never show N=0 for an unavailable source.
   let records: RouteShadowRecord[] = [];
   let verdictsRead = 0;
+  let dataState: "available" | "unavailable" = "unavailable";
   try {
     const service = createServiceClient();
     const matches = await service
@@ -86,8 +89,10 @@ export default async function ShadowValidationPage() {
       .eq("status", "completed")
       .order("completed_at", { ascending: false })
       .limit(SHADOW_RECORD_LIMIT);
+    if (matches.error) throw new Error(matches.error.message ?? "pvp_matches unreadable");
     const rows = (matches.data ?? []) as Array<{ judge_verdict: unknown }>;
     verdictsRead = rows.length;
+    dataState = "available";
     for (const row of rows) {
       const verdict = row.judge_verdict as { shadowRouting?: unknown } | null;
       const record = verdict?.shadowRouting as RouteShadowRecord | null | undefined;
@@ -97,6 +102,8 @@ export default async function ShadowValidationPage() {
     }
   } catch {
     records = [];
+    verdictsRead = 0;
+    dataState = "unavailable";
   }
 
   const eligible = records.filter(
@@ -108,11 +115,26 @@ export default async function ShadowValidationPage() {
 
   return (
     <AppShell width="narrow">
-      <PageHeader
-        eyebrow="Internal"
-        title="Shadow judge validation"
-        description={`Classifier judge-avoidance routes run in shadow mode only (${ROUTE_GATE_VERSION}). Evidence below aggregates ${eligible.length} eligible shadow attempts from ${verdictsRead} stored verdicts. The established ensemble stays authoritative until a route clears every preregistered gate.`}
-      />
+      {dataState === "unavailable" ? (
+        <section className="surface-card mt-4 p-5" aria-labelledby="shadow-unavailable">
+          <h2 id="shadow-unavailable" className="text-sm font-semibold text-amber-900">
+            Shadow-validation data unavailable
+          </h2>
+          <p className="mt-2 text-sm text-ink3">
+            Shadow-validation data unavailable. Metrics cannot currently be evaluated.
+          </p>
+          <p className="mt-1 text-xs text-ink3">
+            The stored verdict source could not be read. This is NOT the same as zero eligible
+            attempts — no rates or denominators are shown while the source is down.
+          </p>
+        </section>
+      ) : (
+        <>
+          <PageHeader
+            eyebrow="Internal"
+            title="Shadow judge validation"
+            description={`Classifier judge-avoidance routes run in shadow mode only (${ROUTE_GATE_VERSION}). Evidence below aggregates ${eligible.length} eligible shadow attempts from ${verdictsRead} stored verdicts. The established ensemble stays authoritative until a route clears every preregistered gate.`}
+          />
 
       {JUDGE_AVOIDANCE_ROUTES.map((route: ArgumentRoute) => {
         const gate = PREREGISTERED_ROUTE_GATES[route];
@@ -215,6 +237,8 @@ export default async function ShadowValidationPage() {
           docs/route-registrations/v1. Changing any threshold starts a new registration — sealed values are never edited in place.
         </p>
       </section>
+      </>
+      )}
     </AppShell>
   );
 }
