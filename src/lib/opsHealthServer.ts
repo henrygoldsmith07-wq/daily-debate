@@ -311,7 +311,6 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
     console.error("[ops-health] topic store read failed at stage", failedStage, "dateKind", rowDateKind, ":", reason);
     const { sqlstateClass } = await import("./backend/sql");
     topicReadSqlstate = sqlstateClass(error);
-    topicReadShapeMatrix = `stage=${failedStage}${rowDateKind ? ` dateKind=${rowDateKind}` : ""}${topicReadShapeMatrix ? `; ${topicReadShapeMatrix}` : ""}`;
     // Failure-shape matrix (read-only, failure path only): which minimal
     // read shapes survive? Discriminates projection vs ordering vs row-level
     // vs filter-level failures. Reports labels + SQLSTATE classes only —
@@ -345,7 +344,8 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       ),
     ]);
     console.error("[ops-health] topic read shape matrix:", shapes.join(" "));
-    topicReadShapeMatrix = shapes.join(" ");
+    // Stage/kind prefix LAST so it cannot be clobbered by this assignment.
+    topicReadShapeMatrix = `stage=${failedStage}${rowDateKind ? ` dateKind=${rowDateKind}` : ""}; ${shapes.join(" ")}`;
     topicStoreReadable = false;
     topic = {
       ...assessTopicHealth(null, now),
