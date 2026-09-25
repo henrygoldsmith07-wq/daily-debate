@@ -114,6 +114,7 @@ export async function applyTestMigrations(pool: Pool): Promise<void> {
     const client = await pool.connect();
     try {
       await client.query("SELECT pg_advisory_lock($1)", [TEST_MIGRATIONS_LOCK_KEY]);
+      let primary: unknown;
       try {
         await client.query(
           `CREATE TABLE IF NOT EXISTS ${MARKER_TABLE} (
@@ -125,16 +126,26 @@ export async function applyTestMigrations(pool: Pool): Promise<void> {
         const existing = await client.query<{ file_set: string }>(
           `SELECT file_set FROM ${MARKER_TABLE} WHERE key = 1`,
         );
-        if (existing.rows[0]?.file_set === fileSet) return;
-        await replayMigrations(client, fileSet);
-        await client.query(
-          `INSERT INTO ${MARKER_TABLE} (key, file_set) VALUES (1, $1)
-           ON CONFLICT (key) DO UPDATE SET file_set = EXCLUDED.file_set, applied_at = now()`,
-          [fileSet],
-        );
+        if (existing.rows[0]?.file_set !== fileSet) {
+          await replayMigrations(client, fileSet);
+          await client.query(
+            `INSERT INTO ${MARKER_TABLE} (key, file_set) VALUES (1, $1)
+             ON CONFLICT (key) DO UPDATE SET file_set = EXCLUDED.file_set, applied_at = now()`,
+            [fileSet],
+          );
+        }
+      } catch (err) {
+        primary = err;
       } finally {
-        await client.query("SELECT pg_advisory_unlock($1)", [TEST_MIGRATIONS_LOCK_KEY]);
+        try {
+          await client.query("SELECT pg_advisory_unlock($1)", [TEST_MIGRATIONS_LOCK_KEY]);
+        } catch (unlockErr) {
+          // An unlock failure (e.g. dropped session) must never mask the real
+          // migration failure; surface it only when there is nothing better.
+          if (primary === undefined) throw unlockErr;
+        }
       }
+      if (primary !== undefined) throw primary;
     } finally {
       client.release();
     }
