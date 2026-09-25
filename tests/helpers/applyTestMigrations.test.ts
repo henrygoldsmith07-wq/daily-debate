@@ -51,15 +51,16 @@ describe.skipIf(!url)("applyTestMigrations helper", () => {
   });
 
   it("is idempotent: an unchanged migration set does no DDL work", async () => {
-    const before = await pool.query<{ applied_at: string }>(
+    const before = await pool.query<{ applied_at: Date }>(
       "SELECT applied_at FROM app_test_migrations_marker WHERE key = 1",
     );
     resetTestMigrationsMemoForTests(); // force the DB path, not the worker memo
     await applyTestMigrations(pool);
-    const after = await pool.query<{ applied_at: string }>(
+    const after = await pool.query<{ applied_at: Date }>(
       "SELECT applied_at FROM app_test_migrations_marker WHERE key = 1",
     );
-    expect(after.rows[0].applied_at).toBe(before.rows[0].applied_at);
+    // pg type-parses timestamptz into Date instances — compare ISO strings.
+    expect(after.rows[0].applied_at.toISOString()).toBe(before.rows[0].applied_at.toISOString());
   });
 
   it("re-applies when the recorded migration set changes", async () => {
@@ -96,6 +97,8 @@ describe.skipIf(!url)("applyTestMigrations helper", () => {
   });
 
   it("names the failing migration file when a migration cannot be applied", async () => {
+    // The stub must reach the real bootstrap: drop the worker memo first.
+    resetTestMigrationsMemoForTests();
     // Stub pool: allow lock + marker DDL + marker select, then fail inside the
     // first migration file so the wrapping is what gets asserted.
     let n = 0;
@@ -115,5 +118,8 @@ describe.skipIf(!url)("applyTestMigrations helper", () => {
     };
     const stubPool = { connect: async () => stubClient } as unknown as Pool;
     await expect(applyTestMigrations(stubPool)).rejects.toThrow(/001_owned_backend\.sql/);
+    // The memo now holds the rejected promise — clear it so later suites in
+    // this worker bootstrap normally.
+    resetTestMigrationsMemoForTests();
   });
 });
