@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { assignChallengeSide, type SideHistoryItem } from "./challengeMe";
+import {
+  assignChallengeSide,
+  normaliseSoloPerformance,
+  type SideHistoryItem,
+} from "./challengeMe";
 
 function history(specs: Array<[side: "for" | "against", score?: number | null]>): SideHistoryItem[] {
-  return specs.map(([side, score]) => ({ side, totalScore: score ?? null }));
+  return specs.map(([side, score]) => ({ side, performanceScore: score ?? null }));
 }
+
+describe("normaliseSoloPerformance", () => {
+  it("puts sprint and full debates on the same 0–100 per-turn scale", () => {
+    expect(normaliseSoloPerformance(120, 3)).toBe(80);
+    expect(normaliseSoloPerformance(400, 10)).toBe(80);
+  });
+
+  it("refuses to invent performance without answered turns", () => {
+    expect(normaliseSoloPerformance(100, 0)).toBeNull();
+    expect(normaliseSoloPerformance(null, 3)).toBeNull();
+  });
+});
 
 describe("assignChallengeSide", () => {
   it("picks randomly with a reason when there is no history", () => {
@@ -52,6 +68,19 @@ describe("assignChallengeSide", () => {
     expect(result.side).toBe("against");
     expect(result.rule).toBe("performance-gap");
     expect(result.reason).toMatch(/points lower/i);
+  });
+
+  it("does not create a side gap from debate length alone", () => {
+    // These originated from 3-round and 10-round debates respectively, but
+    // normalize to the same ability score before entering the selector.
+    const sprint = normaliseSoloPerformance(120, 3);
+    const full = normaliseSoloPerformance(400, 10);
+    const recent = history([
+      ["for", sprint], ["against", full],
+      ["for", sprint], ["against", full],
+    ]);
+    const result = assignChallengeSide(recent);
+    expect(result.rule).toBe("alternation-fallback");
   });
 
   it("falls back to alternation when both sides score similarly", () => {

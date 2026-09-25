@@ -10,7 +10,8 @@ import type { DebateSide } from "./types";
 
 export interface SideHistoryItem {
   side: DebateSide;
-  totalScore: number | null;
+  /** Length-normalised solo performance on a 0–100 scale. */
+  performanceScore: number | null;
 }
 
 export type ChallengeRule = "random-cold-start" | "side-balance" | "performance-gap" | "alternation-fallback";
@@ -34,6 +35,25 @@ function other(side: DebateSide): DebateSide {
 
 function label(side: DebateSide): string {
   return side === "for" ? "FOR" : "AGAINST";
+}
+
+/**
+ * Solo turn_score is 0..50 and debate total_score is a SUM across turns.
+ * Normalise before comparing debates of different lengths/formats.
+ */
+export function normaliseSoloPerformance(
+  totalScore: number | null,
+  answeredTurns: number,
+): number | null {
+  if (
+    totalScore === null ||
+    !Number.isFinite(totalScore) ||
+    !Number.isInteger(answeredTurns) ||
+    answeredTurns <= 0
+  ) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, (totalScore * 2) / answeredTurns));
 }
 
 function pickRandom(options?: { random?: () => number }): DebateSide {
@@ -81,8 +101,8 @@ export function assignChallengeSide(
   }
 
   // 3. Performance gap — only speaks up with several debates on each side.
-  const forScores = recent.filter((h) => h.side === "for").map((h) => h.totalScore).filter((s): s is number => s !== null);
-  const againstScores = recent.filter((h) => h.side === "against").map((h) => h.totalScore).filter((s): s is number => s !== null);
+  const forScores = recent.filter((h) => h.side === "for").map((h) => h.performanceScore).filter((s): s is number => s !== null);
+  const againstScores = recent.filter((h) => h.side === "against").map((h) => h.performanceScore).filter((s): s is number => s !== null);
   if (forScores.length >= PERFORMANCE_LOOKBACK_EACH && againstScores.length >= PERFORMANCE_LOOKBACK_EACH) {
     const mean = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length;
     const forMean = mean(forScores);

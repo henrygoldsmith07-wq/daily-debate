@@ -4,13 +4,9 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
 import { PVP_ROUNDS } from "@/lib/types";
 
-// Join the day's PvP matchmaking queue. Match creation happens in a single
-// atomic SQL statement (claim_pvp_opponent_and_create_match): the oldest
-// queued, unmatched opponent is locked with FOR UPDATE SKIP LOCKED, the match
-// is inserted, and both queue rows are cleared. Partial unique indexes on
-// pvp_matches guarantee at most one active match per player, so the
-// double-match race the previous two-step implementation accepted can no
-// longer occur.
+// Join today's PvP queue through one convergent database transaction.
+// join_pvp_queue_and_match serializes matchmaking per topic and the database
+// trigger enforces one active match per player across BOTH player columns.
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "pvp-queue", limit: 20, windowMs: 60_000 });
   if (limited) return limited;
@@ -29,57 +25,26 @@ export async function POST(request: Request) {
   const staleCutoff = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
   await service.from("pvp_queue").delete().lt("joined_at", staleCutoff);
 
-  // Duplicate join: if already queued or already in active match, return waiting/active without double-join
-  const { data: existingQueue } = await service.from("pvp_queue").select("*").eq("user_id", user.id).maybeSingle();
-  if (existingQueue) return NextResponse.json({ waiting: true, duplicate: true });
-  const { data: activeMatch } = await service
-    .from("pvp_matches")
-    .select("*")
-    .or(`player_a.eq.${user.id},player_b.eq.${user.id}`)
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
-  if (activeMatch) return NextResponse.json({ match: activeMatch, alreadyMatched: true });
-
-  // Atomic claim: locks the oldest queued, unmatched opponent (SKIP LOCKED),
-  // inserts the match, and clears both queue rows in one statement. Empty
-  // result means nobody was waiting (or the joiner was matched concurrently).
-  const claim = await service.rpc("claim_pvp_opponent_and_create_match", {
+  // One database transaction now owns the entire join lifecycle:
+  // active-match recovery, enqueue, opponent claim and match creation. This
+  // avoids the old claim→enqueue gap where two near-simultaneous joiners could
+  // both end up waiting forever.
+  const joined = await service.rpc("join_pvp_queue_and_match", {
     p_joiner: user.id,
     p_topic_id: topic.id,
     p_round_limit: PVP_ROUNDS,
   });
-  if (claim.error) {
-    console.error("Failed to claim PvP opponent:", claim.error);
-    return NextResponse.json({ error: "Failed to create match." }, { status: 500 });
-  }
-
-  const rows = (claim.data ?? []) as Record<string, unknown>[];
-  if (rows.length > 0) return NextResponse.json({ match: rows[0] });
-
-  // Concurrency guard: the claim can come back empty because the joiner was
-  // matched in a parallel request after the activeMatch check above.
-  const { data: racedMatch } = await service
-    .from("pvp_matches")
-    .select("*")
-    .or(`player_a.eq.${user.id},player_b.eq.${user.id}`)
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
-  if (racedMatch) return NextResponse.json({ match: racedMatch, alreadyMatched: true });
-
-  // Nobody waiting: enqueue (only succeeds while still unmatched). `queued`
-  // is a real boolean; false only in the concurrent-match race, in which case
-  // the re-check below finds the match the parallel request created.
-  const queued = await service.rpc("enqueue_pvp_if_unmatched", {
-    p_user: user.id,
-    p_topic_id: topic.id,
-  });
-  if (queued.error) {
-    console.error("Failed to enqueue for PvP:", queued.error);
+  if (joined.error) {
+    console.error("Failed to join PvP queue:", joined.error);
     return NextResponse.json({ error: "Failed to join queue." }, { status: 500 });
   }
-  return NextResponse.json({ waiting: queued.data });
+
+  const rows = (joined.data ?? []) as Record<string, unknown>[];
+  if (rows.length > 0) {
+    return NextResponse.json({ match: rows[0] });
+  }
+  return NextResponse.json({ waiting: true });
+
 }
 
 export async function GET() {

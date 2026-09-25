@@ -7,10 +7,17 @@ import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidOpening } from "@/lib/aiSchema";
 import type { DebateSide } from "@/lib/types";
 import { resolveDebateFormat, type DebateFormat } from "@/lib/sprint";
-import { assignChallengeSide, type SideHistoryItem } from "@/lib/challengeMe";
+import {
+  assignChallengeSide,
+  normaliseSoloPerformance,
+  type SideHistoryItem,
+} from "@/lib/challengeMe";
 import { pickFocusDimension } from "@/lib/coachingGoal";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { recordProductEvent } from "@/lib/productEvents";
+import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
+import { pendingRepairRetest } from "@/lib/repairRetest";
+import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "solo-start", limit: 10, windowMs: 60_000 });
@@ -41,17 +48,41 @@ export async function POST(request: Request) {
   let side: DebateSide;
   let sideReason: string | null = null;
   if (body?.side === "challenge") {
+    // Fetch the actual newest debates (descending + reverse). The previous
+    // ascending-limit query quietly became "oldest 20" once a user had >20.
     const { data: historyRows } = await db
       .from("solo_debates")
-      .select("side, total_score")
+      .select("id, side, total_score")
       .eq("user_id", user.id)
       .eq("status", "completed")
-      .order("completed_at", { ascending: true })
-      .limit(20);
-    const history: SideHistoryItem[] = (historyRows ?? []).map((row) => ({
-      side: row.side as DebateSide,
-      totalScore: typeof row.total_score === "number" ? row.total_score : null,
-    }));
+      .order("completed_at", { ascending: false })
+      .limit(8);
+
+    const debateIds = (historyRows ?? []).map((row) => row.id);
+    const answeredByDebate = new Map<string, number>();
+    if (debateIds.length) {
+      const { data: answeredTurns } = await db
+        .from("solo_debate_turns")
+        .select("debate_id, id")
+        .in("debate_id", debateIds)
+        .not("user_message", "is", null);
+      for (const row of answeredTurns ?? []) {
+        answeredByDebate.set(
+          row.debate_id,
+          (answeredByDebate.get(row.debate_id) ?? 0) + 1,
+        );
+      }
+    }
+
+    const history: SideHistoryItem[] = [...(historyRows ?? [])]
+      .reverse()
+      .map((row) => ({
+        side: row.side as DebateSide,
+        performanceScore: normaliseSoloPerformance(
+          typeof row.total_score === "number" ? row.total_score : null,
+          answeredByDebate.get(row.id) ?? 0,
+        ),
+      }));
     const assignment = assignChallengeSide(history);
     side = assignment.side;
     sideReason = assignment.reason;
@@ -65,11 +96,31 @@ export async function POST(request: Request) {
   // The daily goal travels with the debate: whichever dimension the coach
   // focuses on today is what the finish step will assess.
   let coachingDimension: string | null = null;
+  let repairRetest:
+    | { repairDebateId: string; targetKind: string; attemptedAt: string }
+    | null = null;
   try {
-    const ledger = await buildLedgerForUser(user.id);
-    coachingDimension = pickFocusDimension(ledger.points);
+    const [ledger, repairAnchor] = await Promise.all([
+      buildLedgerForUser(user.id),
+      latestRepairRetestAnchor(user.id),
+    ]);
+    const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
+    const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
+    coachingDimension = pickFocusDimension(
+      ledger.points,
+      drillOutcomes,
+      pendingRetest?.dimension ?? null,
+    );
+    repairRetest = pendingRetest
+      ? {
+          repairDebateId: pendingRetest.debateId,
+          targetKind: pendingRetest.targetKind,
+          attemptedAt: pendingRetest.attemptedAt,
+        }
+      : null;
   } catch {
     coachingDimension = null;
+    repairRetest = null;
   }
 
   const { data: debate, error: debateError } = await db
@@ -80,7 +131,7 @@ export async function POST(request: Request) {
       side,
       round_count: 1,
       format,
-      coaching: { dimension: coachingDimension, sideReason },
+      coaching: { dimension: coachingDimension, sideReason, repairRetest },
     })
     .select("*")
     .single();

@@ -55,7 +55,10 @@ Replays of finished debates render the same hierarchy server-side (strength, wea
 - is scored server-side against observable moves (deterministic rubric — practice feedback, not a verdict);
 - explains what worked / what to add;
 - is **persisted** in `repair_results` with success flag and signals;
-- **links into coaching**: a repair on the day's drill dimension marks that drill attempted, feeding the next coaching decision.
+- **links into coaching**: a repair on the day's drill dimension marks that drill attempted, feeding the next coaching decision;
+- retries remain raw practice history, but the latest retry refreshes the linked formative drill attempt so coaching never stays stuck on an abandoned first draft.
+
+For longitudinal measurement, multiple rewrite submissions for the same user + debate + weakness kind are one **repair episode**. The first attempt anchors the episode; retries are preserved but cannot inflate repair denominators or create fake intervention cutoffs. A failed submission is practice history only: it stays retryable, does **not** count as repair completion, and does **not** unlock a deliberate next-debate retest. The first successful submission is what transitions the product into retest state.
 
 The debate's own score never changes.
 
@@ -65,7 +68,7 @@ A third side option that picks for the user, with the reasoning shown:
 
 - No/minimal history → random.
 - Heavy side dominance (≥75% of last 8) → the other side (variety + steelmanning).
-- Clear performance gap (≥8 points, ≥2 debates each side) → the weaker side.
+- Clear performance gap (≥8 points, ≥2 debates each side) → the weaker side. Performance is normalized from cumulative turn points to a per-turn 0–100 scale first, so Sprint vs Full length cannot create the gap.
 - Otherwise → alternate from the last debate.
 
 Every outcome carries a plain-language reason ("You've argued FOR in 7 of your last 8 debates — switching to AGAINST for variety and steelmanning practice."). Deliberately lightweight; never described as optimised. Implementation: `src/lib/challengeMe.ts`.
@@ -78,10 +81,14 @@ Behind **How this was calculated**: metric trajectories, per-debate slopes, the 
 
 ## Coaching loop
 
-1. The ledger's weakest dimension (movement-adjusted, shared with the drill system — one selection policy, not two) becomes today's goal on the Today screen.
-2. The goal travels with the debate (`solo_debates.coaching.dimension`).
-3. At finish, the goal behaviour is assessed against the graph and persisted (`snapshot`, `demonstrated`).
-4. The result screen reports it; the next day's goal accounts for it.
+1. Normally, the ledger's weakest dimension (movement-adjusted, shared with the drill system — one selection policy, not two) becomes today's goal.
+2. **A pending repair retest overrides that generic selector only after a successful repair.** Failed attempts remain retryable practice. After success, Today and Progress show **Retest after repair**, the drill coach targets the same dimension, and the next solo debate stores the retest provenance in `solo_debates.coaching.repairRetest`.
+3. The retest remains pending until a distinct later debate produces an **observable** ledger reading for that dimension. A poor reading still counts as a real retest; a debate with no opportunity for the target skill does not silently clear it.
+4. Same-day drill handling is conservative: an unattempted drill may be retargeted to the new repair focus, but an already-attempted drill is preserved as history rather than rewritten.
+5. The goal travels with the debate (`solo_debates.coaching.dimension`). At finish, the result snapshot receives that dimension, assesses the observable goal behaviour where a deterministic proxy exists, and the exact same outcome is persisted as `demonstrated`.
+6. The result screen labels deliberate retests explicitly. Dimensions without a valid one-debate pass/fail rule are reported as practised under debate conditions and left to longitudinal Progress measurement rather than receiving a guessed verdict.
+7. Longitudinal coaching only consumes **observable opportunities**. Default zeroes do not become fake success: Impact needs something to weigh; Structure needs an opposing move or enough own claims to expose a contradiction; Steelmanning needs an opposing move. The same opportunity filtering applies to profile scores, trend slopes and post-drill movement.
+8. Improvement rewards compare **whole prior debates with the whole current debate**. Turn-level assessments are merged per debate before the weakest-skill baseline is calculated, and the five-debate history fetch is sized for the full 12-round format rather than truncating at 30 turns.
 
 Goals are numeric only where previous behaviour justifies precision ("Answer at least 4 of 5" needs ≥3 opportunities last debate; otherwise the goal stays qualitative).
 
@@ -89,7 +96,7 @@ Goals are numeric only where previous behaviour justifies precision ("Answer at 
 
 Privacy-conscious funnel events (`src/lib/productEvents.ts`, migration 004): allowlisted names only, bounded context, no free text, no device identifiers, silent no-op for guests. Captured: `daily_viewed`, `debate_started`, `sprint_started`, `full_debate_started`, `round_completed`, `debate_completed`, `repair_started`, `repair_completed`, `full_analysis_opened`, `progress_viewed`, `pvp_started`, `challenge_me_selected`, `challenge_link_created`, `challenge_link_accepted`.
 
-Funnel semantics: `repair_started` is the click on **Fix this now** (client-side); `repair_completed` is a server-confirmed submission — so start/completion can be compared honestly.
+Funnel semantics: `repair_started` is the click on **Fix this now** (client-side); `repair_completed` is emitted only when a server-scored rewrite crosses the repair success threshold. Failed submissions remain raw practice history, not completion events. Historical `repair_completed` rows marked `reason="retry"` are excluded from funnel/retention cohorts.
 
 ### Admin funnel report (`/analytics`, admin-gated)
 
@@ -121,13 +128,20 @@ weakness detected → repair completed → next relevant debates → improved / 
 - Excludes the repaired debate itself; only debates that could actually express the weakness count, and weakness counts are **side-scoped** (an opponent's fallacies or contradictions never register as the user's weakness).
 - **Dropped-argument direction is explicit**: `DroppedArgument.owner` is the side whose argument went unanswered, so a user's rebuttal/structure failure is opponent-owned entries — arguments the user left unanswered. Weakness counts and drop detection read the canonical unanswered-opportunity set from `src/lib/opportunity.ts`; scoring (`groundedDroppedArguments`) and weakness measurement read the same canonical set from opposite sides, deliberately.
 - **Opportunity gate**: debates that could not express the weakness are invisible to the measurement — evidence/structure/logic/impact repairs need user claims, rebuttal repairs need eligible canonical opponent opportunities. A clean debate with no opportunity is never counted as improvement.
-- **No double-counting**: after-windows stop at the next same-user same-kind repair, so repeated repairs never measure the same debates twice.
+- **No retry inflation**: raw rewrite attempts are collapsed to one repair episode per user + repaired debate + weakness kind. The first attempt anchors follow-up; the best formative score / any-success state remain available for diagnostics, and retry counts stay visible in the admin report.
+- **No double-counting across distinct repair episodes**: after-windows stop at the next same-user same-kind repair episode, so later repairs never measure the same debates twice.
 - **Chronological first retest**: debates are sorted explicitly by completion time; "first retest" means the chronologically earliest eligible debate after the repair, never query order.
 - Repair kinds without a genuine deterministic detector — `clarity` today — are hard-classified **not currently measurable** and can never enter the comparison, not even by comparing 0% vs 0%.
 - No later debates → "not yet measurable"; no earlier debates → "insufficient baseline". Nothing is silently dropped.
 - A per-kind rate is only claimed with ≥5 repairs and ≥3 measurable — otherwise the report says "not yet claimable".
 - **Retest linkage**: the first later debate that could express the weakness is the deliberate retest; the report tracks how often the weakness recurred in that first retest (rate claimed only at ≥3 measurable retests).
 - The output is labelled observational: an association with the repair, not proof of causation.
+
+## Live PvP matchmaking
+
+`POST /api/pvp/queue` delegates the entire join lifecycle to `join_pvp_queue_and_match()`: recover an existing active match, enqueue the caller, claim the oldest waiting opponent, create the match, and clear both queue rows inside one serialized database transaction per topic. This closes the simultaneous-first-join gap where two users could both enqueue and then wait forever.
+
+The database also enforces **one active PvP match per player across both roles**. A trigger checks `player_a` and `player_b` together under deterministic per-player transaction locks, so a user cannot be `player_b` in one active match and `player_a` in another. Friend challenges use the same `pvp_matches` table and therefore inherit the invariant.
 
 ## Async friend challenges
 

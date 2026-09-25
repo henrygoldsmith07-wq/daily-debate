@@ -12,6 +12,9 @@ import { buildCoachingGoal, type CoachingSnapshot } from "@/lib/coachingGoal";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
 import { recordProductEvent } from "@/lib/productEvents";
 import { isDatabaseConfigured } from "@/lib/backend/env";
+import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
+import { pendingRepairRetest } from "@/lib/repairRetest";
+import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +44,7 @@ export default async function DashboardPage() {
   const topic = await getTodayTopic();
   void recordProductEvent("daily_viewed");
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger] =
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger, repairAnchor] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -68,7 +71,9 @@ export default async function DashboardPage() {
         .limit(1)
         .maybeSingle(),
       buildLedgerForUser(user.id),
+      latestRepairRetestAnchor(user.id),
     ]);
+  const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
 
   let previousDebateTitle: string | null = null;
   if (previousDebate?.topic_id) {
@@ -89,7 +94,13 @@ export default async function DashboardPage() {
   // Daily coaching goal: one focus, grounded in the previous debate's
   // observed behaviour (not a wall of metrics — one line of evidence).
   const lastCoaching = (previousDebate?.coaching ?? null) as { snapshot?: CoachingSnapshot | null } | null;
-  const goal = buildCoachingGoal(ledger?.points ?? [], lastCoaching?.snapshot ?? null);
+  const pendingRetest = pendingRepairRetest(ledger?.points ?? [], repairAnchor);
+  const goal = buildCoachingGoal(
+    ledger?.points ?? [],
+    lastCoaching?.snapshot ?? null,
+    drillOutcomes,
+    pendingRetest?.dimension ?? null,
+  );
   const focusDimension: CoachDimension | null = goal?.dimension ?? null;
 
   const today = new Intl.DateTimeFormat("en-GB", {
@@ -119,9 +130,9 @@ export default async function DashboardPage() {
         topic={topic}
         activeDebateId={activeDebate?.id ?? null}
         evidenceCards={(evidenceRows ?? []) as unknown as EvidenceCardView[]}
-        goalLine={goal?.headline ?? "Use evidence for major claims."}
+        goalLine={goal?.goalLine ?? "Use evidence for major claims."}
         lastLine={goal?.lastLine ?? null}
-        focusLabel="Today's focus"
+        focusLabel={pendingRetest ? "Retest after repair" : "Today's focus"}
         isFirstVisit={!previousDebate}
       />
 
@@ -165,7 +176,7 @@ export default async function DashboardPage() {
             {previousDebate ? (
               <p className="home-secondary-meta">
                 {formatShortDate(previousDebate.completed_at ?? previousDebate.created_at)} · arguing{" "}
-                {previousDebate.side} · {previousDebate.total_score ?? "—"}/100
+                {previousDebate.side} · {previousDebate.total_score ?? "—"} pts
                 {improvementKey ? <span className="block text-[var(--accent)]">Improving: {improvementKey.replace(/([A-Z])/g, " $1").toLowerCase()}</span> : null}
               </p>
             ) : (
@@ -188,7 +199,7 @@ export default async function DashboardPage() {
             <div className="home-secondary-highlight">
               <span className="home-coaching-label">Goal</span>
               <br />
-              {goal?.headline ?? "Complete a debate to unlock your training focus."}
+              {goal?.goalLine ?? "Complete a debate to unlock your training focus."}
             </div>
             <Link href="/dna" className="home-secondary-action">
               See Argument DNA →

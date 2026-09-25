@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import pg from "pg";
+import { applyTestMigrations } from "../../tests/helpers/applyTestMigrations";
 
 /**
  * REAL-POSTGRES test for the topic_run_log telemetry recorder: runs the
@@ -16,18 +16,13 @@ import pg from "pg";
 const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const d = databaseUrl && process.env.DATABASE_URL?.trim() ? describe : describe.skip;
 
-const MIGRATIONS_DIR = fileURLToPath(new URL("../../database/migrations", import.meta.url));
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 let pool: pg.Pool;
 
 beforeAll(async () => {
   pool = new pg.Pool({ connectionString: process.env.DATABASE_URL?.trim(), max: 4 });
-  await pool.query("SELECT pg_advisory_lock(727291)");
-  for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort()) {
-    await pool.query(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
-  }
-  await pool.query("SELECT pg_advisory_unlock(727291)");
+  await applyTestMigrations(pool);
   await pool.query("DELETE FROM topic_run_log WHERE run_id = 999001");
 });
 

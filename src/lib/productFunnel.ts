@@ -6,6 +6,7 @@
 // Pure — the API route loads rows, this module does the math.
 
 import {
+  collapseRepairAttempts,
   hasOpportunity,
   weaknessKindsFor,
   type DebateWeaknessRow,
@@ -76,7 +77,7 @@ export interface FunnelReport {
   debateCompletion: FunnelRate;
   /** debate_completed → repair_started (client CTA click) */
   repairStart: FunnelRate;
-  /** repair_started → repair_completed (server-confirmed submission) */
+  /** repair_started → successful repair_completed */
   repairCompletion: FunnelRate;
   /** debate_completed → full_analysis_opened */
   fullAnalysisOpen: FunnelRate;
@@ -142,7 +143,7 @@ export function completenessNote(meta: DataCompleteness): string | null {
   }
   if (meta.repairs.truncated) {
     bits.push(
-      `repair rows capped at ${meta.repairs.limit} — repair effectiveness covers only the newest repairs`,
+      `repair-attempt rows capped at ${meta.repairs.limit} — repair effectiveness covers only episodes represented in the newest attempts`,
     );
   }
   if (meta.debates.truncated) {
@@ -231,6 +232,15 @@ export function returnRate(
 }
 
 const DEBATE_STARTS = new Set(["sprint_started", "full_debate_started", "debate_started"]);
+
+/**
+ * Historical compatibility: before repair-success semantics were tightened,
+ * failed retries were emitted as repair_completed with reason="retry".
+ * Treat only successful/legacy completion rows as genuine completion.
+ */
+export function isSuccessfulRepairCompletion(row: FunnelEventRow): boolean {
+  return row.name === "repair_completed" && row.reason !== "retry";
+}
 
 // ── Deeper product validation metrics ───────────────────────────────────────
 
@@ -341,7 +351,7 @@ export interface RepairRetainComparison {
 export function repairRetentionComparison(rows: FunnelEventRow[], now: string, minSample = FUNNEL_MIN_SAMPLE): RepairRetainComparison {
   const today = dayOf(now);
   const completedUsers = new Set(rows.filter((r) => r.name === "debate_completed").map((r) => r.user_id));
-  const repairers = new Set(rows.filter((r) => r.name === "repair_completed").map((r) => r.user_id));
+  const repairers = new Set(rows.filter(isSuccessfulRepairCompletion).map((r) => r.user_id));
   const eventDays = new Map<string, Set<string>>();
   const firstCompleted = new Map<string, string>();
   for (const r of rows) {
@@ -468,7 +478,9 @@ export function buildSessionFunnel(
   }
   const completedSessions = new Set(bySession("debate_completed").keys());
   const repairStartedSessions = new Set(bySession("repair_started").keys());
-  const repairCompletedSessions = new Set(bySession("repair_completed").keys());
+  const repairCompletedSessions = new Set(
+    sessionRows.filter(isSuccessfulRepairCompletion).map((r) => r.debate_id!),
+  );
   const analysisOpenSessions = new Set(bySession("full_analysis_opened").keys());
 
   const sprintIds = [...startedSessions.entries()].filter(([, f]) => f === "sprint").map(([id]) => id);
@@ -530,7 +542,7 @@ export function buildFunnelReport(
   const sprintCompleted = completed.filter((r) => r.format === "sprint");
   const fullCompleted = completed.filter((r) => r.format === "full");
   const repairStarted = byName(["repair_started"]);
-  const repairCompleted = byName(["repair_completed"]);
+  const repairCompleted = inWindow.filter(isSuccessfulRepairCompletion);
   const analysisOpened = byName(["full_analysis_opened"]);
   const challengeMe = byName(["challenge_me_selected"]);
   const challengeCreated = byName(["challenge_link_created"]);
@@ -626,7 +638,12 @@ export interface RepairOutcomeRow {
 }
 
 export interface RepairOutcomeFunnel {
+  /** Raw persisted rewrite submissions. */
+  attempts: number;
+  /** Distinct (user, debate, target-kind) repair episodes. */
   repairs: number;
+  /** Raw attempts beyond the first within an episode. */
+  retryAttemptsCollapsed: number;
   /** Repairs with a matching repair_started event (acceptance proxy). */
   acceptance: FunnelRate;
   /** repair_started events without a debate_id that cannot be matched. */
@@ -733,8 +750,9 @@ export function buildRepairOutcomeRows(
     list.sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
   }
   const starts = events.filter((e) => e.name === "repair_started" && e.debate_id);
+  const episodes = collapseRepairAttempts(repairs);
 
-  return repairs.map((repair) => {
+  return episodes.map((repair) => {
     const kinds = weaknessKindsFor(repair.target_kind);
     const accepted = starts.some(
       (e) =>
@@ -786,7 +804,8 @@ export function buildRepairOutcomeFunnel(
 ): RepairOutcomeFunnel {
   const now = opts.now ?? new Date().toISOString();
   const minSample = opts.minSample ?? REPAIR_OUTCOME_MIN_SAMPLE;
-  const rows = buildRepairOutcomeRows(repairs, debates, events);
+  const episodes = collapseRepairAttempts(repairs);
+  const rows = buildRepairOutcomeRows(episodes, debates, events);
   const withRetest = rows.filter((r) => r.firstRetestDebateId !== null);
   const medianDaysToRetest = medianNumbers(withRetest.map((r) => r.daysToRetest as number));
   const acceptedCount = rows.filter((r) => r.accepted).length;
@@ -811,13 +830,15 @@ export function buildRepairOutcomeFunnel(
 
   // Post-repair return: anchor each user at their FIRST repair completion.
   const anchors = new Map<string, string>();
-  const sortedRepairs = [...repairs].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const sortedRepairs = [...episodes].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
   for (const r of sortedRepairs) {
     if (!anchors.has(r.user_id)) anchors.set(r.user_id, r.created_at);
   }
 
   return {
+    attempts: repairs.length,
     repairs: rows.length,
+    retryAttemptsCollapsed: Math.max(0, repairs.length - rows.length),
     acceptance: {
       numerator: acceptedCount,
       denominator: rows.length,
@@ -873,6 +894,6 @@ export function buildRepairOutcomeFunnel(
       d7: returnRateAfterAnchor(events, anchors, 7, now, minSample),
       d30: returnRateAfterAnchor(events, anchors, 30, now, minSample),
     },
-    note: "Observational only — users who complete repairs differ from those who don't. First-eligible-retest recurrence is the primary outcome; the per-retest and first-three measures are opportunity-adjusted so a user with more follow-up debates is not penalised for the extra chances they had to recur. Median time/opportunities-to-first-recurrence treat never-repaired-on repairs as censored, not clean.",
+    note: "Observational only — users who complete repairs differ from those who don't. Multiple rewrite submissions for the same debate/weakness are one repair episode, anchored at the first attempt, so retries cannot inflate the intervention denominator. First-eligible-retest recurrence is the primary outcome; the per-retest and first-three measures are opportunity-adjusted so a user with more follow-up debates is not penalised for the extra chances they had to recur. Median time/opportunities-to-first-recurrence treat never-recurred repairs as censored, not clean.",
   };
 }

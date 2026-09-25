@@ -67,6 +67,7 @@ export default function DebateRoom({
   const [result, setResult] = useState<DebateSummaryPayload | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  const [repairSucceeded, setRepairSucceeded] = useState(completedResult?.repaired ?? false);
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
@@ -82,6 +83,7 @@ export default function DebateRoom({
   const sideReason =
     (debate.coaching as { sideReason?: string | null } | null)?.sideReason ??
     ((debate as unknown as { side_reason?: string | null }).side_reason ?? null);
+  const repairRetest = debate.coaching?.repairRetest ?? null;
   // Sprint rounds are answered up to and including round 3 (the cap itself);
   // full debates keep the legacy behaviour where round_count counts created
   // turns and the composer hides at 12.
@@ -186,7 +188,7 @@ export default function DebateRoom({
         totalScore: result.totalScore,
         snapshot: result.snapshot ?? null,
         argGraph: result.summary.argGraph ?? null,
-        repaired: false,
+        repaired: repairSucceeded,
         bonusXP: result.bonusXP,
         topRewardLabel: result.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.label,
         topRewardDetail: result.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.detail,
@@ -198,7 +200,7 @@ export default function DebateRoom({
           totalScore: completedResult.totalScore,
           snapshot: completedResult.snapshot ?? null,
           argGraph: completedResult.argGraph ?? null,
-          repaired: completedResult.repaired ?? false,
+          repaired: repairSucceeded,
           honestyNote: completedResult.honestyNote ?? null,
         }
       : null;
@@ -220,12 +222,28 @@ export default function DebateRoom({
             )}
           </p>
 
-          {/* Today's focus outcome, when a goal was set */}
+          {/* Today's focus outcome, including deliberate repair retests. */}
           {snapshot?.goalOutcome?.detail && (
-            <div className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-sm text-ink2" data-testid="goal-outcome">
+            <div
+              className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-sm text-ink2"
+              data-testid={repairRetest ? "repair-retest-outcome" : "goal-outcome"}
+            >
+              {repairRetest && (
+                <span className="mr-1 font-semibold text-[var(--accent)]">Repair retest ·</span>
+              )}
               {snapshot.goalOutcome.demonstrated === true && <span className="mr-1 text-[var(--success)]">✓</span>}
               {snapshot.goalOutcome.demonstrated === false && <span className="mr-1 text-amber-600">→</span>}
               {snapshot.goalOutcome.detail}
+            </div>
+          )}
+          {repairRetest && !snapshot?.goalOutcome?.detail && (
+            <div
+              className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-sm text-ink2"
+              data-testid="repair-retest-outcome"
+            >
+              <span className="mr-1 font-semibold text-[var(--accent)]">Repair retest ·</span>
+              This skill was practised under debate conditions. A one-debate pass/fail claim is not available for this
+              dimension; Progress tracks the later observable movement instead.
             </div>
           )}
 
@@ -348,12 +366,20 @@ export default function DebateRoom({
           )}
         </div>
 
-        {/* The repair exercise: deliberate practice on the exact flagged move.
-            Rendered whenever a weakness exists and no repair is recorded yet —
-            Fix this now scrolls straight down to it. */}
-        {view.argGraph && weakness && !view.repaired && (
+        {/* The repair exercise: failed attempts stay retryable. A replay
+            that was ALREADY successfully repaired before this page load starts
+            collapsed; if success happens during this visit, keep the mounted
+            panel so the user can read the feedback they just earned. */}
+        {view.argGraph && weakness && !completedResult?.repaired && (
           <div ref={repairRef}>
-            <ArgumentRepair graph={view.argGraph} debateId={debate.id} presetTarget={weakness.repair} />
+            <ArgumentRepair
+              graph={view.argGraph}
+              debateId={debate.id}
+              presetTarget={weakness.repair}
+              onCompleted={(repair) => {
+                if (repair.succeeded) setRepairSucceeded(true);
+              }}
+            />
           </div>
         )}
       </div>

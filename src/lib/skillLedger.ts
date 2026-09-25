@@ -83,6 +83,11 @@ export interface SkillMetricPoint {
   debateId: string;
   completedAt: string;
   metrics: Record<MetricKey, number | null>;
+  /**
+   * Debate-level opportunity counts used to decide whether a later debate
+   * genuinely tested a repaired skill. Optional for legacy/fixture points.
+   */
+  opportunities?: { majorClaims: number; opponentMoves: number };
   /** Node IDs that contributed to each metric (evidence trail for explainability) */
   evidence?: Partial<Record<MetricKey, string[]>>;
   /**
@@ -226,7 +231,17 @@ export function extractSkillPoint(
     clarity: clarity10 != null ? ["turn-display-scores"] : [],
   };
 
-  return { debateId, completedAt, metrics, evidence, unmatched: { rebuttalCoverageUnmatched: coverage.unmatchedIds } };
+  return {
+    debateId,
+    completedAt,
+    metrics,
+    opportunities: {
+      majorClaims: myClaimsCount,
+      opponentMoves: coverage.opportunities,
+    },
+    evidence,
+    unmatched: { rebuttalCoverageUnmatched: coverage.unmatchedIds },
+  };
 }
 
 export interface MetricTrajectory {

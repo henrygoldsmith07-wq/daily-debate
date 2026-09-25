@@ -59,6 +59,12 @@ export interface CoachingRecord {
   dimension?: string | null;
   /** Explainable side assignment, when the user picked "Challenge me". */
   sideReason?: string | null;
+  /** If present, this debate deliberately retests a recently repaired weakness. */
+  repairRetest?: {
+    repairDebateId: string;
+    targetKind: string;
+    attemptedAt: string;
+  } | null;
   /** Observed behaviour from the finished debate (set at finish). */
   snapshot?: {
     responsesAnswered?: number;

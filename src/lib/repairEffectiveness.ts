@@ -36,6 +36,54 @@ export interface RepairRow {
   created_at: string;
 }
 
+/**
+ * Longitudinal measurement unit. The UI may persist multiple rewrite attempts
+ * for the same debate/weakness, but those attempts are ONE repair episode —
+ * otherwise retries inflate denominators and create fake intervention cutoffs.
+ */
+export interface RepairEpisodeRow extends RepairRow {
+  /** Raw rewrite submissions represented by this episode. */
+  attempts: number;
+}
+
+/**
+ * Collapse raw repair_results rows to one repair episode per
+ * (user, debate, target kind).
+ *
+ * Semantics:
+ * - first attempt timestamp anchors the intervention window;
+ * - best formative score is retained for diagnostics;
+ * - succeeded is true if any attempt in the episode crossed the threshold;
+ * - attempts remains visible so deduplication is auditable.
+ */
+export function collapseRepairAttempts(repairs: RepairRow[]): RepairEpisodeRow[] {
+  const grouped = new Map<string, RepairRow[]>();
+  for (const repair of repairs) {
+    const key = `${repair.user_id}|${repair.debate_id}|${repair.target_kind}`;
+    const rows = grouped.get(key) ?? [];
+    rows.push(repair);
+    grouped.set(key, rows);
+  }
+
+  const episodes: RepairEpisodeRow[] = [];
+  for (const rows of grouped.values()) {
+    const chronological = [...rows].sort(
+      (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at),
+    );
+    const first = chronological[0];
+    const bestScore = Math.max(...chronological.map((row) => row.score));
+    episodes.push({
+      ...first,
+      created_at: first.created_at,
+      score: bestScore,
+      succeeded: chronological.some((row) => row.succeeded),
+      attempts: chronological.length,
+    });
+  }
+
+  return episodes.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+}
+
 /** Weakness counts per debate, keyed by weakness kind (side-scoped). */
 export interface DebateWeaknessRow {
   debateId: string;
@@ -83,7 +131,12 @@ export interface RepairKindEffectiveness {
 export interface RepairEffectivenessReport {
   generatedAt: string;
   windowDays: number;
+  /** Distinct repair episodes after collapsing retries. */
   totalRepairs: number;
+  /** Raw persisted rewrite attempts before episode collapse. */
+  totalAttempts: number;
+  /** Attempts beyond the first within each repair episode. */
+  retryAttemptsCollapsed: number;
   usersCovered: number;
   perKind: RepairKindEffectiveness[];
   overall: RepairKindEffectiveness;
@@ -372,8 +425,9 @@ export function buildRepairEffectiveness(
   opts: { now?: string; windowDays?: number } = {},
 ): RepairEffectivenessReport {
   const now = opts.now ?? new Date().toISOString();
-  const byUserKind = new Map<string, RepairRow[]>();
-  for (const r of repairs) {
+  const episodes = collapseRepairAttempts(repairs);
+  const byUserKind = new Map<string, RepairEpisodeRow[]>();
+  for (const r of episodes) {
     const key = `${r.user_id}|${r.target_kind}`;
     const list = byUserKind.get(key) ?? [];
     list.push(r);
@@ -382,28 +436,30 @@ export function buildRepairEffectiveness(
   for (const list of byUserKind.values()) {
     list.sort((a, b) => dayMs(a.created_at) - dayMs(b.created_at));
   }
-  const nextCutoff = new Map<RepairRow, string | undefined>();
+  const nextCutoff = new Map<RepairEpisodeRow, string | undefined>();
   for (const list of byUserKind.values()) {
     list.forEach((r, i) => nextCutoff.set(r, list[i + 1]?.created_at));
   }
-  const details = repairs.map((r) =>
+  const details = episodes.map((r) =>
     classifyRepair(r, debates, { windowDays: opts.windowDays, afterCutoff: nextCutoff.get(r) }),
   );
 
-  const kinds = [...new Set(repairs.map((r) => r.target_kind))];
+  const kinds = [...new Set(episodes.map((r) => r.target_kind))];
   const perKind = kinds
-    .map((kind) => summarise(kind, details.filter((d) => d.target_kind === kind), repairs.filter((r) => r.target_kind === kind).length))
+    .map((kind) => summarise(kind, details.filter((d) => d.target_kind === kind), episodes.filter((r) => r.target_kind === kind).length))
     .sort((a, b) => b.repairs - a.repairs);
-  const overall = summarise("all", details, repairs.length);
+  const overall = summarise("all", details, episodes.length);
 
   return {
     generatedAt: now,
     windowDays: opts.windowDays ?? REPAIR_WINDOW_DAYS,
-    totalRepairs: repairs.length,
-    usersCovered: new Set(repairs.map((r) => r.user_id)).size,
+    totalRepairs: episodes.length,
+    totalAttempts: repairs.length,
+    retryAttemptsCollapsed: Math.max(0, repairs.length - episodes.length),
+    usersCovered: new Set(episodes.map((r) => r.user_id)).size,
     perKind,
     overall,
     honestyNote:
-      "Observational only: this compares weakness presence in debates before vs after a repair. It is an association, not proof the repair caused the change — users who repair may also differ in other ways. After-windows stop at the next same-kind repair, so repeated repairs never double-count the same debates.",
+      "Observational only: this compares weakness presence in debates before vs after a repair episode. Multiple rewrite attempts on the same debate/weakness are collapsed to one episode anchored at the first attempt, so retries cannot inflate denominators or create fake intervention cutoffs. Distinct later repair episodes still partition after-windows by user and weakness kind. This is an association, not proof the repair caused the change.",
   };
 }

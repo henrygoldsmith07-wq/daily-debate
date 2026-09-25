@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import pg from "pg";
 import { topicFingerprint } from "../../scripts/generate-topics.mjs";
+import { applyTestMigrations } from "../../tests/helpers/applyTestMigrations";
 
 /**
  * REAL-POSTGRES tests for the strengthened freshness verifier: runs the
@@ -37,11 +38,7 @@ const TOPIC = {
 
 beforeAll(async () => {
   pool = new pg.Pool({ connectionString: process.env.DATABASE_URL?.trim(), max: 4 });
-  await pool.query("SELECT pg_advisory_lock(727293)");
-  for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort()) {
-    await pool.query(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
-  }
-  await pool.query("SELECT pg_advisory_unlock(727293)");
+  await applyTestMigrations(pool);
 });
 
 afterAll(async () => {

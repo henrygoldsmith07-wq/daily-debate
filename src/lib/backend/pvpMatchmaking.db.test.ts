@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { applyTestMigrations } from "../../../tests/helpers/applyTestMigrations";
 
 /**
  * Integration tests for the atomic PvP matchmaking invariant (migration 003).
@@ -15,21 +13,16 @@ import pg from "pg";
 const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const d = databaseUrl ? describe : describe.skip;
 
-const MIGRATIONS_DIR = fileURLToPath(new URL("../../../database/migrations", import.meta.url));
-
 let pool: pg.Pool;
 
 const userEmails = ["inv-a@test.local", "inv-b@test.local", "inv-c@test.local"];
 const userIds = new Map<string, string>();
 
-async function applyMigrations() {
-  await pool.query("SELECT pg_advisory_lock(727291)");
-  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
-  for (const file of files) {
-    const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-    await pool.query(sql);
-  }
-  await pool.query("SELECT pg_advisory_unlock(727291)");
+function applyMigrations(): Promise<void> {
+  // Shared helper: single session-scoped advisory lock, DDL on the SAME client,
+  // one shared key across all *.db.test.ts suites (prevents the concurrent
+  // catalog-replay race — XX000 tuple concurrently updated — seen in e2e).
+  return applyTestMigrations(pool);
 }
 
 async function ensureUser(email: string): Promise<string> {
@@ -139,6 +132,45 @@ d("atomic PvP matchmaking (migration 003)", () => {
     expect(rows.rows).toHaveLength(1);
   });
 
+  it("converges two simultaneous first-time joiners into exactly one match", async () => {
+    const [a, b] = ["inv-a@test.local", "inv-b@test.local"].map((e) => userIds.get(e)!);
+    const topicId = await todayTopicId();
+    await resetMatchState();
+
+    const clientA = await pool.connect();
+    const clientB = await pool.connect();
+    try {
+      const [joinA, joinB] = await Promise.all([
+        clientA.query(
+          "SELECT * FROM join_pvp_queue_and_match($1, $2, $3)",
+          [a, topicId, 5],
+        ),
+        clientB.query(
+          "SELECT * FROM join_pvp_queue_and_match($1, $2, $3)",
+          [b, topicId, 5],
+        ),
+      ]);
+
+      // The first serialized join waits; the second consumes that queue row
+      // and returns the one created match. There must never be two matches.
+      expect(joinA.rows.length + joinB.rows.length).toBe(1);
+
+      const matches = await pool.query(
+        "SELECT * FROM pvp_matches WHERE status = 'active'",
+      );
+      expect(matches.rows).toHaveLength(1);
+      expect([matches.rows[0].player_a, matches.rows[0].player_b].sort()).toEqual(
+        [a, b].sort(),
+      );
+
+      const queue = await pool.query("SELECT * FROM pvp_queue");
+      expect(queue.rows).toHaveLength(0);
+    } finally {
+      clientA.release();
+      clientB.release();
+    }
+  });
+
   it("never double-matches two concurrent claimants racing for one opponent", async () => {
     const [a, b, c] = userEmails.map((e) => userIds.get(e)!);
     const topicId = await todayTopicId();
@@ -218,7 +250,39 @@ d("atomic PvP matchmaking (migration 003)", () => {
     expect(rows.rows).toHaveLength(0);
   });
 
-  it("keeps at most one active match per player under the partial unique indexes", async () => {
+  it("keeps at most one active match per player even when their role changes", async () => {
+    const [a, b, c] = userEmails.map((e) => userIds.get(e)!);
+    const topicId = await todayTopicId();
+    await resetMatchState();
+
+    // a is player_b in the first match.
+    await pool.query(
+      `INSERT INTO pvp_matches (
+         topic_id, player_a, player_b, player_a_side, round_limit,
+         current_turn_player, turn_started_at
+       ) VALUES ($1, $2, $3, 'for', 5, $2, now())`,
+      [topicId, b, a],
+    );
+
+    // The old pair of per-column unique indexes allowed this because a moves
+    // from player_b to player_a. The cross-role trigger must reject it.
+    await expect(
+      pool.query(
+        `INSERT INTO pvp_matches (
+           topic_id, player_a, player_b, player_a_side, round_limit,
+           current_turn_player, turn_started_at
+         ) VALUES ($1, $2, $3, 'against', 5, $2, now())`,
+        [topicId, a, c],
+      ),
+    ).rejects.toThrow();
+
+    const matches = await pool.query(
+      "SELECT * FROM pvp_matches WHERE status = 'active'",
+    );
+    expect(matches.rows).toHaveLength(1);
+  });
+
+  it("keeps at most one active match per player under same-role indexes too", async () => {
     const [a, b, c] = userEmails.map((e) => userIds.get(e)!);
     const topicId = await todayTopicId();
     await resetMatchState();

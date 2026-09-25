@@ -20,6 +20,13 @@ interface Assignment {
   attempt_score?: number | null;
 }
 
+interface RetestInfo {
+  dimension: string;
+  label: string;
+  repairDebateId: string;
+  attemptedAt: string;
+}
+
 interface OutcomeRow {
   id: string;
   label: string;
@@ -50,6 +57,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
   const [focusReason, setFocusReason] = useState<string>("");
   const [debatesAnalysed, setDebatesAnalysed] = useState<number | null>(null);
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([]);
+  const [retest, setRetest] = useState<RetestInfo | null>(null);
   const [outcomeSummary, setOutcomeSummary] = useState<string | null>(null);
   const [attemptText, setAttemptText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -68,6 +76,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
       setDims(todayData.profile ?? []);
       setAssignment(todayData.assignment);
       setFocusReason(todayData.focusReason ?? "");
+      setRetest(todayData.retest ?? null);
       setDebatesAnalysed(todayData.debatesAnalysed ?? null);
       if (outcomesRes.ok) {
         const o = await outcomesRes.json();
@@ -122,6 +131,17 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
               <Bar key={d.key} label={d.label} score={d.score} />
             ))}
           </div>
+        </section>
+      )}
+
+      {retest && (
+        <section className="surface-card border-[var(--accent)] p-5" role="status" data-testid="repair-retest-card">
+          <p className="text-xs uppercase tracking-wide text-[var(--accent)]">Retest after repair</p>
+          <h2 className="mt-1 text-lg font-semibold">{retest.label}</h2>
+          <p className="mt-1 text-sm text-ink3">
+            You practised this weak link after your last debate. Your next debate keeps this skill in focus until it
+            produces an observable reading.
+          </p>
         </section>
       )}
 

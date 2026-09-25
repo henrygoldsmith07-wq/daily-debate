@@ -58,7 +58,11 @@ export function snapshotFromAssessment(assessment: ObservableAssessment | null |
 export function pickFocusDimension(
   points: SkillMetricPoint[],
   outcomes: Partial<Record<CoachDimension, number>> = {},
+  priorityDimension: CoachDimension | null = null,
 ): CoachDimension | null {
+  // A deliberate repair retest takes priority over the generic weakest-skill
+  // selector. Practice is only useful if the product actually tests transfer.
+  if (priorityDimension) return priorityDimension;
   if (!points.length) return null;
   const { dims, slopes } = buildCoachProfile(points);
   const { focus } = selectFocus(dims, slopes, outcomes);
@@ -121,10 +125,23 @@ export function buildCoachingGoal(
   points: SkillMetricPoint[],
   lastSnapshot: CoachingSnapshot | null,
   outcomes: Partial<Record<CoachDimension, number>> = {},
+  priorityDimension: CoachDimension | null = null,
 ): CoachingGoal | null {
-  const dimension = pickFocusDimension(points, outcomes);
+  const dimension = pickFocusDimension(points, outcomes, priorityDimension);
   if (!dimension) return null;
   const headline = GOAL_HEADLINES[dimension];
+
+  // Repair retests get explicit transfer copy. Do not pretend the drill itself
+  // proved improvement; the upcoming debate is the test.
+  if (priorityDimension) {
+    return {
+      dimension,
+      headline,
+      lastLine: "You practised this weak link after your last debate. Now test whether it transfers under debate pressure.",
+      goalLine: headline,
+      numeric: false,
+    };
+  }
 
   if (!lastSnapshot) {
     return { dimension, headline, lastLine: null, goalLine: headline, numeric: false };

@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { applyTestMigrations } from "../../tests/helpers/applyTestMigrations";
 import { createExecutor } from "../../scripts/lib/sql-executor.mjs";
 import { resolveTargetDate, runGeneration, topicFingerprint, jsonParam } from "../../scripts/generate-topics.mjs";
 
@@ -34,8 +32,6 @@ import { resolveTargetDate, runGeneration, topicFingerprint, jsonParam } from ".
 const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const d = databaseUrl && process.env.DATABASE_URL?.trim() ? describe : describe.skip;
 const url = process.env.DATABASE_URL?.trim() ?? "";
-
-const MIGRATIONS_DIR = fileURLToPath(new URL("../../database/migrations", import.meta.url));
 
 let pool: pg.Pool;
 
@@ -152,11 +148,7 @@ async function cleanup() {
 
 beforeAll(async () => {
   pool = new pg.Pool({ connectionString: url, max: 4 });
-  await pool.query("SELECT pg_advisory_lock(727294)");
-  for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort()) {
-    await pool.query(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
-  }
-  await pool.query("SELECT pg_advisory_unlock(727294)");
+  await applyTestMigrations(pool);
   await cleanup();
 });
 

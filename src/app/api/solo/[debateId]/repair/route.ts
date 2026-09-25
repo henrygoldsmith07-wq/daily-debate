@@ -3,19 +3,11 @@ import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
-import { pickRepairTarget, scoreRepair, type RepairKind, type RepairTarget } from "@/lib/argumentRepair";
+import { pickRepairTarget, scoreRepair, type RepairTarget } from "@/lib/argumentRepair";
 import { recordProductEvent } from "@/lib/productEvents";
+import { REPAIR_KIND_TO_DIMENSION } from "@/lib/repairRetest";
 
 const REPAIR_SUCCESS_THRESHOLD = 60;
-
-const KIND_TO_DIMENSION: Record<RepairKind, string> = {
-  evidence: "evidence",
-  rebuttal: "rebuttal",
-  logic: "logic",
-  impact: "impact",
-  structure: "structure",
-  clarity: "clarity",
-};
 
 /** Merge the debate's per-turn graphs into the final assessment. */
 async function finalAssessmentFor(db: Awaited<ReturnType<typeof createClient>>, debateId: string) {
@@ -122,11 +114,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   }
 
   // Link the repair into the coaching system: if today's drill assignment
-  // targets the same dimension, the repair counts as its attempt.
+  // targets the same dimension, the latest submitted rewrite becomes the
+  // assignment's formative attempt. Do this for retries too — otherwise a
+  // better second draft is persisted in repair_results while coaching remains
+  // stuck on the first draft. We deliberately do NOT compare the two scores:
+  // repair and drill rubrics are formative signals, not a shared skill scale.
   try {
     const service = createServiceClient();
     const today = new Date().toISOString().slice(0, 10);
-    const dimension = KIND_TO_DIMENSION[target.kind];
+    const dimension = REPAIR_KIND_TO_DIMENSION[target.kind];
     await service
       .from("drill_assignments")
       .update({
@@ -136,18 +132,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       })
       .eq("user_id", user.id)
       .eq("assigned_date", today)
-      .eq("dimension", dimension)
-      .eq("status", "open");
+      .eq("dimension", dimension);
   } catch (error) {
     // Non-critical: the repair is already persisted.
     console.error("Failed to link repair to drill assignment:", error);
   }
 
-  void recordProductEvent("repair_completed", {
-    repairScore: result.score,
-    reason: succeeded ? "succeeded" : "retry",
-    debateId,
-  });
+  // Product funnel "completion" means the repair crossed the success
+  // threshold. Failed submissions are still persisted in repair_results as
+  // practice history, but must not inflate repair-completion/retention metrics.
+  if (succeeded) {
+    void recordProductEvent("repair_completed", {
+      repairScore: result.score,
+      reason: "succeeded",
+      debateId,
+    });
+  }
 
   return NextResponse.json({
     target,

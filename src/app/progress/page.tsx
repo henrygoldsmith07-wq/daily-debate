@@ -10,6 +10,9 @@ import PageHeader from "@/components/PageHeader";
 import CoachToday from "@/components/CoachToday";
 import { recordProductEvent } from "@/lib/productEvents";
 import { computeLoopStatuses, type DrillAssignmentLite, type LoopStage } from "@/lib/coachLoop";
+import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
+import { pendingRepairRetest } from "@/lib/repairRetest";
+import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +35,6 @@ const TREND_GLYPH: Record<string, { glyph: string; tone: string }> = {
 const LOOP_STAGE_ORDER: LoopStage[] = [
   "detected",
   "practised",
-  "improved_in_drill",
   "improved_in_debate",
   "retained",
 ];
@@ -40,7 +42,6 @@ const LOOP_STAGE_ORDER: LoopStage[] = [
 const LOOP_STAGE_LABEL: Record<LoopStage, string> = {
   detected: "Detected",
   practised: "Drilled",
-  improved_in_drill: "Drill improved",
   improved_in_debate: "Debate improved",
   retained: "Retained",
 };
@@ -84,7 +85,12 @@ export default async function ProgressPage() {
 
   void recordProductEvent("progress_viewed");
 
-  const ledger = await buildLedgerForUser(user.id);
+  const [ledger, repairAnchor] = await Promise.all([
+    buildLedgerForUser(user.id),
+    latestRepairRetestAnchor(user.id),
+  ]);
+  const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
+  const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
   const service = createServiceClient();
   const { data: drillRows } = await service
     .from("drill_assignments")
@@ -109,7 +115,12 @@ export default async function ProgressPage() {
     .slice(0, 3);
 
   const summary = buildProgressSummary(ledger.points);
-  const goal = buildCoachingGoal(ledger.points, null);
+  const goal = buildCoachingGoal(
+    ledger.points,
+    null,
+    drillOutcomes,
+    pendingRetest?.dimension ?? null,
+  );
   const focusLabel = goal?.dimension
     ? (summary.skills.find((s) => s.key === goal.dimension)?.label ?? goal.dimension)
     : null;
@@ -152,10 +163,17 @@ export default async function ProgressPage() {
 
       {/* ── Current training focus ─────────────────────────────────────────── */}
       <section className="surface-card p-5" aria-labelledby="focus-heading" data-testid="focus-card">
-        <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">Focus this week</p>
+        <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">
+          {pendingRetest ? "Retest after repair" : "Focus this week"}
+        </p>
         <h2 id="focus-heading" className="mt-1 text-lg font-semibold">{focusLabel ?? "Complete a debate to unlock your focus"}</h2>
-        {goal?.headline && (
-          <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-sm text-ink2">{goal.headline}</p>
+        {goal?.goalLine && (
+          <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-sm text-ink2">
+            {goal.goalLine}
+            {pendingRetest && goal.lastLine ? (
+              <span className="mt-1 block text-xs text-ink3">{goal.lastLine}</span>
+            ) : null}
+          </p>
         )}
         {focusLabel && (
           <Link
@@ -163,7 +181,7 @@ export default async function ProgressPage() {
             className="btn btn-primary mt-4 w-full px-4 py-2.5 text-center text-sm sm:w-auto"
             data-testid="practice-focus"
           >
-            Practice {focusLabel.toLowerCase()} in today&apos;s debate →
+            {pendingRetest ? "Retest" : "Practice"} {focusLabel.toLowerCase()} in today&apos;s debate →
           </Link>
         )}
       </section>
@@ -181,8 +199,8 @@ export default async function ProgressPage() {
             </span>
           </div>
           <p className="mt-2 text-sm leading-relaxed text-ink3">
-            A drill is only the first step. Daily Debate checks the same skill in later debates, then waits for repeated
-            evidence before calling it retained.
+            A drill is practice, not proof of improvement. Daily Debate checks the same skill in later debates, then
+            waits for repeated evidence before calling it retained.
           </p>
 
           <div className="mt-4 flex flex-col gap-3">
@@ -196,7 +214,7 @@ export default async function ProgressPage() {
                     <span className="text-xs font-medium text-[var(--accent)]">{LOOP_STAGE_LABEL[status.stage]}</span>
                   </div>
                   <div
-                    className="mt-3 grid grid-cols-5 gap-1"
+                    className="mt-3 grid grid-cols-4 gap-1"
                     aria-label={`${status.label} learning loop: ${LOOP_STAGE_LABEL[status.stage]}`}
                   >
                     {LOOP_STAGE_ORDER.map((stage, index) => (
