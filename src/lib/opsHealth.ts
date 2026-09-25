@@ -1137,6 +1137,9 @@ export function assessTrainingEvidence(input: TrainingEvidenceInput): TrainingEv
 export interface OpsHealthReport {
   generatedAt: string;
   topic: TopicHealth;
+  /** SQLSTATE (5-char) of the failing daily_topics read, when it fails.
+   *  Deliberately public-safe: a standard error class, never a message. */
+  topicReadSqlstate?: string | null;
   /** Production scheduler SLO - independent of CI evidence. */
   topicSlo: TopicSlo;
   judge: JudgeHealth;
@@ -1152,6 +1155,7 @@ export interface OpsHealthReport {
 export function buildOpsHealthReport(parts: {
   generatedAt: string;
   topic: TopicHealth;
+  topicReadSqlstate?: string | null;
   topicSlo: TopicSlo;
   judge: JudgeHealth;
   database: DatabaseHealth;

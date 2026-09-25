@@ -28,6 +28,10 @@ export interface PublicHealthState {
   /** Is the migration-019 generation_reason schema (column + value
    *  constraint) present? null = unknown. Coarse boolean only. */
   generationReasonSchemaReady: boolean | null;
+  /** Public-safe diagnostic: SQLSTATE class of the failing topic read
+   *  ("42" undefined-object, "28" privilege, "08" connection...), null
+   *  when the read succeeded. A standard error class, never a message. */
+  topicReadSqlstate: string | null;
   /** The production proofs (item 7), exposed as plain booleans. Typed as the
    *  canonical slice so upstream proof changes surface here at compile time. */
   proofs: OpsHealthReport["topicSlo"]["proofs"];
@@ -53,6 +57,10 @@ export function derivePublicHealthState(report: OpsHealthReport, nowIso: string)
     topicFingerprintSchemaReady: report.database.migrationReadiness.migration018TopicFingerprintReady,
     generationReasonSchemaReady: report.database.migrationReadiness.migration019GenerationReasonReady,
     proofs: { ...report.topicSlo.proofs },
+    /** Public-safe diagnostic: SQLSTATE class of the failing topic read
+     *  ("42" undefined-object, "28" privilege, "08" connection...), null
+     *  when the read succeeded. A standard error class, never a message. */
+    topicReadSqlstate: report.topicReadSqlstate ?? null,
     generatedAt: report.generatedAt,
     ageMs: Number.isFinite(generatedMs) && Number.isFinite(nowMs) ? Math.max(0, nowMs - generatedMs) : null,
   };

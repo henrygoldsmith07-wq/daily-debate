@@ -233,6 +233,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   // --- Topic pipeline: latest rows, provenance, evidence -------------------
   let topic;
   let topicStoreReadable = true;
+  let topicReadSqlstate: string | null = null;
   try {
     const rows = await service
       .from("daily_topics")
@@ -272,6 +273,8 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
     // and turns a silent degradation into a nameable, fixable defect.
     const reason = error instanceof Error ? error.message : String(error);
     console.error("[ops-health] topic store read failed:", reason);
+    const { sqlstateClass } = await import("./backend/sql");
+    topicReadSqlstate = sqlstateClass(error);
     topicStoreReadable = false;
     topic = {
       ...assessTopicHealth(null, now),
@@ -321,7 +324,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
     now,
   );
 
-  return buildOpsHealthReport({ generatedAt: now, topic, topicSlo, judge, database, app, human, training });
+  return buildOpsHealthReport({ generatedAt: now, topic, topicReadSqlstate, topicSlo, judge, database, app, human, training });
 }
 
 /**
