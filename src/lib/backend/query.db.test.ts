@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { applyTestMigrations } from "../../../tests/helpers/applyTestMigrations";
 import { tableQuery } from "./query";
 
 /**
@@ -18,7 +16,6 @@ import { tableQuery } from "./query";
 const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const d = databaseUrl && process.env.DATABASE_URL?.trim() ? describe : describe.skip;
 
-const MIGRATIONS_DIR = fileURLToPath(new URL("../../../database/migrations", import.meta.url));
 const DATE = "2099-07-01";
 
 let pool: pg.Pool;
@@ -46,11 +43,7 @@ async function cleanup() {
 
 beforeAll(async () => {
   pool = new pg.Pool({ connectionString: process.env.DATABASE_URL?.trim(), max: 4 });
-  await pool.query("SELECT pg_advisory_lock(727295)");
-  for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort()) {
-    await pool.query(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
-  }
-  await pool.query("SELECT pg_advisory_unlock(727295)");
+  await applyTestMigrations(pool);
   await cleanup();
 });
 

@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { applyTestMigrations } from "../../tests/helpers/applyTestMigrations";
 import { findCandidates, repairItemWithLock } from "../../scripts/lib/corpus-repair.mjs";
 import { insertImmutableRating } from "@/lib/corpusRatingStore";
 import { MIN_RATERS_PER_ITEM } from "@/lib/corpus";
@@ -22,19 +20,17 @@ import { MIN_RATERS_PER_ITEM } from "@/lib/corpus";
 const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const d = databaseUrl && process.env.DATABASE_URL?.trim() ? describe : describe.skip;
 
-const MIGRATIONS_DIR = fileURLToPath(new URL("../../database/migrations", import.meta.url));
 
 let pool: pg.Pool;
 const emails = ["rp-a@test.local", "rp-b@test.local", "rp-contrib@test.local"];
 const userIds = new Map<string, string>();
 const itemIds: string[] = [];
 
-async function applyMigrations() {
-  await pool.query("SELECT pg_advisory_lock(727291)");
-  for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort()) {
-    await pool.query(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
-  }
-  await pool.query("SELECT pg_advisory_unlock(727291)");
+function applyMigrations(): Promise<void> {
+  // Shared helper: single session-scoped advisory lock, DDL on the SAME client,
+  // one shared key across all *.db.test.ts suites (prevents the concurrent
+  // catalog-replay race — XX000 tuple concurrently updated — seen in e2e).
+  return applyTestMigrations(pool);
 }
 
 async function ensureUser(email: string): Promise<string> {
