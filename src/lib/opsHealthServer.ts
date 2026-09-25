@@ -240,7 +240,15 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       .select("id, topic_date, title, generation_source, created_at")
       .order("topic_date", { ascending: false })
       .limit(5);
-    if (rows.error) throw new Error(rows.error.message ?? "daily_topics unreadable");
+    if (rows.error) {
+      // Preserve the builder error's code (usually the SQLSTATE) on the
+      // rethrow - a bare Error drops it, which blinded the SQLSTATE
+      // diagnostic on the public probe.
+      const err = new Error(rows.error.message ?? "daily_topics unreadable");
+      const code = (rows.error as { code?: unknown }).code;
+      if (typeof code === "string" && code) (err as { code?: string }).code = code;
+      throw err;
+    }
     const list = (rows.data ?? []) as Array<{
       id: string;
       topic_date: string;
