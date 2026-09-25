@@ -240,6 +240,11 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   // inside the same request) points at a transient burst-limit blip on the
   // Neon HTTP transport rather than a query defect. Retry the READ with a
   // short backoff — never the write path.
+  // Stage marker: which statement threw (read | cards | assess)? The shape
+  // matrix proved every QUERY succeeds inside the failing request, so the
+  // thrower is somewhere between the reads and the assessment.
+  let failedStage = "read";
+  let rowDateKind: string | null = null;
   try {
     const runTopicRead = () =>
       service
@@ -276,10 +281,16 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       topic = assessTopicHealth(null, now);
     } else {
       const latest = list[0];
+      // Public-safe type diagnostics: JS kind of the row values (never the
+      // values themselves) — date columns can arrive as JS Date objects
+      // depending on transport type-parsing, which poisons string compares.
+      rowDateKind = typeof latest.topic_date;
+      failedStage = "cards";
       const cards = await service
         .from("topic_evidence")
         .select("id", { count: "exact", head: true })
         .eq("topic_id", latest.id);
+      failedStage = "assess";
       topic = assessTopicHealth(
         {
           topic_date: latest.topic_date,
@@ -297,9 +308,10 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
     // no secrets (no connection strings), so recording the message is safe
     // and turns a silent degradation into a nameable, fixable defect.
     const reason = error instanceof Error ? error.message : String(error);
-    console.error("[ops-health] topic store read failed:", reason);
+    console.error("[ops-health] topic store read failed at stage", failedStage, "dateKind", rowDateKind, ":", reason);
     const { sqlstateClass } = await import("./backend/sql");
     topicReadSqlstate = sqlstateClass(error);
+    topicReadShapeMatrix = `stage=${failedStage}${rowDateKind ? ` dateKind=${rowDateKind}` : ""}${topicReadShapeMatrix ? `; ${topicReadShapeMatrix}` : ""}`;
     // Failure-shape matrix (read-only, failure path only): which minimal
     // read shapes survive? Discriminates projection vs ordering vs row-level
     // vs filter-level failures. Reports labels + SQLSTATE classes only —
