@@ -77,3 +77,64 @@ export function plannedRouteTransition(params: {
   if (adopt) return { next: "adopted", deliberate: true };
   return { next: "eligible", deliberate: false };
 }
+
+export interface RouteTransitionAudit {
+  route: string;
+  registrationVersion: string;
+  previousState: RouteLifecycleState;
+  newState: RouteLifecycleState;
+  evaluatedAt: string;
+  sampleN: number | null;
+  gateResult: unknown;
+  humanResult: unknown;
+  reason: string;
+  operator: string;
+}
+
+const VALID_TRANSITIONS: Record<RouteLifecycleState, RouteLifecycleState[]> = {
+  shadow: ["eligible", "shadow"],
+  eligible: ["adopted", "shadow", "eligible"],
+  adopted: ["suspended", "adopted"],
+  suspended: ["eligible", "shadow", "suspended"],
+};
+
+/**
+ * Persist one deliberate lifecycle transition. Adoption is never automatic:
+ * this is an explicit server-side operation that writes the full audit
+ * payload (route, registration version, previous/new state, evidence, reason,
+ * operator). Invalid edges are rejected so a caller cannot invent a path
+ * (e.g. shadow → adopted without passing through eligible).
+ */
+export async function applyRouteTransition(
+  transition: RouteTransitionAudit,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!VALID_TRANSITIONS[transition.previousState]?.includes(transition.newState)) {
+    return { ok: false, error: `invalid transition ${transition.previousState} → ${transition.newState}` };
+  }
+  if (transition.newState === "adopted" && transition.previousState !== "eligible") {
+    return { ok: false, error: "adoption requires current state eligible (never shadow → adopted)" };
+  }
+  try {
+    const service = createServiceClient();
+    const row = {
+      route: transition.route,
+      registration_version: transition.registrationVersion,
+      state: transition.newState,
+      evaluated_at: transition.evaluatedAt,
+      sample_n: transition.sampleN,
+      gate_result: transition.gateResult == null ? null : JSON.stringify(transition.gateResult),
+      human_result: transition.humanResult == null ? null : JSON.stringify(transition.humanResult),
+      reason: transition.reason,
+      adopted_at: transition.newState === "adopted" ? transition.evaluatedAt : null,
+      suspended_at: transition.newState === "suspended" ? transition.evaluatedAt : null,
+      updated_at: new Date().toISOString(),
+    };
+    const result = await service
+      .from("route_lifecycle")
+      .upsert(row, { onConflict: "route" });
+    if (result.error) return { ok: false, error: result.error.message ?? "upsert failed" };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message ?? e) };
+  }
+}

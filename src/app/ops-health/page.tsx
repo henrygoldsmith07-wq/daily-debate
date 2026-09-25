@@ -4,7 +4,7 @@ import { isCorpusAdmin } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadOpsHealth } from "@/lib/opsHealthServer";
-import type { EvidenceSection, HealthState, TrainingEvidence } from "@/lib/opsHealth";
+import type { EvidenceSection, HealthState, MigrationReadiness, TrainingEvidence } from "@/lib/opsHealth";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +38,15 @@ function Fact({ label, value }: { label: string; value: string }) {
 
 function fmtDate(iso: string | null): string {
   return iso ? new Date(iso).toISOString().slice(0, 10) : "—";
+}
+
+function fmtMigrationReadiness(r: MigrationReadiness): string {
+  // null = unknown (probe could not read the schema), never silently ready.
+  const bit = (v: boolean | null) => (v === null ? "unknown" : v ? "ready" : "PENDING");
+  return (
+    `016=${bit(r.migration016TelemetryReady)} · 017=${bit(r.migration017RouteLifecycleReady)} · ` +
+    `018=${bit(r.migration018TopicFingerprintReady)} · 019=${bit(r.migration019GenerationReasonReady)}`
+  );
 }
 
 export default async function OpsHealthPage() {
@@ -196,6 +205,7 @@ export default async function OpsHealthPage() {
           <Fact label="Migrations applied" value={report.database.migrationsApplied === null ? "—" : String(report.database.migrationsApplied)} />
           <Fact label="Required tables" value={report.database.requiredTablesOk === null ? "—" : report.database.requiredTablesOk ? "all present" : `missing: ${report.database.missingTables.join(", ")}`} />
           <Fact label="topic_run_log fidelity (016)" value={report.database.topicRunLogFidelity} />
+          <Fact label="migration readiness" value={fmtMigrationReadiness(report.database.migrationReadiness)} />
         </div>
         {report.database.note && <p className="mt-2 text-xs text-ink3">{report.database.note}</p>}
       </section>

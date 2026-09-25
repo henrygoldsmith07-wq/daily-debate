@@ -133,5 +133,54 @@ describe("verdictFromEnsemble — shadow record is telemetry, never authority", 
     expect(v.shadowRouting).toBeNull();
     expect(v.winner).toBe("a");
   });
+
+  it("an adopted lifecycle state never promotes the shadow route to authority", async () => {
+    const { buildShadowRecord, monitorAdoptedRoute } = await import("./routeShadowValidation");
+    const { emptyArgumentRoleCounts, ARGUMENT_TAXONOMY_VERSION } = await import("./argumentTaxonomy");
+    const e = ensembleVerdicts([judge("openrouter", "a", 61, 39), judge("anthropic", "a", 59, 41)]);
+    const roleCounts = emptyArgumentRoleCounts();
+    roleCounts.claim = 1;
+    roleCounts.question = 1;
+    const shadow = buildShadowRecord({
+      routing: {
+        route: "deterministic",
+        specializedPath: "deterministic",
+        taxonomyVersion: ARGUMENT_TAXONOMY_VERSION,
+        classifierSource: "fallback",
+        argumentCount: 2,
+        batchCount: 1,
+        roleCounts,
+        roleCountsByOwner: { a: roleCounts, b: emptyArgumentRoleCounts(), ai: emptyArgumentRoleCounts() },
+        highConfidenceCount: 1,
+        ambiguousCount: 0,
+        unknownCount: 1,
+        fallbackCount: 1,
+        mixedRoleCount: 0,
+        expensiveJudgeCallsAvoided: 0,
+        reason: "test",
+      },
+      ensemble: { winner: "a", playerAScore: 60, playerBScore: 40, scoreGap: 20, scoreStatus: "scored" },
+      shadow: { winner: "b", playerAScore: 40, playerBScore: 60, scoreGap: 20, scoreStatus: "scored" },
+    });
+    // The registry considers this route adopted (gate passing, deliberate act
+    // recorded) — production serving must not care: the lifecycle table is
+    // display/audit truth, never judging authority.
+    const effective = monitorAdoptedRoute({
+      route: "deterministic",
+      state: "adopted",
+      n: 250,
+      metrics: {
+        winnerAgreement: 0.96, tieDisagreement: 0, scoreMae: 1.5, scoreGapMae: 3,
+        insufficientEvidenceRate: 0.01, falseDecisiveRate: 0.01, sideSwapStability: 0.96,
+      },
+      passed: true,
+      failures: [],
+    });
+    expect(effective).toBe("adopted");
+    const v = verdictFromEnsemble({ ...e, shadowRouting: shadow });
+    expect(v.winner).toBe("a");
+    expect(v.playerAScore).toBe(60);
+    expect(v.playerBScore).toBe(40);
+  });
 });
 
