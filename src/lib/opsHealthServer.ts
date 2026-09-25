@@ -264,12 +264,19 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
         now,
       );
     }
-  } catch {
+  } catch (error) {
+    // This catch previously DISCARDED the failure reason: a persistent
+    // daily_topics read failure surfaced only as proofs.databaseReachable
+    // = false with no diagnostic anywhere. Postgres error messages contain
+    // no secrets (no connection strings), so recording the message is safe
+    // and turns a silent degradation into a nameable, fixable defect.
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error("[ops-health] topic store read failed:", reason);
     topicStoreReadable = false;
     topic = {
       ...assessTopicHealth(null, now),
       status: "blocked" as const,
-      note: "Topic store unreadable — database or permissions failure, not just staleness.",
+      note: `Topic store unreadable — database or permissions failure, not just staleness. (${reason})`,
     };
   }
 
