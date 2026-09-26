@@ -19,7 +19,7 @@ export default function MessageComposer({
   placeholder,
   modeId = "text",
 }: {
-  onSubmit: (data: ComposerSubmitData) => void;
+  onSubmit: (data: ComposerSubmitData) => void | boolean | Promise<void | boolean>;
   disabled: boolean;
   placeholder?: string;
   modeId?: string;
@@ -27,6 +27,8 @@ export default function MessageComposer({
   const mode = resolveMode(modeId);
   const [text, setText] = useState("");
   const [usedVoice, setUsedVoice] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const busy = disabled || submitting;
   const { supported, listening, transcript, interim, error: speechError, start, stop } = useSpeechRecognition();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const voiceStartedAt = useRef<number | null>(null);
@@ -60,24 +62,33 @@ export default function MessageComposer({
     };
   }
 
-  function submit() {
+  async function submit() {
     const trimmed = displayValue.trim();
-    if (!trimmed || disabled) return;
-    onSubmit({
-      message: trimmed,
-      inputMode: usedVoice ? "voice" : "text",
-      modeId,
-      timing: usedVoice ? buildTiming() : null,
-    });
-    setText("");
-    setUsedVoice(false);
-    voiceStartedAt.current = null;
+    if (!trimmed || busy) return;
+    setSubmitting(true);
+    try {
+      const accepted = await onSubmit({
+        message: trimmed,
+        inputMode: usedVoice ? "voice" : "text",
+        modeId,
+        timing: usedVoice ? buildTiming() : null,
+      });
+      // Preserve the user's draft when the parent reports a failed request.
+      // Losing a response because Wi-Fi dropped is much worse than making the
+      // user explicitly retry it.
+      if (accepted === false) return;
+      setText("");
+      setUsedVoice(false);
+      voiceStartedAt.current = null;
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      submit();
+      void submit();
     }
   }
 
@@ -128,7 +139,7 @@ export default function MessageComposer({
         onKeyDown={handleKeyDown}
         placeholder={placeholder ?? "Make your case… (Ctrl/⌘+Enter to send)"}
         rows={3}
-        disabled={disabled || listening}
+        disabled={busy || listening}
         aria-label="Your debate response"
         className="w-full resize-none rounded-lg border border-[var(--rule)] bg-transparent px-3 py-2 text-sm disabled:opacity-50"
       />
@@ -138,7 +149,7 @@ export default function MessageComposer({
             <button
               type="button"
               onClick={toggleListening}
-              disabled={disabled}
+              disabled={busy}
               aria-pressed={listening}
               aria-label={listening ? "Stop listening" : "Start voice input"}
               className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${listening ? "border border-[var(--bad)] text-[var(--bad)]" : "btn-ghost"}`}
@@ -158,7 +169,7 @@ export default function MessageComposer({
           <button
             type="button"
             onClick={submit}
-            disabled={disabled || !displayValue.trim()}
+            disabled={busy || !displayValue.trim()}
             className="btn btn-primary px-4 py-1.5 text-sm disabled:opacity-40"
           >
             Send
