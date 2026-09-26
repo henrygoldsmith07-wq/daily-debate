@@ -101,15 +101,15 @@ export function inspectGuestResponse(response: string, opponent: string): GuestR
     sentenceCount,
     hasClaim: substantive && CLAIM.test(response),
     hasReasoning: wordCount >= 10 && REASONING.test(response),
-    addressesOpponent: substantive && (overlap >= 2 || (CONTRAST.test(response) && overlap >= 1)),
+    addressesOpponent: substantive && ((CONTRAST.test(response) && overlap >= 1) || overlap >= 3),
     comparesImpacts: wordCount >= 12 && IMPACT.test(response) && REASONING.test(response),
     namesEvidence: wordCount >= 8 && NAMED_EVIDENCE.test(response),
   };
 }
 
-function bestStrength(signals: GuestResponseSignals): string {
-  if (signals.addressesOpponent) return "You directly engaged with the opposing point instead of talking past it.";
+function bestStrength(signals: GuestResponseSignals, roundIndex: number): string {
   if (signals.comparesImpacts) return "You compared the trade-offs rather than listing points separately.";
+  if (roundIndex >= 1 && signals.addressesOpponent) return "You directly engaged with the opposing point instead of talking past it.";
   if (signals.namesEvidence) return "You named a source or dataset, which makes the support checkable.";
   if (signals.hasReasoning) return "You connected your claim to a reason instead of leaving it as an assertion.";
   if (signals.hasClaim) return "Your position is clear enough for the reader to know what you are arguing.";
@@ -137,7 +137,7 @@ export function assessGuestResponse(
   const signals = inspectGuestResponse(response, opponent);
   return {
     signals,
-    strength: bestStrength(signals),
+    strength: bestStrength(signals, roundIndex),
     nextMove: nextMoveForRound(roundIndex, signals),
     chips: [
       { label: "Claim", observed: signals.hasClaim },
