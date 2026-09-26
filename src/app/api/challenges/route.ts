@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   const topic = await getOrCreateTodayTopic();
   const service = createServiceClient();
 
-  const created = await service.rpc("create_friend_challenge", {
+  const created = await service.rpc("create_friend_challenge_v2", {
     p_challenger: user.id,
     p_topic_id: topic.id,
     p_challenger_side: side,

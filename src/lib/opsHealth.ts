@@ -849,6 +849,10 @@ export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019" | 
   ],
   "024": [
     {
+      table: "challenge_invites",
+      columns: ["function:create_friend_challenge_v2"],
+    },
+    {
       table: "corpus_system_judge_claims",
       columns: ["corpus_id", "claim_token", "claimed_at"],
     },

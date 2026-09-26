@@ -695,6 +695,7 @@ describe("migration readiness (actual schema, never migration counts)", () => {
       ["challenge_invites", new Set([
         "index:challenge_invites_one_open_per_challenger",
         "function:create_friend_challenge",
+        "function:create_friend_challenge_v2",
         "function:accept_friend_challenge",
       ])],
       ["corpus_system_judge_claims", new Set(["corpus_id", "claim_token", "claimed_at"])],

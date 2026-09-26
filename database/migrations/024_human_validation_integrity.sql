@@ -41,10 +41,10 @@ create table if not exists corpus_system_judge_claims (
   claimed_at timestamptz not null default now()
 );
 
--- Return whether create actually inserted or simply reused an identical open
--- invite, so retries cannot inflate product analytics.
-drop function if exists create_friend_challenge(uuid, uuid, text, integer);
-create function create_friend_challenge(
+-- Keep migration 023's create_friend_challenge return contract stable so
+-- migration replay remains valid. Version the richer retry-aware result shape
+-- instead of changing an existing PostgreSQL function's return type.
+create or replace function create_friend_challenge_v2(
   p_challenger uuid,
   p_topic_id uuid,
   p_challenger_side text,
