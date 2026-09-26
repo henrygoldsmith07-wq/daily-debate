@@ -214,6 +214,7 @@ const MIN_USEFUL_RETRIEVAL_MS = 3_000;
 export interface EvidenceBudgetPlan {
   remainingMs: number;
   exhausted: boolean;
+  retrievalReady: boolean;
   discoveryTimeoutMs: number;
   retrievalTimeoutMs: number;
 }
@@ -231,6 +232,7 @@ export function evidenceBudgetPlan(budgetMs: number, elapsedMs = 0): EvidenceBud
   return {
     remainingMs,
     exhausted: remainingMs <= 0,
+    retrievalReady: remainingMs >= MIN_USEFUL_RETRIEVAL_MS,
     discoveryTimeoutMs: Math.min(DISCOVERY_TIMEOUT_MS, phaseBudget),
     retrievalTimeoutMs: Math.min(RETRIEVAL_TIMEOUT_MS, phaseBudget),
   };
@@ -257,7 +259,7 @@ export async function buildTopicEvidenceCards(
   if (!candidates.length) return { cards: [], attempted: 0, failureNotes: ["No candidate sources discovered."] };
 
   const afterDiscovery = evidenceBudgetPlan(budgetMs, Date.now() - startedAt);
-  if (afterDiscovery.exhausted || afterDiscovery.remainingMs < MIN_USEFUL_RETRIEVAL_MS) {
+  if (afterDiscovery.exhausted || !afterDiscovery.retrievalReady) {
     return {
       cards: [],
       attempted: candidates.length,
