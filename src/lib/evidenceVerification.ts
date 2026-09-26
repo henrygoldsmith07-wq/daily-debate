@@ -3,7 +3,12 @@
 // fallbacks when network is unavailable) and pure-testable.
 
 import type { ArgGraph, ArgNode } from "./argGraph";
-import { graphSourceQuality, verifyGraphCitations, KNOWN_SOURCES } from "./citationVerifier";
+import {
+  citationIdentityCheck,
+  graphSourceQuality,
+  verifyGraphCitations,
+  KNOWN_SOURCES,
+} from "./citationVerifier";
 import { verifyEvidenceQuotes, claimSourceMatch } from "./quoteVerification";
 import { validateRetrievalUrl } from "./sourceRetrieval";
 
@@ -133,13 +138,25 @@ export function claimCitationMap(graph: ArgGraph, fetchedByUrl?: Map<string, Fet
       if (claimSource.status === "mismatched") flags.push(`claim not supported by source: ${claimSource.bestSource} (overlap ${claimSource.score.toFixed(2)})`);
       else if (claimSource.status === "weak") flags.push(`weak claim-source overlap: ${claimSource.bestSource} (overlap ${claimSource.score.toFixed(2)})`);
       else if (claimSource.status === "unverifiable") flags.push("claim-source support unverified — no source excerpt attached");
-      // Positive support is deliberately narrow: only an actually supported
-      // claim/source match may earn it. Missing source text is not evidence,
-      // and weak overlap is a warning rather than a hidden pass.
+
+      // claimSource.bestSource is copied directly from the citation whose
+      // excerpt matched best. Bind that source name to its registered domain
+      // before allowing the text match to count as positive support.
+      const bestCitation = claimSource.bestSource
+        ? cites.find((citation) => citation.sourceName === claimSource.bestSource)
+        : undefined;
+      const identity = bestCitation ? citationIdentityCheck(bestCitation) : null;
+      const identityVerified = identity?.verified === true;
+      if (claimSource.status !== "unverifiable" && !identityVerified) {
+        flags.push(`source identity unverified: ${identity?.reason ?? "best matching citation could not be identified"}`);
+      }
+
+      // Positive support is deliberately narrow: the source text must match
+      // AND the source identity must match its registered root domain.
       const support: CitationSupport =
         flags.some((f) => f.includes("hallucination") || f.includes("no evidence"))
           ? "unsupported"
-          : claimSource.status === "unverifiable"
+          : claimSource.status === "unverifiable" || !identityVerified
             ? "unverified"
             : distortion > 0.6 || claimSource.status === "mismatched" || claimSource.status === "weak"
               ? "tangential"
