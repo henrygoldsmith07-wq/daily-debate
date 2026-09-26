@@ -52,7 +52,6 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "Player vs Player",
         description: "Debate another player on today's motion",
         icon: "pvp",
-        primary: true,
       },
     ],
   },
