@@ -32,6 +32,12 @@ Start-screen copy is explicit about the format: *"Three focused rounds with dire
 
 Sprint results say so plainly: *"Sprint read: a 3-round session is a small sample. Treat this as practice signal, not a measurement of your ability."* Implementation: `src/lib/sprint.ts`.
 
+## Live debate
+
+The default room keeps the normal daily rep focused: Text and Speech are immediately available, while Rapid Rebuttal and Prepared Speech sit behind **More modes**. Specialist formats remain accessible without making every capability compete for attention during a Sprint.
+
+Turn submission is lossless under ordinary network failure. The composer keeps the exact draft until the server confirms the turn, disables itself locally while the request is in flight to reduce accidental double submission, and leaves a failed draft in place for one-click retry after connectivity returns.
+
 ## Result screen
 
 Default view shows only:
@@ -62,6 +68,20 @@ Replays of finished debates render the same hierarchy server-side (strength, wea
 For longitudinal measurement, multiple rewrite submissions for the same user + debate + weakness kind are one **repair episode**. The first attempt anchors the episode; retries are preserved but cannot inflate repair denominators or create fake intervention cutoffs. A failed submission is practice history only: it stays retryable, does **not** count as repair completion, and does **not** unlock a deliberate next-debate retest. The first successful submission is what transitions the product into retest state.
 
 The debate's own score never changes.
+
+## Guest practice
+
+Signed-out users get the same product philosophy in a deliberately lighter form:
+
+1. three short responses to a fixed sample motion;
+2. deterministic local checks of observable wording only: explicit claim, reasoning link, engagement with the opponent, impact comparison, and named evidence;
+3. one concrete strength and one highest-priority missing move;
+4. **Fix this now** with a rewrite of that move;
+5. an account CTA only after the product has demonstrated the repair loop.
+
+Guest analysis lives in `src/lib/guestAssessment.ts`. It does **not** assign a numeric debate/ability score, infer hidden reasoning quality, or claim validation. Trigger words alone are insufficient: a one-word “however” is not rebuttal, “matters more” is not impact comparison, and naming a source without explaining its relevance does not complete an evidence repair.
+
+The guest result labels these checks as local observations, not measurement of debating ability. Responses stay client-side in this flow; they are not written to the authenticated product-event pipeline.
 
 ## "Challenge me"
 

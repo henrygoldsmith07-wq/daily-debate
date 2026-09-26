@@ -140,4 +140,39 @@ test.describe("daily sprint repair loop", () => {
     // Finishing is possible at exactly 3 rounds (the sprint minimum).
     await expect(page.getByTestId("finish-debate")).toBeVisible({ timeout: 15_000 });
   });
+
+  test("advanced modes stay secondary and a failed submit preserves the draft", async ({ page }) => {
+    // e2e-e is reserved for this failure/retry test so an active debate from
+    // another spec can never hide Today's start CTA.
+    await signIn(page, "e");
+
+    await page.getByTestId("start-sprint").click();
+    await page.waitForURL(/\/debate\//, { timeout: 20_000 });
+
+    // Normal daily use stays focused: specialist modes are opt-in.
+    await expect(page.getByRole("button", { name: /rapid/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /prepared/i })).toHaveCount(0);
+    await page.getByRole("button", { name: /more modes/i }).click();
+    await expect(page.getByRole("button", { name: /rapid/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /prepared/i })).toBeVisible();
+
+    const composer = page.getByLabel("Your debate response");
+    const draft =
+      "Schools should protect focused lesson time because constant interruptions make it harder for students to follow the argument.";
+
+    // Simulate the network disappearing after the user presses Send.
+    await page.route("**/api/solo/**/turn", (route) => route.abort("failed"));
+    await composer.fill(draft);
+    await page.getByRole("button", { name: /^send$/i }).click();
+
+    await expect(page.getByRole("alert")).toBeVisible({ timeout: 10_000 });
+    await expect(composer).toHaveValue(draft);
+    await expect(page.getByRole("button", { name: /^send$/i })).toBeEnabled();
+
+    // Once connectivity is back, the exact preserved draft can be retried.
+    await page.unroute("**/api/solo/**/turn");
+    await page.getByRole("button", { name: /^send$/i }).click();
+    await expect(composer).toHaveValue("", { timeout: 30_000 });
+  });
+
 });
