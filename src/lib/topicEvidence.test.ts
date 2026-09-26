@@ -91,6 +91,7 @@ describe("evidence retrieval budget", () => {
     expect(evidenceBudgetPlan(14_000, 0)).toMatchObject({
       remainingMs: 14_000,
       exhausted: false,
+      retrievalReady: true,
       discoveryTimeoutMs: 8_000,
       retrievalTimeoutMs: 9_000,
     });
@@ -98,6 +99,7 @@ describe("evidence retrieval budget", () => {
     expect(evidenceBudgetPlan(14_000, 7_500)).toMatchObject({
       remainingMs: 6_500,
       exhausted: false,
+      retrievalReady: true,
       discoveryTimeoutMs: 6_500,
       retrievalTimeoutMs: 6_500,
     });
@@ -107,12 +109,21 @@ describe("evidence retrieval budget", () => {
     const plan = evidenceBudgetPlan(5_000, 5_200);
     expect(plan.remainingMs).toBe(0);
     expect(plan.exhausted).toBe(true);
+    expect(plan.retrievalReady).toBe(false);
     expect(plan.retrievalTimeoutMs).toBe(1);
+  });
+
+  it("refuses to start retrieval when less than the safe DNS window remains", () => {
+    const plan = evidenceBudgetPlan(14_000, 11_500);
+    expect(plan.exhausted).toBe(false);
+    expect(plan.remainingMs).toBe(2_500);
+    expect(plan.retrievalReady).toBe(false);
   });
 
   it("bounds tiny or invalid budgets to safe positive timeouts", () => {
     const plan = evidenceBudgetPlan(0, 0);
     expect(plan.remainingMs).toBe(1);
+    expect(plan.retrievalReady).toBe(false);
     expect(plan.discoveryTimeoutMs).toBe(1);
     expect(plan.retrievalTimeoutMs).toBe(1);
   });
