@@ -17,7 +17,6 @@ interface Assignment {
   prompt: string;
   before_score: number | null;
   status: string;
-  attempt_score?: number | null;
 }
 
 interface RetestInfo {
@@ -32,7 +31,6 @@ interface OutcomeRow {
   label: string;
   title: string;
   assignedDate: string;
-  attemptScore: number | null;
   movement: number | null;
   measured: boolean;
 }
@@ -61,7 +59,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
   const [outcomeSummary, setOutcomeSummary] = useState<string | null>(null);
   const [attemptText, setAttemptText] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<{ score: number; signals: string[] } | null>(null);
+  const [feedback, setFeedback] = useState<{ signals: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -104,12 +102,12 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
         body: JSON.stringify({ assignmentId: assignment.id, text: attemptText }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to score your attempt.");
-      setFeedback({ score: data.attemptScore, signals: data.signals });
+      if (!res.ok) throw new Error(data.error || "Failed to check your practice.");
+      setFeedback({ signals: data.signals ?? [] });
       setAttemptText("");
       void load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to score your attempt.");
+      setError(err instanceof Error ? err.message : "Failed to check your practice.");
     } finally {
       setSubmitting(false);
     }
@@ -161,19 +159,20 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
 
           {feedback ? (
             <div className="rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] p-4" role="status">
-              <p className="text-sm font-semibold">Attempt scored: {feedback.score}/100</p>
+              <p className="text-sm font-semibold">Practice checked</p>
+              <p className="mt-1 text-xs text-ink3">Observed in this draft:</p>
               <ul className="mt-1 list-inside list-disc text-xs text-ink3">
                 {feedback.signals.map((s) => (
                   <li key={s}>{s}</li>
                 ))}
               </ul>
               <p className="mt-2 text-xs text-ink3">
-                Skill movement gets measured against your next debates — keep debating and check back.
+                This is formative practice feedback, not an ability score. Skill movement is measured only in later debates.
               </p>
             </div>
-          ) : assignment.status === "attempted" && assignment.attempt_score != null ? (
+          ) : assignment.status === "attempted" ? (
             <p className="text-sm text-ink3" role="status">
-              Attempt scored: {assignment.attempt_score}/100. Movement is tracked against upcoming debates.
+              Practice checked. This drill is saved; improvement is measured against later debates, not this attempt alone.
             </p>
           ) : (
             <textarea
@@ -199,7 +198,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
                 disabled={submitting || attemptText.trim().length < 10}
                 className="btn btn-primary px-4 py-2 text-sm disabled:opacity-40"
               >
-                {submitting ? "Scoring…" : "Submit attempt for scoring"}
+                {submitting ? "Checking…" : "Check practice move"}
               </button>
             </>
           )}
