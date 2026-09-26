@@ -249,6 +249,94 @@ d("daily coach loop schema", () => {
     await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
   });
 
+  it("persists durable repair-retest assignments and enforces assignment integrity", async () => {
+    const userId = userIds.get("coach-a@test.local")!;
+    const topicId = await todayTopicId();
+    const repairedDebate = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, status, format)
+       VALUES ($1, $2, 'for', 'completed', 'sprint') RETURNING id`,
+      [userId, topicId],
+    );
+    const repair = await pool.query<{ id: string }>(
+      `INSERT INTO repair_results (
+         user_id, debate_id, target_kind, source_text, rewrite_text, score, succeeded
+       ) VALUES ($1, $2, 'evidence', 'unsupported claim', 'According to ONS data...', 90, true)
+       RETURNING id`,
+      [userId, repairedDebate.rows[0].id],
+    );
+    const otherRepair = await pool.query<{ id: string }>(
+      `INSERT INTO repair_results (
+         user_id, debate_id, target_kind, source_text, rewrite_text, score, succeeded
+       ) VALUES ($1, $2, 'logic', 'weak inference', 'Because the mechanism is...', 90, true)
+       RETURNING id`,
+      [userId, repairedDebate.rows[0].id],
+    );
+    const firstAssigned = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format)
+       VALUES ($1, $2, 'against', 'sprint') RETURNING id`,
+      [userId, topicId],
+    );
+    const secondAssigned = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format)
+       VALUES ($1, $2, 'for', 'sprint') RETURNING id`,
+      [userId, topicId],
+    );
+
+    await pool.query(
+      `INSERT INTO repair_retests (
+         repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+       ) VALUES ($1, $2, $3, 'evidence', $4)`,
+      [repair.rows[0].id, userId, repairedDebate.rows[0].id, firstAssigned.rows[0].id],
+    );
+
+    await expect(
+      pool.query(
+        `INSERT INTO repair_retests (
+           repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+         ) VALUES ($1, $2, $3, 'evidence', $4)`,
+        [repair.rows[0].id, userId, repairedDebate.rows[0].id, secondAssigned.rows[0].id],
+      ),
+    ).rejects.toThrow(/repair_retests_one_open_per_repair|unique constraint/i);
+
+    // A completed but unobservable assignment does not prove transfer and must
+    // release the repair for a later deliberate test.
+    await pool.query(
+      `UPDATE repair_retests
+       SET completed_at = now(), observable = false, demonstrated = null
+       WHERE repair_result_id = $1 AND assigned_debate_id = $2`,
+      [repair.rows[0].id, firstAssigned.rows[0].id],
+    );
+    const secondRetest = await pool.query<{ id: string }>(
+      `INSERT INTO repair_retests (
+         repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+       ) VALUES ($1, $2, $3, 'evidence', $4) RETURNING id`,
+      [repair.rows[0].id, userId, repairedDebate.rows[0].id, secondAssigned.rows[0].id],
+    );
+    expect(secondRetest.rows).toHaveLength(1);
+
+    await expect(
+      pool.query(
+        `INSERT INTO repair_retests (
+           repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+         ) VALUES ($1, $2, $3, 'logic', $4)`,
+        [otherRepair.rows[0].id, userId, repairedDebate.rows[0].id, secondAssigned.rows[0].id],
+      ),
+    ).rejects.toThrow(/repair_retests_assigned_debate_unique|unique constraint/i);
+
+    await expect(
+      pool.query(
+        `UPDATE repair_retests
+         SET completed_at = now(), observable = false, demonstrated = true
+         WHERE id = $1`,
+        [secondRetest.rows[0].id],
+      ),
+    ).rejects.toThrow(/check constraint/i);
+
+    await pool.query("DELETE FROM solo_debates WHERE id = ANY($1::uuid[])", [
+      [repairedDebate.rows[0].id, firstAssigned.rows[0].id, secondAssigned.rows[0].id],
+    ]);
+  });
+
   it("keeps challenge invites unique by code and lifecycle-honest", async () => {
     const challengerId = userIds.get("coach-a@test.local")!;
     const opponentId = userIds.get("coach-b@test.local")!;

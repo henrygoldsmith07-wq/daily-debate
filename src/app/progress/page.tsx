@@ -96,13 +96,13 @@ export default async function ProgressPage() {
   const drillOutcomes = coachingContext.drillOutcomes;
   const pendingRetest = coachingContext.selectedRetest;
   const service = createServiceClient();
-  const { data: drillRows } = await service
+  const { data: drillRows, error: drillRowsError } = await service
     .from("drill_assignments")
     .select("*")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(30);
-  const drillAssignments: DrillAssignmentLite[] = (drillRows ?? []).map((row) => ({
+  const drillAssignments: DrillAssignmentLite[] = drillRowsError ? [] : (drillRows ?? []).map((row) => ({
     id: row.id,
     dimension: row.dimension,
     assignedDate: row.assigned_date,
@@ -114,9 +114,11 @@ export default async function ProgressPage() {
     movement: row.movement,
     status: row.status,
   }));
-  const loopStatuses = computeLoopStatuses(ledger.points, drillAssignments)
-    .sort((a, b) => (b.drillAssignedAt ?? "").localeCompare(a.drillAssignedAt ?? ""))
-    .slice(0, 3);
+  const loopStatuses = drillRowsError
+    ? []
+    : computeLoopStatuses(ledger.points, drillAssignments)
+        .sort((a, b) => (b.drillAssignedAt ?? "").localeCompare(a.drillAssignedAt ?? ""))
+        .slice(0, 3);
 
   const summary = buildProgressSummary(ledger.points);
   const goal = buildCoachingGoal(
@@ -140,6 +142,11 @@ export default async function ProgressPage() {
       {coachingContext.status === "partial" && (
         <p className="text-xs text-ink3" role="status">
           Some coaching context is temporarily unavailable; saved progress remains intact and no missing signal is being treated as zero.
+        </p>
+      )}
+      {drillRowsError && (
+        <p className="text-xs text-ink3" role="status">
+          Drill history is temporarily unavailable; learning-loop cards are hidden rather than treating missing assignments as zero practice.
         </p>
       )}
 

@@ -14,10 +14,12 @@ vi.mock("@/lib/productFunnelServer", () => ({
     errorCategory: h.status === "unavailable" ? "event-read-failed" : h.status === "partial" ? "turn-read-failed" : null,
     events: [],
     repairs: [],
+    retests: [],
     debateWeaknesses: [],
     completeness: {
       events: { loaded: 0, limit: 20000, truncated: false },
       repairs: { loaded: 0, limit: 2000, truncated: false },
+      retests: { loaded: 0, limit: 4000, truncated: false },
       debates: { loaded: 0, limit: 120, truncated: false },
       note: null,
     },

@@ -19,6 +19,7 @@ import { MAX_ROUNDS, type CoachingRecord } from "@/lib/types";
 import { mergeSoloAssessmentsByDebate } from "@/lib/soloAssessmentHistory";
 import { extractSkillPoint } from "@/lib/skillLedger";
 import { pointMeasuresDimension, repairKindToDimension } from "@/lib/repairRetest";
+import { completeRepairRetestAssignment } from "@/lib/repairRetestServer";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   const limited = await checkRateLimit(request, { name: "solo-finish", limit: 10, windowMs: 60_000 });
@@ -231,7 +232,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const eventSide = debate.side as "for" | "against";
   await recordProductEventForUser(user.id, "debate_completed", { format, side: eventSide, debateId });
 
-  if (coaching.repairRetest && finalAssessment) {
+  if (coaching.repairRetest) {
     const retestDimension = repairKindToDimension(coaching.repairRetest.targetKind);
     const clarityValues = answered
       .map((turn) => {
@@ -243,7 +244,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       ? clarityValues.reduce((sum, value) => sum + value, 0) / clarityValues.length
       : null;
     const completedAt = new Date().toISOString();
-    const retestPoint = retestDimension
+    const retestPoint = retestDimension && finalAssessment
       ? extractSkillPoint(debateId, completedAt, finalAssessment, "a", avgClarity)
       : null;
     const observableRetest = !!(
@@ -251,6 +252,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       retestPoint &&
       pointMeasuresDimension(retestPoint, retestDimension)
     );
+    const demonstrated = observableRetest
+      ? snapshot.goalOutcome.demonstrated === true
+      : null;
+
+    const durable = await completeRepairRetestAssignment({
+      userId: user.id,
+      repairResultId: coaching.repairRetest.repairResultId ?? null,
+      assignedDebateId: debateId,
+      completedAt,
+      observable: observableRetest,
+      demonstrated,
+    });
+    if (!durable.ok) {
+      console.error("Failed to persist repair retest outcome:", durable.message);
+    }
 
     if (observableRetest) {
       await recordProductEventForUser(user.id, "retest_completed", {
@@ -259,7 +275,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
         reason: coaching.repairRetest.targetKind,
         debateId,
       });
-      if (snapshot.goalOutcome.demonstrated === true) {
+      if (demonstrated === true) {
         await recordProductEventForUser(user.id, "retest_skill_demonstrated", {
           format,
           side: eventSide,

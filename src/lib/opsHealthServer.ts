@@ -54,6 +54,7 @@ const REQUIRED_TABLES: TableName[] = [
   "corpus_items",
   "corpus_ratings",
   "repair_results",
+  "repair_retests",
   "product_events",
   "app_migrations",
 ];
@@ -422,13 +423,16 @@ async function loadCoachingRuntimeSection(
       .select("created_at, coaching")
       .gte("created_at", cutoff)
       .order("created_at", { ascending: false })
-      .limit(100);
+      .limit(101);
     if (error) throw new Error(error.message ?? "coaching runtime sample unreadable");
+
+    const truncated = (data ?? []).length > 100;
+    const sampled = (data ?? []).slice(0, 100);
 
     let degradedStarts = 0;
     let latestDegradedAt: string | null = null;
     const reasonCounts: Partial<Record<CoachingContextDegradationReason, number>> = {};
-    for (const row of data ?? []) {
+    for (const row of sampled) {
       const coaching = row.coaching && typeof row.coaching === "object"
         ? (row.coaching as { degradationReasons?: unknown })
         : null;
@@ -445,8 +449,9 @@ async function loadCoachingRuntimeSection(
       }
     }
     return assessCoachingRuntimeHealth({
-      startsSampled: (data ?? []).length,
+      startsSampled: sampled.length,
       degradedStarts,
+      truncated,
       latestDegradedAt,
       reasonCounts,
     });
@@ -458,6 +463,7 @@ async function loadCoachingRuntimeSection(
       note: "Recent solo-debate coaching context is unavailable to ops health.",
       startsSampled: 0,
       degradedStarts: 0,
+      truncated: false,
       latestDegradedAt: null,
       reasonCounts: {},
     };
@@ -822,8 +828,8 @@ async function loadTrainingSection(now: string): Promise<TrainingEvidence> {
         outcomes: [],
       };
     }
-    const { events, repairs, debateWeaknesses } = funnelData;
-    const funnel = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { now });
+    const { events, repairs, retests, debateWeaknesses } = funnelData;
+    const funnel = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { now, retests });
     const assessed = assessTrainingEvidence({
       repairs: funnel.repairs,
       retestsObserved: funnel.retestsObserved,

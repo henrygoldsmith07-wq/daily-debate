@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/backend/server";
+import { createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { scoreAttempt, type CoachDimension } from "@/lib/adaptiveCoach";
+import { COACH_DIMENSIONS } from "@/lib/adaptiveCoach";
+import { getCurrentUser } from "@/lib/currentViewer";
 
 // Submit a formative drill attempt. A deterministic rubric value is stored
 // internally for diagnostics/selection, but the learner-facing response only
@@ -11,10 +13,7 @@ export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "coach-attempt", limit: 20, windowMs: 60_000 });
   if (limited) return limited;
 
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -25,13 +24,19 @@ export async function POST(request: Request) {
   if (text.length > 6000) return NextResponse.json({ error: "Attempt too long." }, { status: 400 });
 
   const service = createServiceClient();
-  const { data: assignment } = await service
+  const { data: assignment, error: assignmentError } = await service
     .from("drill_assignments")
     .select("id, user_id, dimension, status")
     .eq("id", assignmentId)
-    .single();
+    .maybeSingle();
+  if (assignmentError) {
+    return NextResponse.json({ error: "Training assignment is temporarily unavailable." }, { status: 503 });
+  }
   if (!assignment || assignment.user_id !== user.id) {
     return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
+  }
+  if (!(COACH_DIMENSIONS as readonly string[]).includes(assignment.dimension)) {
+    return NextResponse.json({ error: "Assignment has an unsupported dimension." }, { status: 409 });
   }
 
   const attempt = scoreAttempt(assignment.dimension as CoachDimension, text);

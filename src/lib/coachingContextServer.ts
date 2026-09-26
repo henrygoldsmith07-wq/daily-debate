@@ -1,8 +1,12 @@
 import "server-only";
 
 import { buildLedgerForUser, type LedgerWithSeries } from "./skillLedgerServer";
-import { successfulRepairRetestAnchors } from "./repairRetestServer";
 import {
+  completeRepairRetestAssignment,
+  unresolvedRepairRetestAnchors,
+} from "./repairRetestServer";
+import {
+  observedRepairRetestPoint,
   pendingRepairRetests,
   selectEligiblePendingRetest,
   type PendingRepairRetest,
@@ -36,7 +40,7 @@ export async function loadCoachingContext(
   const degradationReasons: CoachingContextDegradationReason[] = [];
   const [ledgerResult, repairResult] = await Promise.allSettled([
     buildLedgerForUser(userId),
-    successfulRepairRetestAnchors(userId),
+    unresolvedRepairRetestAnchors(userId),
   ]);
 
   if (ledgerResult.status === "rejected") {
@@ -67,6 +71,36 @@ export async function loadCoachingContext(
   const pendingRetests = repairResult.status === "fulfilled"
     ? pendingRepairRetests(ledger.points, repairAnchors)
     : [];
+
+  // Migration 025 backfills historical assignments from debate coaching. Some
+  // older completed retests may lack a reliable telemetry event, leaving their
+  // durable `observable` value unknown. While that debate is still in the
+  // ledger window, reconcile it once into durable state so it can never become
+  // pending again after the bounded ledger advances.
+  if (repairResult.status === "fulfilled") {
+    const reconciliationWrites = [];
+    for (const anchor of repairAnchors) {
+      const observed = observedRepairRetestPoint(ledger.points, anchor);
+      if (!observed) continue;
+      reconciliationWrites.push(
+        completeRepairRetestAssignment({
+          userId,
+          repairResultId: anchor.repairResultId,
+          assignedDebateId: observed.debateId,
+          completedAt: observed.completedAt,
+          observable: true,
+          demonstrated: null,
+        }),
+      );
+    }
+    const reconciliationResults = await Promise.all(reconciliationWrites);
+    if (
+      reconciliationResults.some((result) => !result.ok) &&
+      !degradationReasons.includes("repair-retest-unavailable")
+    ) {
+      degradationReasons.push("repair-retest-unavailable");
+    }
+  }
   const selectedRetest =
     opts.currentTopicId === undefined
       ? pendingRetests[0] ?? null

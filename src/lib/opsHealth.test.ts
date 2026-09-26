@@ -615,6 +615,7 @@ describe("evidence sections (never green-washed)", () => {
     const empty = assessCoachingRuntimeHealth({
       startsSampled: 0,
       degradedStarts: 0,
+      truncated: false,
       latestDegradedAt: null,
       reasonCounts: {},
     });
@@ -623,6 +624,7 @@ describe("evidence sections (never green-washed)", () => {
     const healthy = assessCoachingRuntimeHealth({
       startsSampled: 12,
       degradedStarts: 0,
+      truncated: false,
       latestDegradedAt: null,
       reasonCounts: {},
     });
@@ -631,6 +633,7 @@ describe("evidence sections (never green-washed)", () => {
     const degraded = assessCoachingRuntimeHealth({
       startsSampled: 12,
       degradedStarts: 2,
+      truncated: false,
       latestDegradedAt: "2026-09-26T18:00:00Z",
       reasonCounts: { "repair-retest-unavailable": 2 },
     });
@@ -665,12 +668,25 @@ describe("evidence sections (never green-washed)", () => {
       coach: assessCoachingRuntimeHealth({
         startsSampled: 10,
         degradedStarts: 1,
+        truncated: false,
         latestDegradedAt: now,
         reasonCounts: { "skill-ledger-unavailable": 1 },
       }),
     });
     expect(report.coach?.status).toBe("degraded");
     expect(report.overall).toBe("degraded");
+  });
+
+  it("marks a capped seven-day coaching sample as degraded rather than complete", () => {
+    const capped = assessCoachingRuntimeHealth({
+      startsSampled: 100,
+      degradedStarts: 0,
+      truncated: true,
+      latestDegradedAt: null,
+      reasonCounts: {},
+    });
+    expect(capped.status).toBe("degraded");
+    expect(capped.note).toMatch(/newest 100/i);
   });
 });
 
@@ -748,7 +764,7 @@ describe("migration readiness (actual schema, never migration counts)", () => {
     expect(readiness.note).toMatch(/Required application schema is incomplete/);
   });
 
-  it("requires the 022 privacy constraint, 023 challenge primitives and 024 validation claim table", () => {
+  it("requires the 022 privacy constraint, 023 challenge primitives, 024 validation claims and 025 repair-retest state", () => {
     const present = new Map<string, Set<string>>([
       ["topic_run_log", new Set(["run_created_at", "queue_delay_ms", "generator_result", "provider_health", "topic_fingerprint", "provider_attempts"])],
       ["route_lifecycle", new Set(["route", "registration_version", "state", "evaluated_at", "sample_window", "sample_n", "gate_result", "human_result", "adopted_at", "suspended_at", "reason", "updated_at"])],
@@ -762,11 +778,26 @@ describe("migration readiness (actual schema, never migration counts)", () => {
         "function:accept_friend_challenge",
       ])],
       ["corpus_system_judge_claims", new Set(["corpus_id", "claim_token", "claimed_at"])],
+      ["repair_retests", new Set([
+        "repair_result_id",
+        "user_id",
+        "repair_debate_id",
+        "target_kind",
+        "assigned_debate_id",
+        "assigned_at",
+        "completed_at",
+        "observable",
+        "demonstrated",
+        "index:repair_retests_completion_idx",
+        "index:repair_retests_assigned_debate_unique",
+        "index:repair_retests_one_open_per_repair",
+      ])],
     ]);
     const ready = assessMigrationReadiness(present);
     expect(ready.migration022ProductEventReasonReady).toBe(true);
     expect(ready.migration023FriendChallengeReady).toBe(true);
     expect(ready.migration024HumanValidationReady).toBe(true);
+    expect(ready.migration025RepairRetestReady).toBe(true);
     expect(ready.latestApplicationSchemaReady).toBe(true);
 
     present.get("product_events")!.delete("constraint:product_events_reason_check");

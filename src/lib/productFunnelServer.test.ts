@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  mode: "ok" as "ok" | "throw" | "event-error" | "repair-error" | "invalid-repair-kind",
+  mode: "ok" as "ok" | "throw" | "event-error" | "repair-error" | "retest-error" | "invalid-repair-kind",
 }));
 
 vi.mock("@/lib/backend/server", () => ({
@@ -19,9 +19,13 @@ vi.mock("@/lib/backend/server", () => ({
             if (table === "repair_results" && h.mode === "repair-error") {
               return Promise.resolve({ data: null, error: { message: "repair read failed" } });
             }
+            if (table === "repair_retests" && h.mode === "retest-error") {
+              return Promise.resolve({ data: null, error: { message: "retest read failed" } });
+            }
             if (table === "repair_results" && h.mode === "invalid-repair-kind") {
               return Promise.resolve({
                 data: [{
+                  id: "repair-1",
                   user_id: "u1",
                   debate_id: "d1",
                   target_kind: "not-a-repair-kind",
@@ -70,12 +74,20 @@ describe("loadFunnelData availability semantics", () => {
     expect(result.errorCategory).toBe("repair-read-failed");
   });
 
+  it("reports durable retest-state failure explicitly", async () => {
+    h.mode = "retest-error";
+    const result = await loadFunnelData();
+    expect(result.status).toBe("unavailable");
+    expect(result.errorCategory).toBe("retest-read-failed");
+  });
+
   it("keeps a genuine empty dataset distinct from backend failure", async () => {
     const result = await loadFunnelData();
     expect(result.status).toBe("ok");
     expect(result.errorCategory).toBeNull();
     expect(result.events).toEqual([]);
     expect(result.repairs).toEqual([]);
+    expect(result.retests).toEqual([]);
   });
 
   it("quarantines invalid persisted repair kinds instead of casting them into analytics", async () => {
