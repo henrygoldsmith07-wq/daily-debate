@@ -15,6 +15,7 @@ import { isDatabaseConfigured } from "@/lib/backend/env";
 import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
 import { pendingRepairRetest } from "@/lib/repairRetest";
 import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
+import { latestUnfinishedRepair } from "@/lib/repairResume";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,23 @@ export default async function DashboardPage() {
       buildLedgerForUser(user.id),
       latestRepairRetestAnchor(user.id),
     ]);
+  const { data: repairAttempts } = await db
+    .from("repair_results")
+    .select("debate_id, target_kind, score, succeeded, signals, created_at")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  const unfinishedRepair = latestUnfinishedRepair(
+    (repairAttempts ?? []).map((attempt) => ({
+      debateId: attempt.debate_id,
+      targetKind: attempt.target_kind,
+      score: attempt.score,
+      succeeded: attempt.succeeded,
+      createdAt: attempt.created_at,
+      signals: attempt.signals,
+    })),
+  );
+
   const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
 
   let previousDebateTitle: string | null = null;
@@ -135,6 +153,33 @@ export default async function DashboardPage() {
         focusLabel={pendingRetest ? "Retest after repair" : "Today's focus"}
         isFirstVisit={!previousDebate}
       />
+
+      {unfinishedRepair && (
+        <section
+          className="surface-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+          aria-labelledby="unfinished-repair-heading"
+          data-testid="unfinished-repair"
+        >
+          <div className="min-w-0">
+            <p className="home-secondary-kicker">Continue your repair</p>
+            <h2 id="unfinished-repair-heading" className="mt-1 text-base font-semibold">
+              Finish the {unfinishedRepair.label.toLowerCase()} rewrite
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-ink3">
+              Your last version scored {unfinishedRepair.score}/100. It is saved, but this repair is not complete yet.
+            </p>
+            {unfinishedRepair.nextCue && (
+              <p className="mt-1 text-xs text-ink2">Next cue: {unfinishedRepair.nextCue}</p>
+            )}
+          </div>
+          <Link
+            href={`/debate/${unfinishedRepair.debateId}`}
+            className="btn btn-primary shrink-0 px-4 py-2 text-center text-sm"
+          >
+            Retry repair →
+          </Link>
+        </section>
+      )}
 
       <section aria-labelledby="continue-heading">
         <div className="section-heading">
