@@ -74,7 +74,12 @@ export default function ArgumentRepair({
   const shown = persisted ?? (result ? { ...result, succeeded: result.state === "repair_demonstrated", feedback: null } : null);
 
   return (
-    <section className="repair-panel surface-card flex flex-col gap-4 p-5" aria-labelledby="repair-title" data-testid="repair-panel">
+    <section
+      className="repair-panel surface-card flex flex-col gap-4 p-5"
+      aria-labelledby="repair-title"
+      data-testid="repair-panel"
+      data-repair-kind={target.kind}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="repair-overline">One-minute repair</p>
@@ -86,7 +91,7 @@ export default function ArgumentRepair({
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">{target.label}</span>
       </div>
 
-      <div className="repair-target">
+      <div className="repair-target" data-testid="repair-source">
         <p className="repair-target-label">From your debate</p>
         <p className="mt-1 text-sm leading-6 text-ink2">“{target.sourceText}”</p>
       </div>
