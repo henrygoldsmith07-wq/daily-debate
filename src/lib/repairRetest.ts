@@ -24,6 +24,8 @@ export const REPAIR_KIND_TO_DIMENSION: Record<RepairKind, CoachDimension> = {
 };
 
 export interface RepairRetestAnchor {
+  /** Stable identity of the successful repair_results row. */
+  repairResultId: string;
   debateId: string;
   targetKind: RepairKind;
   attemptedAt: string;
@@ -33,6 +35,13 @@ export interface RepairRetestAnchor {
 
 export interface PendingRepairRetest extends RepairRetestAnchor {
   dimension: CoachDimension;
+}
+
+export interface AssignedRepairRetest {
+  repairResultId?: string | null;
+  repairDebateId: string;
+  targetKind: RepairKind;
+  attemptedAt: string;
 }
 
 // Metric choices are opportunity-aware where possible. Evidence deliberately
@@ -127,6 +136,7 @@ export function pendingRepairRetest(
 
   const observedLater = points.some((point) => {
     if (point.debateId === anchor.debateId) return false;
+    if (!repairRetestMatchesAnchor(point.repairRetest, anchor)) return false;
     const completedMs = Date.parse(point.completedAt);
     return (
       Number.isFinite(completedMs) &&
@@ -137,6 +147,21 @@ export function pendingRepairRetest(
   });
 
   return observedLater ? null : { ...anchor, dimension };
+}
+
+export function repairRetestMatchesAnchor(
+  assigned: AssignedRepairRetest | null | undefined,
+  anchor: RepairRetestAnchor,
+): boolean {
+  if (!assigned) return false;
+  if (assigned.repairResultId && anchor.repairResultId) {
+    return assigned.repairResultId === anchor.repairResultId;
+  }
+  return (
+    assigned.repairDebateId === anchor.debateId &&
+    assigned.targetKind === anchor.targetKind &&
+    assigned.attemptedAt === anchor.attemptedAt
+  );
 }
 
 /**
@@ -153,4 +178,16 @@ export function pendingRepairRetests(
     .map((anchor) => pendingRepairRetest(points, anchor))
     .filter((value): value is PendingRepairRetest => value !== null)
     .sort((a, b) => Date.parse(a.attemptedAt) - Date.parse(b.attemptedAt));
+}
+
+export function selectEligiblePendingRetest(
+  points: SkillMetricPoint[],
+  anchors: RepairRetestAnchor[],
+  currentTopicId: string | null | undefined,
+): PendingRepairRetest | null {
+  return (
+    pendingRepairRetests(points, anchors).find((anchor) =>
+      isDifferentRetestContext(anchor.topicId, currentTopicId),
+    ) ?? null
+  );
 }

@@ -62,6 +62,8 @@ export interface CoachingRecord {
   sideReason?: string | null;
   /** If present, this debate deliberately retests a recently repaired weakness. */
   repairRetest?: {
+    /** Stable successful repair row. Optional only for pre-upgrade debates. */
+    repairResultId?: string | null;
     repairDebateId: string;
     targetKind: RepairKind;
     attemptedAt: string;

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/backend/server";
-import { buildLedgerForUser } from "@/lib/skillLedgerServer";
-import { movementAround, DIMENSION_LABELS } from "@/lib/adaptiveCoach";
+import { createServiceClient } from "@/lib/backend/server";
+import { movementAround, DIMENSION_LABELS, COACH_DIMENSIONS } from "@/lib/adaptiveCoach";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
+import { loadCoachingContext } from "@/lib/coachingContextServer";
+import { getCurrentUser } from "@/lib/currentViewer";
 
 // Drill-outcome ledger: fills in `movement` for attempted assignments once
 // subsequent debates exist, and reports which dimensions are actually
@@ -10,14 +11,11 @@ import type { CoachDimension } from "@/lib/adaptiveCoach";
 // suggesting drills that don't work for this user.
 
 export async function GET() {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const service = createServiceClient();
-  const [{ data: assignments }, ledgerPack] = await Promise.all([
+  const [assignmentResult, context] = await Promise.all([
     service
       .from("drill_assignments")
       .select("*")
@@ -25,14 +23,27 @@ export async function GET() {
       .eq("status", "attempted")
       .order("created_at", { ascending: false })
       .limit(30),
-    buildLedgerForUser(user.id),
+    loadCoachingContext(user.id),
   ]);
+  if (assignmentResult.error) {
+    return NextResponse.json({ error: "Drill outcomes are temporarily unavailable." }, { status: 503 });
+  }
+  if (!context.ledger) {
+    return NextResponse.json(
+      { error: "Coaching context is temporarily unavailable.", degradationReasons: context.degradationReasons },
+      { status: 503 },
+    );
+  }
+  const assignments = assignmentResult.data;
+  const ledgerPack = context.ledger;
+  const validDimensions = new Set<string>(COACH_DIMENSIONS);
 
   const outcomes = [];
   let improved = 0;
   let measured = 0;
 
   for (const a of assignments ?? []) {
+    if (!validDimensions.has(a.dimension)) continue;
     const dim = a.dimension as CoachDimension;
     const m = movementAround(ledgerPack.points, dim, a.created_at);
     if (m && m.delta !== null) {
@@ -66,6 +77,8 @@ export async function GET() {
             ? "Movement is measured against your next debates — complete a few after drilling."
             : `${improved}/${measured} drills showed skill movement.`,
       },
+      coachingStatus: context.status,
+      degradationReasons: context.degradationReasons,
     },
     { headers: { "Cache-Control": "no-store" } },
   );

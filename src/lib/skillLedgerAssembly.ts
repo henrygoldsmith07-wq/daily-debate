@@ -1,11 +1,13 @@
 import { extractSkillPoint, type SkillMetricPoint } from "./skillLedger";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "./observableAssessment";
 import type { ObservableAssessment } from "./observableAssessment";
+import { isRepairKind } from "./argumentRepair";
 
 export interface CompletedLedgerDebateRow {
   id: string;
   completed_at: string | null;
   topic_id: string | null;
+  coaching?: unknown;
 }
 
 export interface LedgerTurnRow {
@@ -51,6 +53,25 @@ export function buildLedgerPointsFromRows(
       ? clarityValues.reduce((sum, clarity) => sum + clarity, 0) / clarityValues.length
       : null;
 
+    const coaching = debate.coaching && typeof debate.coaching === "object"
+      ? (debate.coaching as { repairRetest?: unknown })
+      : null;
+    const rawRetest = coaching?.repairRetest && typeof coaching.repairRetest === "object"
+      ? (coaching.repairRetest as Record<string, unknown>)
+      : null;
+    const repairRetest =
+      rawRetest &&
+      typeof rawRetest.repairDebateId === "string" &&
+      isRepairKind(rawRetest.targetKind) &&
+      typeof rawRetest.attemptedAt === "string"
+        ? {
+            repairResultId: typeof rawRetest.repairResultId === "string" ? rawRetest.repairResultId : null,
+            repairDebateId: rawRetest.repairDebateId,
+            targetKind: rawRetest.targetKind,
+            attemptedAt: rawRetest.attemptedAt,
+          }
+        : null;
+
     points.push({
       ...extractSkillPoint(
         debate.id,
@@ -60,6 +81,7 @@ export function buildLedgerPointsFromRows(
         avgClarity,
       ),
       topicId: debate.topic_id,
+      repairRetest,
     });
   }
   return points;

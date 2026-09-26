@@ -24,10 +24,28 @@ export async function GET(request: Request) {
     ? Math.floor(windowDaysParam)
     : FUNNEL_DEFAULT_WINDOW_DAYS;
 
-  const { events, repairs, debateWeaknesses, completeness } = await loadFunnelData();
+  const funnelData = await loadFunnelData();
+  if (funnelData.status === "unavailable") {
+    return NextResponse.json(
+      {
+        status: "unavailable",
+        errorCategory: funnelData.errorCategory,
+        completeness: funnelData.completeness,
+      },
+      { status: 503 },
+    );
+  }
+  const { events, repairs, debateWeaknesses, completeness } = funnelData;
   const funnel = buildFunnelReport(events, { windowDays });
   const repairEffectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { windowDays });
   const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, {});
 
-  return NextResponse.json({ funnel, repairEffectiveness, trainingLoop, completeness });
+  return NextResponse.json({
+    status: funnelData.status,
+    errorCategory: funnelData.errorCategory,
+    funnel,
+    repairEffectiveness,
+    trainingLoop,
+    completeness,
+  });
 }

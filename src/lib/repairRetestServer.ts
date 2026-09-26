@@ -30,7 +30,7 @@ export async function successfulRepairRetestAnchors(
   const service = createServiceClient();
   const { data, error } = await service
     .from("repair_results")
-    .select("debate_id, target_kind, created_at")
+    .select("id, debate_id, target_kind, created_at")
     .eq("user_id", userId)
     .eq("succeeded", true)
     .order("created_at", { ascending: false });
@@ -56,6 +56,7 @@ export async function successfulRepairRetestAnchors(
   for (const row of valid) {
     const key = `${row.debate_id}\u0000${row.target_kind}`;
     const candidate: RepairRetestAnchor = {
+      repairResultId: row.id,
       debateId: row.debate_id,
       targetKind: row.target_kind,
       attemptedAt: row.created_at,
