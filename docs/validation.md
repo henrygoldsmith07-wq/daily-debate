@@ -23,6 +23,7 @@ Sprints feed the skill ledger (3 rounds still contain observable behaviour) but 
 
 - `insufficient_evidence` is a first-class outcome for debates and PvP verdicts; the legacy numeric fields are not a valid comparison in that state.
 - Claim-to-source support is positive only when attached source text substantively matches the claim. Missing source text is **unverified**, weak/mismatched overlap is not counted as grounded coverage, and source-name plausibility alone never becomes support.
+- Source identity is bound to the allowlisted root domain: a known name on a different domain is **unverified** and cannot earn grounded coverage. Citation homepages must be the origin root, with no path/query/fragment masquerading as the institution homepage.
 - Uncertainty lists (extraction issues, validation warnings, missing structure) are stored and displayed in the full analysis.
 - "Too close to call" tie handling uses a 5-point threshold; PvP ties can be genuine, not forced.
 
