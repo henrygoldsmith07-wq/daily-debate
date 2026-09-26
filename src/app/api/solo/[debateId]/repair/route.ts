@@ -4,7 +4,7 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { pickRepairTarget, scoreRepair, type RepairTarget } from "@/lib/argumentRepair";
-import { recordProductEvent } from "@/lib/productEvents";
+import { recordProductEventForUser } from "@/lib/productEvents";
 import { REPAIR_KIND_TO_DIMENSION } from "@/lib/repairRetest";
 
 const REPAIR_SUCCESS_THRESHOLD = 60;
@@ -148,7 +148,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     console.error("Failed to link repair to drill assignment:", error);
   }
 
-  void recordProductEvent("repair_attempted", {
+  await recordProductEventForUser(user.id, "repair_attempted", {
     reason: result.state,
     debateId,
   });
@@ -158,12 +158,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   // once on the first successful attempt. Legacy repair_completed remains
   // readable in analytics but is no longer emitted by new code.
   if (succeeded) {
-    void recordProductEvent("repair_demonstrated", {
+    await recordProductEventForUser(user.id, "repair_demonstrated", {
       reason: target.kind,
       debateId,
     });
     if (!priorSuccess) {
-      void recordProductEvent("repair_episode_closed", {
+      await recordProductEventForUser(user.id, "repair_episode_closed", {
         reason: target.kind,
         debateId,
       });

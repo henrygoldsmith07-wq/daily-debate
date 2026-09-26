@@ -1,5 +1,4 @@
-import { createClient, createServiceClient } from "@/lib/backend/server";
-import { isCorpusAdmin } from "@/lib/corpus";
+import { createServiceClient } from "@/lib/backend/server";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import {
@@ -18,6 +17,7 @@ import {
 } from "@/lib/routeShadowValidation";
 import { getRouteLifecycleStates } from "@/lib/routeLifecycle";
 import type { ArgumentRoute } from "@/lib/argumentTaxonomy";
+import { getRequestAuthContext } from "@/lib/requestAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -55,12 +55,8 @@ function Fact({ label, value }: { label: string; value: string }) {
  * until those harnesses report; unmeasured gates fail, never pass.
  */
 export default async function ShadowValidationPage() {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
-
-  if (!user || !isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  const auth = await getRequestAuthContext();
+  if (!auth.isAdmin) {
     return (
       <AppShell width="narrow">
         <PageHeader

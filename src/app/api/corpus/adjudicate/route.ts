@@ -1,20 +1,18 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/backend/server";
-import { isCorpusAdmin } from "@/lib/corpus";
+import { createServiceClient } from "@/lib/backend/server";
 import { consensusLabel } from "@/lib/corpusAdjudication";
 import type { RaterVerdict, WinnerLabel } from "@/lib/humanCorpus";
+import { getRequestAuthContext } from "@/lib/requestAuth";
 
 // Admin-only adjudication: settle items whose raters disagree. The consensus
 // label (majority vote, tie on split) is written back as the item's
 // reference verdict so it can join the agreement-ready set.
 
 export async function POST(request: Request) {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const auth = await getRequestAuthContext();
+  const user = auth.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  if (!auth.isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

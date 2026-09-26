@@ -14,7 +14,7 @@ import { minRoundsFor, measurementHonestyFor } from "@/lib/sprint";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { snapshotFromAssessment } from "@/lib/coachingGoal";
 import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
-import { recordProductEvent } from "@/lib/productEvents";
+import { recordProductEventForUser, type ProductEventReason } from "@/lib/productEvents";
 import { MAX_ROUNDS, type CoachingRecord } from "@/lib/types";
 import { mergeSoloAssessmentsByDebate } from "@/lib/soloAssessmentHistory";
 import { extractSkillPoint } from "@/lib/skillLedger";
@@ -228,7 +228,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     await db.from("solo_debates").update({ coaching: coachingUpdate }).eq("id", debateId);
   }
 
-  void recordProductEvent("debate_completed", { format, side: debate.side, debateId });
+  const eventSide = debate.side as "for" | "against";
+  await recordProductEventForUser(user.id, "debate_completed", { format, side: eventSide, debateId });
 
   if (coaching.repairRetest && finalAssessment) {
     const retestDimension = repairKindToDimension(coaching.repairRetest.targetKind);
@@ -252,17 +253,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     );
 
     if (observableRetest) {
-      void recordProductEvent("retest_completed", {
+      await recordProductEventForUser(user.id, "retest_completed", {
         format,
-        side: debate.side,
-        reason: coaching.repairRetest.targetKind,
+        side: eventSide,
+        reason: coaching.repairRetest.targetKind as ProductEventReason,
         debateId,
       });
       if (snapshot.goalOutcome.demonstrated === true) {
-        void recordProductEvent("retest_skill_demonstrated", {
+        await recordProductEventForUser(user.id, "retest_skill_demonstrated", {
           format,
-          side: debate.side,
-          reason: coaching.repairRetest.targetKind,
+          side: eventSide,
+          reason: coaching.repairRetest.targetKind as ProductEventReason,
           debateId,
         });
       }

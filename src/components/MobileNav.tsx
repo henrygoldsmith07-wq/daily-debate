@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import NavIcon from "./NavIcon";
 import { NAV_SECTIONS, PRIMARY_NAV_ITEMS, isActivePath } from "@/lib/nav";
 
@@ -13,21 +13,46 @@ import { NAV_SECTIONS, PRIMARY_NAV_ITEMS, isActivePath } from "@/lib/nav";
  */
 export default function MobileNav({ sheetFooter }: { sheetFooter?: React.ReactNode }) {
   const pathname = usePathname();
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheetPath, setSheetPath] = useState(pathname);
-
-  // Close the sheet whenever the route changes — otherwise it stays open over
-  // the page the user just navigated to. Adjusting during render rather than
-  // in an effect avoids rendering the stale open sheet for a frame first.
-  if (sheetPath !== pathname) {
-    setSheetPath(pathname);
-    setSheetOpen(false);
-  }
+  const [sheetOpenPath, setSheetOpenPath] = useState<string | null>(null);
+  const sheetOpen = sheetOpenPath === pathname;
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(false);
+  const closeSheet = () => setSheetOpenPath(null);
 
   useEffect(() => {
-    if (!sheetOpen) return;
+    if (!sheetOpen) {
+      if (wasOpenRef.current) triggerRef.current?.focus();
+      wasOpenRef.current = false;
+      return;
+    }
+    wasOpenRef.current = true;
+    const sheet = sheetRef.current;
+    const focusables = () =>
+      Array.from(
+        sheet?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((element) => !element.hasAttribute("hidden"));
+    requestAnimationFrame(() => focusables()[0]?.focus());
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSheetOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSheet();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const elements = focusables();
+      if (elements.length === 0) return;
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     const previousOverflow = document.body.style.overflow;
@@ -44,19 +69,21 @@ export default function MobileNav({ sheetFooter }: { sheetFooter?: React.ReactNo
   return (
     <>
       {sheetOpen && (
-        <div className="app-sheet-backdrop" onClick={() => setSheetOpen(false)} aria-hidden="true" />
+        <div className="app-sheet-backdrop" onClick={closeSheet} aria-hidden="true" />
       )}
 
       <div
+        ref={sheetRef}
         id="app-more-sheet"
         className={`app-sheet${sheetOpen ? " open" : ""}`}
         role="dialog"
         aria-modal="true"
-        aria-label="All screens"
+        aria-labelledby="app-more-sheet-title"
         hidden={!sheetOpen}
       >
         <div className="app-sheet-grabber" aria-hidden="true" />
         <div className="app-sheet-body nice-scroll">
+          <h2 id="app-more-sheet-title" className="sr-only">All screens</h2>
           {NAV_SECTIONS.map((section) => (
             <div key={section.id} className="app-sheet-group">
               <p className="app-nav-group-label">{section.label}</p>
@@ -65,6 +92,7 @@ export default function MobileNav({ sheetFooter }: { sheetFooter?: React.ReactNo
                   <li key={item.href}>
                     <Link
                       href={item.href}
+                      onClick={closeSheet}
                       aria-current={isActivePath(pathname, item.href) ? "page" : undefined}
                       className={`app-sheet-link${isActivePath(pathname, item.href) ? " active" : ""}`}
                     >
@@ -99,8 +127,9 @@ export default function MobileNav({ sheetFooter }: { sheetFooter?: React.ReactNo
           );
         })}
         <button
+          ref={triggerRef}
           type="button"
-          onClick={() => setSheetOpen((open) => !open)}
+          onClick={() => setSheetOpenPath(sheetOpen ? null : pathname)}
           aria-expanded={sheetOpen}
           aria-controls="app-more-sheet"
           className={`app-tab${sheetOpen || onSecondaryScreen ? " active" : ""}`}

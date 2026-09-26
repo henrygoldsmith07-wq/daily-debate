@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     template: "%s · Daily Debate",
   },
   description:
-    "A three-minute debate gym for sharper claims, real evidence, and coaching you can use on the next round.",
+    "A four-minute debate gym for sharper claims, real evidence, and coaching you can use on the next round.",
   keywords: ["debate", "critical thinking", "argument coaching", "evidence", "AI", "PvP", "gamification"],
   icons: { icon: "/logo.svg", apple: "/logo.svg" },
 };

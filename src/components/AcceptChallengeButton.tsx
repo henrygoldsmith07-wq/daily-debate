@@ -6,6 +6,7 @@ import Link from "next/link";
 
 export default function AcceptChallengeButton({ code, signedIn }: { code: string; signedIn: boolean }) {
   const router = useRouter();
+  const returnPath = `/challenge/${code}`;
   const [accepting, setAccepting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,7 +17,7 @@ export default function AcceptChallengeButton({ code, signedIn }: { code: string
       const res = await fetch(`/api/challenges/${code}`, { method: "POST" });
       const data = await res.json();
       if (res.status === 401) {
-        router.push("/login");
+        router.push(`/login?next=${encodeURIComponent(returnPath)}`);
         return;
       }
       if (!res.ok) throw new Error(data.error || "Failed to accept the challenge.");
@@ -30,10 +31,14 @@ export default function AcceptChallengeButton({ code, signedIn }: { code: string
   if (!signedIn) {
     return (
       <div className="flex flex-col items-center gap-2">
-        <Link href="/login" className="btn btn-primary px-6 py-2.5 text-sm uppercase tracking-wide" data-testid="accept-challenge">
+        <Link
+          href={`/login?next=${encodeURIComponent(returnPath)}`}
+          className="btn btn-primary px-6 py-2.5 text-sm uppercase tracking-wide"
+          data-testid="accept-challenge"
+        >
           Accept challenge
         </Link>
-        <p className="text-xs text-ink3">Sign in first — accepting reopens your challenges from the lobby.</p>
+        <p className="text-xs text-ink3">Sign in or create an account, then you&apos;ll return here to accept.</p>
       </div>
     );
   }

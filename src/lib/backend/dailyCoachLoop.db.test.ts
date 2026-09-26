@@ -235,6 +235,17 @@ d("daily coach loop schema", () => {
       pool.query(`INSERT INTO product_events (user_id, name, format) VALUES ($1, 'sprint_started', 'best-of-99')`, [userId]),
     ).rejects.toThrow(/product_events_format_check|check constraint/i);
 
+    await pool.query(
+      `INSERT INTO product_events (user_id, name, reason) VALUES ($1, 'challenge_me_selected', 'side-balance')`,
+      [userId],
+    );
+    await expect(
+      pool.query(
+        `INSERT INTO product_events (user_id, name, reason) VALUES ($1, 'challenge_me_selected', 'free text about the user')`,
+        [userId],
+      ),
+    ).rejects.toThrow(/product_events_reason_check|check constraint/i);
+
     await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
   });
 
