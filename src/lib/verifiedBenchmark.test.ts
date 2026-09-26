@@ -26,7 +26,7 @@ function sampleGraph(): ArgGraph {
   return {
     nodes: [
       { id: "c1", kind: "claim", owner: "a", text: "Solar cheapest new build.", round: 1 },
-      { id: "e1", kind: "evidence", owner: "a", text: "Lazard $24/MWh.", round: 1, evidenceStrength: "cited", citations: [{ sourceName: "Lazard", homepage: "https://www.lazard.com" }] },
+      { id: "e1", kind: "evidence", owner: "a", text: "Lazard $24/MWh.", round: 1, evidenceStrength: "cited", citations: [{ sourceName: "Lazard", homepage: "https://www.lazard.com", excerpt: "Lazard reports solar is the cheapest new-build generation option." }] },
       { id: "k1", kind: "counterclaim", owner: "b", text: "Intermittency needs baseload.", round: 2 },
       { id: "r1", kind: "rebuttal", owner: "a", text: "Storage covers intermittency.", round: 3, targets: ["k1"] },
       { id: "i1", kind: "impact", owner: "a", text: "Cheaper bills win.", round: 3 },
