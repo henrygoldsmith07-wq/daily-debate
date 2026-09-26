@@ -209,6 +209,7 @@ function inferName(url: string): string {
 
 const DISCOVERY_TIMEOUT_MS = 8_000;
 const RETRIEVAL_TIMEOUT_MS = 9_000;
+const MIN_USEFUL_RETRIEVAL_MS = 3_000;
 
 export interface EvidenceBudgetPlan {
   remainingMs: number;
@@ -256,11 +257,15 @@ export async function buildTopicEvidenceCards(
   if (!candidates.length) return { cards: [], attempted: 0, failureNotes: ["No candidate sources discovered."] };
 
   const afterDiscovery = evidenceBudgetPlan(budgetMs, Date.now() - startedAt);
-  if (afterDiscovery.exhausted) {
+  if (afterDiscovery.exhausted || afterDiscovery.remainingMs < MIN_USEFUL_RETRIEVAL_MS) {
     return {
       cards: [],
       attempted: candidates.length,
-      failureNotes: ["Evidence retrieval budget exhausted during source discovery."],
+      failureNotes: [
+        afterDiscovery.exhausted
+          ? "Evidence retrieval budget exhausted during source discovery."
+          : "Too little evidence retrieval budget remained after source discovery.",
+      ],
     };
   }
 
