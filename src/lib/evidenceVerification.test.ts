@@ -60,6 +60,24 @@ describe("claimCitationMap support honesty", () => {
     expect(graphEvidenceReport(graph).coverage).toBe(0);
   });
 
+  it("does not let a matching excerpt override a mismatched source domain", () => {
+    const graph = graphWithCitation(
+      "Solar generation costs have become cheaper.",
+      {
+        sourceName: "NREL",
+        homepage: "https://example.com",
+        excerpt: "NREL reports that solar generation costs have become cheaper over time.",
+      },
+    );
+
+    const [link] = claimCitationMap(graph);
+    expect(link.support).toBe("unverified");
+    expect(link.flags.some((flag) => flag.startsWith("source identity unverified"))).toBe(true);
+    const report = graphEvidenceReport(graph);
+    expect(report.coverage).toBe(0);
+    expect(report.hallucinationCount).toBeGreaterThan(0);
+  });
+
   it("reserves positive support for a substantively matching excerpt", () => {
     const graph = graphWithCitation(
       "Solar generation costs have become cheaper.",
