@@ -95,6 +95,21 @@ describe("assessGuestPractice", () => {
     expect(result.weakness.kind).toBe("rebuttal");
     expect(result.sourceResponseIndex).toBe(1);
   });
+
+  it("keeps the repair source valid even when every response names evidence", () => {
+    const result = assessGuestPractice(
+      [
+        "According to UNESCO research, schools should use a phone-free hour because fewer notifications can protect focused learning time.",
+        "However, accessibility and family care are real concerns, but OECD data suggests clear exceptions can preserve access because the rule targets ordinary lesson time.",
+        "On balance, NFER research suggests focused learning matters more than convenience because students can still use phones outside the protected hour.",
+      ],
+      OPPONENTS,
+    );
+
+    expect(result.sourceResponseIndex).toBeGreaterThanOrEqual(0);
+    expect(result.sourceResponseIndex).toBeLessThan(3);
+    expect(result.sourceResponse).not.toBe("");
+  });
 });
 
 describe("assessGuestRepair", () => {
