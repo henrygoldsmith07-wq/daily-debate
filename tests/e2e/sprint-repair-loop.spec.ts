@@ -142,7 +142,9 @@ test.describe("daily sprint repair loop", () => {
   });
 
   test("advanced modes stay secondary and a failed submit preserves the draft", async ({ page }) => {
-    await signIn(page, "c");
+    // e2e-e is reserved for this failure/retry test so an active debate from
+    // another spec can never hide Today's start CTA.
+    await signIn(page, "e");
 
     await page.getByTestId("start-sprint").click();
     await page.waitForURL(/\/debate\//, { timeout: 20_000 });
