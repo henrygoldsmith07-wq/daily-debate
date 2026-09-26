@@ -14,7 +14,8 @@ import { recordProductEvent } from "@/lib/productEvents";
 import { isDatabaseConfigured } from "@/lib/backend/env";
 import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
 import { pendingRepairRetest } from "@/lib/repairRetest";
-import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";\nimport { latestUnfinishedRepair } from "@/lib/repairResume";
+import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
+import { latestUnfinishedRepair } from "@/lib/repairResume";
 
 export const dynamic = "force-dynamic";
 
