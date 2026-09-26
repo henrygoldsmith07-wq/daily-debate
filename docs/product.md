@@ -100,6 +100,19 @@ Default view: the seven skill dimensions (Evidence, Rebuttal, Logic, Clarity, Im
 
 Behind **How this was calculated**: metric trajectories, per-debate slopes, the fixed benchmark comparison, and honest caveats (direction per metric, sprint noise, observational-only claims).
 
+## Drill feedback
+
+Daily drills use a deterministic rubric internally so coaching can compare attempts consistently and diagnose whether the requested move appeared. That internal `attempt_score` is **not** shown as a learner ability score.
+
+The learner sees:
+
+- **Practice checked**;
+- the bounded observable signals detected in the draft;
+- an explicit note that the check is formative;
+- later-debate movement as the only evidence that the skill changed.
+
+This prevents a short drill from looking like a validated 0–100 measurement while preserving the existing diagnostic data used by coaching.
+
 ## Coaching loop
 
 1. Normally, the ledger's weakest dimension (movement-adjusted, shared with the drill system — one selection policy, not two) becomes today's goal.
