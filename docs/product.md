@@ -56,7 +56,8 @@ Replays of finished debates render the same hierarchy server-side (strength, wea
 - explains what worked / what to add;
 - is **persisted** in `repair_results` with success flag and signals;
 - **links into coaching**: a repair on the day's drill dimension marks that drill attempted, feeding the next coaching decision;
-- retries remain raw practice history, but the latest retry refreshes the linked formative drill attempt so coaching never stays stuck on an abandoned first draft.
+- retries remain raw practice history, but the latest retry refreshes the linked formative drill attempt so coaching never stays stuck on an abandoned first draft;
+- if the user leaves after an unsuccessful rewrite, Today surfaces the newest unresolved repair with its last score and an actionable cue so the core loop does not silently die between sessions.
 
 For longitudinal measurement, multiple rewrite submissions for the same user + debate + weakness kind are one **repair episode**. The first attempt anchors the episode; retries are preserved but cannot inflate repair denominators or create fake intervention cutoffs. A failed submission is practice history only: it stays retryable, does **not** count as repair completion, and does **not** unlock a deliberate next-debate retest. The first successful submission is what transitions the product into retest state.
 
