@@ -126,6 +126,17 @@ This prevents a short drill from looking like a validated 0–100 measurement wh
 
 Goals are numeric only where previous behaviour justifies precision ("Answer at least 4 of 5" needs ≥3 opportunities last debate; otherwise the goal stays qualitative).
 
+## Evidence-support honesty
+
+Argument-graph citations distinguish **source identity** from **claim support**. A recognised institution is not enough to mark a claim supported.
+
+- no attached source text → `unverified`;
+- weak or mismatched claim/source overlap → `tangential`;
+- only substantive source-text overlap can produce `supports`;
+- grounded-evidence coverage counts only `supports`.
+
+This prevents a plausible source name, missing excerpt, or decorative citation from silently increasing evidence coverage.
+
 ## Analytics
 
 Privacy-conscious funnel events (`src/lib/productEvents.ts`, migration 004): allowlisted names only, bounded context, no free text, no device identifiers, silent no-op for guests. Captured: `daily_viewed`, `debate_started`, `sprint_started`, `full_debate_started`, `round_completed`, `debate_completed`, `repair_started`, `repair_completed`, `full_analysis_opened`, `progress_viewed`, `pvp_started`, `challenge_me_selected`, `challenge_link_created`, `challenge_link_accepted`.
