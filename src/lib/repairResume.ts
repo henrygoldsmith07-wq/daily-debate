@@ -30,9 +30,15 @@ function attemptTime(attempt: RepairAttemptLite): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function firstSignal(value: unknown): string | null {
+function nextActionSignal(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
-  return value.find((item): item is string => typeof item === "string" && item.trim().length > 0)?.trim() ?? null;
+  const signals = value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim());
+  const actionable = signals.find((signal) =>
+    /^(aim|name|use|replace|add|compare|keep|separate|state|connect|make|turn|identify)\b/i.test(signal),
+  );
+  return actionable ?? signals[0] ?? null;
 }
 
 /**
@@ -78,6 +84,6 @@ export function latestUnfinishedRepair(
     label: REPAIR_KIND_LABELS[latest.targetKind] ?? "Argument",
     score: latest.score,
     attemptedAt: latest.createdAt,
-    nextCue: firstSignal(latest.signals),
+    nextCue: nextActionSignal(latest.signals),
   };
 }
