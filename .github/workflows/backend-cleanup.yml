@@ -9,13 +9,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: backend-cleanup
+  group: database-maintenance
   cancel-in-progress: false
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
-    environment: production
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

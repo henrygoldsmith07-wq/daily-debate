@@ -682,7 +682,32 @@ describe("migration readiness (actual schema, never migration counts)", () => {
     present.set("daily_topics", new Set(["generation_reason"])); // constraint missing
     const readiness = assessMigrationReadiness(present);
     expect(readiness.note).toMatch(/019_generation_reason\.sql/);
-    expect(readiness.note).toMatch(/refuse to generate/);
+    expect(readiness.note).toMatch(/Required application schema is incomplete/);
+  });
+
+  it("requires the 022 privacy constraint and 023 challenge transaction primitives", () => {
+    const present = new Map<string, Set<string>>([
+      ["topic_run_log", new Set(["run_created_at", "queue_delay_ms", "generator_result", "provider_health", "topic_fingerprint", "provider_attempts"])],
+      ["route_lifecycle", new Set(["route", "registration_version", "state", "evaluated_at", "sample_window", "sample_n", "gate_result", "human_result", "adopted_at", "suspended_at", "reason", "updated_at"])],
+      ["daily_topics", new Set(["topic_fingerprint", "generation_reason", "constraint:daily_topics_generation_reason_check"])],
+      ["topic_evidence", new Set(["topic_fingerprint"])],
+      ["product_events", new Set(["constraint:product_events_reason_check"])],
+      ["challenge_invites", new Set([
+        "index:challenge_invites_one_open_per_challenger",
+        "function:create_friend_challenge",
+        "function:accept_friend_challenge",
+      ])],
+    ]);
+    const ready = assessMigrationReadiness(present);
+    expect(ready.migration022ProductEventReasonReady).toBe(true);
+    expect(ready.migration023FriendChallengeReady).toBe(true);
+    expect(ready.latestApplicationSchemaReady).toBe(true);
+
+    present.get("product_events")!.delete("constraint:product_events_reason_check");
+    const missing22 = assessMigrationReadiness(present);
+    expect(missing22.migration022ProductEventReasonReady).toBe(false);
+    expect(missing22.latestApplicationSchemaReady).toBe(false);
+    expect(missing22.note).toMatch(/022_product_event_reason_privacy\.sql/);
   });
 });
 

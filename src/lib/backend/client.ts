@@ -23,7 +23,9 @@ export class BackendClient {
       | "increment_total_points"
       | "claim_pvp_opponent_and_create_match"
       | "enqueue_pvp_if_unmatched"
-      | "join_pvp_queue_and_match",
+      | "join_pvp_queue_and_match"
+      | "create_friend_challenge"
+      | "accept_friend_challenge",
     args: RpcArgs,
   ) {
     try {
@@ -56,6 +58,20 @@ export class BackendClient {
           [args.p_user, args.p_topic_id],
         );
         return { data: rows[0]?.queued === true, error: null };
+      }
+      if (name === "create_friend_challenge") {
+        const rows = await queryRows<Record<string, unknown>>(
+          "SELECT * FROM create_friend_challenge($1, $2, $3, $4)",
+          [args.p_challenger, args.p_topic_id, args.p_challenger_side, args.p_expiry_days],
+        );
+        return { data: rows, error: null };
+      }
+      if (name === "accept_friend_challenge") {
+        const rows = await queryRows<Record<string, unknown>>(
+          "SELECT * FROM accept_friend_challenge($1, $2, $3)",
+          [args.p_code, args.p_opponent, args.p_round_limit],
+        );
+        return { data: rows, error: null };
       }
       const rows = await queryRows<{ value: number }>(
         "SELECT increment_total_points($1, $2, $3) AS value",

@@ -28,6 +28,8 @@ export interface PublicHealthState {
   /** Is the migration-019 generation_reason schema (column + value
    *  constraint) present? null = unknown. Coarse boolean only. */
   generationReasonSchemaReady: boolean | null;
+  /** Whether every schema feature required by the running application build is present. */
+  latestApplicationSchemaReady: boolean | null;
   /** Public-safe diagnostic: SQLSTATE class of the failing topic read
    *  ("42" undefined-object, "28" privilege, "08" connection...), null
    *  when the read succeeded. A standard error class, never a message. */
@@ -58,6 +60,7 @@ export function derivePublicHealthState(report: OpsHealthReport, nowIso: string)
     databaseRequiredTablesOk: report.database.requiredTablesOk,
     topicFingerprintSchemaReady: report.database.migrationReadiness.migration018TopicFingerprintReady,
     generationReasonSchemaReady: report.database.migrationReadiness.migration019GenerationReasonReady,
+    latestApplicationSchemaReady: report.database.migrationReadiness.latestApplicationSchemaReady,
     proofs: { ...report.topicSlo.proofs },
     /** Public-safe diagnostic: SQLSTATE class of the failing topic read
      *  ("42" undefined-object, "28" privilege, "08" connection...), null

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { createClient } from "@/lib/backend/server";
+import { isClientProductEventName } from "@/lib/clientProductEvents";
 import {
-  isProductEventName,
   isProductEventReason,
   recordProductEventForUser,
   type ProductEventContext,
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
   const name = body?.name;
-  if (!isProductEventName(name)) {
+  if (!isClientProductEventName(name)) {
     return NextResponse.json({ error: "Unknown event." }, { status: 400 });
   }
   const db = await createClient();
@@ -43,6 +43,15 @@ export async function POST(request: Request) {
     typeof body?.debateId === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.debateId)
   ) {
+    const { data: ownedDebate } = await db
+      .from("solo_debates")
+      .select("id")
+      .eq("id", body.debateId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!ownedDebate) {
+      return NextResponse.json({ error: "Unknown debate." }, { status: 400 });
+    }
     context.debateId = body.debateId;
   }
 

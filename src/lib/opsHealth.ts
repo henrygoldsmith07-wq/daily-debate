@@ -791,6 +791,12 @@ export interface MigrationReadiness {
   migration018TopicFingerprintReady: boolean | null;
   /** 019: generation_reason column + its value constraint (canonical provenance). */
   migration019GenerationReasonReady: boolean | null;
+  /** 022: product-event reason privacy constraint is present. */
+  migration022ProductEventReasonReady: boolean | null;
+  /** 023: atomic friend-challenge functions + one-open-invite index are present. */
+  migration023FriendChallengeReady: boolean | null;
+  /** Latest application schema required by the running build. */
+  latestApplicationSchemaReady: boolean | null;
   note: string | null;
 }
 
@@ -801,7 +807,7 @@ export interface MigrationReadiness {
  * AND value-constraint readiness are both derived from actual schema — never
  * from a migration count.
  */
-export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019", Array<{ table: string; columns: string[] }>> = {
+export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019" | "022" | "023", Array<{ table: string; columns: string[] }>> = {
   "016": [{ table: "topic_run_log", columns: ["run_created_at", "queue_delay_ms", "generator_result", "provider_health"] }],
   "017": [
     {
@@ -823,6 +829,22 @@ export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019", A
       columns: ["generation_reason", "constraint:daily_topics_generation_reason_check"],
     },
   ],
+  "022": [
+    {
+      table: "product_events",
+      columns: ["constraint:product_events_reason_check"],
+    },
+  ],
+  "023": [
+    {
+      table: "challenge_invites",
+      columns: [
+        "index:challenge_invites_one_open_per_challenger",
+        "function:create_friend_challenge",
+        "function:accept_friend_challenge",
+      ],
+    },
+  ],
 };
 
 /**
@@ -838,27 +860,41 @@ export function assessMigrationReadiness(
       migration017RouteLifecycleReady: null,
       migration018TopicFingerprintReady: null,
       migration019GenerationReasonReady: null,
+      migration022ProductEventReasonReady: null,
+      migration023FriendChallengeReady: null,
+      latestApplicationSchemaReady: null,
       note: "Schema unreadable — migration readiness could not be verified.",
     };
   }
-  const check = (key: "016" | "017" | "018" | "019"): boolean =>
+  const check = (key: "016" | "017" | "018" | "019" | "022" | "023"): boolean =>
     MIGRATION_REQUIRED_COLUMNS[key].every(({ table, columns }) => {
       const cols = present.get(table);
       return !!cols && columns.every((c) => cols.has(c));
     });
+  const ready16 = check("016");
+  const ready17 = check("017");
   const ready18 = check("018");
   const ready19 = check("019");
+  const ready22 = check("022");
+  const ready23 = check("023");
   const missing = [
+    ...(ready16 ? [] : ["016_topic_run_telemetry.sql"]),
+    ...(ready17 ? [] : ["017_route_lifecycle.sql"]),
     ...(ready18 ? [] : ["018_topic_fingerprint.sql"]),
     ...(ready19 ? [] : ["019_generation_reason.sql"]),
+    ...(ready22 ? [] : ["022_product_event_reason_privacy.sql"]),
+    ...(ready23 ? [] : ["023_atomic_friend_challenges.sql"]),
   ];
   return {
-    migration016TelemetryReady: check("016"),
-    migration017RouteLifecycleReady: check("017"),
+    migration016TelemetryReady: ready16,
+    migration017RouteLifecycleReady: ready17,
     migration018TopicFingerprintReady: ready18,
     migration019GenerationReasonReady: ready19,
+    migration022ProductEventReasonReady: ready22,
+    migration023FriendChallengeReady: ready23,
+    latestApplicationSchemaReady: missing.length === 0,
     note: missing.length
-      ? `Migration ${missing.join(" and ")} not fully applied — the production topic pipeline will refuse to generate until it is.`
+      ? `Required application schema is incomplete (${missing.join(", ")}).`
       : null,
   };
 }
@@ -928,7 +964,7 @@ export function assessDatabaseHealth(input: {
   // A database can be reachable with every table present and still lack the
   // 018 fingerprint schema the production pipeline requires — that is a real
   // degradation, surfaced here without collapsing the two dimensions.
-  const schemaDegraded = readiness.migration018TopicFingerprintReady === false;
+  const schemaDegraded = readiness.latestApplicationSchemaReady === false;
   return {
     status: schemaDegraded ? "degraded" : "healthy",
     reachable: true,

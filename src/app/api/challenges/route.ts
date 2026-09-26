@@ -2,9 +2,15 @@ import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
-import { generateChallengeCode, challengeExpiry, opponentSideOf } from "@/lib/friendChallenge";
+import { CHALLENGE_EXPIRY_DAYS, opponentSideOf } from "@/lib/friendChallenge";
 import { recordProductEventForUser } from "@/lib/productEvents";
 import type { DebateSide } from "@/lib/types";
+
+interface CreatedChallengeRow {
+  id: string;
+  code: string;
+  expires_at: string;
+}
 
 /** Create a shareable friend challenge on today's motion. */
 export async function POST(request: Request) {
@@ -24,40 +30,24 @@ export async function POST(request: Request) {
   const topic = await getOrCreateTodayTopic();
   const service = createServiceClient();
 
-  // One open invite per challenger at a time keeps the share surface simple.
-  const { data: openInvite } = await service
-    .from("challenge_invites")
-    .select("code")
-    .eq("challenger_id", user.id)
-    .eq("status", "open")
-    .gt("expires_at", new Date().toISOString())
-    .maybeSingle();
-
-  const { data: invite, error } = await service
-    .from("challenge_invites")
-    .insert({
-      code: generateChallengeCode(),
-      challenger_id: user.id,
-      topic_id: topic.id,
-      challenger_side: side,
-      expires_at: challengeExpiry().toISOString(),
-    })
-    .select("id, code, expires_at")
-    .single();
-  if (error || !invite) {
-    console.error("Failed to create challenge invite:", error);
+  const created = await service.rpc("create_friend_challenge", {
+    p_challenger: user.id,
+    p_topic_id: topic.id,
+    p_challenger_side: side,
+    p_expiry_days: CHALLENGE_EXPIRY_DAYS,
+  });
+  const invite = Array.isArray(created.data)
+    ? (created.data[0] as unknown as CreatedChallengeRow | undefined) ?? null
+    : null;
+  if (created.error || !invite) {
+    console.error("Failed to create challenge invite:", created.error);
     return NextResponse.json({ error: "Failed to create the challenge." }, { status: 500 });
-  }
-
-  // Superseded invite: cancel the older open one so stale links fail cleanly.
-  if (openInvite && openInvite.code !== invite.code) {
-    await service.from("challenge_invites").update({ status: "cancelled" }).eq("code", openInvite.code);
   }
 
   await recordProductEventForUser(user.id, "challenge_link_created", { side });
 
   return NextResponse.json({
-    invite,
+    invite: { id: invite.id, code: invite.code, expires_at: invite.expires_at },
     topic: { id: topic.id, title: topic.title },
     challengerSide: side,
     opponentSide: opponentSideOf(side),

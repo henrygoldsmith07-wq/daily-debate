@@ -1,16 +1,12 @@
 "use client";
 
+import type { ClientProductEventName } from "@/lib/clientProductEvents";
+
 // Client-side product analytics helper. Fire-and-forget: never awaits, never
 // blocks a user action, and silently ignores failures. Sends only allowlisted
 // event names with bounded context — no free text leaves the component.
 
-export type ClientEventName =
-  | "daily_viewed"
-  | "full_analysis_opened"
-  | "progress_viewed"
-  | "pvp_started"
-  | "repair_started"
-  | "debate_completed";
+export type ClientEventName = ClientProductEventName;
 
 export function trackEvent(
   name: ClientEventName,
