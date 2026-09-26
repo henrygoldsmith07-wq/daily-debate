@@ -203,7 +203,11 @@ function selectWeakness(
       sourceResponseIndex: Math.max(0, assessments.findIndex((item) => !item.signals.hasClaim)),
     };
   }
-  return { kind: "evidence", sourceResponseIndex: assessments.findIndex((item) => !item.signals.namesEvidence) || 0 };
+  const missingEvidenceIndex = assessments.findIndex((item) => !item.signals.namesEvidence);
+  return {
+    kind: "evidence",
+    sourceResponseIndex: missingEvidenceIndex >= 0 ? missingEvidenceIndex : 0,
+  };
 }
 
 export function assessGuestPractice(
