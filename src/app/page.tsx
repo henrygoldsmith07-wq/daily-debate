@@ -12,10 +12,10 @@ import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, type CoachingSnapshot } from "@/lib/coachingGoal";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
 import { isDatabaseConfigured } from "@/lib/backend/env";
-import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
-import { pendingRepairRetest } from "@/lib/repairRetest";
+import { successfulRepairRetestAnchors } from "@/lib/repairRetestServer";
+import { pendingRepairRetests } from "@/lib/repairRetest";
 import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
-import { latestUnfinishedRepair } from "@/lib/repairResume";
+import { asRepairAttemptLite, latestUnfinishedRepair } from "@/lib/repairResume";
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,7 @@ export default async function DashboardPage() {
   // nothing is pre-stored, so the dashboard always has content.
   const topic = await getTodayTopic();
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger, repairAnchor] =
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger, repairAnchors] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -70,7 +70,7 @@ export default async function DashboardPage() {
         .limit(1)
         .maybeSingle(),
       buildLedgerForUser(user.id),
-      latestRepairRetestAnchor(user.id),
+      successfulRepairRetestAnchors(user.id),
     ]);
   const { data: repairAttempts } = await db
     .from("repair_results")
@@ -79,14 +79,18 @@ export default async function DashboardPage() {
     .order("created_at", { ascending: false })
     .limit(50);
   const unfinishedRepair = latestUnfinishedRepair(
-    (repairAttempts ?? []).map((attempt) => ({
-      debateId: attempt.debate_id,
-      targetKind: attempt.target_kind,
-      score: attempt.score,
-      succeeded: attempt.succeeded,
-      createdAt: attempt.created_at,
-      signals: attempt.signals,
-    })),
+    (repairAttempts ?? [])
+      .map((attempt) =>
+        asRepairAttemptLite({
+          debateId: attempt.debate_id,
+          targetKind: attempt.target_kind,
+          score: attempt.score,
+          succeeded: attempt.succeeded,
+          createdAt: attempt.created_at,
+          signals: attempt.signals,
+        }),
+      )
+      .filter((attempt): attempt is NonNullable<typeof attempt> => attempt !== null),
   );
 
   const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
@@ -110,7 +114,7 @@ export default async function DashboardPage() {
   // Daily coaching goal: one focus, grounded in the previous debate's
   // observed behaviour (not a wall of metrics — one line of evidence).
   const lastCoaching = (previousDebate?.coaching ?? null) as { snapshot?: CoachingSnapshot | null } | null;
-  const pendingRetest = pendingRepairRetest(ledger?.points ?? [], repairAnchor);
+  const pendingRetest = pendingRepairRetests(ledger?.points ?? [], repairAnchors)[0] ?? null;
   const goal = buildCoachingGoal(
     ledger?.points ?? [],
     lastCoaching?.snapshot ?? null,

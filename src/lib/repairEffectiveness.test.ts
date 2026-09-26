@@ -12,11 +12,12 @@ import {
   type RepairRow,
 } from "./repairEffectiveness";
 import type { ArgGraph } from "./argGraph";
+import type { RepairKind } from "./argumentRepair";
 
 const NOW = "2026-06-15T12:00:00Z";
 const DAY = 86_400_000;
 
-function repair(user: string, kind: string, at: string, debateId = "d-repair"): RepairRow {
+function repair(user: string, kind: RepairKind, at: string, debateId = "d-repair"): RepairRow {
   return { user_id: user, debate_id: debateId, target_kind: kind, score: 80, succeeded: true, created_at: at };
 }
 

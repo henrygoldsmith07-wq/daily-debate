@@ -1,6 +1,8 @@
+import { isRepairKind, type RepairKind } from "./argumentRepair";
+
 export interface RepairAttemptLite {
   debateId: string;
-  targetKind: string;
+  targetKind: RepairKind;
   score: number;
   succeeded: boolean;
   createdAt: string;
@@ -9,14 +11,14 @@ export interface RepairAttemptLite {
 
 export interface UnfinishedRepair {
   debateId: string;
-  targetKind: string;
+  targetKind: RepairKind;
   label: string;
   state: "needs_another_pass" | "partially_repaired";
   attemptedAt: string;
   nextCue: string | null;
 }
 
-const REPAIR_KIND_LABELS: Record<string, string> = {
+const REPAIR_KIND_LABELS: Record<RepairKind, string> = {
   evidence: "Evidence",
   rebuttal: "Rebuttal",
   logic: "Logic",
@@ -86,4 +88,16 @@ export function latestUnfinishedRepair(
     attemptedAt: latest.createdAt,
     nextCue: nextActionSignal(latest.signals),
   };
+}
+
+export function asRepairAttemptLite(value: {
+  debateId: string;
+  targetKind: unknown;
+  score: number;
+  succeeded: boolean;
+  createdAt: string;
+  signals?: unknown;
+}): RepairAttemptLite | null {
+  if (!isRepairKind(value.targetKind)) return null;
+  return { ...value, targetKind: value.targetKind };
 }

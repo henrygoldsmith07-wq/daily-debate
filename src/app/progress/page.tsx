@@ -10,8 +10,8 @@ import PageHeader from "@/components/PageHeader";
 import CoachToday from "@/components/CoachToday";
 import PageViewEvent from "@/components/PageViewEvent";
 import { computeLoopStatuses, type DrillAssignmentLite, type LoopStage } from "@/lib/coachLoop";
-import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
-import { pendingRepairRetest } from "@/lib/repairRetest";
+import { successfulRepairRetestAnchors } from "@/lib/repairRetestServer";
+import { pendingRepairRetests } from "@/lib/repairRetest";
 import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 import { getCurrentUser } from "@/lib/currentViewer";
 
@@ -81,12 +81,12 @@ export default async function ProgressPage() {
     );
   }
 
-  const [ledger, repairAnchor] = await Promise.all([
+  const [ledger, repairAnchors] = await Promise.all([
     buildLedgerForUser(user.id),
-    latestRepairRetestAnchor(user.id),
+    successfulRepairRetestAnchors(user.id),
   ]);
   const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
-  const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
+  const pendingRetest = pendingRepairRetests(ledger.points, repairAnchors)[0] ?? null;
   const service = createServiceClient();
   const { data: drillRows } = await service
     .from("drill_assignments")

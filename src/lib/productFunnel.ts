@@ -12,6 +12,7 @@ import {
   type DebateWeaknessRow,
   type RepairRow,
 } from "./repairEffectiveness";
+import type { RepairKind } from "./argumentRepair";
 
 export interface FunnelEventRow {
   user_id: string;
@@ -677,7 +678,7 @@ export const REPAIR_OUTCOME_MIN_SAMPLE = 5;
 export interface RepairOutcomeRow {
   userId: string;
   debateId: string;
-  targetKind: string;
+  targetKind: RepairKind;
   createdAt: string;
   /** A repair_started event exists for the same user+debate at/before completion. */
   accepted: boolean;

@@ -48,7 +48,25 @@ export default async function AnalyticsPage() {
     );
   }
 
-  const { events, repairs, debateWeaknesses, completeness } = await loadFunnelData();
+  const funnelData = await loadFunnelData();
+  if (funnelData.status === "unavailable") {
+    return (
+      <AppShell width="narrow">
+        <PageHeader
+          eyebrow="Internal · product analytics"
+          title="Product funnel unavailable"
+          description="The analytics backend could not be read. This is an availability failure, not evidence of zero activity."
+        />
+        <section className="surface-card p-5">
+          <p className="text-sm font-medium">No funnel rates are being reported from incomplete data.</p>
+          <p className="mt-1 text-xs text-ink3">
+            Category: {funnelData.errorCategory ?? "unknown"}. Check Operations health and the database connection before interpreting product usage.
+          </p>
+        </section>
+      </AppShell>
+    );
+  }
+  const { events, repairs, debateWeaknesses, completeness } = funnelData;
   const funnel = buildFunnelReport(events, {});
   const effectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, {});
   const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, {});
@@ -99,6 +117,11 @@ export default async function AnalyticsPage() {
           User conversion counts each user once; session conversion counts each debate separately (migration 005 events).
           Data: {completeness.events.loaded} events · {completeness.repairs.loaded} repair attempts · {completeness.debates.loaded} debate graphs.
         </p>
+        {funnelData.status === "partial" && (
+          <p className="mt-1 text-xs text-amber-600" role="note">
+            Partial analytics data{funnelData.errorCategory ? ` (${funnelData.errorCategory})` : ""}; outcome metrics may be incomplete.
+          </p>
+        )}
         {completeness.note && (
           <p className="mt-1 text-xs text-amber-600" role="note">
             Data truncated: {completeness.note}

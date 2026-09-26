@@ -9,8 +9,8 @@ import {
   todaysDrill,
   type CoachDim,
 } from "@/lib/adaptiveCoach";
-import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
-import { pendingRepairRetest } from "@/lib/repairRetest";
+import { successfulRepairRetestAnchors } from "@/lib/repairRetestServer";
+import { pendingRepairRetests } from "@/lib/repairRetest";
 import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 
 // Today's training focus: the lowest skill dimension adjusted by movement
@@ -28,13 +28,13 @@ export async function GET(request: Request) {
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [ledger, repairAnchor] = await Promise.all([
+  const [ledger, repairAnchors] = await Promise.all([
     buildLedgerForUser(user.id),
-    latestRepairRetestAnchor(user.id),
+    successfulRepairRetestAnchors(user.id),
   ]);
   const outcomes = await latestDrillOutcomes(user.id, ledger.points);
   const service = createServiceClient();
-  const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
+  const pendingRetest = pendingRepairRetests(ledger.points, repairAnchors)[0] ?? null;
 
   const { dims, slopes } = buildCoachProfile(ledger.points);
   let focus: CoachDim | null;

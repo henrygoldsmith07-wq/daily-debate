@@ -2,7 +2,20 @@ import type { ArgGraph, ArgNode, Fallacy } from "./argGraph";
 import type { ArgumentRole } from "./argumentTaxonomy";
 import { unansweredOpportunitiesBy } from "./opportunity";
 
-export type RepairKind = "evidence" | "rebuttal" | "logic" | "impact" | "structure" | "clarity";
+export const REPAIR_KINDS = [
+  "evidence",
+  "rebuttal",
+  "logic",
+  "impact",
+  "structure",
+  "clarity",
+] as const;
+
+export type RepairKind = (typeof REPAIR_KINDS)[number];
+
+export function isRepairKind(value: unknown): value is RepairKind {
+  return typeof value === "string" && (REPAIR_KINDS as readonly string[]).includes(value);
+}
 
 export interface RepairTarget {
   kind: RepairKind;
