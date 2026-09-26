@@ -3,9 +3,9 @@ import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { scoreAttempt, type CoachDimension } from "@/lib/adaptiveCoach";
 
-// Submit a scored drill attempt: deterministic rubric scoring is stored on
-// the assignment row; the ledger later fills `movement` once subsequent
-// debates exist. Drills whose movement stays negative stop being recommended.
+// Submit a formative drill attempt. A deterministic rubric value is stored
+// internally for diagnostics/selection, but the learner-facing response only
+// returns observable signals. Longitudinal movement is measured in later debates.
 
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "coach-attempt", limit: 20, windowMs: 60_000 });
@@ -54,8 +54,7 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    attemptScore: attempt.score,
     signals: attempt.signals,
-    note: "Skill movement will be measured against your next debates — check back after a few rounds.",
+    note: "Formative practice only — skill movement is measured against later debates.",
   });
 }
