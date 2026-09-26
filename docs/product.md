@@ -63,6 +63,20 @@ For longitudinal measurement, multiple rewrite submissions for the same user + d
 
 The debate's own score never changes.
 
+## Guest practice
+
+Signed-out users get the same product philosophy in a deliberately lighter form:
+
+1. three short responses to a fixed sample motion;
+2. deterministic local checks of observable wording only: explicit claim, reasoning link, engagement with the opponent, impact comparison, and named evidence;
+3. one concrete strength and one highest-priority missing move;
+4. **Fix this now** with a rewrite of that move;
+5. an account CTA only after the product has demonstrated the repair loop.
+
+Guest analysis lives in `src/lib/guestAssessment.ts`. It does **not** assign a numeric debate/ability score, infer hidden reasoning quality, or claim validation. Trigger words alone are insufficient: a one-word “however” is not rebuttal, “matters more” is not impact comparison, and naming a source without explaining its relevance does not complete an evidence repair.
+
+The guest result labels these checks as local observations, not measurement of debating ability. Responses stay client-side in this flow; they are not written to the authenticated product-event pipeline.
+
 ## "Challenge me"
 
 A third side option that picks for the user, with the reasoning shown:
