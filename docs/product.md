@@ -32,6 +32,12 @@ Start-screen copy is explicit about the format: *"Three focused rounds with dire
 
 Sprint results say so plainly: *"Sprint read: a 3-round session is a small sample. Treat this as practice signal, not a measurement of your ability."* Implementation: `src/lib/sprint.ts`.
 
+## Live debate
+
+The default room keeps the normal daily rep focused: Text and Speech are immediately available, while Rapid Rebuttal and Prepared Speech sit behind **More modes**. Specialist formats remain accessible without making every capability compete for attention during a Sprint.
+
+Turn submission is lossless under ordinary network failure. The composer keeps the exact draft until the server confirms the turn, disables itself locally while the request is in flight to reduce accidental double submission, and leaves a failed draft in place for one-click retry after connectivity returns.
+
 ## Result screen
 
 Default view shows only:
