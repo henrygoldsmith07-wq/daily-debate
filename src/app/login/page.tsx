@@ -1,10 +1,18 @@
 import Link from "next/link";
 import AuthForm from "./AuthForm";
 import { isDatabaseConfigured } from "@/lib/backend/env";
+import { safeReturnPath } from "@/lib/authRedirect";
 
 export const dynamic = "force-dynamic";
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const nextPath = safeReturnPath(Array.isArray(params.next) ? params.next[0] : params.next);
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-8 bg-[var(--background)] px-6 py-16">
       <div className="flex flex-col items-center gap-2 text-center">
@@ -14,7 +22,7 @@ export default function LoginPage() {
         </p>
       </div>
       {isDatabaseConfigured() ? (
-        <AuthForm />
+        <AuthForm nextPath={nextPath} />
       ) : (
         <div className="surface-card max-w-sm space-y-4 p-6 text-center">
           <div>

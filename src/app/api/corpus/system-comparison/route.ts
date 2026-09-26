@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/backend/server";
+import { createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { aggregateSystemComparison, isCorpusAdmin, type ComparisonPair } from "@/lib/corpus";
+import { aggregateSystemComparison, type ComparisonPair } from "@/lib/corpus";
 import { consensusLabel } from "@/lib/corpusAdjudication";
 import type { WinnerLabel } from "@/lib/humanCorpus";
+import { getRequestAuthContext } from "@/lib/requestAuth";
 
 interface CorpusItemRow {
   id: string;
@@ -28,12 +29,10 @@ export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "corpus-syscomp", limit: 4, windowMs: 15 * 60_000 });
   if (limited) return limited;
 
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const auth = await getRequestAuthContext();
+  const user = auth.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  if (!auth.isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

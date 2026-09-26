@@ -6,6 +6,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/backend/server";
 import { checkRateLimitKey } from "@/lib/rateLimit";
+import { safeReturnPath } from "@/lib/authRedirect";
 
 export interface AuthState {
   error: string | null;
@@ -39,6 +40,7 @@ async function authActionLimited(
 
 export async function signIn(_prevState: AuthState, formData: FormData): Promise<AuthState> {
   const email = String(formData.get("email"));
+  const nextPath = safeReturnPath(formData.get("next"));
   if (await authActionLimited("auth-sign-in", email, { ip: 20, identity: 8, windowMs: 15 * 60_000 })) {
     return { error: AUTH_LIMIT_MESSAGE };
   }
@@ -50,11 +52,12 @@ export async function signIn(_prevState: AuthState, formData: FormData): Promise
   if (error) return { error: error.message };
 
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect(nextPath);
 }
 
 export async function signUp(_prevState: AuthState, formData: FormData): Promise<AuthState> {
   const email = String(formData.get("email"));
+  const nextPath = safeReturnPath(formData.get("next"));
   if (await authActionLimited("auth-sign-up", email, { ip: 8, identity: 3, windowMs: 60 * 60_000 })) {
     return { error: AUTH_LIMIT_MESSAGE };
   }
@@ -67,7 +70,7 @@ export async function signUp(_prevState: AuthState, formData: FormData): Promise
   if (error) return { error: error.message };
 
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect(nextPath);
 }
 
 export async function signOut() {

@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { createClient, createServiceClient } from "@/lib/backend/server";
-import { isCorpusAdmin } from "@/lib/corpus";
+import { createServiceClient } from "@/lib/backend/server";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadFunnelData } from "@/lib/productFunnelServer";
 import { buildFunnelReport, buildRepairOutcomeFunnel } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 import { summariseAiOps, type AiOpsRow } from "@/lib/aiOps";
+import { getRequestAuthContext } from "@/lib/requestAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -35,12 +35,8 @@ function RateRow({ label, numerator, denominator, rate, note }: { label: string;
 }
 
 export default async function AnalyticsPage() {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
-
-  if (!user || !isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  const auth = await getRequestAuthContext();
+  if (!auth.isAdmin) {
     return (
       <AppShell width="narrow">
         <PageHeader

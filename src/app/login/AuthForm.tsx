@@ -6,7 +6,7 @@ import { signIn, signUp, type AuthState } from "./actions";
 
 const initialState: AuthState = { error: null };
 
-export default function AuthForm() {
+export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [signInState, signInAction, signInPending] = useActionState(signIn, initialState);
   const [signUpState, signUpAction, signUpPending] = useActionState(signUp, initialState);
@@ -41,6 +41,7 @@ export default function AuthForm() {
       </div>
 
       <form action={action} className="flex flex-col gap-4">
+        <input type="hidden" name="next" value={nextPath} />
         {mode === "sign-up" && (
           <label className="flex flex-col gap-1 text-sm">
             Display name

@@ -3,7 +3,7 @@ import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { isValidChallengeCode, opponentSideOf } from "@/lib/friendChallenge";
 import { PVP_ROUNDS } from "@/lib/types";
-import { recordProductEvent } from "@/lib/productEvents";
+import { recordProductEventForUser } from "@/lib/productEvents";
 
 interface RouteParams {
   params: Promise<{ code: string }>;
@@ -136,7 +136,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   await service.from("challenge_invites").update({ match_id: match.id }).eq("id", invite.id);
 
-  void recordProductEvent("challenge_link_accepted", { side: opponentSideOf(invite.challenger_side) });
+  await recordProductEventForUser(user.id, "challenge_link_accepted", { side: opponentSideOf(invite.challenger_side) });
 
   return NextResponse.json({ matchId: match.id, opponentSide: opponentSideOf(invite.challenger_side) });
 }

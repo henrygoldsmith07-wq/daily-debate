@@ -3,7 +3,7 @@ import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
 import { generateChallengeCode, challengeExpiry, opponentSideOf } from "@/lib/friendChallenge";
-import { recordProductEvent } from "@/lib/productEvents";
+import { recordProductEventForUser } from "@/lib/productEvents";
 import type { DebateSide } from "@/lib/types";
 
 /** Create a shareable friend challenge on today's motion. */
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     await service.from("challenge_invites").update({ status: "cancelled" }).eq("code", openInvite.code);
   }
 
-  void recordProductEvent("challenge_link_created", { side });
+  await recordProductEventForUser(user.id, "challenge_link_created", { side });
 
   return NextResponse.json({
     invite,

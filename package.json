@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:scripts": "node --test \"scripts/lib/*.test.mjs\"",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
+    "db:cleanup": "node --env-file-if-exists=.env.local scripts/cleanup-backend-state.mjs",
     "db:seed:e2e": "node --env-file-if-exists=.env.local scripts/e2e-seed.mjs",
     "check:corpus": "node --env-file-if-exists=.env.local scripts/check-corpus-invariants.mjs",
     "repair:corpus": "node --env-file-if-exists=.env.local scripts/repair-corpus-closure.mjs",

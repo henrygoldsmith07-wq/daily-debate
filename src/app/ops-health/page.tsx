@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { createClient } from "@/lib/backend/server";
-import { isCorpusAdmin } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadOpsHealth } from "@/lib/opsHealthServer";
 import type { EvidenceSection, HealthState, MigrationReadiness, TrainingEvidence } from "@/lib/opsHealth";
+import { getRequestAuthContext } from "@/lib/requestAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -50,12 +49,8 @@ function fmtMigrationReadiness(r: MigrationReadiness): string {
 }
 
 export default async function OpsHealthPage() {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
-
-  if (!user || !isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  const auth = await getRequestAuthContext();
+  if (!auth.isAdmin) {
     return (
       <AppShell width="narrow">
         <PageHeader

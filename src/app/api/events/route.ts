@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { PRODUCT_EVENT_NAMES, type ProductEventContext } from "@/lib/productEvents";
+import { createClient } from "@/lib/backend/server";
+import {
+  isProductEventName,
+  isProductEventReason,
+  recordProductEventForUser,
+  type ProductEventContext,
+} from "@/lib/productEvents";
 
 /**
  * Client-side product event sink. Same privacy rules as the server-side
@@ -13,15 +19,24 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
   const name = body?.name;
-  if (typeof name !== "string" || !(PRODUCT_EVENT_NAMES as readonly string[]).includes(name)) {
+  if (!isProductEventName(name)) {
     return NextResponse.json({ error: "Unknown event." }, { status: 400 });
   }
-  const eventName = name as (typeof PRODUCT_EVENT_NAMES)[number];
+  const db = await createClient();
+  const {
+    data: { user },
+  } = await db.auth.getUser();
+  if (!user) return NextResponse.json({ ok: true });
 
   const context: ProductEventContext = {};
   if (body?.format === "sprint" || body?.format === "full") context.format = body.format;
   if (body?.side === "for" || body?.side === "against") context.side = body.side;
-  if (typeof body?.reason === "string") context.reason = body.reason.slice(0, 64);
+  if (body?.reason !== undefined && body?.reason !== null) {
+    if (!isProductEventReason(body.reason)) {
+      return NextResponse.json({ error: "Unknown event reason." }, { status: 400 });
+    }
+    context.reason = body.reason;
+  }
   if (typeof body?.round === "number" && Number.isInteger(body.round)) context.round = body.round;
   // Session identifier: bounded to UUID-shaped values only.
   if (
@@ -31,8 +46,7 @@ export async function POST(request: Request) {
     context.debateId = body.debateId;
   }
 
-  const { recordProductEvent } = await import("@/lib/productEvents");
-  await recordProductEvent(eventName, context);
+  await recordProductEventForUser(user.id, name, context);
 
   return NextResponse.json({ ok: true });
 }

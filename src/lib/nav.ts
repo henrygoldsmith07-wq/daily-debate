@@ -82,7 +82,7 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         href: "/leaderboard",
         label: "Leaderboard",
-        description: "Where you land against other debaters",
+        description: "Practice activity and points across players",
         icon: "leaderboard",
       },
     ],

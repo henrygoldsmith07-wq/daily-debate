@@ -9,7 +9,7 @@ import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
 import { type InputMode } from "@/lib/types";
 import { roundCapFor } from "@/lib/sprint";
-import { recordProductEvent } from "@/lib/productEvents";
+import { recordProductEventForUser } from "@/lib/productEvents";
 import {
   classifyArgumentBatchDetailed,
   recordRoutingTelemetry,
@@ -178,9 +178,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Latest round already answered." }, { status: 409 });
   }
 
-  void recordProductEvent("round_completed", {
+  await recordProductEventForUser(user.id, "round_completed", {
     format: debateFormat,
-    side: debate.side,
+    side: debate.side as "for" | "against",
     round: pendingTurn.round_number,
     debateId,
   });

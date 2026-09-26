@@ -36,6 +36,7 @@ Honest labels for what is shipped, provisional, or gated:
 - Async friend challenges: shareable `/challenge/<code>` link, persistent match state, expiry, turn state. (Foundation; UI marked experimental.)
 - Guest practice without an account: deterministic local checks react to the actual response (claim, reasoning, opponent engagement, impact comparison, named evidence), identify one observable weakness, and offer a mini repair. Guest mode deliberately shows no numeric ability score.
 - Product analytics: allowlisted, bounded, no-free-text funnel events (`src/lib/productEvents.ts`), with an internal admin report at `/analytics` covering the training funnel and observational repair-effectiveness measurement.
+- Expired sessions, password-reset tokens, and rate-limit buckets are swept daily by the `backend-cleanup` workflow; `npm run db:cleanup` runs the same maintenance function manually.
 
 **Provisional (measured, not validated)**
 

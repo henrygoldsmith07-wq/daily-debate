@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/backend/server";
-import { isCorpusAdmin, completeScores, populationProgress } from "@/lib/corpus";
+import { createServiceClient } from "@/lib/backend/server";
+import { completeScores, populationProgress } from "@/lib/corpus";
 import { iccTwoWay, EVAL_DIMENSIONS, type SideScores } from "@/lib/debateEvaluation";
 import { computeCorpusMetrics, type MetricItem, type MetricRating } from "@/lib/corpusMetrics";
 import type { WinnerLabel } from "@/lib/humanCorpus";
+import { getRequestAuthContext } from "@/lib/requestAuth";
 
 // Admin-only: human-human reliability FIRST. Per-dimension ICC and shared
 // human-validation stats (consensus readiness, pairwise winner κ, score-gap
@@ -24,12 +25,10 @@ interface RatingRow {
 }
 
 export async function GET() {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const auth = await getRequestAuthContext();
+  const user = auth.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  if (!auth.isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

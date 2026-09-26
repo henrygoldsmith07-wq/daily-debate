@@ -10,11 +10,12 @@ import { resolveDebateFormat, type DebateFormat } from "@/lib/sprint";
 import {
   assignChallengeSide,
   normaliseSoloPerformance,
+  type ChallengeRule,
   type SideHistoryItem,
 } from "@/lib/challengeMe";
 import { pickFocusDimension } from "@/lib/coachingGoal";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
-import { recordProductEvent } from "@/lib/productEvents";
+import { recordProductEventForUser } from "@/lib/productEvents";
 import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
 import { isDifferentRetestContext, pendingRepairRetest } from "@/lib/repairRetest";
 import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
   // from the user's own history (never presented as optimised, just reasoned).
   let side: DebateSide;
   let sideReason: string | null = null;
+  let sideRule: ChallengeRule | null = null;
   if (body?.side === "challenge") {
     // Fetch the actual newest debates (descending + reverse). The previous
     // ascending-limit query quietly became "oldest 20" once a user had >20.
@@ -86,7 +88,8 @@ export async function POST(request: Request) {
     const assignment = assignChallengeSide(history);
     side = assignment.side;
     sideReason = assignment.reason;
-    void recordProductEvent("challenge_me_selected", { format, side, reason: assignment.rule });
+    sideRule = assignment.rule;
+    await recordProductEventForUser(user.id, "challenge_me_selected", { format, side, reason: assignment.rule });
   } else if (body?.side === "for" || body?.side === "against") {
     side = body.side;
   } else {
@@ -144,17 +147,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to start debate." }, { status: 500 });
   }
 
-  void recordProductEvent(format === "sprint" ? "sprint_started" : "full_debate_started", {
+  await recordProductEventForUser(user.id, format === "sprint" ? "sprint_started" : "full_debate_started", {
     format,
     side,
-    reason: sideReason,
+    reason: sideRule,
     debateId: debate.id,
   });
   if (repairRetest) {
-    void recordProductEvent("retest_started", {
+    await recordProductEventForUser(user.id, "retest_started", {
       format,
       side,
-      reason: repairRetest.targetKind,
+      reason: repairRetest.targetKind as import("@/lib/productEvents").ProductEventReason,
       debateId: debate.id,
     });
   }
