@@ -74,11 +74,11 @@ begin
     hashtextextended('friend-challenge-create:' || p_challenger::text, 727295)
   );
 
-  update challenge_invites
+  update challenge_invites ci
   set status = 'expired'
-  where challenger_id = p_challenger
-    and status = 'open'
-    and expires_at <= now();
+  where ci.challenger_id = p_challenger
+    and ci.status = 'open'
+    and ci.expires_at <= now();
 
   select ci.* into existing_invite
   from challenge_invites ci

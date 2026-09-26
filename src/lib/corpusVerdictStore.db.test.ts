@@ -13,7 +13,14 @@ const d = databaseUrl && process.env.DATABASE_URL?.trim() ? describe : describe.
 
 let pool: pg.Pool;
 let contributorId: string;
+const raterIds: string[] = [];
 const itemIds: string[] = [];
+const testEmails = [
+  "verdict-store@test.local",
+  "verdict-rater-1@test.local",
+  "verdict-rater-2@test.local",
+  "verdict-rater-3@test.local",
+];
 
 async function makeItem(sideMapping: Record<string, unknown> = {}): Promise<string> {
   const row = await pool.query<{ id: string }>(
@@ -27,6 +34,14 @@ async function makeItem(sideMapping: Record<string, unknown> = {}): Promise<stri
     [contributorId, JSON.stringify(sideMapping)],
   );
   itemIds.push(row.rows[0].id);
+  await pool.query(
+    `INSERT INTO corpus_ratings (
+       corpus_id, rater_id, scores_a, scores_b, winner, confidence, rationale
+     )
+     SELECT $1, rater_id, '{}'::jsonb, '{}'::jsonb, 'a', 0.8, 'fixture'
+     FROM unnest($2::uuid[]) AS rater_id`,
+    [row.rows[0].id, raterIds],
+  );
   return row.rows[0].id;
 }
 
@@ -47,11 +62,28 @@ d("corpus verdict store (real Postgres)", () => {
        RETURNING id`,
     );
     contributorId = user.rows[0].id;
+    for (let i = 1; i <= 3; i++) {
+      const email = `verdict-rater-${i}@test.local`;
+      const rater = await pool.query<{ id: string }>(
+        `WITH u AS (
+           INSERT INTO app_users (email, password_hash)
+           VALUES ($1, 'test')
+           ON CONFLICT (email) DO UPDATE SET email = excluded.email
+           RETURNING id
+         )
+         INSERT INTO profiles (id, username)
+         SELECT id, $2 FROM u
+         ON CONFLICT (id) DO UPDATE SET username = excluded.username
+         RETURNING id`,
+        [email, `verdict-rater-${i}`],
+      );
+      raterIds.push(rater.rows[0].id);
+    }
   });
 
   afterAll(async () => {
     if (itemIds.length) await pool.query("DELETE FROM corpus_items WHERE id = ANY($1::uuid[])", [itemIds]);
-    await pool.query("DELETE FROM app_users WHERE email = 'verdict-store@test.local'");
+    await pool.query("DELETE FROM app_users WHERE email = ANY($1::text[])", [testEmails]);
     await pool.end();
   });
 
