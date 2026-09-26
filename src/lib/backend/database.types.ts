@@ -232,6 +232,21 @@ export type RepairResultRow = {
   created_at: string;
 };
 
+export type RepairRetestRow = {
+  id: string;
+  repair_result_id: string;
+  user_id: string;
+  repair_debate_id: string;
+  target_kind: string;
+  assigned_debate_id: string;
+  assigned_at: string;
+  completed_at: string | null;
+  observable: boolean | null;
+  demonstrated: boolean | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ChallengeInviteRow = {
   id: string;
   code: string;
@@ -305,6 +320,7 @@ export type Database = {
     topic_evidence: TableDef<TopicEvidenceRow>;
     route_lifecycle: TableDef<RouteLifecycleRow>;
     repair_results: TableDef<RepairResultRow>;
+    repair_retests: TableDef<RepairRetestRow>;
     challenge_invites: TableDef<ChallengeInviteRow>;
     product_events: TableDef<ProductEventRow>;
     ai_call_log: TableDef<AiCallLogRow>;

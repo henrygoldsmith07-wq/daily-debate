@@ -35,10 +35,10 @@ export async function GET(request: Request) {
       { status: 503 },
     );
   }
-  const { events, repairs, debateWeaknesses, completeness } = funnelData;
+  const { events, repairs, retests, debateWeaknesses, completeness } = funnelData;
   const funnel = buildFunnelReport(events, { windowDays });
-  const repairEffectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { windowDays });
-  const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, {});
+  const repairEffectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { windowDays, retests });
+  const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { retests });
 
   return NextResponse.json({
     status: funnelData.status,

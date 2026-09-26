@@ -22,7 +22,7 @@ vi.mock("./skillLedgerServer", () => ({
 }));
 
 vi.mock("./repairRetestServer", () => ({
-  successfulRepairRetestAnchors: async () => {
+  unresolvedRepairRetestAnchors: async () => {
     if (h.repairsFail) throw new Error("repair store down");
     return [
       {
@@ -41,6 +41,7 @@ vi.mock("./repairRetestServer", () => ({
       },
     ];
   },
+  completeRepairRetestAssignment: async () => ({ ok: true as const }),
 }));
 
 vi.mock("./adaptiveCoachServer", () => ({

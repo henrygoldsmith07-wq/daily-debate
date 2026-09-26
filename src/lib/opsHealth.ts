@@ -799,6 +799,8 @@ export interface MigrationReadiness {
   migration023FriendChallengeReady: boolean | null;
   /** 024: human-validation integrity + system-judge claim table are present. */
   migration024HumanValidationReady: boolean | null;
+  /** 025: durable repair-to-retest assignment/outcome state is present. */
+  migration025RepairRetestReady: boolean | null;
   /** Latest application schema required by the running build. */
   latestApplicationSchemaReady: boolean | null;
   note: string | null;
@@ -811,7 +813,7 @@ export interface MigrationReadiness {
  * AND value-constraint readiness are both derived from actual schema — never
  * from a migration count.
  */
-export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019" | "022" | "023" | "024", Array<{ table: string; columns: string[] }>> = {
+export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019" | "022" | "023" | "024" | "025", Array<{ table: string; columns: string[] }>> = {
   "016": [{ table: "topic_run_log", columns: ["run_created_at", "queue_delay_ms", "generator_result", "provider_health"] }],
   "017": [
     {
@@ -859,6 +861,25 @@ export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019" | 
       columns: ["corpus_id", "claim_token", "claimed_at"],
     },
   ],
+  "025": [
+    {
+      table: "repair_retests",
+      columns: [
+        "repair_result_id",
+        "user_id",
+        "repair_debate_id",
+        "target_kind",
+        "assigned_debate_id",
+        "assigned_at",
+        "completed_at",
+        "observable",
+        "demonstrated",
+        "index:repair_retests_completion_idx",
+        "index:repair_retests_assigned_debate_unique",
+        "index:repair_retests_one_open_per_repair",
+      ],
+    },
+  ],
 };
 
 /**
@@ -877,11 +898,12 @@ export function assessMigrationReadiness(
       migration022ProductEventReasonReady: null,
       migration023FriendChallengeReady: null,
       migration024HumanValidationReady: null,
+      migration025RepairRetestReady: null,
       latestApplicationSchemaReady: null,
       note: "Schema unreadable — migration readiness could not be verified.",
     };
   }
-  const check = (key: "016" | "017" | "018" | "019" | "022" | "023" | "024"): boolean =>
+  const check = (key: "016" | "017" | "018" | "019" | "022" | "023" | "024" | "025"): boolean =>
     MIGRATION_REQUIRED_COLUMNS[key].every(({ table, columns }) => {
       const cols = present.get(table);
       return !!cols && columns.every((c) => cols.has(c));
@@ -893,6 +915,7 @@ export function assessMigrationReadiness(
   const ready22 = check("022");
   const ready23 = check("023");
   const ready24 = check("024");
+  const ready25 = check("025");
   const missing = [
     ...(ready16 ? [] : ["016_topic_run_telemetry.sql"]),
     ...(ready17 ? [] : ["017_route_lifecycle.sql"]),
@@ -901,6 +924,7 @@ export function assessMigrationReadiness(
     ...(ready22 ? [] : ["022_product_event_reason_privacy.sql"]),
     ...(ready23 ? [] : ["023_atomic_friend_challenges.sql"]),
     ...(ready24 ? [] : ["024_human_validation_integrity.sql"]),
+    ...(ready25 ? [] : ["025_repair_retest_state.sql"]),
   ];
   return {
     migration016TelemetryReady: ready16,
@@ -910,6 +934,7 @@ export function assessMigrationReadiness(
     migration022ProductEventReasonReady: ready22,
     migration023FriendChallengeReady: ready23,
     migration024HumanValidationReady: ready24,
+    migration025RepairRetestReady: ready25,
     latestApplicationSchemaReady: missing.length === 0,
     note: missing.length
       ? `Required application schema is incomplete (${missing.join(", ")}).`
@@ -1131,6 +1156,7 @@ export interface TrainingEvidenceInput {
 export interface CoachingRuntimeInput {
   startsSampled: number;
   degradedStarts: number;
+  truncated: boolean;
   latestDegradedAt: string | null;
   reasonCounts: Partial<Record<CoachingContextDegradationReason, number>>;
 }
@@ -1138,6 +1164,7 @@ export interface CoachingRuntimeInput {
 export interface CoachingRuntimeHealth extends EvidenceSection {
   startsSampled: number;
   degradedStarts: number;
+  truncated: boolean;
   latestDegradedAt: string | null;
   reasonCounts: Partial<Record<CoachingContextDegradationReason, number>>;
 }
@@ -1148,6 +1175,7 @@ export function assessCoachingRuntimeHealth(
   const facts = [
     { label: "Recent solo starts sampled", value: String(input.startsSampled) },
     { label: "Starts with degraded coaching context", value: String(input.degradedStarts) },
+    { label: "Seven-day sample truncated", value: input.truncated ? "yes" : "no" },
   ];
   for (const [reason, count] of Object.entries(input.reasonCounts)) {
     if (!count) continue;
@@ -1165,10 +1193,14 @@ export function assessCoachingRuntimeHealth(
   }
   if (input.degradedStarts === 0) {
     return {
-      status: "healthy",
-      headline: "recent solo starts loaded coaching context successfully",
+      status: input.truncated ? "degraded" : "healthy",
+      headline: input.truncated
+        ? "recent coaching starts are healthy in a capped sample"
+        : "recent solo starts loaded coaching context successfully",
       facts,
-      note: null,
+      note: input.truncated
+        ? "More than 100 solo starts occurred in the seven-day window; health reflects only the newest 100 and is therefore partial."
+        : null,
       ...input,
     };
   }
@@ -1194,10 +1226,10 @@ export interface TrainingEvidence extends EvidenceSection {
 export function assessTrainingEvidence(input: TrainingEvidenceInput): TrainingEvidence {
   const facts = [
     { label: "Completed repairs", value: String(input.repairs) },
-    { label: "First-eligible retests observed", value: String(input.retestsObserved) },
+    { label: "Explicit observable retests observed", value: String(input.retestsObserved) },
     { label: "Awaiting retest (pending, never counted clean)", value: String(input.retestsPending) },
     { label: "Censored (observed, no recurrence yet)", value: String(input.censoredRepairs) },
-    { label: "Equal-exposure denominator (≥3 retests)", value: String(input.firstThreeDenominator) },
+    { label: "Equal-exposure denominator (explicit retest + ≥2 follow-ups)", value: String(input.firstThreeDenominator) },
   ];
   // OBSERVED OUTCOMES — reported with denominators, never colour-coded.
   const outcomes: Array<{ label: string; value: string }> = [

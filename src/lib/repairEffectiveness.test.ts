@@ -9,6 +9,7 @@ import {
   REPAIR_MIN_SAMPLE,
   weaknessKindsFor,
   type DebateWeaknessRow,
+  type RepairRetestAnalyticsRow,
   type RepairRow,
 } from "./repairEffectiveness";
 import type { ArgGraph } from "./argGraph";
@@ -18,7 +19,7 @@ const NOW = "2026-06-15T12:00:00Z";
 const DAY = 86_400_000;
 
 function repair(user: string, kind: RepairKind, at: string, debateId = "d-repair"): RepairRow {
-  return { user_id: user, debate_id: debateId, target_kind: kind, score: 80, succeeded: true, created_at: at };
+  return { id: `${user}-${debateId}-${kind}-${at}`, user_id: user, debate_id: debateId, target_kind: kind, score: 80, succeeded: true, created_at: at };
 }
 
 function debate(
@@ -37,6 +38,22 @@ function daysBefore(iso: string, n: number): string {
 
 function daysAfter(iso: string, n: number): string {
   return new Date(Date.parse(iso) + n * DAY).toISOString();
+}
+
+function retest(
+  repairRow: RepairRow,
+  debateId: string,
+  completedAt: string,
+): RepairRetestAnalyticsRow {
+  return {
+    repair_result_id: repairRow.id!,
+    user_id: repairRow.user_id,
+    assigned_debate_id: debateId,
+    assigned_at: completedAt,
+    completed_at: completedAt,
+    observable: true,
+    demonstrated: null,
+  };
 }
 
 describe("collapseRepairAttempts", () => {
@@ -179,7 +196,7 @@ describe("clarity repairs are not currently measurable", () => {
       debate("u1", daysBefore(r.created_at, 2), { clarity: 1 }), // even fake data cannot make it measurable
       debate("u1", daysAfter(r.created_at, 2), { clarity: 1 }),
     ];
-    const detail = classifyRepair(r, debates);
+    const detail = classifyRepair(r, debates, { firstRetestDebateId: "d-retest-clean-no" });
     expect(detail.outcome).toBe("not-currently-measurable");
     expect(detail.beforeRate).toBeNull();
     expect(detail.afterRate).toBeNull();
@@ -208,7 +225,7 @@ describe("classifyRepair", () => {
       debate("u1", daysBefore(r.created_at, 1), { evidence: 1 }),
       debate("u1", daysAfter(r.created_at, 2), {}), // clean debate after repair
     ];
-    const detail = classifyRepair(r, debates);
+    const detail = classifyRepair(r, debates, { firstRetestDebateId: "d-retest" });
     expect(detail.outcome).toBe("improved");
     expect(detail.beforeRate).toBe(1);
     expect(detail.afterRate).toBe(0);
@@ -220,7 +237,7 @@ describe("classifyRepair", () => {
       debate("u1", daysBefore(r.created_at, 3), {}), // clean before
       debate("u1", daysAfter(r.created_at, 2), { evidence: 1 }),
     ];
-    const detail = classifyRepair(r, debates);
+    const detail = classifyRepair(r, debates, { firstRetestDebateId: "d-retest-clean-no" });
     expect(detail.outcome).toBe("worse");
   });
 
@@ -232,7 +249,7 @@ describe("classifyRepair", () => {
       debate("u1", r.created_at, { evidence: 3 }, "the-repaired-debate"),
       debate("u1", daysAfter(r.created_at, 2), {}),
     ];
-    const detail = classifyRepair(r, debates);
+    const detail = classifyRepair(r, debates, { firstRetestDebateId: "d-retest" });
     expect(detail.outcome).toBe("improved");
     expect(detail.afterDebates).toBe(1);
   });
@@ -240,14 +257,14 @@ describe("classifyRepair", () => {
   it("says not-yet-measurable when no later debate exists", () => {
     const r = repair("u1", "evidence", "2026-06-14T12:00:00Z");
     const debates = [debate("u1", daysBefore(r.created_at, 2), { evidence: 1 })];
-    const detail = classifyRepair(r, debates);
+    const detail = classifyRepair(r, debates, { firstRetestDebateId: "d-retest-clean-no" });
     expect(detail.outcome).toBe("not-yet-measurable");
   });
 
   it("says insufficient-baseline when no earlier debate exists", () => {
     const r = repair("u1", "evidence", "2026-06-10T12:00:00Z");
     const debates = [debate("u1", daysAfter(r.created_at, 2), {})];
-    const detail = classifyRepair(r, debates);
+    const detail = classifyRepair(r, debates, { firstRetestDebateId: "d-retest" });
     expect(detail.outcome).toBe("insufficient-baseline");
   });
 
@@ -274,15 +291,15 @@ describe("classifyRepair", () => {
   });
 });
 
-describe("retest linkage (weakness → repair → first retest)", () => {
-  it("identifies the first later debate and whether the weakness recurred", () => {
+describe("retest linkage (weakness → repair → explicit retest)", () => {
+  it("uses the explicitly assigned retest debate and reports whether the weakness recurred", () => {
     const r = repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r");
     const debates = [
       debate("u1", daysBefore(r.created_at, 2), { evidence: 1 }),
       debate("u1", daysAfter(r.created_at, 1), { evidence: 1 }, "d-retest-clean-no"), // retest WITH weakness
       debate("u1", daysAfter(r.created_at, 3), {}), // later debate, not the first retest
     ];
-    const detail = classifyRepair(r, debates);
+    const detail = classifyRepair(r, debates, { firstRetestDebateId: "d-retest-clean-no" });
     expect(detail.firstRetest).not.toBeNull();
     expect(detail.firstRetest!.debateId).toBe("d-retest-clean-no");
     expect(detail.firstRetest!.weaknessPresent).toBe(true);
@@ -294,22 +311,25 @@ describe("retest linkage (weakness → repair → first retest)", () => {
       debate("u1", daysBefore(r.created_at, 2), { evidence: 2 }),
       debate("u1", daysAfter(r.created_at, 1), {}, "d-retest"),
     ];
-    const detail = classifyRepair(r, debates);
+    const detail = classifyRepair(r, debates, { firstRetestDebateId: "d-retest" });
     expect(detail.firstRetest!.weaknessPresent).toBe(false);
   });
 
   it("aggregates retest rates once the measurable threshold is met", () => {
     const repairs: RepairRow[] = [];
     const debates: DebateWeaknessRow[] = [];
+    const retests: RepairRetestAnalyticsRow[] = [];
     for (let i = 0; i < 5; i++) {
       const user = `u${i}`;
       const at = "2026-06-08T12:00:00Z";
-      repairs.push(repair(user, "evidence", at, `d-r-${i}`));
+      const r = repair(user, "evidence", at, `d-r-${i}`);
+      repairs.push(r);
       debates.push(debate(user, daysBefore(at, 2), { evidence: 1 }));
       // 3 of 5 first retests still carry the weakness.
       debates.push(debate(user, daysAfter(at, 1), i < 3 ? { evidence: 1 } : {}, `d-retest-${i}`));
+      retests.push(retest(r, `d-retest-${i}`, daysAfter(at, 1)));
     }
-    const report = buildRepairEffectiveness(repairs, debates, { now: NOW });
+    const report = buildRepairEffectiveness(repairs, debates, { now: NOW, retests });
     expect(report.overall.retest.repairsWithRetest).toBe(5);
     expect(report.overall.retest.firstRetestWeaknessRate).toBeCloseTo(0.6);
     expect(report.overall.retest.note).toBeNull();
@@ -322,7 +342,7 @@ describe("retest linkage (weakness → repair → first retest)", () => {
     const second = debate("u9", daysAfter(r.created_at, 5), {}, "d-second");
     // Deliberately pass newest-first (the loader's query order) to prove the
     // measurement does not depend on input ordering.
-    const detail = classifyRepair(r, [second, first, earlier]);
+    const detail = classifyRepair(r, [second, first, earlier], { firstRetestDebateId: "d-first" });
     expect(detail.firstRetest?.debateId).toBe("d-first");
     expect(detail.firstRetest?.weaknessPresent).toBe(true);
   });
@@ -332,7 +352,7 @@ describe("retest linkage (weakness → repair → first retest)", () => {
     const earlier = debate("u9", daysBefore(r.created_at, 2), { evidence: 1 });
     const first = debate("u9", daysAfter(r.created_at, 1), {}, "d-first");
     const second = debate("u9", daysAfter(r.created_at, 5), { evidence: 3 }, "d-second");
-    const detail = classifyRepair(r, [second, first, earlier]);
+    const detail = classifyRepair(r, [second, first, earlier], { firstRetestDebateId: "d-first" });
     expect(detail.firstRetest?.debateId).toBe("d-first");
     expect(detail.firstRetest?.weaknessPresent).toBe(false);
     // Window rates still consider every in-window debate.
@@ -345,7 +365,7 @@ describe("retest linkage (weakness → repair → first retest)", () => {
       debate("u1", daysBefore("2026-06-08T12:00:00Z", 2), { evidence: 1 }),
       debate("u1", daysAfter("2026-06-08T12:00:00Z", 1), {}, "d-retest"),
     ];
-    const report = buildRepairEffectiveness([r], debates, { now: NOW });
+    const report = buildRepairEffectiveness([r], debates, { now: NOW, retests: [retest(r, "d-retest", daysAfter(r.created_at, 1))] });
     expect(report.overall.retest.repairsWithRetest).toBe(1);
     expect(report.overall.retest.firstRetestWeaknessRate).toBeNull();
     expect(report.overall.retest.note).toMatch(/pending/);
@@ -463,7 +483,7 @@ describe("opportunity filter (no-opportunity debates are invisible)", () => {
 });
 
 describe("retry attempts do not inflate effectiveness denominators", () => {
-  it("counts one episode, keeps the first-attempt anchor, and reports collapsed retries", () => {
+  it("counts one episode, anchors effectiveness at first success, and reports collapsed retries", () => {
     const first = "2026-06-10T12:00:00Z";
     const repairs: RepairRow[] = [
       { ...repair("u1", "evidence", first, "d-r"), score: 40, succeeded: false },
@@ -480,7 +500,42 @@ describe("retry attempts do not inflate effectiveness denominators", () => {
     expect(report.overall.repairs).toBe(1);
     expect(report.overall.measurable).toBe(1);
     expect(report.overall.improved).toBe(1);
-    expect(report.honestyNote).toMatch(/collapsed to one episode/i);
+    expect(report.honestyNote).toMatch(/first successful rewrite/i);
+  });
+
+  it("does not count a debate between a failed draft and first success as post-repair evidence", () => {
+    const failedAt = "2026-06-10T12:00:00Z";
+    const successAt = "2026-06-10T12:10:00Z";
+    const repairs: RepairRow[] = [
+      { ...repair("u1", "evidence", failedAt, "d-r"), score: 30, succeeded: false },
+      { ...repair("u1", "evidence", successAt, "d-r"), score: 85, succeeded: true },
+    ];
+    const episode = collapseRepairAttempts(repairs)[0];
+    const detail = classifyRepair(episode, [
+      debate("u1", "2026-06-10T11:00:00Z", { evidence: 1 }, "d-before"),
+      debate("u1", "2026-06-10T12:05:00Z", {}, "d-between"),
+      debate("u1", "2026-06-10T12:20:00Z", {}, "d-after"),
+    ]);
+    expect(detail.created_at).toBe(successAt);
+    expect(detail.beforeDebates).toBe(2);
+    expect(detail.afterDebates).toBe(1);
+  });
+
+  it("keeps failed-only episodes out of effectiveness denominators", () => {
+    const failed: RepairRow = {
+      ...repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r"),
+      score: 30,
+      succeeded: false,
+    };
+    const report = buildRepairEffectiveness(
+      [failed],
+      [debate("u1", "2026-06-11T12:00:00Z", {}, "d-after")],
+      { now: NOW },
+    );
+    expect(report.totalRepairs).toBe(0);
+    expect(report.failedOnlyEpisodes).toBe(1);
+    expect(report.totalAttempts).toBe(1);
+    expect(report.overall.repairs).toBe(0);
   });
 });
 

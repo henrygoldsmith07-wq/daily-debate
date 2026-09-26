@@ -134,7 +134,26 @@ export function pendingRepairRetest(
   const anchorMs = Date.parse(anchor.attemptedAt);
   if (!Number.isFinite(anchorMs)) return null;
 
-  const observedLater = points.some((point) => {
+  const observedLater = !!observedRepairRetestPoint(points, anchor);
+
+  return observedLater ? null : { ...anchor, dimension };
+}
+
+/**
+ * Find the explicit assigned debate that genuinely observed this repaired
+ * dimension. This is also used once to reconcile pre-025 assignments into the
+ * durable repair_retests table.
+ */
+export function observedRepairRetestPoint(
+  points: SkillMetricPoint[],
+  anchor: RepairRetestAnchor,
+): SkillMetricPoint | null {
+  const dimension = repairKindToDimension(anchor.targetKind);
+  if (!dimension) return null;
+  const anchorMs = Date.parse(anchor.attemptedAt);
+  if (!Number.isFinite(anchorMs)) return null;
+
+  return points.find((point) => {
     if (point.debateId === anchor.debateId) return false;
     if (!repairRetestMatchesAnchor(point.repairRetest, anchor)) return false;
     const completedMs = Date.parse(point.completedAt);
@@ -144,9 +163,7 @@ export function pendingRepairRetest(
       isDifferentRetestContext(anchor.topicId, point.topicId) &&
       pointMeasuresDimension(point, dimension)
     );
-  });
-
-  return observedLater ? null : { ...anchor, dimension };
+  }) ?? null;
 }
 
 export function repairRetestMatchesAnchor(

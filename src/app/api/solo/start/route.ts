@@ -17,6 +17,7 @@ import {
 import { pickFocusDimension } from "@/lib/coachingGoal";
 import { recordProductEventForUser } from "@/lib/productEvents";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
+import { assignRepairRetest } from "@/lib/repairRetestServer";
 
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "solo-start", limit: 10, windowMs: 60_000 });
@@ -142,6 +143,54 @@ export async function POST(request: Request) {
     console.error("Failed to create solo debate:", debateError);
     return NextResponse.json({ error: "Failed to start debate." }, { status: 500 });
   }
+  let debateForResponse = debate;
+
+  if (repairRetest) {
+    const anchor = context.repairAnchors.find(
+      (candidate) => candidate.repairResultId === repairRetest?.repairResultId,
+    );
+    const durable = anchor
+      ? await assignRepairRetest({
+          userId: user.id,
+          anchor,
+          assignedDebateId: debate.id,
+          assignedAt: debate.created_at,
+        })
+      : { ok: false as const, message: "repair anchor missing from coaching context" };
+    if (!durable.ok) {
+      console.error("Failed to persist repair retest assignment:", durable.message);
+      repairRetest = null;
+      if (!degradationReasons.includes("repair-retest-unavailable")) {
+        degradationReasons.push("repair-retest-unavailable");
+      }
+      coachingDimension = pickFocusDimension(context.ledger?.points ?? [], context.drillOutcomes, null);
+      const { error: downgradeError } = await db
+        .from("solo_debates")
+        .update({
+          coaching: {
+            dimension: coachingDimension,
+            sideReason,
+            repairRetest: null,
+            degradationReasons,
+          },
+        })
+        .eq("id", debate.id);
+      if (downgradeError) {
+        console.error("Failed to downgrade unverifiable repair retest:", downgradeError);
+        await db.from("solo_debates").delete().eq("id", debate.id);
+        return NextResponse.json({ error: "Failed to start debate." }, { status: 500 });
+      }
+      debateForResponse = {
+        ...debate,
+        coaching: {
+          dimension: coachingDimension,
+          sideReason,
+          repairRetest: null,
+          degradationReasons,
+        },
+      };
+    }
+  }
 
   await recordProductEventForUser(user.id, format === "sprint" ? "sprint_started" : "full_debate_started", {
     format,
@@ -185,5 +234,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to start debate." }, { status: 500 });
   }
 
-  return NextResponse.json({ debate, turn, side, sideReason, format });
+  return NextResponse.json({ debate: debateForResponse, turn, side, sideReason, format });
 }

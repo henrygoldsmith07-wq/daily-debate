@@ -28,6 +28,8 @@ import type { RepairKind } from "./argumentRepair";
 import { eligibleOpponentMoves, unansweredOpportunitiesBy } from "./opportunity";
 
 export interface RepairRow {
+  /** Present for persisted rows; optional in pure analytical fixtures. */
+  id?: string | null;
   user_id: string;
   debate_id: string;
   target_kind: RepairKind;
@@ -44,6 +46,22 @@ export interface RepairRow {
 export interface RepairEpisodeRow extends RepairRow {
   /** Raw rewrite submissions represented by this episode. */
   attempts: number;
+  /** First submitted rewrite, whether or not it succeeded. */
+  firstAttemptAt: string;
+  /** First rewrite that crossed the repair threshold; null for failed-only episodes. */
+  firstSuccessAt: string | null;
+  /** Stable repair_results identity for the first successful rewrite. */
+  successfulRepairResultId: string | null;
+}
+
+export interface RepairRetestAnalyticsRow {
+  repair_result_id: string;
+  user_id: string;
+  assigned_debate_id: string;
+  assigned_at: string;
+  completed_at: string | null;
+  observable: boolean | null;
+  demonstrated: boolean | null;
 }
 
 /**
@@ -51,7 +69,8 @@ export interface RepairEpisodeRow extends RepairRow {
  * (user, debate, target kind).
  *
  * Semantics:
- * - first attempt timestamp anchors the intervention window;
+ * - first attempt timestamp remains available for conversion/effort analysis;
+ * - first SUCCESS anchors effectiveness/retest measurement;
  * - best formative score is retained for diagnostics;
  * - succeeded is true if any attempt in the episode crossed the threshold;
  * - attempts remains visible so deduplication is auditable.
@@ -71,13 +90,17 @@ export function collapseRepairAttempts(repairs: RepairRow[]): RepairEpisodeRow[]
       (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at),
     );
     const first = chronological[0];
+    const firstSuccess = chronological.find((row) => row.succeeded) ?? null;
     const bestScore = Math.max(...chronological.map((row) => row.score));
     episodes.push({
       ...first,
       created_at: first.created_at,
       score: bestScore,
-      succeeded: chronological.some((row) => row.succeeded),
+      succeeded: firstSuccess !== null,
       attempts: chronological.length,
+      firstAttemptAt: first.created_at,
+      firstSuccessAt: firstSuccess?.created_at ?? null,
+      successfulRepairResultId: firstSuccess?.id ?? null,
     });
   }
 
@@ -110,7 +133,7 @@ export interface RepairOutcomeDetail {
   afterRate: number | null;
   beforeDebates: number;
   afterDebates: number;
-  /** The first later debate (the deliberate retest) and whether the weakness recurred there. */
+  /** The explicitly assigned durable retest and whether the weakness recurred there. */
   firstRetest?: { debateId: string; weaknessPresent: boolean } | null;
 }
 
@@ -123,7 +146,7 @@ export interface RepairKindEffectiveness {
   worse: number;
   /** improvement share among measurable repairs, or null below thresholds */
   improvedRate: number | null;
-  /** Deliberate-retest evidence: did the weakness recur in the first later debate? */
+  /** Deliberate-retest evidence: did the weakness recur in the explicitly assigned retest? */
   retest: RetestStats;
   note: string | null;
 }
@@ -131,8 +154,10 @@ export interface RepairKindEffectiveness {
 export interface RepairEffectivenessReport {
   generatedAt: string;
   windowDays: number;
-  /** Distinct repair episodes after collapsing retries. */
+  /** Distinct successful repair episodes after collapsing retries. */
   totalRepairs: number;
+  /** Repair episodes that never crossed the repair threshold and are excluded from effectiveness. */
+  failedOnlyEpisodes: number;
   /** Raw persisted rewrite attempts before episode collapse. */
   totalAttempts: number;
   /** Attempts beyond the first within each repair episode. */
@@ -151,7 +176,7 @@ export const REPAIR_MIN_MEASURABLE = 3;
 
 export interface RetestStats {
   repairsWithRetest: number;
-  /** Share of first retests where the same weakness recurred; null below threshold. */
+  /** Share of explicit observable retests where the same weakness recurred; null below threshold. */
   firstRetestWeaknessRate: number | null;
   note: string | null;
 }
@@ -287,9 +312,9 @@ function weaknessPresent(debate: DebateWeaknessRow, kinds: string[]): boolean {
  * is not evidence of improvement.
  */
 export function classifyRepair(
-  repair: RepairRow,
+  repair: RepairRow | RepairEpisodeRow,
   debates: DebateWeaknessRow[],
-  opts: { windowDays?: number; afterCutoff?: string } = {},
+  opts: { windowDays?: number; afterCutoff?: string; firstRetestDebateId?: string | null } = {},
 ): RepairOutcomeDetail {
   if (NOT_CURRENTLY_MEASURABLE_KINDS.has(repair.target_kind)) {
     return {
@@ -306,13 +331,16 @@ export function classifyRepair(
 
   const windowDays = opts.windowDays ?? REPAIR_WINDOW_DAYS;
   const kinds = weaknessKindsFor(repair.target_kind);
-  const t = dayMs(repair.created_at);
+  const effectiveAt = "firstSuccessAt" in repair && repair.firstSuccessAt
+    ? repair.firstSuccessAt
+    : repair.created_at;
+  const t = dayMs(effectiveAt);
   const cutoffBefore = t - windowDays * 86_400_000;
   const cutoffAfter = t + windowDays * 86_400_000;
 
-  // Sort EXPLICITLY by completion time (ascending): the loader returns newest
-  // first, and "first retest" must mean the chronologically earliest eligible
-  // debate after the repair — never whichever row the query happened to emit.
+  // Sort explicitly by completion time because before/after effectiveness
+  // windows remain chronological. The primary deliberate retest itself is
+  // linked separately by durable repair_retests provenance.
   const mine = debates
     .filter((d) => d.userId === repair.user_id && d.debateId !== repair.debate_id)
     .sort((a, b) => dayMs(a.completedAt) - dayMs(b.completedAt));
@@ -344,15 +372,18 @@ export function classifyRepair(
     outcome = "unchanged";
   }
 
-  // Retest linkage: the FIRST later debate that could express the weakness is
-  // the deliberate retest; report whether the weakness appeared in it.
-  const firstRetest = after[0];
+  // Retest linkage: only the debate explicitly assigned through repair_retests
+  // is the deliberate retest; ordinary later eligible debates remain useful
+  // longitudinal follow-up but cannot be promoted into the primary retest.
+  const firstRetest = opts.firstRetestDebateId
+    ? after.find((debate) => debate.debateId === opts.firstRetestDebateId)
+    : undefined;
   const retested = firstRetest ? weaknessPresent(firstRetest, kinds) : null;
 
   return {
     target_kind: repair.target_kind,
     debate_id: repair.debate_id,
-    created_at: repair.created_at,
+    created_at: effectiveAt,
     outcome,
     beforeRate,
     afterRate,
@@ -394,8 +425,8 @@ function summarise(
 
 /**
  * Retest evidence: of the repairs with a measurable comparison, how many had
- * their first later debate within the window, and did the weakness recur in
- * that first retest? Rates only at REPAIR_MIN_MEASURABLE retests.
+ * an explicit observable repair_retests assignment within the window, and did
+ * the weakness recur there? Rates only at REPAIR_MIN_MEASURABLE retests.
  */
 function retestStats(details: RepairOutcomeDetail[]): RetestStats {
   const retested = details.filter((d) => d.firstRetest);
@@ -420,10 +451,14 @@ function retestStats(details: RepairOutcomeDetail[]): RetestStats {
 export function buildRepairEffectiveness(
   repairs: RepairRow[],
   debates: DebateWeaknessRow[],
-  opts: { now?: string; windowDays?: number } = {},
+  opts: { now?: string; windowDays?: number; retests?: RepairRetestAnalyticsRow[] } = {},
 ): RepairEffectivenessReport {
   const now = opts.now ?? new Date().toISOString();
-  const episodes = collapseRepairAttempts(repairs);
+  const attemptedEpisodes = collapseRepairAttempts(repairs);
+  const episodes = attemptedEpisodes.filter(
+    (episode) => episode.succeeded && episode.firstSuccessAt && episode.successfulRepairResultId,
+  );
+  const failedOnlyEpisodes = attemptedEpisodes.length - episodes.length;
   const byUserKind = new Map<string, RepairEpisodeRow[]>();
   for (const r of episodes) {
     const key = `${r.user_id}|${r.target_kind}`;
@@ -432,14 +467,26 @@ export function buildRepairEffectiveness(
     byUserKind.set(key, list);
   }
   for (const list of byUserKind.values()) {
-    list.sort((a, b) => dayMs(a.created_at) - dayMs(b.created_at));
+    list.sort((a, b) => dayMs(a.firstSuccessAt!) - dayMs(b.firstSuccessAt!));
   }
   const nextCutoff = new Map<RepairEpisodeRow, string | undefined>();
   for (const list of byUserKind.values()) {
-    list.forEach((r, i) => nextCutoff.set(r, list[i + 1]?.created_at));
+    list.forEach((r, i) => nextCutoff.set(r, list[i + 1]?.firstSuccessAt ?? undefined));
+  }
+  const explicitRetestByRepair = new Map<string, RepairRetestAnalyticsRow>();
+  for (const retest of opts.retests ?? []) {
+    if (retest.observable !== true || !retest.completed_at) continue;
+    const existing = explicitRetestByRepair.get(retest.repair_result_id);
+    if (!existing || Date.parse(retest.completed_at) < Date.parse(existing.completed_at!)) {
+      explicitRetestByRepair.set(retest.repair_result_id, retest);
+    }
   }
   const details = episodes.map((r) =>
-    classifyRepair(r, debates, { windowDays: opts.windowDays, afterCutoff: nextCutoff.get(r) }),
+    classifyRepair(r, debates, {
+      windowDays: opts.windowDays,
+      afterCutoff: nextCutoff.get(r),
+      firstRetestDebateId: explicitRetestByRepair.get(r.successfulRepairResultId!)?.assigned_debate_id ?? null,
+    }),
   );
 
   const kinds = [...new Set(episodes.map((r) => r.target_kind))];
@@ -452,12 +499,13 @@ export function buildRepairEffectiveness(
     generatedAt: now,
     windowDays: opts.windowDays ?? REPAIR_WINDOW_DAYS,
     totalRepairs: episodes.length,
+    failedOnlyEpisodes,
     totalAttempts: repairs.length,
-    retryAttemptsCollapsed: Math.max(0, repairs.length - episodes.length),
+    retryAttemptsCollapsed: Math.max(0, repairs.length - attemptedEpisodes.length),
     usersCovered: new Set(episodes.map((r) => r.user_id)).size,
     perKind,
     overall,
     honestyNote:
-      "Observational only: this compares weakness presence in debates before vs after a repair episode. Multiple rewrite attempts on the same debate/weakness are collapsed to one episode anchored at the first attempt, so retries cannot inflate denominators or create fake intervention cutoffs. Distinct later repair episodes still partition after-windows by user and weakness kind. This is an association, not proof the repair caused the change.",
+      "Observational only: effectiveness begins at the first successful rewrite, not the first failed attempt. Failed-only episodes remain retry/conversion history but are excluded from repair-effectiveness denominators. Multiple rewrite attempts on the same debate/weakness collapse to one episode, and explicit repair_retests provenance identifies the deliberate retest. Distinct later successful repair episodes partition after-windows by user and weakness kind. This is an association, not proof the repair caused the change.",
   };
 }

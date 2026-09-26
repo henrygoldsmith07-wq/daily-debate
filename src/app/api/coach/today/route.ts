@@ -77,12 +77,18 @@ export async function GET(request: Request) {
   // be repurposed when a new repair creates a deliberate retest. An attempted
   // drill is historical practice and is never rewritten.
   const beforeScore = focus.score;
-  const { data: existing } = await service
+  const { data: existing, error: existingError } = await service
     .from("drill_assignments")
     .select("*")
     .eq("user_id", user.id)
     .eq("assigned_date", today)
     .maybeSingle();
+  if (existingError) {
+    return NextResponse.json(
+      { error: "Training assignment is temporarily unavailable." },
+      { status: 503 },
+    );
+  }
 
   let assignment;
   if (
@@ -107,7 +113,10 @@ export async function GET(request: Request) {
       .single();
     if (error || !retargeted) {
       console.error("Failed to retarget open drill for repair retest:", error);
-      assignment = existing;
+      return NextResponse.json(
+        { error: "Failed to update the training assignment." },
+        { status: 503 },
+      );
     } else {
       assignment = retargeted;
     }
@@ -127,11 +136,26 @@ export async function GET(request: Request) {
       })
       .select("*")
       .single();
-    if (error) {
+    if (error?.code === "23505") {
+      // A concurrent request won the unique (user_id, assigned_date) race.
+      // Re-read the canonical row instead of surfacing a false 500.
+      const { data: winner, error: winnerError } = await service
+        .from("drill_assignments")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("assigned_date", today)
+        .maybeSingle();
+      if (winnerError || !winner) {
+        console.error("Failed to re-read concurrent training assignment:", winnerError ?? error);
+        return NextResponse.json({ error: "Failed to create training assignment." }, { status: 500 });
+      }
+      assignment = winner;
+    } else if (error || !created) {
       console.error("Failed to create drill assignment:", error);
       return NextResponse.json({ error: "Failed to create training assignment." }, { status: 500 });
+    } else {
+      assignment = created;
     }
-    assignment = created;
   }
 
   return NextResponse.json({

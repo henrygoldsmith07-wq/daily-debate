@@ -33,6 +33,7 @@ const TABLES = new Set<TableName>([
   "route_lifecycle",
   // migration 004/005/006/007
   "repair_results",
+  "repair_retests",
   "challenge_invites",
   "product_events",
   "ai_call_log",
