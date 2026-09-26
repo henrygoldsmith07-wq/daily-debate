@@ -64,7 +64,7 @@ const CONTRAST =
 const IMPACT =
   /\b(on balance|outweighs?|matters more|more important|less important|greater impact|bigger impact|trade-?off|compared with|compared to|whereas|overall)\b/i;
 const NAMED_EVIDENCE =
-  /\b(according to|study by|research by|report by|report from|data from|survey by|figures from)\s+[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,4}\b|\b[A-Z]{2,8}\b/;
+  /\b(according to|study by|research by|report by|report from|data from|survey by|figures from)\s+[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,4}\b|\b[A-Z]{2,8}\s+(data|research|report|study|survey|figures)\b/;
 
 const STOP = new Set([
   "the", "and", "that", "this", "with", "from", "have", "will", "would", "should",
@@ -188,21 +188,24 @@ function selectWeakness(
     evidence: assessments.filter((item) => item.signals.namesEvidence).length,
   };
 
-  if (counts.evidence === 0) return { kind: "evidence", sourceResponseIndex: 0 };
-  if (!assessments[1]?.signals.addressesOpponent) return { kind: "rebuttal", sourceResponseIndex: 1 };
-  if (!assessments[2]?.signals.comparesImpacts) return { kind: "impact", sourceResponseIndex: 2 };
-  if (counts.reasoning < 2) {
-    return {
-      kind: "reasoning",
-      sourceResponseIndex: Math.max(0, assessments.findIndex((item) => !item.signals.hasReasoning)),
-    };
-  }
-  if (counts.claim < 2) {
+  // Repair the most foundational missing move first. Evidence is valuable,
+  // but asking for a citation before the user has made a clear claim or
+  // explained why it follows teaches decoration rather than reasoning.
+  if (!assessments[0]?.signals.hasClaim || counts.claim < 2) {
     return {
       kind: "claim",
       sourceResponseIndex: Math.max(0, assessments.findIndex((item) => !item.signals.hasClaim)),
     };
   }
+  if (!assessments[0]?.signals.hasReasoning || counts.reasoning < 2) {
+    return {
+      kind: "reasoning",
+      sourceResponseIndex: Math.max(0, assessments.findIndex((item) => !item.signals.hasReasoning)),
+    };
+  }
+  if (!assessments[1]?.signals.addressesOpponent) return { kind: "rebuttal", sourceResponseIndex: 1 };
+  if (!assessments[2]?.signals.comparesImpacts) return { kind: "impact", sourceResponseIndex: 2 };
+  if (counts.evidence === 0) return { kind: "evidence", sourceResponseIndex: 0 };
   const missingEvidenceIndex = assessments.findIndex((item) => !item.signals.namesEvidence);
   return {
     kind: "evidence",
