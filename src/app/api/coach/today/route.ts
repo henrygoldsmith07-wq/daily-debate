@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/backend/server";
+import { createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import {
   buildCoachProfile,
   DIMENSION_LABELS,
@@ -9,9 +8,9 @@ import {
   todaysDrill,
   type CoachDim,
 } from "@/lib/adaptiveCoach";
-import { successfulRepairRetestAnchors } from "@/lib/repairRetestServer";
-import { pendingRepairRetests } from "@/lib/repairRetest";
-import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
+import { loadCoachingContext } from "@/lib/coachingContextServer";
+import { getTodayTopic } from "@/lib/dailyTopic";
+import { getCurrentUser } from "@/lib/currentViewer";
 
 // Today's training focus: the lowest skill dimension adjusted by movement
 // (improving dimensions are deprioritised; dimensions whose previous drill
@@ -22,19 +21,25 @@ export async function GET(request: Request) {
   const limited = await checkRateLimit(request, { name: "coach-today", limit: 30, windowMs: 60_000 });
   if (limited) return limited;
 
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [ledger, repairAnchors] = await Promise.all([
-    buildLedgerForUser(user.id),
-    successfulRepairRetestAnchors(user.id),
-  ]);
-  const outcomes = await latestDrillOutcomes(user.id, ledger.points);
+  const topic = await getTodayTopic();
+  const context = await loadCoachingContext(user.id, { currentTopicId: topic.id });
+  if (!context.ledger) {
+    return NextResponse.json(
+      {
+        error: "Coaching context is temporarily unavailable.",
+        coachingStatus: context.status,
+        degradationReasons: context.degradationReasons,
+      },
+      { status: 503 },
+    );
+  }
+  const ledger = context.ledger;
+  const outcomes = context.drillOutcomes;
   const service = createServiceClient();
-  const pendingRetest = pendingRepairRetests(ledger.points, repairAnchors)[0] ?? null;
+  const pendingRetest = context.selectedRetest;
 
   const { dims, slopes } = buildCoachProfile(ledger.points);
   let focus: CoachDim | null;
@@ -55,7 +60,14 @@ export async function GET(request: Request) {
   }
 
   if (!focus) {
-    return NextResponse.json({ profile: dims, assignment: null, reason, retest: null });
+    return NextResponse.json({
+      profile: dims,
+      assignment: null,
+      reason,
+      retest: null,
+      coachingStatus: context.status,
+      degradationReasons: context.degradationReasons,
+    });
   }
 
   const today = new Date().toISOString().slice(0, 10);
@@ -135,5 +147,7 @@ export async function GET(request: Request) {
         }
       : null,
     debatesAnalysed: ledger.debates,
+    coachingStatus: context.status,
+    degradationReasons: context.degradationReasons,
   });
 }

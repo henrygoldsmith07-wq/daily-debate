@@ -14,6 +14,7 @@ import { fitLinear } from "./debateEvaluation";
 import { scoreRebuttalQuality } from "./argumentEvaluation";
 import { isKnownSource } from "./citationVerifier";
 import { rebuttalCoverageFor, unansweredOpportunitiesBy } from "./opportunity";
+import type { AssignedRepairRetest } from "./repairRetest";
 
 export type MetricKey =
   | "unsupportedClaimRate"
@@ -84,6 +85,8 @@ export interface SkillMetricPoint {
   completedAt: string;
   /** Topic identity is carried so transfer/retest logic can require new context. */
   topicId?: string | null;
+  /** Explicit repair assignment this debate was intended to transfer-test. */
+  repairRetest?: AssignedRepairRetest | null;
   metrics: Record<MetricKey, number | null>;
   /**
    * Debate-level opportunity counts used to decide whether a later debate

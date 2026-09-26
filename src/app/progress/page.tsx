@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { createServiceClient } from "@/lib/backend/server";
-import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { METRIC_KEYS, METRIC_LABELS, HIGHER_IS_BETTER } from "@/lib/skillLedger";
 import { buildProgressSummary } from "@/lib/progressSummary";
 import { buildCoachingGoal } from "@/lib/coachingGoal";
@@ -10,9 +9,7 @@ import PageHeader from "@/components/PageHeader";
 import CoachToday from "@/components/CoachToday";
 import PageViewEvent from "@/components/PageViewEvent";
 import { computeLoopStatuses, type DrillAssignmentLite, type LoopStage } from "@/lib/coachLoop";
-import { successfulRepairRetestAnchors } from "@/lib/repairRetestServer";
-import { pendingRepairRetests } from "@/lib/repairRetest";
-import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
+import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getCurrentUser } from "@/lib/currentViewer";
 
 export const dynamic = "force-dynamic";
@@ -81,12 +78,21 @@ export default async function ProgressPage() {
     );
   }
 
-  const [ledger, repairAnchors] = await Promise.all([
-    buildLedgerForUser(user.id),
-    successfulRepairRetestAnchors(user.id),
-  ]);
-  const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
-  const pendingRetest = pendingRepairRetests(ledger.points, repairAnchors)[0] ?? null;
+  const coachingContext = await loadCoachingContext(user.id);
+  const ledger = coachingContext.ledger;
+  if (!ledger) {
+    return (
+      <AppShell width="narrow">
+        <PageHeader
+          eyebrow="Your argument skills"
+          title="Progress temporarily unavailable"
+          description="Your saved debates are safe, but the coaching ledger could not be read right now. No zero or reset progress is being inferred."
+        />
+      </AppShell>
+    );
+  }
+  const drillOutcomes = coachingContext.drillOutcomes;
+  const pendingRetest = coachingContext.selectedRetest;
   const service = createServiceClient();
   const { data: drillRows } = await service
     .from("drill_assignments")
@@ -129,6 +135,11 @@ export default async function ProgressPage() {
         title="Progress"
         description={`Built from ${ledger.debates} completed debate${ledger.debates === 1 ? "" : "s"} — headline reads show observed direction and relative focus; raw metrics are available below.`}
       />
+      {coachingContext.status === "partial" && (
+        <p className="text-xs text-ink3" role="status">
+          Some coaching context is temporarily unavailable; saved progress remains intact and no missing signal is being treated as zero.
+        </p>
+      )}
 
       {/* ── The seven skills: evidence-backed direction, no synthetic rating ── */}
       <section className="surface-card p-5" aria-label="Skill signals">

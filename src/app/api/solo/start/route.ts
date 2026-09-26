@@ -15,11 +15,8 @@ import {
   type SideHistoryItem,
 } from "@/lib/challengeMe";
 import { pickFocusDimension } from "@/lib/coachingGoal";
-import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { recordProductEventForUser } from "@/lib/productEvents";
-import { successfulRepairRetestAnchors } from "@/lib/repairRetestServer";
-import { isDifferentRetestContext, pendingRepairRetests } from "@/lib/repairRetest";
-import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
+import { loadCoachingContext } from "@/lib/coachingContextServer";
 
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "solo-start", limit: 10, windowMs: 60_000 });
@@ -102,41 +99,25 @@ export async function POST(request: Request) {
   let coachingDimension: string | null = null;
   const degradationReasons: CoachingContextDegradationReason[] = [];
   let repairRetest:
-    | { repairDebateId: string; targetKind: RepairKind; attemptedAt: string }
+    | { repairResultId: string; repairDebateId: string; targetKind: RepairKind; attemptedAt: string }
     | null = null;
-
-  const [ledgerResult, repairAnchorsResult] = await Promise.allSettled([
-    buildLedgerForUser(user.id),
-    successfulRepairRetestAnchors(user.id),
-  ]);
-  if (ledgerResult.status === "rejected") degradationReasons.push("skill-ledger-unavailable");
-  if (repairAnchorsResult.status === "rejected") degradationReasons.push("repair-retest-unavailable");
-
-  if (ledgerResult.status === "fulfilled") {
-    const ledger = ledgerResult.value;
-    let drillOutcomes = {};
-    try {
-      drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
-    } catch {
-      degradationReasons.push("drill-outcomes-unavailable");
-    }
-    const pendingRetest =
-      repairAnchorsResult.status === "fulfilled"
-        ? pendingRepairRetests(ledger.points, repairAnchorsResult.value)[0] ?? null
-        : null;
+  const context = await loadCoachingContext(user.id, { currentTopicId: topicId });
+  degradationReasons.push(...context.degradationReasons);
+  if (context.ledger) {
+    const ledger = context.ledger;
+    const pendingRetest = context.selectedRetest;
     coachingDimension = pickFocusDimension(
       ledger.points,
-      drillOutcomes,
+      context.drillOutcomes,
       pendingRetest?.dimension ?? null,
     );
     if (pendingRetest) {
-      repairRetest = isDifferentRetestContext(pendingRetest.topicId, topicId)
-        ? {
-            repairDebateId: pendingRetest.debateId,
-            targetKind: pendingRetest.targetKind,
-            attemptedAt: pendingRetest.attemptedAt,
-          }
-        : null;
+      repairRetest = {
+        repairResultId: pendingRetest.repairResultId,
+        repairDebateId: pendingRetest.debateId,
+        targetKind: pendingRetest.targetKind,
+        attemptedAt: pendingRetest.attemptedAt,
+      };
     }
   }
 

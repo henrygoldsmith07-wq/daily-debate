@@ -20,13 +20,16 @@ export async function latestDrillOutcomes(
   points: SkillMetricPoint[],
 ): Promise<Partial<Record<CoachDimension, number>>> {
   const service = createServiceClient();
-  const { data } = await service
+  const { data, error } = await service
     .from("drill_assignments")
     .select("id, dimension, created_at, movement")
     .eq("user_id", userId)
     .eq("status", "attempted")
     .order("created_at", { ascending: false })
     .limit(30);
+  if (error) {
+    throw new Error(`drill outcomes unavailable: ${error.message ?? "read failed"}`);
+  }
 
   const valid = new Set<string>(COACH_DIMENSIONS);
   const outcomes: Partial<Record<CoachDimension, number>> = {};

@@ -23,22 +23,31 @@ export async function buildLedgerForUser(
   opts: { includeBaseline?: boolean } = {},
 ): Promise<LedgerWithSeries> {
   const db = await createClient();
-  const { data: debates } = await db
+  const { data: debates, error: debatesError } = await db
     .from("solo_debates")
-    .select("id, completed_at, topic_id")
+    .select("id, completed_at, topic_id, coaching")
     .eq("user_id", userId)
     .eq("status", "completed")
-    .order("completed_at", { ascending: true })
+    .order("completed_at", { ascending: false })
     .limit(100);
+  if (debatesError) {
+    throw new Error(`skill-ledger debates unavailable: ${debatesError.message ?? "read failed"}`);
+  }
 
-  const completed = (debates ?? []) as CompletedLedgerDebateRow[];
+  // Query newest-first so the bounded window never drops recent coaching and
+  // retest evidence, then restore chronological order for trajectory math.
+  const completed = [...((debates ?? []) as CompletedLedgerDebateRow[])].reverse();
   const debateIds = completed.map((debate) => debate.id);
-  const { data: turnRows } = debateIds.length
+  const turnResult = debateIds.length
     ? await db
         .from("solo_debate_turns")
         .select("debate_id, round_number, assessment, scores")
         .in("debate_id", debateIds)
-    : { data: [] };
+    : { data: [], error: null };
+  if (turnResult.error) {
+    throw new Error(`skill-ledger turns unavailable: ${turnResult.error.message ?? "read failed"}`);
+  }
+  const turnRows = turnResult.data;
   const points = buildLedgerPointsFromRows(completed, (turnRows ?? []) as LedgerTurnRow[]);
 
   const ledger = buildSkillLedger(points, opts);

@@ -5,6 +5,7 @@ import {
   pendingRepairRetests,
   pointMeasuresDimension,
   repairKindToDimension,
+  selectEligiblePendingRetest,
   type RepairRetestAnchor,
 } from "./repairRetest";
 import type { MetricKey, SkillMetricPoint } from "./skillLedger";
@@ -15,6 +16,7 @@ function point(
   values: Partial<Record<MetricKey, number | null>> = {},
   opportunities?: { majorClaims: number; opponentMoves: number },
   topicId = "topic-b",
+  repairRetest: SkillMetricPoint["repairRetest"] = null,
 ): SkillMetricPoint {
   const metrics = {
     unsupportedClaimRate: null,
@@ -32,10 +34,11 @@ function point(
     clarity: null,
     ...values,
   } satisfies Record<MetricKey, number | null>;
-  return { debateId, completedAt, topicId, metrics, opportunities };
+  return { debateId, completedAt, topicId, metrics, opportunities, repairRetest };
 }
 
 const anchor: RepairRetestAnchor = {
+  repairResultId: "repair-result-1",
   debateId: "repaired",
   targetKind: "evidence",
   attemptedAt: "2026-06-10T12:00:00Z",
@@ -69,12 +72,14 @@ describe("repair retest policy", () => {
 
   it("keeps multiple unresolved repairs and prioritises the oldest instead of the newest", () => {
     const older: RepairRetestAnchor = {
+      repairResultId: "repair-result-older",
       debateId: "repair-older",
       targetKind: "evidence",
       attemptedAt: "2026-06-09T12:00:00Z",
       topicId: "topic-old",
     };
     const newer: RepairRetestAnchor = {
+      repairResultId: "repair-result-newer",
       debateId: "repair-newer",
       targetKind: "rebuttal",
       attemptedAt: "2026-06-10T12:00:00Z",
@@ -87,12 +92,14 @@ describe("repair retest policy", () => {
   it("removes only the repair whose target was genuinely retested", () => {
     const anchors: RepairRetestAnchor[] = [
       {
+        repairResultId: "repair-result-evidence",
         debateId: "repair-evidence",
         targetKind: "evidence",
         attemptedAt: "2026-06-09T12:00:00Z",
         topicId: "topic-a",
       },
       {
+        repairResultId: "repair-result-rebuttal",
         debateId: "repair-rebuttal",
         targetKind: "rebuttal",
         attemptedAt: "2026-06-10T12:00:00Z",
@@ -106,6 +113,12 @@ describe("repair retest policy", () => {
         { unsupportedClaimRate: 0 },
         { majorClaims: 1, opponentMoves: 0 },
         "topic-c",
+        {
+          repairResultId: "repair-result-evidence",
+          repairDebateId: "repair-evidence",
+          targetKind: "evidence",
+          attemptedAt: "2026-06-09T12:00:00Z",
+        },
       ),
     ];
     const pending = pendingRepairRetests(points, anchors);
@@ -114,7 +127,19 @@ describe("repair retest policy", () => {
 
   it("treats a failed but observable evidence retest as a real retest", () => {
     const points = [
-      point("later", "2026-06-11T12:00:00Z", { unsupportedClaimRate: 1 }),
+      point(
+        "later",
+        "2026-06-11T12:00:00Z",
+        { unsupportedClaimRate: 1 },
+        undefined,
+        "topic-b",
+        {
+          repairResultId: anchor.repairResultId,
+          repairDebateId: anchor.debateId,
+          targetKind: anchor.targetKind,
+          attemptedAt: anchor.attemptedAt,
+        },
+      ),
     ];
     // 100% unsupported is poor performance, but it is still measurable.
     expect(pointMeasuresDimension(points[0], "evidence")).toBe(true);
@@ -122,11 +147,24 @@ describe("repair retest policy", () => {
   });
 
   it("closes the retest when a later measurable reading exists", () => {
+    const rebuttalAnchor = { ...anchor, repairResultId: "repair-result-rb", targetKind: "rebuttal" as const };
     const points = [
-      point("later", "2026-06-11T12:00:00Z", { rebuttalCoverage: 0.25 }),
+      point(
+        "later",
+        "2026-06-11T12:00:00Z",
+        { rebuttalCoverage: 0.25 },
+        undefined,
+        "topic-b",
+        {
+          repairResultId: rebuttalAnchor.repairResultId,
+          repairDebateId: rebuttalAnchor.debateId,
+          targetKind: rebuttalAnchor.targetKind,
+          attemptedAt: rebuttalAnchor.attemptedAt,
+        },
+      ),
     ];
     expect(
-      pendingRepairRetest(points, { ...anchor, targetKind: "rebuttal" }),
+      pendingRepairRetest(points, rebuttalAnchor),
     ).toBeNull();
   });
 
@@ -147,9 +185,65 @@ describe("repair retest policy", () => {
   it("clears transfer state only after an observable different-topic debate", () => {
     const points = [
       point("same-topic-replay", "2026-06-11T12:00:00Z", { unsupportedClaimRate: 0 }, undefined, "topic-a"),
-      point("new-context", "2026-06-12T12:00:00Z", { unsupportedClaimRate: 0 }, undefined, "topic-c"),
+      point(
+        "new-context",
+        "2026-06-12T12:00:00Z",
+        { unsupportedClaimRate: 0 },
+        undefined,
+        "topic-c",
+        {
+          repairResultId: anchor.repairResultId,
+          repairDebateId: anchor.debateId,
+          targetKind: anchor.targetKind,
+          attemptedAt: anchor.attemptedAt,
+        },
+      ),
     ];
     expect(pendingRepairRetest(points, anchor)).toBeNull();
+  });
+
+  it("does not let an unassigned observable debate clear a repair", () => {
+    const points = [
+      point("incidental", "2026-06-11T12:00:00Z", { unsupportedClaimRate: 0 }),
+    ];
+    expect(pendingRepairRetest(points, anchor)?.repairResultId).toBe(anchor.repairResultId);
+  });
+
+  it("keeps pre-upgrade assigned debates valid through composite provenance matching", () => {
+    const points = [
+      point(
+        "legacy-assigned",
+        "2026-06-11T12:00:00Z",
+        { unsupportedClaimRate: 0 },
+        { majorClaims: 1, opponentMoves: 0 },
+        "topic-b",
+        {
+          repairResultId: null,
+          repairDebateId: anchor.debateId,
+          targetKind: anchor.targetKind,
+          attemptedAt: anchor.attemptedAt,
+        },
+      ),
+    ];
+    expect(pendingRepairRetest(points, anchor)).toBeNull();
+  });
+
+  it("skips an oldest same-topic repair and selects the next eligible pending repair", () => {
+    const sameTopic: RepairRetestAnchor = {
+      repairResultId: "same-topic",
+      debateId: "repair-same",
+      targetKind: "evidence",
+      attemptedAt: "2026-06-09T12:00:00Z",
+      topicId: "topic-today",
+    };
+    const eligible: RepairRetestAnchor = {
+      repairResultId: "eligible",
+      debateId: "repair-eligible",
+      targetKind: "rebuttal",
+      attemptedAt: "2026-06-10T12:00:00Z",
+      topicId: "topic-old",
+    };
+    expect(selectEligiblePendingRetest([], [eligible, sameTopic], "topic-today")?.repairResultId).toBe("eligible");
   });
 
   it("uses either structural metric when its underlying opportunity exists", () => {

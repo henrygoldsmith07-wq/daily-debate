@@ -64,6 +64,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ signals: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [coachingStatus, setCoachingStatus] = useState<"ok" | "partial" | "unavailable" | null>(null);
   const scoredDims = dims.map((d) => d.score).filter((score): score is number => score !== null);
   const profileMin = scoredDims.length ? Math.min(...scoredDims) : null;
   const profileMax = scoredDims.length ? Math.max(...scoredDims) : null;
@@ -82,6 +83,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
       setFocusReason(todayData.focusReason ?? "");
       setRetest(todayData.retest ?? null);
       setDebatesAnalysed(todayData.debatesAnalysed ?? null);
+      setCoachingStatus(todayData.coachingStatus ?? "ok");
       if (outcomesRes.ok) {
         const o = await outcomesRes.json();
         setOutcomes(o.outcomes ?? []);
@@ -121,6 +123,11 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
 
   return (
     <div className="flex flex-col gap-6">
+      {coachingStatus === "partial" && (
+        <p className="text-xs text-ink3" role="status">
+          Some coaching context is temporarily unavailable, so this focus may use fallback evidence.
+        </p>
+      )}
       {/* ARGUMENT SKILL PROFILE — hidden on Progress, which renders its own skill list */}
       {showProfile && (
         <section className="surface-card p-5">

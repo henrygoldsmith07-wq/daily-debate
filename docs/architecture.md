@@ -36,12 +36,14 @@ User-facing explanation (Today, result screen, Progress, DNA)
 | `skillLedger.ts`, `skillLedgerServer.ts` | Longitudinal metric vectors and trajectories |
 | `adaptiveCoach.ts` | 7-dimension profile, focus selection, drills, attempt scoring |
 | `coachingGoal.ts`, `resultSnapshot.ts` | The daily goal, goal outcome and one-weakness result story |
-| `repairRetest.ts`, `repairRetestServer.ts` | Repair → deliberate next-debate retest policy; opportunity-aware release back to generic coaching |
+| `repairRetest.ts`, `repairRetestServer.ts` | Repair → deliberate retest queue; repair-row identity, topic eligibility and opportunity-aware completion |
+| `coachingContextServer.ts` | Shared best-effort coaching context for Today, Progress, drill assignment and solo start; explicit ok/partial/unavailable states |
 | `sprint.ts` | Sprint/full format rules and measurement honesty |
 | `challengeMe.ts` | Explainable side assignment |
 | `argumentRepair.ts` | Repair target selection, structural repair paths + deterministic rewrite scoring |
 | `friendChallenge.ts` | Async invite codes/expiry/turn notes |
 | `productEvents.ts` | Allowlisted funnel events (silent on failure) |
+| `productFunnelServer.ts`, `aiOpsServer.ts` | Admin analytics loaders with explicit complete/partial/unavailable semantics; never convert read failure into zero activity |
 | `backend/*` | Owned Postgres/auth: sessions, query builder, rate limits |
 
 Structural routing is rhetorical only: it never labels a viewpoint as true,
@@ -90,13 +92,13 @@ confidence calibration (ECE), latency, fast-vs-smart comparison, and
 shadow-route agreement in `rhetoricalRoleEvaluation.ts`, all covered by
 `rhetoricalRoleEvaluation.test.ts`.
 
-## Data model (migrations 001–020)
+## Data model (migrations 001–024)
 
-Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics`, `solo_debates` (+ `format`, `coaching`), `solo_debate_turns` (with `assessment` jsonb), `pvp_queue`, `pvp_matches`, `pvp_turns`, `rate_limits`, `benchmark_corpus`, `match_appeals`, `reports`, `corpus_items`, `corpus_ratings`, `drill_assignments`, `topic_evidence`, plus 004's `repair_results`, `challenge_invites`, `product_events`. Hand-written row types live in `src/lib/backend/database.types.ts`. Migration 015 extends `ai_call_log` with bounded structural-routing fields: taxonomy version, batch/input counts, route, fallback/ambiguity counts, and expensive judge legs avoided.
+Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics`, `solo_debates` (+ `format`, `coaching`), `solo_debate_turns` (with `assessment` jsonb), `pvp_queue`, `pvp_matches`, `pvp_turns`, `rate_limits`, `benchmark_corpus`, `match_appeals`, `reports`, `corpus_items`, `corpus_ratings`, `drill_assignments`, `topic_evidence`, plus 004's `repair_results`, `challenge_invites`, `product_events`. Hand-written row types live in `src/lib/backend/database.types.ts`. Migration 015 extends `ai_call_log` with bounded structural-routing fields. Migrations 022–024 add product-event reason privacy, atomic friend challenges and human-validation/system-judge integrity respectively.
 
 ### Repair retest invariant
 
-A persisted repair does not merely change copy. Every **successful** repair remains in the transfer-test queue until a later, different-topic debate genuinely exposes that target metric; newer repairs never erase older unresolved ones. Failed attempts remain retryable practice history and never unlock retest state. Today, Progress, the drill coach and solo-debate start derive the same pending queue and deliberately surface the **oldest unresolved** repair first so work cannot starve behind newer successes. The repaired debate cannot satisfy its own retest. Failed-but-observable retests count as tested, while no-opportunity debates keep only that repair pending. The debate stores `coaching.repairRetest` provenance so result/replay surfaces can distinguish deliberate retests from coincidental focus selection. Solo start also stores categorical `coaching.degradationReasons` when ledger, repair-queue or drill-outcome context is temporarily unavailable; the debate remains usable, while Ops Health reports the runtime degradation instead of interpreting a missing goal as intentional.
+A persisted repair does not merely change copy. Every **successful** repair is identified by its stable `repair_results.id` and remains in the transfer-test queue until a debate explicitly assigned to that repair genuinely exposes the target metric. A coincidental later debate with the same observable skill can never clear the repair. Newer repairs never erase older unresolved ones. The shared coaching-context loader selects the **oldest pending repair that is eligible on the current topic**; if the oldest repair came from today's topic, it is skipped and the next eligible repair may be surfaced instead. The repaired debate cannot satisfy its own retest. Failed-but-observable assigned retests count as tested, while no-opportunity assigned debates leave that repair pending for another deliberate test. `solo_debates.coaching.repairRetest` stores the repair-row identity plus legacy composite provenance so pre-upgrade assignments remain readable. Ledger points carry that provenance into the pure retest policy. Solo start also stores categorical `coaching.degradationReasons` when ledger, repair-queue or drill-outcome context is temporarily unavailable; Today, Progress and coach APIs consume the same `ok` / `partial` / `unavailable` context rather than inventing empty coaching data.
 
 ## Reliability & security
 

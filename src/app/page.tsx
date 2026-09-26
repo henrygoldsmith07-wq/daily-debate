@@ -7,14 +7,11 @@ import GuestArena from "@/components/GuestArena";
 import PageViewEvent from "@/components/PageViewEvent";
 import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import SkillProfileBars from "@/components/SkillProfileBars";
-import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, type CoachingSnapshot } from "@/lib/coachingGoal";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
 import { isDatabaseConfigured } from "@/lib/backend/env";
-import { successfulRepairRetestAnchors } from "@/lib/repairRetestServer";
-import { pendingRepairRetests } from "@/lib/repairRetest";
-import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
+import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { asRepairAttemptLite, latestUnfinishedRepair } from "@/lib/repairResume";
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 
@@ -43,7 +40,7 @@ export default async function DashboardPage() {
   // nothing is pre-stored, so the dashboard always has content.
   const topic = await getTodayTopic();
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger, repairAnchors] =
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, coachingContext] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -69,9 +66,9 @@ export default async function DashboardPage() {
         .order("completed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      buildLedgerForUser(user.id),
-      successfulRepairRetestAnchors(user.id),
+      loadCoachingContext(user.id, { currentTopicId: topic.id }),
     ]);
+  const ledger = coachingContext.ledger;
   const { data: repairAttempts } = await db
     .from("repair_results")
     .select("debate_id, target_kind, score, succeeded, signals, created_at")
@@ -93,7 +90,7 @@ export default async function DashboardPage() {
       .filter((attempt): attempt is NonNullable<typeof attempt> => attempt !== null),
   );
 
-  const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
+  const drillOutcomes = coachingContext.drillOutcomes;
 
   let previousDebateTitle: string | null = null;
   if (previousDebate?.topic_id) {
@@ -114,7 +111,7 @@ export default async function DashboardPage() {
   // Daily coaching goal: one focus, grounded in the previous debate's
   // observed behaviour (not a wall of metrics — one line of evidence).
   const lastCoaching = (previousDebate?.coaching ?? null) as { snapshot?: CoachingSnapshot | null } | null;
-  const pendingRetest = pendingRepairRetests(ledger?.points ?? [], repairAnchors)[0] ?? null;
+  const pendingRetest = coachingContext.selectedRetest;
   const goal = buildCoachingGoal(
     ledger?.points ?? [],
     lastCoaching?.snapshot ?? null,
@@ -156,6 +153,11 @@ export default async function DashboardPage() {
         focusLabel={pendingRetest ? "Retest after repair" : "Today's focus"}
         isFirstVisit={!previousDebate}
       />
+      {coachingContext.status !== "ok" && (
+        <p className="text-xs text-ink3" role="status">
+          Coaching context is temporarily {coachingContext.status}; today&apos;s debate is still available without treating missing data as progress.
+        </p>
+      )}
 
       {unfinishedRepair && (
         <section
