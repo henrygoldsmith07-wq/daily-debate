@@ -83,7 +83,7 @@ export async function fetchGraphSources(graph: ArgGraph): Promise<Map<string, Fe
 // Claim → citation mapping (explicit evidence strength)
 // ---------------------------------------------------------------------------
 
-export type CitationSupport = "supports" | "tangential" | "unsupported" | "contradicted";
+export type CitationSupport = "supports" | "tangential" | "unsupported" | "unverified" | "contradicted";
 export interface ClaimCitationLink {
   claimId: string;
   claimText: string;
@@ -132,7 +132,18 @@ export function claimCitationMap(graph: ArgGraph, fetchedByUrl?: Map<string, Fet
       const claimSource = claimSourceMatch(claim.text, cites);
       if (claimSource.status === "mismatched") flags.push(`claim not supported by source: ${claimSource.bestSource} (overlap ${claimSource.score.toFixed(2)})`);
       else if (claimSource.status === "weak") flags.push(`weak claim-source overlap: ${claimSource.bestSource} (overlap ${claimSource.score.toFixed(2)})`);
-      const support: CitationSupport = flags.some((f) => f.includes("hallucination") || f.includes("no evidence")) ? "unsupported" : distortion > 0.6 || claimSource.status === "mismatched" ? "tangential" : "supports";
+      else if (claimSource.status === "unverifiable") flags.push("claim-source support unverified — no source excerpt attached");
+      // Positive support is deliberately narrow: only an actually supported
+      // claim/source match may earn it. Missing source text is not evidence,
+      // and weak overlap is a warning rather than a hidden pass.
+      const support: CitationSupport =
+        flags.some((f) => f.includes("hallucination") || f.includes("no evidence"))
+          ? "unsupported"
+          : claimSource.status === "unverifiable"
+            ? "unverified"
+            : distortion > 0.6 || claimSource.status === "mismatched" || claimSource.status === "weak"
+              ? "tangential"
+              : "supports";
       links.push({
         claimId: claim.id,
         claimText: claim.text,
