@@ -17,6 +17,9 @@ export interface RateLimitOptions {
   name: string;
   limit: number;
   windowMs: number;
+  /** When the shared limiter is configured but unavailable, deny instead of
+   * falling back to a per-process bucket. Use for authentication boundaries. */
+  failClosed?: boolean;
 }
 
 // ---- Fallback (process-local) used when Postgres is unavailable -----------
@@ -60,6 +63,21 @@ export function getClientIp(request: Request): string {
   return request.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
+export async function checkRateLimitKey(key: string, options: RateLimitOptions): Promise<RateLimitResult> {
+  const scopedKey = `${options.name}:${key}`;
+  const distributedConfigured = isDatabaseConfigured();
+  let result: RateLimitResult | null = null;
+  try {
+    result = await dbRateLimit(scopedKey, options.limit, options.windowMs);
+  } catch {
+    result = null;
+  }
+  if (!result && distributedConfigured && options.failClosed) {
+    return { ok: false, remaining: 0, retryAfterSeconds: 60 };
+  }
+  return result ?? localRateLimit(scopedKey, options.limit, options.windowMs);
+}
+
 async function dbRateLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult | null> {
   // Returns null on unavailability so caller can fall back to local.
   if (!isDatabaseConfigured()) return null;
@@ -87,15 +105,7 @@ async function dbRateLimit(key: string, limit: number, windowMs: number): Promis
 // For clarity, export a new name too.
 export async function checkRateLimit(request: Request, options: RateLimitOptions): Promise<NextResponse | null> {
   const ip = getClientIp(request);
-  const key = `${options.name}:${ip}`;
-
-  let result: RateLimitResult | null = null;
-  try {
-    result = await dbRateLimit(key, options.limit, options.windowMs);
-  } catch {
-    result = null;
-  }
-  if (!result) result = localRateLimit(key, options.limit, options.windowMs);
+  const result = await checkRateLimitKey(ip, options);
 
   if (result.ok) return null;
   return NextResponse.json(

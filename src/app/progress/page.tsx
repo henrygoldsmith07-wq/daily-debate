@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient, createServiceClient } from "@/lib/backend/server";
+import { createServiceClient } from "@/lib/backend/server";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { METRIC_KEYS, METRIC_LABELS, HIGHER_IS_BETTER } from "@/lib/skillLedger";
 import { buildProgressSummary } from "@/lib/progressSummary";
@@ -8,11 +8,12 @@ import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
 import CoachToday from "@/components/CoachToday";
-import { recordProductEvent } from "@/lib/productEvents";
+import PageViewEvent from "@/components/PageViewEvent";
 import { computeLoopStatuses, type DrillAssignmentLite, type LoopStage } from "@/lib/coachLoop";
 import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
 import { pendingRepairRetest } from "@/lib/repairRetest";
 import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
+import { getCurrentUser } from "@/lib/currentViewer";
 
 export const dynamic = "force-dynamic";
 
@@ -67,10 +68,7 @@ function Sparkline({ values }: { values: Array<number | null> }) {
 }
 
 export default async function ProgressPage() {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return (
@@ -82,8 +80,6 @@ export default async function ProgressPage() {
       </AppShell>
     );
   }
-
-  void recordProductEvent("progress_viewed");
 
   const [ledger, repairAnchor] = await Promise.all([
     buildLedgerForUser(user.id),
@@ -127,6 +123,7 @@ export default async function ProgressPage() {
 
   return (
     <AppShell width="narrow">
+      <PageViewEvent name="progress_viewed" />
       <PageHeader
         eyebrow="Your argument skills"
         title="Progress"

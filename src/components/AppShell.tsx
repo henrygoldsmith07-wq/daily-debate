@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { createClient } from "@/lib/backend/server";
 import { signOut } from "@/app/login/actions";
 import { pointsIntoLevel, POINTS_PER_LEVEL } from "@/lib/gamification";
 import SideNav from "./SideNav";
 import MobileNav from "./MobileNav";
+import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 
 type ContentWidth = "narrow" | "default" | "wide";
 
@@ -79,18 +79,8 @@ export default async function AppShell({
   children: React.ReactNode;
   width?: ContentWidth;
 }) {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
-
-  const { data: profile } = user
-    ? await db
-        .from("profiles")
-        .select("total_points, level, current_streak")
-        .eq("id", user.id)
-        .single()
-    : { data: null };
+  const user = await getCurrentUser();
+  const profile = user ? await getProfileSummary(user.id) : null;
 
   const contentClass = `app-content ${WIDTH_CLASS[width]}`;
 
