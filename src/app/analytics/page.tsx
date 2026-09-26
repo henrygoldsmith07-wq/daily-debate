@@ -114,7 +114,11 @@ export default async function AnalyticsPage() {
           <RateRow label="Sprint completion (user)" {...funnel.sprintCompletion} />
           <RateRow label="Full debate completion (user)" {...funnel.fullCompletion} />
           <RateRow label="Repair started (completed debate → CTA, user)" {...funnel.repairStart} />
-          <RateRow label="Repair completed (CTA → submitted, user)" {...funnel.repairCompletion} />
+          <RateRow label="Repair attempted (CTA → saved attempt, user)" {...funnel.repairAttempt} />
+          <RateRow label="Repair demonstrated with prompt (attempt → structural pass, user)" {...funnel.repairDemonstration} />
+          <RateRow label="Retest started (prompted repair → later debate, user)" {...funnel.retestStart} />
+          <RateRow label="Retest completed (later debate produced target evidence, user)" {...funnel.retestCompletion} />
+          <RateRow label="Skill demonstrated in retest (observable retest → pass, user)" {...funnel.retestSkillDemonstrated} />
           <RateRow label="Full analysis opened (user)" {...funnel.fullAnalysisOpen} />
           <RateRow label="Challenge me usage (of debate starts, user)" {...funnel.challengeMe} />
           <RateRow label="Friend challenge acceptance" {...funnel.friendChallenges.acceptRate} />
@@ -126,7 +130,11 @@ export default async function AnalyticsPage() {
           <RateRow label="Sprint completion (per session)" {...funnel.sessions.sprintCompletion} />
           <RateRow label="Full debate completion (per session)" {...funnel.sessions.fullCompletion} />
           <RateRow label="Repair started (per session)" {...funnel.sessions.repairStart} />
-          <RateRow label="Repair completed (per session)" {...funnel.sessions.repairCompletion} />
+          <RateRow label="Repair attempted (per session)" {...funnel.sessions.repairAttempt} />
+          <RateRow label="Repair demonstrated with prompt (per session)" {...funnel.sessions.repairDemonstration} />
+          <RateRow label="Retest started (per session)" {...funnel.sessions.retestStart} />
+          <RateRow label="Retest completed with observable target (per session)" {...funnel.sessions.retestCompletion} />
+          <RateRow label="Skill demonstrated in retest (per session)" {...funnel.sessions.retestSkillDemonstrated} />
           <RateRow label="Full analysis opened (per session)" {...funnel.sessions.fullAnalysisOpen} />
         </div>
         {funnel.sessions.note && <p className="mt-2 text-xs text-ink3">{funnel.sessions.note}</p>}

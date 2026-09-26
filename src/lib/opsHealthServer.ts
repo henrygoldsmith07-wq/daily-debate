@@ -681,6 +681,7 @@ async function loadHumanSection(): Promise<EvidenceSection> {
       items: metrics.corpus.items,
       raters: metrics.corpus.raters,
       itemsWithTwoPlusRatings: metrics.corpus.itemsWithTwoPlusRatings,
+      itemsWithThreePlusRatings: metrics.corpus.itemsWithThreePlusRatings,
       consensusReady: metrics.humanValidation.consensusReadyItems,
       unresolvedDisagreements: metrics.humanValidation.unresolvedDisagreements,
       meanWinnerKappa: metrics.humanValidation.meanWinnerKappa,

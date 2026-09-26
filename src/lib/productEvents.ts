@@ -16,7 +16,13 @@ export type ProductEventName =
   | "round_completed"
   | "debate_completed"
   | "repair_started"
+  | "repair_attempted"
+  | "repair_demonstrated"
+  | "repair_episode_closed"
   | "repair_completed"
+  | "retest_started"
+  | "retest_completed"
+  | "retest_skill_demonstrated"
   | "full_analysis_opened"
   | "progress_viewed"
   | "pvp_started"
@@ -42,7 +48,13 @@ export const PRODUCT_EVENT_NAMES: readonly ProductEventName[] = [
   "round_completed",
   "debate_completed",
   "repair_started",
+  "repair_attempted",
+  "repair_demonstrated",
+  "repair_episode_closed",
   "repair_completed",
+  "retest_started",
+  "retest_completed",
+  "retest_skill_demonstrated",
   "full_analysis_opened",
   "progress_viewed",
   "pvp_started",

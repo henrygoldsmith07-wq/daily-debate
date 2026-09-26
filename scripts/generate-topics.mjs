@@ -17,14 +17,24 @@
 // retries for the SAME tomorrow inside the recovery window ahead of the
 // 03:00 UTC availability deadline.
 //
-// Dependency-free ESM — same pattern as judge-benchmark.mjs.
+// ESM entry point. jiti bridges to the shared TypeScript evidence module so
+// scheduled generation and the application use one retrieval/verification path.
 
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { createJiti } from "jiti";
 import { createExecutor } from "./lib/sql-executor.mjs";
 import { generationChains, providerStatus as registryProviderStatus, usableProviders } from "./lib/judge-providers.mjs";
+
+const jiti = createJiti(import.meta.url);
+let topicEvidenceModulePromise;
+
+async function sharedTopicEvidenceModule() {
+  topicEvidenceModulePromise ??= jiti.import("../src/lib/topicEvidence.ts");
+  return topicEvidenceModulePromise;
+}
 
 /**
  * Canonical topic fingerprint: SHA-256 over the content identity of one
@@ -582,57 +592,12 @@ async function repairTopicTx(transaction, { targetDate, topic, source, fingerpri
 }
 
 async function retrieveEvidence(title, prompt) {
-  // Inline evidence retrieval using GDELT + Wikipedia (keyless)
-  const keywords = prompt.toLowerCase().match(/[a-z][a-z'-]{3,}/g)?.slice(0, 6).join(" ") || title.slice(0, 60);
-  const candidates = [];
-  try {
-    const r = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(keywords)}&mode=artlist&maxrecords=4&sort=hybridrel&format=json`, { signal: AbortSignal.timeout(8_000) });
-    if (r.ok) {
-      const d = await r.json();
-      (d.articles ?? []).slice(0, 3).forEach((a) => { if (a.url) candidates.push({ url: a.url, title: a.title }); });
-    }
-  } catch {}
-  try {
-    const r = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(title)}&srlimit=1&format=json`, { signal: AbortSignal.timeout(8_000) });
-    if (r.ok) {
-      const d = await r.json();
-      (d.query?.search ?? []).forEach((s) => { if (s.title) candidates.push({ url: `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, "_"))}`, title: s.title }); });
-    }
-  } catch {}
-
-  const cards = [];
-  const seenUrls = new Set();
-  for (const c of candidates.slice(0, 3)) {
-    if (seenUrls.has(c.url)) continue;
-    seenUrls.add(c.url);
-    try {
-      const pageRes = await fetch(c.url, {
-        signal: AbortSignal.timeout(9_000),
-        headers: { "User-Agent": "DailyDebate-evidence/1.0" },
-      });
-      if (!pageRes.ok) continue;
-      const html = await pageRes.text();
-      const text = html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-      if (text.length < 200) continue;
-      const passage = text.slice(0, Math.min(340, text.length));
-      const dateMatch = html.match(/article:published_time["'][^>]*content=["'](\d{4}-\d{2}-\d{2})/) ||
-                        html.match(/<time[^>]*datetime=["'](\d{4}-\d{2}-\d{2})/);
-      let host = "";
-      try { host = new URL(c.url).hostname.replace(/^www\./, ""); } catch {}
-      const isPrimary = /lazard|nrel|pew|nist|oecd|nature/i.test(host + " " + (c.title ?? ""));
-      cards.push({
-        claim: prompt.slice(0, 180),
-        sourceName: host,
-        sourceType: /wikipedia/i.test(host) ? "tertiary" : /reuters|apnews|bbc|guardian|bloomberg/i.test(host) ? "news" : isPrimary ? "primary" : "secondary",
-        url: c.url,
-        title: c.title ?? null,
-        passage,
-        publishedDate: dateMatch?.[1] ?? null,
-        checks: { supportsClaim: true, relevant: true, current: dateMatch?.[1] ? true : null, primary: isPrimary },
-      });
-    } catch {}
-  }
-  return cards;
+  const { buildTopicEvidenceCards } = await sharedTopicEvidenceModule();
+  const result = await buildTopicEvidenceCards(
+    { title, prompt },
+    { maxCards: 3, budgetMs: 14_000 },
+  );
+  return result.cards;
 }
 
 // --- Fallback topics (inline to avoid importing TS from Node) ---

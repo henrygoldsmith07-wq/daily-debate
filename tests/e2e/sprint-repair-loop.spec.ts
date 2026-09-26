@@ -70,7 +70,8 @@ test.describe("daily sprint repair loop", () => {
     await repairBox.fill("I disagree with this point.");
     await page.getByTestId("submit-repair").click();
     await expect(page.getByTestId("repair-feedback")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(/not there yet/i).first()).toBeVisible();
+    await expect(page.getByText(/needs another pass/i).first()).toBeVisible();
+    await expect(page.getByTestId("repair-feedback")).not.toContainText("/100");
 
     // A failed attempt is practice history, NOT a completed repair. Leaving
     // the page must not schedule a retest or strand the user without a retry.
@@ -85,16 +86,16 @@ test.describe("daily sprint repair loop", () => {
     await page.getByTestId("fix-this-now").click();
     await expect(page.getByTestId("repair-panel")).toBeVisible();
 
-    // This two-sentence version clears every deterministic repair rubric:
-    // source/evidence, contrast, reasoning bridge, weighing, structure and
-    // short-sentence clarity.
+    // This version demonstrates the requested evidence repair for the seeded
+    // debate: named source + concrete factual claim + explicit reasoning link.
     const retryBox = page.getByLabel("Improved argument move");
     await retryBox.fill(
-      "However, NREL data supports solar cost declines because deployment scaled, making the evidence stronger than the reliability objection. Therefore storage trends matter more because they directly affect total system costs."
+      "NREL reported in 2025 that utility-scale solar costs fell by 18 percent, which supports the affordability claim because lower generation costs reduce the cost pressure passed through to households."
     );
     await page.getByTestId("submit-repair").click();
     await expect(page.getByTestId("repair-feedback")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(/repair recorded/i).first()).toBeVisible();
+    await expect(page.getByText(/repair demonstrated/i).first()).toBeVisible();
+    await expect(page.getByTestId("repair-feedback")).not.toContainText("/100");
     await expect(page.getByTestId("repair-status")).toBeVisible();
 
     // 8. Advanced analysis opens only on explicit request.

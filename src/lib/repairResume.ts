@@ -11,7 +11,7 @@ export interface UnfinishedRepair {
   debateId: string;
   targetKind: string;
   label: string;
-  score: number;
+  state: "needs_another_pass" | "partially_repaired";
   attemptedAt: string;
   nextCue: string | null;
 }
@@ -82,7 +82,7 @@ export function latestUnfinishedRepair(
     debateId: latest.debateId,
     targetKind: latest.targetKind,
     label: REPAIR_KIND_LABELS[latest.targetKind] ?? "Argument",
-    score: latest.score,
+    state: latest.score >= 30 ? "partially_repaired" : "needs_another_pass",
     attemptedAt: latest.createdAt,
     nextCue: nextActionSignal(latest.signals),
   };

@@ -48,7 +48,13 @@ export interface SessionFunnel {
   /** all started sessions → completed sessions (format-agnostic top line) */
   debateCompletion: FunnelRate;
   repairStart: FunnelRate;
+  repairAttempt: FunnelRate;
+  repairDemonstration: FunnelRate;
+  /** Legacy alias for repairDemonstration. */
   repairCompletion: FunnelRate;
+  retestStart: FunnelRate;
+  retestCompletion: FunnelRate;
+  retestSkillDemonstrated: FunnelRate;
   fullAnalysisOpen: FunnelRate;
   note: string | null;
 }
@@ -77,8 +83,18 @@ export interface FunnelReport {
   debateCompletion: FunnelRate;
   /** debate_completed → repair_started (client CTA click) */
   repairStart: FunnelRate;
-  /** repair_started → successful repair_completed */
+  /** repair_started → persisted repair attempt */
+  repairAttempt: FunnelRate;
+  /** repair attempt → prompted repair demonstration */
+  repairDemonstration: FunnelRate;
+  /** Legacy alias for repairDemonstration. */
   repairCompletion: FunnelRate;
+  /** prompted repair demonstration → deliberate retest debate started */
+  retestStart: FunnelRate;
+  /** deliberate retest started → later debate produced an observable target reading */
+  retestCompletion: FunnelRate;
+  /** observable retest → existing deterministic rule demonstrated the target skill */
+  retestSkillDemonstrated: FunnelRate;
   /** debate_completed → full_analysis_opened */
   fullAnalysisOpen: FunnelRate;
   /** debate starts where the user chose "Challenge me" */
@@ -239,7 +255,12 @@ const DEBATE_STARTS = new Set(["sprint_started", "full_debate_started", "debate_
  * Treat only successful/legacy completion rows as genuine completion.
  */
 export function isSuccessfulRepairCompletion(row: FunnelEventRow): boolean {
-  return row.name === "repair_completed" && row.reason !== "retry";
+  return row.name === "repair_demonstrated" || (row.name === "repair_completed" && row.reason !== "retry");
+}
+
+/** New repair_attempted plus legacy completion rows, which necessarily imply an attempt. */
+export function isRepairAttempt(row: FunnelEventRow): boolean {
+  return row.name === "repair_attempted" || row.name === "repair_completed";
 }
 
 // ── Deeper product validation metrics ───────────────────────────────────────
@@ -478,9 +499,15 @@ export function buildSessionFunnel(
   }
   const completedSessions = new Set(bySession("debate_completed").keys());
   const repairStartedSessions = new Set(bySession("repair_started").keys());
+  const repairAttemptedSessions = new Set(
+    sessionRows.filter(isRepairAttempt).map((r) => r.debate_id!),
+  );
   const repairCompletedSessions = new Set(
     sessionRows.filter(isSuccessfulRepairCompletion).map((r) => r.debate_id!),
   );
+  const retestStartedSessions = new Set(bySession("retest_started").keys());
+  const retestCompletedSessions = new Set(bySession("retest_completed").keys());
+  const retestDemonstratedSessions = new Set(bySession("retest_skill_demonstrated").keys());
   const analysisOpenSessions = new Set(bySession("full_analysis_opened").keys());
 
   const sprintIds = [...startedSessions.entries()].filter(([, f]) => f === "sprint").map(([id]) => id);
@@ -491,14 +518,24 @@ export function buildSessionFunnel(
     DEBATE_STARTS.has(r.name) ||
     r.name === "debate_completed" ||
     r.name === "repair_started" ||
+    r.name === "repair_attempted" ||
+    r.name === "repair_demonstrated" ||
     r.name === "repair_completed" ||
+    r.name === "retest_started" ||
+    r.name === "retest_completed" ||
+    r.name === "retest_skill_demonstrated" ||
     r.name === "full_analysis_opened",
   ).length;
   const totalFunnelish = rows.filter((r) =>
     DEBATE_STARTS.has(r.name) ||
     r.name === "debate_completed" ||
     r.name === "repair_started" ||
+    r.name === "repair_attempted" ||
+    r.name === "repair_demonstrated" ||
     r.name === "repair_completed" ||
+    r.name === "retest_started" ||
+    r.name === "retest_completed" ||
+    r.name === "retest_skill_demonstrated" ||
     r.name === "full_analysis_opened",
   ).length;
   const coverage = totalFunnelish ? +(funnelEventCount / totalFunnelish).toFixed(3) : null;
@@ -508,7 +545,14 @@ export function buildSessionFunnel(
   const allStartedIds = [...startedSessions.keys()];
   const d = rate(allStartedIds.filter((id) => completedSessions.has(id)).length, allStartedIds.length, minSample);
   const rs = rate([...completedSessions].filter((id) => repairStartedSessions.has(id)).length, completedSessions.size, minSample);
-  const rc = rate([...repairStartedSessions].filter((id) => repairCompletedSessions.has(id)).length, repairStartedSessions.size, minSample);
+  const ra = rate([...repairStartedSessions].filter((id) => repairAttemptedSessions.has(id)).length, repairStartedSessions.size, minSample);
+  const rd = rate([...repairAttemptedSessions].filter((id) => repairCompletedSessions.has(id)).length, repairAttemptedSessions.size, minSample);
+  // A retest is deliberately a NEW debate, so its debate_id differs from the
+  // repaired debate's id. Session conversion compares stage counts here rather
+  // than intersecting incompatible session identifiers.
+  const rts = rate(retestStartedSessions.size, repairCompletedSessions.size, minSample);
+  const rtc = rate([...retestStartedSessions].filter((id) => retestCompletedSessions.has(id)).length, retestStartedSessions.size, minSample);
+  const rtd = rate([...retestCompletedSessions].filter((id) => retestDemonstratedSessions.has(id)).length, retestCompletedSessions.size, minSample);
   const ao = rate([...completedSessions].filter((id) => analysisOpenSessions.has(id)).length, completedSessions.size, minSample);
 
   const note =
@@ -518,7 +562,22 @@ export function buildSessionFunnel(
         ? `${Math.round((1 - coverage) * 100)}% of funnel events predate session ids (migration 005) and are counted in user conversion only`
         : null;
 
-  return { debates, coverage, sprintCompletion: s, fullCompletion: f, debateCompletion: d, repairStart: rs, repairCompletion: rc, fullAnalysisOpen: ao, note };
+  return {
+    debates,
+    coverage,
+    sprintCompletion: s,
+    fullCompletion: f,
+    debateCompletion: d,
+    repairStart: rs,
+    repairAttempt: ra,
+    repairDemonstration: rd,
+    repairCompletion: rd,
+    retestStart: rts,
+    retestCompletion: rtc,
+    retestSkillDemonstrated: rtd,
+    fullAnalysisOpen: ao,
+    note,
+  };
 }
 
 /** Build the full funnel report from raw event rows. */
@@ -542,7 +601,11 @@ export function buildFunnelReport(
   const sprintCompleted = completed.filter((r) => r.format === "sprint");
   const fullCompleted = completed.filter((r) => r.format === "full");
   const repairStarted = byName(["repair_started"]);
+  const repairAttempted = inWindow.filter(isRepairAttempt);
   const repairCompleted = inWindow.filter(isSuccessfulRepairCompletion);
+  const retestStarted = byName(["retest_started"]);
+  const retestCompleted = byName(["retest_completed"]);
+  const retestDemonstrated = byName(["retest_skill_demonstrated"]);
   const analysisOpened = byName(["full_analysis_opened"]);
   const challengeMe = byName(["challenge_me_selected"]);
   const challengeCreated = byName(["challenge_link_created"]);
@@ -565,7 +628,12 @@ export function buildFunnelReport(
     fullCompletion: rate(distinctUsers(fullCompleted).size, distinctUsers(fulls).size, minSample),
     debateCompletion: rate(distinctUsers(completed).size, distinctUsers(started).size, minSample),
     repairStart: rate(distinctUsers(repairStarted).size, distinctUsers(completed).size, minSample),
-    repairCompletion: rate(distinctUsers(repairCompleted).size, distinctUsers(repairStarted).size, minSample),
+    repairAttempt: rate(distinctUsers(repairAttempted).size, distinctUsers(repairStarted).size, minSample),
+    repairDemonstration: rate(distinctUsers(repairCompleted).size, distinctUsers(repairAttempted).size, minSample),
+    repairCompletion: rate(distinctUsers(repairCompleted).size, distinctUsers(repairAttempted).size, minSample),
+    retestStart: rate(distinctUsers(retestStarted).size, distinctUsers(repairCompleted).size, minSample),
+    retestCompletion: rate(distinctUsers(retestCompleted).size, distinctUsers(retestStarted).size, minSample),
+    retestSkillDemonstrated: rate(distinctUsers(retestDemonstrated).size, distinctUsers(retestCompleted).size, minSample),
     fullAnalysisOpen: rate(distinctUsers(analysisOpened).size, distinctUsers(completed).size, minSample),
     challengeMe: rate(distinctUsers(challengeMe).size, distinctUsers(started).size, minSample),
     challengeMeReasons: [...reasonCounts.entries()]

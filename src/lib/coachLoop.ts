@@ -205,10 +205,7 @@ export function computeLoopStatuses(
     if (assignment.status === "attempted" && assignment.attemptText) {
       stage = "practised";
       drillAttemptScore = assignment.attemptScore ?? null;
-      summary =
-        drillAttemptScore === null
-          ? `${label} drill attempted.`
-          : `${label} drill attempted (formative score ${drillAttemptScore}/100).`;
+      summary = `${label} drill attempted. This is practice evidence; later debates determine whether the skill transferred.`;
 
       // Drill rubric scores and longitudinal profile scores are different
       // constructs. Never compare them to manufacture an improvement claim.

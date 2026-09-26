@@ -5,12 +5,14 @@
 import { createClient } from "@/lib/backend/server";
 import {
   buildSkillLedger,
-  extractSkillPoint,
   type SkillLedger,
   type SkillMetricPoint,
 } from "./skillLedger";
-import { mergeAssessmentGraphs, assessArgumentGraph } from "./observableAssessment";
-import type { ObservableAssessment } from "./observableAssessment";
+import {
+  buildLedgerPointsFromRows,
+  type CompletedLedgerDebateRow,
+  type LedgerTurnRow,
+} from "./skillLedgerAssembly";
 
 export interface LedgerWithSeries extends SkillLedger {
   points: SkillMetricPoint[];
@@ -23,47 +25,21 @@ export async function buildLedgerForUser(
   const db = await createClient();
   const { data: debates } = await db
     .from("solo_debates")
-    .select("id, completed_at")
+    .select("id, completed_at, topic_id")
     .eq("user_id", userId)
     .eq("status", "completed")
     .order("completed_at", { ascending: true })
     .limit(100);
 
-  const completed = debates ?? [];
-  const points: SkillMetricPoint[] = [];
-
-  for (const d of completed) {
-    const [{ data: turns }, { data: scoreRows }] = await Promise.all([
-      db
+  const completed = (debates ?? []) as CompletedLedgerDebateRow[];
+  const debateIds = completed.map((debate) => debate.id);
+  const { data: turnRows } = debateIds.length
+    ? await db
         .from("solo_debate_turns")
-        .select("assessment")
-        .eq("debate_id", d.id)
-        .not("assessment", "is", null)
-        .order("round_number"),
-      db.from("solo_debate_turns").select("scores").eq("debate_id", d.id).not("scores", "is", null),
-    ]);
-    const assessments = ((turns ?? []) as Array<{ assessment: unknown }>)
-      .map((t) => t.assessment as ObservableAssessment)
-      .filter((a) => !!a?.graph);
-    if (!assessments.length) continue;
-
-    const merged = assessArgumentGraph(mergeAssessmentGraphs(assessments.map((a) => a.graph)), {
-      sideA: "a",
-      sideB: "ai",
-      extractionSource: "deterministic",
-      labelA: "You",
-      labelB: "AI opponent",
-    });
-
-    const clarityValues = ((scoreRows ?? []) as Array<{ scores: { clarity?: number } | null }>)
-      .map((r) => r.scores?.clarity)
-      .filter((c): c is number => typeof c === "number");
-    const avgClarity = clarityValues.length
-      ? clarityValues.reduce((s, c) => s + c, 0) / clarityValues.length
-      : null;
-
-    points.push(extractSkillPoint(d.id, d.completed_at ?? new Date().toISOString(), merged, "a", avgClarity));
-  }
+        .select("debate_id, round_number, assessment, scores")
+        .in("debate_id", debateIds)
+    : { data: [] };
+  const points = buildLedgerPointsFromRows(completed, (turnRows ?? []) as LedgerTurnRow[]);
 
   const ledger = buildSkillLedger(points, opts);
   return { ...ledger, points };

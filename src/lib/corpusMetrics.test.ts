@@ -103,8 +103,8 @@ describe("computeCorpusMetrics with sample gates", () => {
   });
 
   it("withholds ground-truth eligibility until rater count, consensus volume and κ clear the bars", () => {
-    // 30 unanimous two-rater items → κ = 1, consensus-ready = 30, but only
-    // 2 distinct raters → the rater-count bar keeps it NOT ready.
+    // 30 unanimous two-rater items → κ = 1, but the Stage-1 volume is not
+    // reached and only 2 distinct raters contributed.
     const small = Array.from({ length: 30 }, (_, i) => item(`i${i}`));
     const smallRatings = small.flatMap((it) => [rating(it.id, "r1", "a"), rating(it.id, "r2", "a")]);
     const m1 = computeCorpusMetrics(small, smallRatings);
@@ -112,19 +112,20 @@ describe("computeCorpusMetrics with sample gates", () => {
     expect(m1.humanValidation.groundTruth.ready).toBe(false);
     expect(m1.humanValidation.groundTruth.reasons.join(" ")).toMatch(/independent raters/);
 
-    // Same volume spread over 6 adjacent-pair raters: consensus ≥30, raters
-    // ≥5, unanimous pairs → κ clears the bar too. This one IS ready.
-    const sixRaters = Array.from({ length: 30 }, (_, i) => item(`j${i}`));
+    // Stage-1 volume spread over 6 adjacent-pair raters: consensus ≥100,
+    // raters ≥5, unanimous pairs → κ clears the pilot gate too.
+    const sixRaters = Array.from({ length: 100 }, (_, i) => item(`j${i}`));
     const sixRatings = sixRaters.flatMap((it, idx) => {
       const ra = `r${idx % 6}`;
       const rb = `r${(idx + 1) % 6}`;
       return [rating(it.id, ra, "a"), rating(it.id, rb, "a")];
     });
     const m2 = computeCorpusMetrics(sixRaters, sixRatings);
-    expect(m2.humanValidation.consensusReadyItems).toBeGreaterThanOrEqual(30);
+    expect(m2.humanValidation.consensusReadyItems).toBeGreaterThanOrEqual(100);
     expect(m2.humanValidation.groundTruth.ready).toBe(true);
 
-    // 30 consensus items, 5 raters, pairs with ≥5 shared unanimous items → κ=1.
+    // 30 consensus items remain below the staged pilot volume even before the
+    // distinct-rater gate is considered.
     const many = Array.from({ length: 30 }, (_, i) => item(`k${i}`));
     const manyRatings = many.flatMap((it, idx) => [
       rating(it.id, `pairA`, "a"),
@@ -228,7 +229,7 @@ describe("judge-vs-human slices (item 13)", () => {
 describe("humanGroundTruthReady thresholds", () => {
   it("flags each unmet bar explicitly (never a silent false)", async () => {
     const { humanGroundTruthReady } = await import("./corpus");
-    const ready = humanGroundTruthReady({ consensusReadyItems: 30, raters: 5, meanWinnerKappa: 0.62 });
+    const ready = humanGroundTruthReady({ consensusReadyItems: 100, raters: 5, meanWinnerKappa: 0.62 });
     expect(ready.ready).toBe(true);
     expect(ready.reasons).toEqual([]);
     const notReady = humanGroundTruthReady({ consensusReadyItems: 5, raters: 2, meanWinnerKappa: null });

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -84,6 +85,21 @@ describe("generate-topics CLI contract", () => {
     const r = runScript([], {});
     expect(r.status).toBe(1);
     expect(r.stdout + r.stderr).toMatch(/outcome=config-failure/);
+  });
+
+  it("delegates stored topic evidence to the shared secure retrieval module", () => {
+    const source = readFileSync(script, "utf8");
+    const start = source.indexOf("async function retrieveEvidence");
+    const end = source.indexOf("// --- Fallback topics", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const retrievalBlock = source.slice(start, end);
+
+    expect(source).toContain('jiti.import("../src/lib/topicEvidence.ts")');
+    expect(retrievalBlock).toContain("buildTopicEvidenceCards");
+    expect(retrievalBlock).not.toContain("fetch(");
+    expect(retrievalBlock).not.toContain("supportsClaim: true");
+    expect(retrievalBlock).not.toContain("DailyDebate-evidence/1.0");
   });
 
   it("missing migration 018 fails the config gate BEFORE any generation attempt", async () => {

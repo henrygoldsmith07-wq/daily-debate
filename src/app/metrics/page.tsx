@@ -1,6 +1,6 @@
 import { createServiceClient } from "@/lib/backend/server";
 import { computeCorpusMetrics, type MetricItem, type MetricRating } from "@/lib/corpusMetrics";
-import { POPULATION_TARGET_ITEMS } from "@/lib/corpus";
+import { POPULATION_TARGET_ITEMS, VALIDATION_STAGES, validationStageForCoverage } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 
@@ -30,6 +30,10 @@ export default async function MetricsPage() {
       .select("corpus_id, rater_id, winner, confidence, scores_a, scores_b, presented_first, corrections"),
   ]);
   const m = computeCorpusMetrics((items ?? []) as MetricItem[], (ratings ?? []) as unknown as MetricRating[]);
+  const stage = validationStageForCoverage({
+    itemsWithTwoPlusRatings: m.corpus.itemsWithTwoPlusRatings,
+    itemsWithThreePlusRatings: m.corpus.itemsWithThreePlusRatings,
+  });
 
   const targetPct = Math.min(100, Math.round((m.corpus.items / POPULATION_TARGET_ITEMS) * 100));
 
@@ -43,8 +47,9 @@ export default async function MetricsPage() {
 
       <section className="surface-card flex flex-col gap-3 p-5">
         <h2 className="text-sm font-semibold">Campaign progress</h2>
+        <p className="text-xs font-medium text-[var(--accent)]">{VALIDATION_STAGES[stage].label}</p>
         <p className="tabular text-xs text-ink3">
-          {m.corpus.items} / {POPULATION_TARGET_ITEMS} debates · {m.corpus.ratings} judgements · {m.corpus.raters} raters
+          {m.corpus.items} / {POPULATION_TARGET_ITEMS} debates · {m.corpus.itemsWithTwoPlusRatings} with ≥2 ratings · {m.corpus.itemsWithThreePlusRatings} with ≥3
         </p>
         <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
           <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${targetPct}%` }} />
@@ -59,13 +64,16 @@ export default async function MetricsPage() {
               m.humanValidation.groundTruth.ready ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"
             }`}
           >
-            {m.humanValidation.groundTruth.ready ? "meets ground-truth requirements" : "not yet human ground truth"}
+            {m.humanValidation.groundTruth.ready ? "pilot consensus gate met" : "pilot consensus gate pending"}
           </span>
         </div>
         <p className="mt-1 text-xs text-ink3">
           {m.humanValidation.consensusReadyItems} consensus-ready items · {m.humanValidation.unresolvedDisagreements} unresolved
           disagreements · mean winner κ {m.humanValidation.meanWinnerKappa ?? "—"} · score-gap dispersion (mean SD){" "}
           {m.humanValidation.meanScoreGapDispersion ?? "—"} · mean confidence {m.humanValidation.meanRaterConfidence ?? "—"}
+        </p>
+        <p className="mt-2 text-xs text-ink3">
+          Pilot consensus is not external validity. Stage 2 requires 500 debates with ≥3 independent ratings; Stage 3 requires 1,000+ with ≥3 and balanced coverage.
         </p>
         <p className="mt-1 text-xs text-ink3">
           {m.corpus.itemsWithTwoPlusRatings} independently rated (≥2) · {m.corpus.adjudicatedItems} adjudicated ·{" "}

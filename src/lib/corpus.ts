@@ -5,7 +5,51 @@
 import type { SideScores } from "./debateEvaluation";
 import { EVAL_DIMENSIONS } from "./debateEvaluation";
 
+/** Operational floor: enough independent ratings to make a pilot item usable. */
 export const MIN_RATERS_PER_ITEM = 2;
+export const CALIBRATION_RATERS_PER_ITEM = 3;
+
+export const VALIDATION_STAGES = {
+  infrastructure: {
+    label: "Stage 0 · infrastructure",
+    minItems: 0,
+    minRatersPerItem: 0,
+    purpose: "Pipeline and fixture validation only; no human-validity claim.",
+  },
+  pilot: {
+    label: "Stage 1 · pilot",
+    minItems: 100,
+    minRatersPerItem: MIN_RATERS_PER_ITEM,
+    purpose: "Test the rubric, disagreement patterns and annotation workflow; claims remain provisional.",
+  },
+  calibration: {
+    label: "Stage 2 · calibration",
+    minItems: 500,
+    minRatersPerItem: CALIBRATION_RATERS_PER_ITEM,
+    purpose: "Calibrate judge and coaching targets, including per-dimension and subgroup analysis.",
+  },
+  mature: {
+    label: "Stage 3 · mature corpus",
+    minItems: 1_000,
+    minRatersPerItem: CALIBRATION_RATERS_PER_ITEM,
+    purpose: "Stratified external-validity evidence and the minimum corpus stage for ranked/competitive claims.",
+  },
+} as const;
+
+export type ValidationStageName = keyof typeof VALIDATION_STAGES;
+export const POPULATION_TARGET_ITEMS = VALIDATION_STAGES.mature.minItems;
+export const CALIBRATION_TARGET_ITEMS = VALIDATION_STAGES.calibration.minItems;
+export const PILOT_TARGET_ITEMS = VALIDATION_STAGES.pilot.minItems;
+
+export function validationStageForCoverage(input: {
+  itemsWithTwoPlusRatings: number;
+  itemsWithThreePlusRatings: number;
+}): ValidationStageName {
+  if (input.itemsWithThreePlusRatings >= VALIDATION_STAGES.mature.minItems) return "mature";
+  if (input.itemsWithThreePlusRatings >= VALIDATION_STAGES.calibration.minItems) return "calibration";
+  if (input.itemsWithTwoPlusRatings >= VALIDATION_STAGES.pilot.minItems) return "pilot";
+  return "infrastructure";
+}
 
 export function isCorpusAdmin(email: string | null | undefined, adminList: string | undefined): boolean {
   if (!email || !adminList) return false;
@@ -144,11 +188,8 @@ export function completeScores(partial: Partial<SideScores>, fallback = 3): Side
 }
 
 // --- Population tracking ----------------------------------------------------
-// The benchmark target: 500-1,000+ real debates, >=2 blind raters each,
-// spread across subjects, ability bands, and argument lengths. These helpers
-// make collection progress measurable instead of anecdotal.
-
-export const POPULATION_TARGET_ITEMS = 500;
+// The authoritative collection target is staged above. Recruitment aims for
+// the mature corpus while pilot and calibration readiness remain distinct.
 /** Minimum corpus items per stratum cell (length bucket / ability band). */
 export const STRATUM_MINIMUM = 30;
 
@@ -166,8 +207,12 @@ export interface PopulationItemSummary {
 export interface PopulationProgress {
   totalItems: number;
   fullyRatedItems: number;
+  calibrationRatedItems: number;
   targetItems: number;
   remainingToTarget: number;
+  stage: ValidationStageName;
+  stageLabel: string;
+  nextStage: ValidationStageName | null;
   byLength: Record<string, number>;
   byAbility: Record<string, number>;
   bySubject: Record<string, number>;
@@ -183,6 +228,7 @@ export function populationProgress(
   const byAbility: Record<string, number> = {};
   const bySubject: Record<string, number> = {};
   let fullyRated = 0;
+  let calibrationRated = 0;
 
   for (const item of items) {
     byLength[item.length_bucket] = (byLength[item.length_bucket] ?? 0) + 1;
@@ -190,6 +236,7 @@ export function populationProgress(
     const subj = item.subject_category ?? "unknown";
     bySubject[subj] = (bySubject[subj] ?? 0) + 1;
     if ((ratingCounts.get(item.id ?? "") ?? 0) >= MIN_RATERS_PER_ITEM) fullyRated += 1;
+    if ((ratingCounts.get(item.id ?? "") ?? 0) >= CALIBRATION_RATERS_PER_ITEM) calibrationRated += 1;
   }
 
   const cellsNeedingCoverage: string[] = [];
@@ -200,11 +247,22 @@ export function populationProgress(
     if ((byAbility[band] ?? 0) < STRATUM_MINIMUM) cellsNeedingCoverage.push(`ability:${band}`);
   }
 
+  const stage = validationStageForCoverage({
+    itemsWithTwoPlusRatings: fullyRated,
+    itemsWithThreePlusRatings: calibrationRated,
+  });
+  const stageOrder: ValidationStageName[] = ["infrastructure", "pilot", "calibration", "mature"];
+  const stageIndex = stageOrder.indexOf(stage);
+
   return {
     totalItems: items.length,
     fullyRatedItems: fullyRated,
+    calibrationRatedItems: calibrationRated,
     targetItems: POPULATION_TARGET_ITEMS,
     remainingToTarget: Math.max(0, POPULATION_TARGET_ITEMS - items.length),
+    stage,
+    stageLabel: VALIDATION_STAGES[stage].label,
+    nextStage: stageIndex < stageOrder.length - 1 ? stageOrder[stageIndex + 1] : null,
     byLength,
     byAbility,
     bySubject,
@@ -259,14 +317,12 @@ export function oppositeStance(stance: "for" | "against"): "for" | "against" {
   return stance === "for" ? "against" : "for";
 }
 
-// --- Human ground-truth gate -------------------------------------------------
-// The corpus may be called "human ground truth" for judge validation ONLY
-// when it clears independent-collection bars. Below this it is a sample under
-// construction; agreement numbers are provisional, never truth. One predicate
-// so the reliability endpoint, the public metrics and the ops report cannot
-// drift on the definition.
+// --- Pilot consensus gate ----------------------------------------------------
+// `humanGroundTruthReady` is a retained API name. Its threshold is now the
+// Stage-1 pilot consensus gate, NOT an external-validity claim. Stage 2/3 are
+// separately visible through VALIDATION_STAGES and require >=3 ratings/item.
 
-export const GROUND_TRUTH_MIN_CONSENSUS_ITEMS = 30;
+export const GROUND_TRUTH_MIN_CONSENSUS_ITEMS = PILOT_TARGET_ITEMS;
 export const GROUND_TRUTH_MIN_RATERS = 5;
 /** Mean winner Cohen κ (floor); "substantial agreement" on the Landis-Koch scale. */
 export const GROUND_TRUTH_MIN_KAPPA = 0.6;

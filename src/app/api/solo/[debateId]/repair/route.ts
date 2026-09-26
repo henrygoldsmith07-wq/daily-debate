@@ -97,6 +97,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const result = scoreRepair(target, rewrite);
   const succeeded = result.score >= REPAIR_SUCCESS_THRESHOLD;
 
+  const { data: priorSuccess } = await db
+    .from("repair_results")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("debate_id", debateId)
+    .eq("target_kind", target.kind)
+    .eq("succeeded", true)
+    .limit(1)
+    .maybeSingle();
+
   const { error: insertError } = await db.from("repair_results").insert({
     user_id: user.id,
     debate_id: debateId,
@@ -138,24 +148,37 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     console.error("Failed to link repair to drill assignment:", error);
   }
 
-  // Product funnel "completion" means the repair crossed the success
-  // threshold. Failed submissions are still persisted in repair_results as
-  // practice history, but must not inflate repair-completion/retention metrics.
+  void recordProductEvent("repair_attempted", {
+    reason: result.state,
+    debateId,
+  });
+
+  // A prompted rewrite demonstrating the requested structure is not a later
+  // learning outcome. Give it its own event, then close the episode exactly
+  // once on the first successful attempt. Legacy repair_completed remains
+  // readable in analytics but is no longer emitted by new code.
   if (succeeded) {
-    void recordProductEvent("repair_completed", {
-      repairScore: result.score,
-      reason: "succeeded",
+    void recordProductEvent("repair_demonstrated", {
+      reason: target.kind,
       debateId,
     });
+    if (!priorSuccess) {
+      void recordProductEvent("repair_episode_closed", {
+        reason: target.kind,
+        debateId,
+      });
+    }
   }
 
   return NextResponse.json({
     target,
-    score: result.score,
+    state: result.state,
     signals: result.signals,
     succeeded,
     feedback: succeeded
-      ? `Recorded. The rewrite now ${result.signals[0] ?? "addresses the weak link"} — your next debate will test whether it sticks.`
-      : "Recorded — not there yet. Check the signals below and try another version.",
+      ? "Recorded. You demonstrated the requested repair move in this prompted practice. Your next debate will test whether it transfers."
+      : result.state === "partially_repaired"
+        ? "Recorded. Part of the repair is present, but one required reasoning move is still missing."
+        : "Recorded. This version still needs another pass; use the observable signals below to revise it.",
   });
 }

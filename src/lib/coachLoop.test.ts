@@ -135,7 +135,8 @@ describe("computeLoopStatuses", () => {
     }];
     const statuses = computeLoopStatuses(points, assignments);
     expect(statuses[0].stage).toBe("practised");
-    expect(statuses[0].summary).toContain("formative score 95/100");
+    expect(statuses[0].summary).toContain("practice evidence");
+    expect(statuses[0].summary).not.toMatch(/95|\/100/);
     expect(statuses[0].summary).not.toMatch(/improv|up from/i);
   });
 

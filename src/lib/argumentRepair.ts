@@ -16,6 +16,15 @@ export interface RepairTarget {
 export interface RepairScore {
   score: number;
   signals: string[];
+  state: RepairState;
+}
+
+export type RepairState = "needs_another_pass" | "partially_repaired" | "repair_demonstrated";
+
+export function repairStateFromScore(score: number): RepairState {
+  if (score >= 60) return "repair_demonstrated";
+  if (score >= 30) return "partially_repaired";
+  return "needs_another_pass";
 }
 
 export type StructuralRepairPath =
@@ -46,7 +55,19 @@ const CONTRASTIVE_RE = /\b(however|but|although|while|even if|yet|conversely|on 
 const REASONING_RE = /\b(because|therefore|so|means|leads to|results in|as a result|since)\b/i;
 const WEIGHING_RE = /\b(outweighs?|more important|matters more|bigger (?:deal|impact)|higher stakes|more likely|less likely)\b/i;
 const SOURCE_RE = /\b(according to|study|studies|data|report|survey|research|analysis|finds?|shows?|\d{2,}%|\$\d|Pew|NREL|Lazard|OECD|NIST|WHO|Reuters|Nature|Brookings|IMF|IEA)\b/i;
+const NAMED_SOURCE_RE = /\b(Pew(?: Research Center)?|NREL|Lazard|OECD|NIST|WHO|Reuters|Nature|Brookings|IMF|IEA|World Bank|NASA|NOAA|AP(?: News)?)\b|\baccording to\s+[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,4}\b|\b[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,4}\s+(?:study|report|research|survey|data)\b/;
+const FACTUAL_DETAIL_RE = /(?:\b\d+(?:\.\d+)?%?\b|\$\s?\d|\b(?:19|20)\d{2}\b|\b(?:rose|fell|increased|decreased|reduced|grew|declined|found|reported|estimated)\b)/i;
 const ABSOLUTE_RE = /\b(always|never|everyone knows|obviously|definitely|proves|guarantees)\b/i;
+const RESPONSE_MOVE_RE = /\b(however|but|although|even if|that assumes|that ignores|depends on|only if|unless|concede|grant|outweigh|narrow|does not follow|fails because)\b/i;
+const COMPARISON_RE = /\b(outweighs?|more important|higher stakes|more likely|less likely|rather than|compared (?:with|to)|versus|vs\.?|whereas|than)\b/i;
+const CUE_WORD_RE = /\b(however|although|even if|because|therefore|according to|study|report|research|matters more|outweighs?|more important)\b/gi;
+
+const STOPWORDS = new Set([
+  "about", "after", "again", "against", "because", "before", "being", "between", "could", "does", "doing",
+  "from", "have", "however", "into", "more", "most", "other", "should", "since", "than", "that", "their",
+  "there", "therefore", "these", "they", "this", "those", "through", "very", "what", "when", "where", "which",
+  "while", "with", "would", "your",
+]);
 
 function ownNodes(graph: ArgGraph): ArgNode[] {
   return graph.nodes.filter((node) => node.owner === "a");
@@ -239,112 +260,214 @@ function normalised(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function substantiveTokens(text: string): string[] {
+  return (normalised(text).match(/[a-z0-9]+/g) ?? []).filter((token) => token.length >= 4 && !STOPWORDS.has(token));
+}
+
+function sharedSubstantiveTokens(a: string, b: string): number {
+  const bTokens = new Set(substantiveTokens(b));
+  return new Set(substantiveTokens(a).filter((token) => bTokens.has(token))).size;
+}
+
+function addedSubstantiveTokens(source: string, rewrite: string): number {
+  const sourceTokens = new Set(substantiveTokens(source));
+  return new Set(substantiveTokens(rewrite).filter((token) => !sourceTokens.has(token))).size;
+}
+
+function looksKeywordStuffed(text: string): boolean {
+  const words = text.match(/[A-Za-z0-9']+/g) ?? [];
+  const cues = text.match(CUE_WORD_RE) ?? [];
+  if (cues.length < 4) return false;
+  return cues.length / Math.max(1, words.length) >= 0.2;
+}
+
+function hasReasoningBridge(text: string): boolean {
+  const match = REASONING_RE.exec(text);
+  if (!match || match.index === undefined) return false;
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index + match[0].length);
+  return substantiveTokens(before).length >= 2 && substantiveTokens(after).length >= 2;
+}
+
+function hasTwoComparedOutcomes(text: string): boolean {
+  const match = COMPARISON_RE.exec(text);
+  if (!match || match.index === undefined) return false;
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index + match[0].length);
+  const left = new Set(substantiveTokens(before));
+  const right = new Set(substantiveTokens(after));
+  if (left.size < 3 || right.size < 3) return false;
+  const leftOnly = [...left].some((token) => !right.has(token));
+  const rightOnly = [...right].some((token) => !left.has(token));
+  return leftOnly && rightOnly;
+}
+
+function sentenceWordCounts(text: string): number[] {
+  return text
+    .split(/[.!?]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part.split(/\s+/).filter(Boolean).length);
+}
+
+function finishRepairScore(score: number, signals: string[], complete: boolean): RepairScore {
+  const bounded = Math.min(100, complete ? score : Math.min(score, 59));
+  return { score: bounded, signals, state: repairStateFromScore(bounded) };
+}
+
 /** Score only observable repair moves; this is practice feedback, not a new debate verdict. */
 export function scoreRepair(target: RepairTarget, text: string): RepairScore {
   const clean = text.trim();
   const signals: string[] = [];
-  if (!clean) return { score: 0, signals: ["Write a repair before checking it."] };
+  if (!clean) return { score: 0, state: "needs_another_pass", signals: ["Write a repair before checking it."] };
 
   let score = 0;
   const words = clean.match(/[A-Za-z0-9']+/g)?.length ?? 0;
   const sentences = sentenceCount(clean);
+  const reasoningBridge = hasReasoningBridge(clean);
+  const changedReasoning = addedSubstantiveTokens(target.sourceText, clean) >= 3;
+  const keywordStuffed = looksKeywordStuffed(clean);
 
   if (words >= 15 && words <= 140) {
-    score += 20;
-    signals.push("substantive length");
+    score += 10;
+    signals.push("enough detail to inspect the reasoning move");
   } else {
     signals.push("aim for 15–140 words");
   }
 
-  if (sentences >= 2) {
-    score += 10;
-    signals.push("clear sentence structure");
-  }
+  let complete = false;
 
   switch (target.kind) {
-    case "evidence":
-      if (SOURCE_RE.test(clean)) {
-        score += 55;
-        signals.push("names evidence or a source");
+    case "evidence": {
+      const namedSource = NAMED_SOURCE_RE.test(clean);
+      const factualDetail = FACTUAL_DETAIL_RE.test(clean) && substantiveTokens(clean).length >= 6;
+      if (namedSource) {
+        score += 20;
+        signals.push("names a specific source");
       } else {
-        signals.push("name a source, study, report, or data point");
+        signals.push("name a specific source rather than saying only ‘a study’ or ‘research’");
       }
-      if (REASONING_RE.test(clean)) {
-        score += 15;
-        signals.push("connects the evidence to the claim");
-      }
-      break;
-    case "rebuttal":
-      if (CONTRASTIVE_RE.test(clean)) {
-        score += 35;
-        signals.push("uses a direct contrast");
-      } else {
-        signals.push("use a contrast such as ‘however’ or ‘even if’");
-      }
-      if (REASONING_RE.test(clean)) {
+      if (factualDetail) {
         score += 25;
-        signals.push("explains why the response matters");
+        signals.push("states a concrete factual claim or data point");
+      } else {
+        signals.push("state what the source actually found or measured");
       }
+      if (reasoningBridge) {
+        score += 35;
+        signals.push("explains how the evidence bears on the claim");
+      } else {
+        signals.push("add an explicit reasoning link from the evidence to the claim");
+      }
+      signals.push("source support remains unverified until the cited material is checked");
+      complete = namedSource && factualDetail && reasoningBridge && changedReasoning && !keywordStuffed;
       break;
-    case "logic":
+    }
+    case "rebuttal": {
+      const overlap = sharedSubstantiveTokens(clean, target.sourceText);
+      const engagesTarget = overlap >= 2;
+      const responseMove = RESPONSE_MOVE_RE.test(clean) || CONTRASTIVE_RE.test(clean);
+      if (engagesTarget) {
+        score += 25;
+        signals.push("refers to the substance of the opposing move");
+      } else {
+        signals.push("refer to the actual opposing claim or assumption, not just a contrast word");
+      }
+      if (responseMove) {
+        score += 20;
+        signals.push("challenges, narrows, concedes, or outweighs part of the objection");
+      } else {
+        signals.push("show whether you are challenging, narrowing, conceding, or outweighing the objection");
+      }
+      if (reasoningBridge) {
+        score += 35;
+        signals.push("explains what follows from the response");
+      } else {
+        signals.push("explain why your response changes the force of the objection");
+      }
+      complete = engagesTarget && responseMove && reasoningBridge && changedReasoning && !keywordStuffed;
+      break;
+    }
+    case "logic": {
       if (!ABSOLUTE_RE.test(clean)) {
-        score += 30;
+        score += 20;
         signals.push("avoids absolute-language shortcuts");
       } else {
         signals.push("replace absolute language with a reason");
       }
-      if (REASONING_RE.test(clean)) {
-        score += 35;
-        signals.push("states the reasoning bridge");
+      if (reasoningBridge) {
+        score += 50;
+        signals.push("connects two distinct propositions with an explanatory relationship");
       } else {
-        signals.push("add a because/therefore bridge");
+        signals.push("state a claim and a distinct reason, then explain the relationship between them");
       }
+      complete = !ABSOLUTE_RE.test(clean) && reasoningBridge && changedReasoning && !keywordStuffed;
       break;
-    case "impact":
-      if (WEIGHING_RE.test(clean)) {
-        score += 45;
-        signals.push("weighs the competing impacts");
+    }
+    case "impact": {
+      const compares = COMPARISON_RE.test(clean) || WEIGHING_RE.test(clean);
+      const twoOutcomes = hasTwoComparedOutcomes(clean);
+      if (compares && twoOutcomes) {
+        score += 40;
+        signals.push("compares two concrete outcomes");
       } else {
-        signals.push("compare which impact matters more or is more likely");
+        signals.push("name both competing outcomes and compare them directly");
       }
-      if (REASONING_RE.test(clean)) {
-        score += 25;
-        signals.push("links the impact to the decision");
+      if (reasoningBridge) {
+        score += 30;
+        signals.push("explains why one outcome should carry more weight");
+      } else {
+        signals.push("explain why the comparison should change the decision");
       }
+      complete = compares && twoOutcomes && reasoningBridge && changedReasoning && !keywordStuffed;
       break;
-    case "structure":
-      if (CONTRASTIVE_RE.test(clean) || /\b(condition|distinction|depends|unless|except)\b/i.test(clean)) {
+    }
+    case "structure": {
+      const distinction = CONTRASTIVE_RE.test(clean) || /\b(condition|distinction|depends|unless|except|only when|in cases where)\b/i.test(clean);
+      if (distinction) {
         score += 40;
         signals.push("adds a condition or distinction");
       } else {
         signals.push("name the condition that reconciles the two claims");
       }
-      if (REASONING_RE.test(clean)) {
-        score += 25;
+      if (reasoningBridge) {
+        score += 30;
         signals.push("explains how the distinction works");
-      }
-      break;
-    case "clarity":
-      if (sentences >= 2 && clean.split(/\s+/).every(Boolean)) {
-        const sentenceLengths = clean.split(/[.!?]+/).filter((part) => part.trim()).map((part) => part.trim().split(/\s+/).length);
-        if (sentenceLengths.every((length) => length <= 24)) {
-          score += 50;
-          signals.push("keeps each sentence focused");
-        } else {
-          signals.push("keep each sentence under 25 words");
-        }
       } else {
-        signals.push("separate the claim from its reason");
+        signals.push("explain why the condition makes the position consistent");
       }
-      if (REASONING_RE.test(clean)) {
-        score += 20;
-        signals.push("makes the reason explicit");
-      }
+      complete = distinction && reasoningBridge && changedReasoning && !keywordStuffed;
       break;
+    }
+    case "clarity": {
+      const lengths = sentenceWordCounts(clean);
+      const focused = sentences >= 2 && lengths.every((length) => length >= 3 && length <= 24);
+      const supportRelation = reasoningBridge || SOURCE_RE.test(clean);
+      if (focused) {
+        score += 35;
+        signals.push("separates the move into focused sentences");
+      } else {
+        signals.push("use a focused claim sentence and a separate supporting sentence");
+      }
+      if (supportRelation) {
+        score += 35;
+        signals.push("makes the support for the claim explicit");
+      } else {
+        signals.push("make the second sentence explain or evidence the first");
+      }
+      complete = focused && supportRelation && changedReasoning && !keywordStuffed;
+      break;
+    }
   }
 
   if (normalised(clean) === normalised(target.sourceText)) {
-    return { score: 0, signals: ["The rewrite repeats the original move — change or add the reasoning itself.", ...signals] };
+    return { score: 0, state: "needs_another_pass", signals: ["The rewrite repeats the original move — change or add the reasoning itself.", ...signals] };
   }
-  return { score: Math.min(100, score), signals };
+  if (!changedReasoning) {
+    signals.unshift("The wording changed, but the reasoning did not materially change yet.");
+  }
+  if (keywordStuffed) {
+    signals.unshift("Reasoning cue words are repeated without enough substantive content between them.");
+  }
+  return finishRepairScore(score, signals, complete);
 }

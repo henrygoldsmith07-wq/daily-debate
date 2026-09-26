@@ -36,7 +36,7 @@ describe("latestUnfinishedRepair", () => {
       debateId: "newer",
       targetKind: "rebuttal",
       label: "Rebuttal",
-      score: 55,
+      state: "partially_repaired",
       attemptedAt: "2026-09-25T11:00:00.000Z",
       nextCue: "use a direct contrast",
     });

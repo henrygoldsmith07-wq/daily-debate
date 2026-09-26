@@ -74,7 +74,7 @@ export default function ResearchPage() {
           ))}
         </ul>
         <p className="text-xs text-ink3">
-          Uncertainty note: per-debate confidence numbers are provisional heuristics over judge agreement — the
+          Uncertainty note: per-debate agreement/confidence signals are provisional heuristics over judge behaviour —
           calibrated quantities live in the corpus metrics above, and only appear once enough human ratings exist.
         </p>
       </section>

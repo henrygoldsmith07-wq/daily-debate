@@ -25,9 +25,16 @@ export async function latestRepairRetestAnchor(
     .maybeSingle();
 
   if (!data) return null;
+  const { data: debate } = await service
+    .from("solo_debates")
+    .select("topic_id")
+    .eq("id", data.debate_id)
+    .eq("user_id", userId)
+    .maybeSingle();
   return {
     debateId: data.debate_id,
     targetKind: data.target_kind,
     attemptedAt: data.created_at,
+    topicId: debate?.topic_id ?? null,
   };
 }
