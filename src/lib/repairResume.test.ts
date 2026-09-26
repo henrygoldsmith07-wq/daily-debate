@@ -79,6 +79,16 @@ describe("latestUnfinishedRepair", () => {
     expect(result?.label).toBe("Impact");
   });
 
+  it("prefers a corrective cue over positive feedback", () => {
+    const result = latestUnfinishedRepair([
+      attempt({
+        signals: ["substantive length", "clear sentence structure", "name a source, study, report, or data point"],
+      }),
+    ]);
+
+    expect(result?.nextCue).toBe("name a source, study, report, or data point");
+  });
+
   it("handles non-array signals without inventing a cue", () => {
     const result = latestUnfinishedRepair([
       attempt({ signals: { note: "not an array" } }),
