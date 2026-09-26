@@ -89,7 +89,7 @@ function TimelineChart({ periods }: { periods: DnaPeriodSummary[] }) {
 
   return (
     <div className="dna-chart-wrap">
-      <svg className="dna-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Average debate score by month">
+      <svg className="dna-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Average length-normalised debate score by month">
         {[0, 0.5, 1].map((ratio) => {
           const value = min + span * (1 - ratio);
           return (
@@ -103,14 +103,14 @@ function TimelineChart({ periods }: { periods: DnaPeriodSummary[] }) {
         {measured.map((period, index) => (
           <g key={period.key}>
             <circle cx={x(index)} cy={y(period.score ?? min)} r="5" className="dna-chart-point" />
-            <title>{`${formatMonth(period.key)} · ${Math.round(period.score ?? 0)}/100 average`}</title>
+            <title>{`${formatMonth(period.key)} · ${Math.round(period.score ?? 0)}/100 length-normalised debate average`}</title>
             {(index === 0 || index === measured.length - 1 || measured.length < 6) && (
               <text x={x(index)} y={height - 10} textAnchor={index === 0 ? "start" : index === measured.length - 1 ? "end" : "middle"} className="dna-axis-label">{formatMonth(period.key)}</text>
             )}
           </g>
         ))}
       </svg>
-      <p className="dna-chart-note">Average debate score · the line is a view of movement, not a verdict on a single round.</p>
+      <p className="dna-chart-note">Length-normalised debate score · a within-product structural read, not a validated ability scale.</p>
     </div>
   );
 }
@@ -138,7 +138,7 @@ function GraphPreview({ snapshot, label }: { snapshot: DnaDebateSnapshot | null;
           <span className="dna-overline">{label}</span>
           <strong>{formatDate(snapshot.completedAt)}</strong>
         </div>
-        <span className="dna-graph-score">{formatScore(snapshot.score)}<small>/100</small></span>
+        <span className="dna-graph-score" title="Length-normalised debate score">{formatScore(snapshot.score)}<small>/100</small></span>
       </div>
       <div className="dna-graph-flow" aria-label={`${label} argument graph`}>
         {KIND_META.map((kind, index) => (
@@ -165,10 +165,11 @@ function ChangeList({ model }: { model: ArgumentDnaModel }) {
     <div className="dna-change-list">
       {model.comparison.dimensions.map((dimension) => {
         const delta = dimension.delta;
+        const movement = delta === null ? "Not enough data" : delta > 1 ? "Improving signal" : delta < -1 ? "Needs attention" : "Broadly steady";
         return (
           <div key={dimension.key} className="dna-change-row">
             <span>{dimension.label}</span>
-            <span className="dna-change-values"><b>{dimension.latest ?? "—"}</b><span className={delta === null ? "dna-muted" : delta > 0 ? "dna-up" : delta < 0 ? "dna-down" : "dna-muted"}>{delta === null ? "—" : `${delta > 0 ? "+" : ""}${delta}`}</span></span>
+            <span className={`dna-change-values ${delta === null ? "dna-muted" : delta > 1 ? "dna-up" : delta < -1 ? "dna-down" : "dna-muted"}`}><b>{movement}</b></span>
           </div>
         );
       })}
@@ -200,11 +201,11 @@ export default function ArgumentDnaView({ model }: { model: ArgumentDnaModel }) 
           <>
             <div
               className="dna-score-chip"
-              aria-label={`${model.profile.overallScore ?? "No"} overall argument skill score`}
+              aria-label={`${model.analysedDebates} debates with structured argument graphs`}
             >
-              <span>Argument skill</span>
-              <strong className="tabular">{model.profile.overallScore ?? "—"}</strong>
-              <small className="tabular">{model.analysedDebates} graphed</small>
+              <span>Evidence trail</span>
+              <strong className="tabular">{model.analysedDebates}</strong>
+              <small>graphed debates</small>
             </div>
             <Link href="/" className="btn btn-primary px-3 py-1.5 text-xs">
               Start today&apos;s debate <span aria-hidden="true">→</span>
@@ -219,7 +220,7 @@ export default function ArgumentDnaView({ model }: { model: ArgumentDnaModel }) 
       <section className="dna-stat-grid" aria-label="Argument DNA summary">
         <div className="dna-stat-card"><span>Debates tracked</span><strong>{model.totalDebates}</strong><small>solo + PvP</small></div>
         <div className="dna-stat-card"><span>Months in view</span><strong>{model.periods.length}</strong><small>of persistent history</small></div>
-        <div className="dna-stat-card"><span>Current read</span><strong>{latest?.score === null || latest?.score === undefined ? "—" : `${Math.round(latest.score)}/100`}</strong><small>{latest ? formatDate(latest.completedAt) : "No debate yet"}</small></div>
+        <div className="dna-stat-card"><span>Latest debate read</span><strong>{latest?.score === null || latest?.score === undefined ? "—" : `${Math.round(latest.score)}/100`}</strong><small>{latest ? `normalised · ${formatDate(latest.completedAt)}` : "No debate yet"}</small></div>
         <div className="dna-stat-card"><span>Pattern confidence</span><strong>{model.analysedDebates >= model.ledger.minimumForClaims ? "Pattern" : "Baseline"}</strong><small>{model.analysedDebates >= model.ledger.minimumForClaims ? "enough repetition to coach" : `reliable after ${model.ledger.minimumForClaims}`}</small></div>
       </section>
 
@@ -239,7 +240,7 @@ export default function ArgumentDnaView({ model }: { model: ArgumentDnaModel }) 
         <div className="dna-profile-grid">
           <div className="dna-panel dna-profile-panel"><SkillProfileBars profile={model.profile} /></div>
           <div className="dna-panel dna-change-panel">
-            <div className="dna-panel-heading"><h3>Since your first read</h3><span className="dna-muted">latest score · movement</span></div>
+            <div className="dna-panel-heading"><h3>Since your first read</h3><span className="dna-muted">direction only · composite hidden</span></div>
             <ChangeList model={model} />
           </div>
         </div>
@@ -247,7 +248,7 @@ export default function ArgumentDnaView({ model }: { model: ArgumentDnaModel }) 
 
       <section className="dna-section">
         <div className="dna-section-heading dna-section-heading-stack-mobile">
-          <div><p className="dna-overline">The long view</p><h2>How your reasoning has changed</h2><p className="dna-section-sub">A monthly view of the moves behind the score. Tap a period below to inspect its graph.</p></div>
+          <div><p className="dna-overline">The long view</p><h2>How your reasoning has changed</h2><p className="dna-section-sub">A monthly view of the observable moves behind the length-normalised debate score. Tap a period below to inspect its graph.</p></div>
           <div className="dna-range-switch" aria-label="Timeline range">
             {(["all", "6", "3"] as Range[]).map((option) => <button key={option} type="button" className={range === option ? "active" : ""} onClick={() => setRange(option)}>{option === "all" ? "All time" : `${option} months`}</button>)}
           </div>
@@ -272,7 +273,7 @@ export default function ArgumentDnaView({ model }: { model: ArgumentDnaModel }) 
       </section>
 
       <section className="dna-section dna-recent-section">
-        <div className="dna-section-heading"><div><p className="dna-overline">Your evidence trail</p><h2>Recent debates</h2></div><span className="dna-heading-note">Newest first</span></div>
+        <div className="dna-section-heading"><div><p className="dna-overline">Your evidence trail</p><h2>Recent debates</h2></div><span className="dna-heading-note">normalised debate score · newest first</span></div>
         <div className="dna-recent-list">
           {model.snapshots.length === 0 ? <p className="dna-empty-copy">Your first completed debate will appear here.</p> : model.snapshots.slice().reverse().slice(0, 8).map((snapshot) => (
             <Link key={snapshot.id} href={`/${snapshot.format === "solo" ? "debate" : "pvp"}/${snapshot.id}`} className={`dna-recent-row ${selected?.id === snapshot.id ? "selected" : ""}`} onClick={() => setSelectedSnapshotId(snapshot.id)}>

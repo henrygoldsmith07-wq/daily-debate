@@ -17,6 +17,8 @@ import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
 import { recordProductEvent } from "@/lib/productEvents";
 import { MAX_ROUNDS, type CoachingRecord } from "@/lib/types";
 import { mergeSoloAssessmentsByDebate } from "@/lib/soloAssessmentHistory";
+import { extractSkillPoint } from "@/lib/skillLedger";
+import { pointMeasuresDimension, repairKindToDimension } from "@/lib/repairRetest";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   const limited = await checkRateLimit(request, { name: "solo-finish", limit: 10, windowMs: 60_000 });
@@ -227,6 +229,45 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   }
 
   void recordProductEvent("debate_completed", { format, side: debate.side, debateId });
+
+  if (coaching.repairRetest && finalAssessment) {
+    const retestDimension = repairKindToDimension(coaching.repairRetest.targetKind);
+    const clarityValues = answered
+      .map((turn) => {
+        const scores = turn.scores as { clarity?: unknown } | null;
+        return typeof scores?.clarity === "number" ? scores.clarity : null;
+      })
+      .filter((value): value is number => value !== null);
+    const avgClarity = clarityValues.length
+      ? clarityValues.reduce((sum, value) => sum + value, 0) / clarityValues.length
+      : null;
+    const completedAt = new Date().toISOString();
+    const retestPoint = retestDimension
+      ? extractSkillPoint(debateId, completedAt, finalAssessment, "a", avgClarity)
+      : null;
+    const observableRetest = !!(
+      retestDimension &&
+      retestPoint &&
+      pointMeasuresDimension(retestPoint, retestDimension)
+    );
+
+    if (observableRetest) {
+      void recordProductEvent("retest_completed", {
+        format,
+        side: debate.side,
+        reason: coaching.repairRetest.targetKind,
+        debateId,
+      });
+      if (snapshot.goalOutcome.demonstrated === true) {
+        void recordProductEvent("retest_skill_demonstrated", {
+          format,
+          side: debate.side,
+          reason: coaching.repairRetest.targetKind,
+          debateId,
+        });
+      }
+    }
+  }
 
   const evaluation = buildEvaluationResult({
     scoreStatus: finalAssessment?.status ?? "insufficient_evidence",

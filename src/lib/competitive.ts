@@ -4,7 +4,16 @@
 // tournaments, and seasonal boards are enabled — only if participation supports them.
 
 export interface EloGate { reliable: boolean; reason?: string; }
-export function eloGate({ invarianceOk, humanAgreement }: { invarianceOk: boolean; humanAgreement: number }): EloGate {
+export function eloGate({
+  invarianceOk,
+  humanAgreement,
+  matureCorpusReady = false,
+}: {
+  invarianceOk: boolean;
+  humanAgreement: number;
+  matureCorpusReady?: boolean;
+}): EloGate {
+  if (!matureCorpusReady) return { reliable: false, reason: "Mature human-validation corpus not yet reached — ranked play paused." };
   if (!invarianceOk) return { reliable: false, reason: "Judge invariance not yet proven — ranked play paused." };
   if (humanAgreement < 0.75) return { reliable: false, reason: `Human agreement ${(humanAgreement*100).toFixed(0)}% below 75% threshold.` };
   return { reliable: true };
@@ -74,4 +83,4 @@ export function pickOpponent(queue: Array<{ userId: string; rating: number }>, s
 
 // Do not prioritise competitive ranking until judging validity is demonstrated.
 // Gate message for UI: ranking is provisional until corpus + invariance prove the judge.
-export const RANKING_STATUS_NOTE = "Ranking is provisional: judge validity must be demonstrated on a 1k+ human corpus with ≥75% agreement and measured invariance before ordinal ranking is meaningful." as const;
+export const RANKING_STATUS_NOTE = "Ranking is provisional: Stage 3 requires 1,000+ genuine debates with ≥3 independent ratings each, plus ≥75% judge-human agreement and measured invariance before ordinal ranking is meaningful." as const;

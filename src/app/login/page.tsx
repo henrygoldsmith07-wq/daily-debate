@@ -10,7 +10,7 @@ export default function LoginPage() {
       <div className="flex flex-col items-center gap-2 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Daily Debate</h1>
         <p className="max-w-xs text-sm text-ink3">
-          Argue with an AI, get scored on how sharp your thinking is, then take on other players.
+          Argue with an AI, get feedback on observable reasoning moves, repair one weak link, then test it again later.
         </p>
       </div>
       {isDatabaseConfigured() ? (

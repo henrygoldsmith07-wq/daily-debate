@@ -166,7 +166,9 @@ export default async function DashboardPage() {
               Finish the {unfinishedRepair.label.toLowerCase()} rewrite
             </h2>
             <p className="mt-1 text-sm leading-6 text-ink3">
-              Your last version scored {unfinishedRepair.score}/100. It is saved, but this repair is not complete yet.
+              {unfinishedRepair.state === "partially_repaired"
+                ? "Your last version partially repaired the weak link, but one required move is still missing."
+                : "Your last version still needs another pass before this repair is demonstrated."}
             </p>
             {unfinishedRepair.nextCue && (
               <p className="mt-1 text-xs text-ink2">Next cue: {unfinishedRepair.nextCue}</p>
@@ -196,10 +198,9 @@ export default async function DashboardPage() {
                 <p className="home-secondary-kicker">Skill progress</p>
                 <h3>Argument profile</h3>
               </div>
-              {skillProfile?.overallScore != null && (
-                <span className="tabular text-lg font-bold">
-                  {skillProfile.overallScore}
-                  <span className="text-xs font-medium text-ink3">/100</span>
+              {skillProfile && (
+                <span className="tabular text-xs font-medium text-ink3">
+                  {skillProfile.debatesAnalysed} debate{skillProfile.debatesAnalysed === 1 ? "" : "s"} observed
                 </span>
               )}
             </div>

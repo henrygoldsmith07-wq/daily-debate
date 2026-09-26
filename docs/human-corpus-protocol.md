@@ -39,22 +39,24 @@ real human-grounded judge evidence. Every rule here exists to keep a future
   the rating form; plus overall winner (`a`/`b`/`tie`), confidence 0–1, and
   a ≤1000-char rationale. Missing dimensions fall back at analysis time
   (`completeScores`), never silently.
-- One row per (item, rater) (`unique(corpus_id, rater_id)`); re-submission
-  overwrites rather than duplicates.
+- One row per (item, rater) (`unique(corpus_id, rater_id)`); re-submission is
+  rejected rather than overwritten. Corrections use the audited admin path so
+  the original rating and every correction remain reconstructable.
 
 ## Reliability before validity
 
-- Minimum 2 raters per item (`MIN_RATERS_PER_ITEM`); items flip to `rated`
-  only then.
+- Minimum 2 raters per item (`MIN_RATERS_PER_ITEM`) is the **Stage 1 pilot
+  floor**; items flip to `rated` only then. Stage 2/3 evidence counts only
+  items with ≥3 independent ratings.
 - Human–human agreement FIRST: per-dimension ICC, pairwise Cohen κ (≥5
   shared items), winner agreement. Disagreements (≥2 raters differ) enter
   the adjudication queue; an admin settles them by majority or moderator
   override with a required note (`adjudicateDebate`).
-- **Ground-truth gate** (`humanGroundTruthReady`): the corpus may be used as
-  judge ground truth only with ≥30 consensus-ready items, ≥5 independent
-  raters, and mean winner κ ≥0.6. Every surface (public `/metrics`, admin
-  reliability, ops health) shows the same explicit not-yet/ready verdict —
-  agreement claims below the gate are labelled provisional.
+- **Pilot consensus gate** (`humanGroundTruthReady`, legacy function name):
+  ≥100 consensus-ready items, ≥5 independent raters, and mean winner κ ≥0.6.
+  Clearing it permits pilot judge-vs-human estimates only; it does **not**
+  establish external validity. Every surface labels results below or at this
+  stage as provisional.
 - System-vs-human accuracy is computed ONLY over agreementReady items
   (unanimous or adjudicated) via the admin `system-comparison` flow, which
   never re-judges an item and records a position-swap stability check.
@@ -62,9 +64,22 @@ real human-grounded judge evidence. Every rule here exists to keep a future
   thresholds (`evidenceState` gates); ECE, close-debate accuracy and
   position-swap stability are reported with denominators.
 
+## Authoritative staged validation specification
+
+- **Stage 0 — infrastructure:** fixtures/synthetic data only. Test pipeline and
+  annotation machinery; no human-validity claim.
+- **Stage 1 — pilot:** ≥100 genuine debates, ≥2 independent ratings/item.
+  Debug the rubric, annotation workflow and disagreement patterns. Claims stay provisional.
+- **Stage 2 — calibration:** ≥500 genuine debates, ≥3 independent ratings/item.
+  Judge calibration, per-dimension validation, subgroup analysis and coaching-target validation.
+- **Stage 3 — mature:** ≥1,000 genuine debates, ≥3 independent ratings/item,
+  with balanced important strata. Required before ranked/competitive validity claims.
+
+`VALIDATION_STAGES` in `src/lib/corpus.ts` is the source of truth for these
+collection thresholds. `POPULATION_TARGET_ITEMS` is the Stage 3 target.
+
 ## Population diversity
 
-- Target: 500 items (`POPULATION_TARGET_ITEMS`), ≥2 blind raters each.
 - Stratification recorded at import: length bucket, ability band, subject,
   dynamics tier (close/decisive/weak_vs_weak), evidence density, style
   bucket, and dev/validation/locked split. Cells below `STRATUM_MINIMUM`

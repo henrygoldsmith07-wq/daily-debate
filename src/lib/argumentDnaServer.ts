@@ -16,6 +16,7 @@ import {
 } from "./argumentDna";
 import { extractSkillPoint } from "./skillLedger";
 import type { ArgGraph, Owner } from "./argGraph";
+import { normaliseSoloPerformance } from "./challengeMe";
 
 type SoloRow = {
   id: string;
@@ -79,7 +80,7 @@ async function soloSnapshots(
     rows.map(async (row) => {
       const { data: turns } = await db
         .from("solo_debate_turns")
-        .select("assessment, scores, round_number")
+        .select("assessment, scores, turn_score, round_number")
         .eq("debate_id", row.id)
         .order("round_number", { ascending: true });
 
@@ -88,13 +89,15 @@ async function soloSnapshots(
         .filter(isAssessment);
       const completedAt = row.completed_at ?? row.created_at;
       const title = topicTitles.get(row.topic_id) ?? "Daily topic";
+      const answeredTurns = (turns ?? []).filter((turn) => typeof turn.turn_score === "number").length;
+      const normalisedScore = normaliseSoloPerformance(row.total_score, answeredTurns);
       if (!assessments.length) {
         return emptySnapshot({
           id: row.id,
           completedAt,
           topicTitle: title,
           format: "solo",
-          score: row.total_score,
+          score: normalisedScore,
           owner: "a",
           rounds: row.round_count,
         });
@@ -123,7 +126,7 @@ async function soloSnapshots(
         completedAt,
         topicTitle: title,
         format: "solo",
-        score: row.total_score,
+        score: normalisedScore,
         owner: "a",
         rounds: maxRound(graph, row.round_count),
         graph,

@@ -82,6 +82,8 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
 export interface SkillMetricPoint {
   debateId: string;
   completedAt: string;
+  /** Topic identity is carried so transfer/retest logic can require new context. */
+  topicId?: string | null;
   metrics: Record<MetricKey, number | null>;
   /**
    * Debate-level opportunity counts used to decide whether a later debate

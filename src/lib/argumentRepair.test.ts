@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyGraph, type ArgGraph } from "./argGraph";
-import { pickRepairTarget, repairForArgumentRole, repairPathForRole, scoreRepair } from "./argumentRepair";
+import { pickRepairTarget, repairForArgumentRole, repairPathForRole, repairStateFromScore, scoreRepair } from "./argumentRepair";
 
 function graph(overrides: Partial<ArgGraph>): ArgGraph {
   return {
@@ -37,9 +37,10 @@ describe("argument repair targets", () => {
     const target = pickRepairTarget(graph({ evidenceStats: { ...emptyGraph().evidenceStats, unsupportedClaimIds: ["a1"] } }));
     expect(target?.kind).toBe("evidence");
     expect(target?.sourceNodeId).toBe("a1");
-    const result = scoreRepair(target!, "According to Pew Research Center data, the policy improves access because the gap narrows for low-income students.");
-    expect(result.score).toBeGreaterThanOrEqual(80);
-    expect(result.signals).toContain("names evidence or a source");
+    const result = scoreRepair(target!, "Pew Research Center reported in 2025 that the access gap fell by 12 percent, which supports the policy because fewer low-income students remained excluded.");
+    expect(result.score).toBeGreaterThanOrEqual(60);
+    expect(result.state).toBe("repair_demonstrated");
+    expect(result.signals).toContain("names a specific source");
   });
 
   it("finds a user's fallacy before offering a generic rewrite", () => {
@@ -111,6 +112,113 @@ describe("argument repair targets", () => {
     const target = { kind: "impact" as const, label: "Impact", title: "Name what changes", prompt: "", sourceText: "The policy changes access." };
     const result = scoreRepair(target, "The policy changes access.");
     expect(result.score).toBeLessThan(60);
-    expect(result.signals.some((signal) => signal.includes("compare which impact"))).toBe(true);
+    expect(result.signals.some((signal) => signal.includes("both competing outcomes"))).toBe(true);
+  });
+
+  it("maps the internal threshold to formative learner states", () => {
+    expect(repairStateFromScore(0)).toBe("needs_another_pass");
+    expect(repairStateFromScore(30)).toBe("partially_repaired");
+    expect(repairStateFromScore(59)).toBe("partially_repaired");
+    expect(repairStateFromScore(60)).toBe("repair_demonstrated");
+  });
+
+  describe("adversarial anti-gaming checks", () => {
+    it("rejects a fake rebuttal made of contrast/reasoning keywords with no target engagement", () => {
+      const target = {
+        kind: "rebuttal" as const,
+        label: "Rebuttal",
+        title: "Repair",
+        prompt: "",
+        sourceText: "The policy creates a costly trade-off for rural hospitals.",
+      };
+      const result = scoreRepair(target, "However because therefore this matters. Even if however, because therefore the point still matters more.");
+      expect(result.score).toBeLessThan(60);
+      expect(result.state).not.toBe("repair_demonstrated");
+      expect(result.signals.join(" ")).toMatch(/actual opposing claim|substance/i);
+    });
+
+    it("accepts a rebuttal only when it engages the target and explains the consequence", () => {
+      const target = {
+        kind: "rebuttal" as const,
+        label: "Rebuttal",
+        title: "Repair",
+        prompt: "",
+        sourceText: "The policy creates a costly trade-off for rural hospitals.",
+      };
+      const result = scoreRepair(target, "The costly trade-off for rural hospitals is real, but it assumes every hospital bears the same implementation cost because targeted grants would absorb the transition cost for the smallest hospitals.");
+      expect(result.score).toBeGreaterThanOrEqual(60);
+      expect(result.state).toBe("repair_demonstrated");
+    });
+
+    it("rejects vague evidence language even when it stuffs study/report/research cues", () => {
+      const target = {
+        kind: "evidence" as const,
+        label: "Evidence",
+        title: "Repair",
+        prompt: "",
+        sourceText: "The policy improves access.",
+      };
+      const result = scoreRepair(target, "According to a study and a research report, data shows the policy works because therefore access is better for everyone.");
+      expect(result.score).toBeLessThan(60);
+      expect(result.signals.join(" ")).toMatch(/specific source/i);
+    });
+
+    it("rejects an impact answer that says 'matters more' without comparing two outcomes", () => {
+      const target = {
+        kind: "impact" as const,
+        label: "Impact",
+        title: "Repair",
+        prompt: "",
+        sourceText: "The policy changes access.",
+      };
+      const result = scoreRepair(target, "This matters more because it matters more. Therefore the bigger impact matters more for the decision and should be prioritised.");
+      expect(result.score).toBeLessThan(60);
+      expect(result.signals.join(" ")).toMatch(/both competing outcomes/i);
+    });
+
+    it("rejects reasoning-marker stuffing without two distinct propositions", () => {
+      const target = {
+        kind: "logic" as const,
+        label: "Logic",
+        title: "Repair",
+        prompt: "",
+        sourceText: "The policy is obviously best.",
+      };
+      const result = scoreRepair(target, "Because therefore because therefore because therefore. This is the reason because therefore.");
+      expect(result.score).toBeLessThan(60);
+      expect(result.signals.join(" ")).toMatch(/distinct reason|distinct propositions/i);
+    });
+
+    it("caps keyword-dense nonsense even when it names the target and includes bridge markers", () => {
+      const target = {
+        kind: "rebuttal" as const,
+        label: "Rebuttal",
+        title: "Repair",
+        prompt: "",
+        sourceText: "The policy creates a costly trade-off for rural hospitals.",
+      };
+      const result = scoreRepair(
+        target,
+        "Rural hospitals face a costly trade-off; however because therefore however because the policy matters more, therefore rural hospitals however because costs matter more.",
+      );
+      expect(result.state).not.toBe("repair_demonstrated");
+      expect(result.signals.join(" ")).toMatch(/cue words|substantive content/i);
+    });
+
+    it("accepts a specific named source that is not hard-coded in the source allowlist", () => {
+      const target = {
+        kind: "evidence" as const,
+        label: "Evidence",
+        title: "Repair",
+        prompt: "",
+        sourceText: "The programme improves attendance.",
+      };
+      const result = scoreRepair(
+        target,
+        "According to Cardiff University, attendance increased by 11% in 2025, which supports the programme because fewer pupils missed scheduled lessons.",
+      );
+      expect(result.state).toBe("repair_demonstrated");
+      expect(result.signals).toContain("names a specific source");
+    });
   });
 });

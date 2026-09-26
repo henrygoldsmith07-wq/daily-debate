@@ -16,7 +16,7 @@ import { pickFocusDimension } from "@/lib/coachingGoal";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { recordProductEvent } from "@/lib/productEvents";
 import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
-import { pendingRepairRetest } from "@/lib/repairRetest";
+import { isDifferentRetestContext, pendingRepairRetest } from "@/lib/repairRetest";
 import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 
 export async function POST(request: Request) {
@@ -111,13 +111,17 @@ export async function POST(request: Request) {
       drillOutcomes,
       pendingRetest?.dimension ?? null,
     );
-    repairRetest = pendingRetest
-      ? {
-          repairDebateId: pendingRetest.debateId,
-          targetKind: pendingRetest.targetKind,
-          attemptedAt: pendingRetest.attemptedAt,
-        }
-      : null;
+    if (pendingRetest) {
+      repairRetest = isDifferentRetestContext(pendingRetest.topicId, topicId)
+        ? {
+            repairDebateId: pendingRetest.debateId,
+            targetKind: pendingRetest.targetKind,
+            attemptedAt: pendingRetest.attemptedAt,
+          }
+        : null;
+    } else {
+      repairRetest = null;
+    }
   } catch {
     coachingDimension = null;
     repairRetest = null;
@@ -146,6 +150,14 @@ export async function POST(request: Request) {
     reason: sideReason,
     debateId: debate.id,
   });
+  if (repairRetest) {
+    void recordProductEvent("retest_started", {
+      format,
+      side,
+      reason: repairRetest.targetKind,
+      debateId: debate.id,
+    });
+  }
 
   const aiSide: DebateSide = side === "for" ? "against" : "for";
   let aiMessage: string;

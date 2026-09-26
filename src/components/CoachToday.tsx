@@ -36,16 +36,18 @@ interface OutcomeRow {
   measured: boolean;
 }
 
-function Bar({ label, score }: { label: string; score: number | null }) {
-  const filled = score === null ? 0 : Math.round(score / 10);
-  const blocks = "█".repeat(filled) + "░".repeat(10 - filled);
+function ProfileRead({ label, score, min, max }: { label: string; score: number | null; min: number | null; max: number | null }) {
+  const read = score === null
+    ? "No observed signal"
+    : min !== null && max !== null && min !== max && score === max
+      ? "Stronger signal"
+      : min !== null && max !== null && min !== max && score === min
+        ? "Current gap"
+        : "Mixed evidence";
   return (
-    <div className="flex items-center gap-3 text-xs">
+    <div className="flex items-center justify-between gap-3 border-b border-[var(--rule)] py-1.5 text-xs last:border-0">
       <span className="w-24 shrink-0 text-ink3">{label}</span>
-      <span className="tabular w-28 tracking-tight text-[var(--foreground)]" aria-label={`${label} ${score ?? "no data"} of 100`}>
-        {score === null ? "—".repeat(11) : blocks}
-      </span>
-      <span className="tabular w-8 text-right font-medium">{score ?? "—"}</span>
+      <span className="text-right text-ink2" aria-label={`${label}: ${read}`}>{read}</span>
     </div>
   );
 }
@@ -62,6 +64,9 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ signals: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const scoredDims = dims.map((d) => d.score).filter((score): score is number => score !== null);
+  const profileMin = scoredDims.length ? Math.min(...scoredDims) : null;
+  const profileMax = scoredDims.length ? Math.max(...scoredDims) : null;
 
   const load = useCallback(async () => {
     setError(null);
@@ -127,9 +132,10 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
           </div>
           <div className="flex flex-col gap-1.5">
             {dims.map((d) => (
-              <Bar key={d.key} label={d.label} score={d.score} />
+              <ProfileRead key={d.key} label={d.label} score={d.score} min={profileMin} max={profileMax} />
             ))}
           </div>
+          <p className="mt-3 text-[10px] leading-4 text-ink3">These are relative coaching signals from observed debate behaviour, not ability scores.</p>
         </section>
       )}
 

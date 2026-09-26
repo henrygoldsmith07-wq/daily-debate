@@ -63,7 +63,9 @@ Replays of finished debates render the same hierarchy server-side (strength, wea
 - is **persisted** in `repair_results` with success flag and signals;
 - **links into coaching**: a repair on the day's drill dimension marks that drill attempted, feeding the next coaching decision;
 - retries remain raw practice history, but the latest retry refreshes the linked formative drill attempt so coaching never stays stuck on an abandoned first draft;
-- if the user leaves after an unsuccessful rewrite, Today surfaces the newest unresolved repair with its last score and an actionable cue so the core loop does not silently die between sessions.
+- if the user leaves after an unsuccessful rewrite, Today surfaces the newest unresolved repair with its formative state and an actionable cue so the core loop does not silently die between sessions.
+
+Learner-facing repair checks use three formative states: **Needs another pass**, **Partially repaired**, and **Repair demonstrated**. The deterministic numeric rubric remains internal for compatibility and thresholds; it is not shown as a validated reasoning score. Rebuttal, evidence, logic and impact repairs require relationships between ideas rather than cue words alone, and every repair reminds the learner that the real test is later unprompted performance.
 
 For longitudinal measurement, multiple rewrite submissions for the same user + debate + weakness kind are one **repair episode**. The first attempt anchors the episode; retries are preserved but cannot inflate repair denominators or create fake intervention cutoffs. A failed submission is practice history only: it stays retryable, does **not** count as repair completion, and does **not** unlock a deliberate next-debate retest. The first successful submission is what transitions the product into retest state.
 
@@ -116,7 +118,7 @@ This prevents a short drill from looking like a validated 0–100 measurement wh
 ## Coaching loop
 
 1. Normally, the ledger's weakest dimension (movement-adjusted, shared with the drill system — one selection policy, not two) becomes today's goal.
-2. **A pending repair retest overrides that generic selector only after a successful repair.** Failed attempts remain retryable practice. After success, Today and Progress show **Retest after repair**, the drill coach targets the same dimension, and the next solo debate stores the retest provenance in `solo_debates.coaching.repairRetest`.
+2. **A pending repair retest overrides that generic selector only after a successful repair.** Failed attempts remain retryable practice. After success, Today and Progress show **Retest after repair**, the drill coach targets the same dimension, and the next solo debate on a **different topic** stores the retest provenance in `solo_debates.coaching.repairRetest`. Replaying the same topic may be useful practice, but it is not counted as transfer.
 3. The retest remains pending until a distinct later debate produces an **observable** ledger reading for that dimension. A poor reading still counts as a real retest; a debate with no opportunity for the target skill does not silently clear it.
 4. Same-day drill handling is conservative: an unattempted drill may be retargeted to the new repair focus, but an already-attempted drill is preserved as history rather than rewritten.
 5. The goal travels with the debate (`solo_debates.coaching.dimension`). At finish, the result snapshot receives that dimension, assesses the observable goal behaviour where a deterministic proxy exists, and the exact same outcome is persisted as `demonstrated`.
@@ -140,9 +142,9 @@ This prevents a plausible source name, missing excerpt, or decorative citation f
 
 ## Analytics
 
-Privacy-conscious funnel events (`src/lib/productEvents.ts`, migration 004): allowlisted names only, bounded context, no free text, no device identifiers, silent no-op for guests. Captured: `daily_viewed`, `debate_started`, `sprint_started`, `full_debate_started`, `round_completed`, `debate_completed`, `repair_started`, `repair_completed`, `full_analysis_opened`, `progress_viewed`, `pvp_started`, `challenge_me_selected`, `challenge_link_created`, `challenge_link_accepted`.
+Privacy-conscious funnel events (`src/lib/productEvents.ts`, migrations 004/021): allowlisted names only, bounded context, no transcript text, no device identifiers, silent no-op for guests. The learning loop now distinguishes `repair_started` → `repair_attempted` → `repair_demonstrated` → `repair_episode_closed` → `retest_started` → `retest_completed` → `retest_skill_demonstrated`; legacy `repair_completed` rows remain readable but new code no longer emits that ambiguous name.
 
-Funnel semantics: `repair_started` is the click on **Fix this now** (client-side); `repair_completed` is emitted only when a server-scored rewrite crosses the repair success threshold. Failed submissions remain raw practice history, not completion events. Historical `repair_completed` rows marked `reason="retry"` are excluded from funnel/retention cohorts.
+Funnel semantics: `repair_started` is the click on **Fix this now**; `repair_attempted` means a rewrite was persisted; `repair_demonstrated` means the prompted deterministic structure gate passed; `repair_episode_closed` is emitted only for the first successful attempt in that episode. `retest_completed` requires an observable later-debate reading for the repaired dimension, and `retest_skill_demonstrated` is emitted only where the existing deterministic goal rule can make that narrower pass/fail claim. No event by itself claims causal improvement.
 
 ### Admin funnel report (`/analytics`, admin-gated)
 

@@ -7,6 +7,7 @@ import {
   completenessNote,
   completionTime,
   isSuccessfulRepairCompletion,
+  isRepairAttempt,
   repairRetentionComparison,
   returnRate,
   returnRateAfterAnchor,
@@ -70,6 +71,7 @@ describe("buildFunnelReport", () => {
   });
 
   it("recognises legacy/success completions but rejects historical retry completions", () => {
+    expect(isSuccessfulRepairCompletion(row("u", "repair_demonstrated", "2026-06-14T09:40:00Z"))).toBe(true);
     expect(isSuccessfulRepairCompletion(row("u", "repair_completed", "2026-06-14T09:40:00Z"))).toBe(true);
     expect(
       isSuccessfulRepairCompletion(
@@ -81,6 +83,27 @@ describe("buildFunnelReport", () => {
         row("u", "repair_completed", "2026-06-14T09:40:00Z", { reason: "retry" }),
       ),
     ).toBe(false);
+    expect(isRepairAttempt(row("u", "repair_attempted", "2026-06-14T09:39:00Z"))).toBe(true);
+    expect(isRepairAttempt(row("u", "repair_completed", "2026-06-14T09:39:00Z"))).toBe(true);
+  });
+
+  it("keeps prompted repair and later retest outcomes as distinct funnel steps", () => {
+    const users = ["a", "b", "c", "d", "e"];
+    const rows = [
+      ...event(users, "debate_completed", "2026-06-10T09:00:00Z"),
+      ...event(users, "repair_started", "2026-06-10T09:01:00Z"),
+      ...event(["a", "b", "c", "d"], "repair_attempted", "2026-06-10T09:02:00Z"),
+      ...event(["a", "b", "c"], "repair_demonstrated", "2026-06-10T09:03:00Z"),
+      ...event(["a", "b"], "retest_started", "2026-06-11T09:00:00Z"),
+      ...event(["a", "b"], "retest_completed", "2026-06-11T09:20:00Z"),
+      ...event(["a"], "retest_skill_demonstrated", "2026-06-11T09:20:00Z"),
+    ];
+    const report = buildFunnelReport(rows, { now: NOW, minSample: 1 });
+    expect(report.repairAttempt.rate).toBeCloseTo(4 / 5);
+    expect(report.repairDemonstration.rate).toBeCloseTo(3 / 4);
+    expect(report.retestStart.rate).toBeCloseTo(2 / 3);
+    expect(report.retestCompletion.rate).toBe(1);
+    expect(report.retestSkillDemonstrated.rate).toBeCloseTo(1 / 2);
   });
 
   it("counts full-analysis opens and challenge-me reasons", () => {

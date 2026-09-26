@@ -27,6 +27,8 @@ export interface RepairRetestAnchor {
   debateId: string;
   targetKind: string;
   attemptedAt: string;
+  /** Topic of the repaired debate; transfer must occur on a different topic. */
+  topicId: string | null;
 }
 
 export interface PendingRepairRetest extends RepairRetestAnchor {
@@ -51,6 +53,20 @@ export function repairKindToDimension(kind: string): CoachDimension | null {
   return Object.prototype.hasOwnProperty.call(REPAIR_KIND_TO_DIMENSION, kind)
     ? REPAIR_KIND_TO_DIMENSION[kind as RepairKind]
     : null;
+}
+
+/** Transfer requires a different debate context, not a replay of the repaired topic. */
+export function isDifferentRetestContext(
+  repairTopicId: string | null | undefined,
+  currentTopicId: string | null | undefined,
+): boolean {
+  return (
+    typeof repairTopicId === "string" &&
+    repairTopicId.length > 0 &&
+    typeof currentTopicId === "string" &&
+    currentTopicId.length > 0 &&
+    repairTopicId !== currentTopicId
+  );
 }
 
 export function pointMeasuresDimension(
@@ -117,6 +133,7 @@ export function pendingRepairRetest(
     return (
       Number.isFinite(completedMs) &&
       completedMs > anchorMs &&
+      isDifferentRetestContext(anchor.topicId, point.topicId) &&
       pointMeasuresDimension(point, dimension)
     );
   });

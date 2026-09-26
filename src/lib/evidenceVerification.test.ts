@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ArgGraph, EvidenceCitation } from "./argGraph";
-import { claimCitationMap, graphEvidenceReport } from "./evidenceVerification";
+import { claimCitationMap, fetchedSourceFromRetrieved, graphEvidenceReport } from "./evidenceVerification";
+import { stubRetrievedSource } from "./sourceRetrieval";
 
 function graphWithCitation(claim: string, citation: EvidenceCitation): ArgGraph {
   return {
@@ -91,5 +92,37 @@ describe("claimCitationMap support honesty", () => {
     const [link] = claimCitationMap(graph);
     expect(link.support).toBe("supports");
     expect(graphEvidenceReport(graph).coverage).toBe(1);
+  });
+});
+
+describe("evidence verification retrieval adapter", () => {
+  it("preserves retrieved metadata without inventing support", () => {
+    const fetched = fetchedSourceFromRetrieved(stubRetrievedSource({
+      url: "https://www.nrel.gov/research/example",
+      title: "Example report",
+      publisher: "NREL",
+      publicationDate: "2025-04-01",
+      excerpt: "NREL reports a measured decline in generation costs over the study period.",
+      retrievalDate: "2026-09-26T08:00:00.000Z",
+    }));
+
+    expect(fetched.ok).toBe(true);
+    expect(fetched.title).toBe("Example report");
+    expect(fetched.snippet).toContain("measured decline");
+    expect(fetched.fetchedAt).toBe("2026-09-26T08:00:00.000Z");
+  });
+
+  it("maps blocked/failed retrieval to a failed verification fetch", () => {
+    const fetched = fetchedSourceFromRetrieved({
+      url: "https://example.com/file.pdf",
+      retrievalDate: "2026-09-26T08:00:00.000Z",
+      sourceStatus: "blocked",
+      failureStatus: "unsupported_content_type",
+      failureDetails: "Content-Type: application/pdf",
+      httpStatus: 200,
+    });
+
+    expect(fetched.ok).toBe(false);
+    expect(fetched.error).toMatch(/unsupported_content_type/);
   });
 });

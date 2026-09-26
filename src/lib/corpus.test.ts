@@ -14,6 +14,8 @@ import {
   aggregateSystemComparison,
   populationProgress,
   POPULATION_TARGET_ITEMS,
+  VALIDATION_STAGES,
+  validationStageForCoverage,
 } from "./corpus";
 
 describe("corpus admin gating", () => {
@@ -129,7 +131,18 @@ describe("population progress", () => {
     const p = populationProgress(items, counts);
     expect(p.totalItems).toBe(2);
     expect(p.fullyRatedItems).toBe(1);
+    expect(p.calibrationRatedItems).toBe(0);
+    expect(p.stage).toBe("infrastructure");
     expect(p.remainingToTarget).toBe(POPULATION_TARGET_ITEMS - 2);
+  });
+
+  it("uses one staged validation specification for pilot, calibration and mature coverage", () => {
+    expect(VALIDATION_STAGES.pilot).toMatchObject({ minItems: 100, minRatersPerItem: 2 });
+    expect(VALIDATION_STAGES.calibration).toMatchObject({ minItems: 500, minRatersPerItem: 3 });
+    expect(VALIDATION_STAGES.mature).toMatchObject({ minItems: 1000, minRatersPerItem: 3 });
+    expect(validationStageForCoverage({ itemsWithTwoPlusRatings: 100, itemsWithThreePlusRatings: 0 })).toBe("pilot");
+    expect(validationStageForCoverage({ itemsWithTwoPlusRatings: 500, itemsWithThreePlusRatings: 500 })).toBe("calibration");
+    expect(validationStageForCoverage({ itemsWithTwoPlusRatings: 1000, itemsWithThreePlusRatings: 1000 })).toBe("mature");
   });
 
   it("flags stratum cells below the minimum so recruitment has targets", () => {

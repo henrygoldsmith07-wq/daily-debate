@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { keywordsFrom, pickPassage, sourceTypeFor, assembleCard } from "./topicEvidence";
+import {
+  keywordsFrom,
+  pickPassage,
+  sourceTypeFor,
+  assembleCard,
+  evidenceBudgetPlan,
+} from "./topicEvidence";
 import { stubRetrievedSource } from "./sourceRetrieval";
 
 describe("keywordsFrom", () => {
@@ -77,5 +83,36 @@ describe("assembleCard verification checks", () => {
   it("rejects sources with too little retrieved content", () => {
     const src = stubRetrievedSource({ url: "https://x.example/", publisher: "X", excerpt: "tiny" });
     expect(assembleCard(topic, src)).toBeNull();
+  });
+});
+
+describe("topic evidence retrieval budget", () => {
+  it("carries only the remaining time into retrieval", () => {
+    expect(evidenceBudgetPlan(14_000, 0)).toMatchObject({
+      remainingMs: 14_000,
+      exhausted: false,
+      retrievalReady: true,
+      discoveryTimeoutMs: 8_000,
+      retrievalTimeoutMs: 9_000,
+    });
+    expect(evidenceBudgetPlan(14_000, 7_500)).toMatchObject({
+      remainingMs: 6_500,
+      exhausted: false,
+      retrievalReady: true,
+      discoveryTimeoutMs: 6_500,
+      retrievalTimeoutMs: 6_500,
+    });
+  });
+
+  it("does not start a new retrieval phase once discovery consumes the budget", () => {
+    const exhausted = evidenceBudgetPlan(5_000, 5_200);
+    expect(exhausted.remainingMs).toBe(0);
+    expect(exhausted.exhausted).toBe(true);
+    expect(exhausted.retrievalReady).toBe(false);
+
+    const tooShort = evidenceBudgetPlan(14_000, 11_500);
+    expect(tooShort.remainingMs).toBe(2_500);
+    expect(tooShort.exhausted).toBe(false);
+    expect(tooShort.retrievalReady).toBe(false);
   });
 });

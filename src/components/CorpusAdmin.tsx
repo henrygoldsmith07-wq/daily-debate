@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 interface ReliabilityReport {
   totalItems: number;
   fullyRatedItems: number;
+  calibrationRatedItems: number;
   ratedItems: number;
   agreementReady: number;
   needsAdjudication: number;
@@ -31,6 +32,9 @@ interface ReliabilityReport {
   population: {
     targetItems: number;
     remainingToTarget: number;
+    stage: string;
+    stageLabel: string;
+    nextStage: string | null;
     cellsNeedingCoverage: string[];
   };
   strata: {
@@ -169,13 +173,17 @@ export default function CorpusAdmin() {
       </p>
 
       <section className="surface-card flex flex-col gap-3 p-5">
-        <h2 className="text-sm font-semibold">Population progress</h2>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold">Population progress</h2>
+          <span className="text-xs font-medium text-[var(--accent)]">{report.population.stageLabel}</span>
+        </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
           <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${pct}%` }} />
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Imported / target" value={`${report.totalItems} / ${report.population.targetItems}`} />
-          <Stat label="Fully rated (≥2)" value={report.fullyRatedItems} />
+          <Stat label="Pilot-ready (≥2 ratings)" value={report.fullyRatedItems} />
+          <Stat label="Calibration-ready (≥3)" value={report.calibrationRatedItems} />
           <Stat label="Agreement-ready" value={report.agreementReady} />
           <Stat label="Needs adjudication" value={report.needsAdjudication} />
         </div>

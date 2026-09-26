@@ -120,6 +120,7 @@ export async function GET() {
   return NextResponse.json({
     totalItems: progress.totalItems,
     fullyRatedItems: progress.fullyRatedItems,
+    calibrationRatedItems: progress.calibrationRatedItems,
     ratedItems: byItem.size,
     agreementReady,
     needsAdjudication,
@@ -141,6 +142,9 @@ export async function GET() {
     population: {
       targetItems: progress.targetItems,
       remainingToTarget: progress.remainingToTarget,
+      stage: progress.stage,
+      stageLabel: progress.stageLabel,
+      nextStage: progress.nextStage,
       cellsNeedingCoverage: progress.cellsNeedingCoverage,
     },
     note: "System-vs-human accuracy must only be computed over agreementReady items.",

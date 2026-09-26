@@ -27,7 +27,7 @@ Honest labels for what is shipped, provisional, or gated:
 
 - Daily Sprint (3 rounds) and Full Debate (5–12 rounds) through the same argument/evaluation pipeline.
 - Simplified result screen: one strength, one weakness, one evidence line, **Fix this now**, score/XP secondary, full analysis behind progressive disclosure.
-- Weak-link repair: server-scored rewrite of the flagged move, persisted in `repair_results`, linked to the day's drill assignment.
+- Weak-link repair: server-checked rewrite of the flagged move with formative states and observable signals; the internal numeric rubric stays hidden, persists in `repair_results`, and links to the day's drill assignment for later retest scheduling.
 - "Challenge me" side assignment: explainable, history-based side choice (side balance → performance gap → alternation → random when no data). Lightweight by design — not presented as optimised.
 - Daily coaching goal: shown before the debate, assessed after it, numeric only when the data supports the precision.
 - Progress screen: seven skills (Evidence, Rebuttal, Logic, Clarity, Impact, Steelmanning, Structure) with score + trend, strongest/weakest, current focus; raw metrics behind "How this was calculated".

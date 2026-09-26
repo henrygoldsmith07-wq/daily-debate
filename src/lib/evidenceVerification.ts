@@ -10,7 +10,7 @@ import {
   KNOWN_SOURCES,
 } from "./citationVerifier";
 import { verifyEvidenceQuotes, claimSourceMatch } from "./quoteVerification";
-import { validateRetrievalUrl } from "./sourceRetrieval";
+import { retrieveSource, type RetrievedSource } from "./sourceRetrieval";
 
 // ---------------------------------------------------------------------------
 // Fetch & freshness (live, best-effort)
@@ -30,42 +30,32 @@ export interface FetchedSource {
 
 const FETCH_TIMEOUT_MS = 8_000;
 
+export function fetchedSourceFromRetrieved(source: RetrievedSource): FetchedSource {
+  const snippet = source.snippet?.slice(0, 500);
+  const dateText = `${source.publicationDate ?? ""} ${snippet ?? ""}`.trim();
+  const isOutdated = dateText ? detectOutdatedFromText(dateText) : null;
+  const ok = source.sourceStatus === "retrieved";
+  const error = ok
+    ? undefined
+    : [source.failureStatus, source.failureDetails].filter(Boolean).join(": ") || source.sourceStatus;
+  return {
+    url: source.url,
+    ok,
+    status: source.httpStatus,
+    finalUrl: source.finalUrl,
+    title: source.title,
+    snippet,
+    fetchedAt: source.retrievalDate,
+    error,
+    isOutdated: isOutdated ?? undefined,
+  };
+}
+
 export async function fetchSource(url: string): Promise<FetchedSource> {
-  const at = new Date().toISOString();
-  const validation = validateRetrievalUrl(url);
-  if (!validation.ok) {
-    return { url, ok: false, fetchedAt: at, error: validation.details ?? "url rejected" };
-  }
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      redirect: "follow",
-      headers: { "User-Agent": "DailyDebate-evidence-check/1.0", Accept: "text/html,application/xhtml+xml" },
-    });
-    clearTimeout(t);
-    if (!res.ok) return { url, ok: false, status: res.status, finalUrl: res.url, fetchedAt: at, error: `HTTP ${res.status}` };
-    const ct = res.headers.get("content-type") ?? "";
-    if (!ct.includes("text/html") && !ct.includes("text/plain")) {
-      return { url, ok: true, status: res.status, finalUrl: res.url, fetchedAt: at, snippet: `(non-HTML: ${ct})` };
-    }
-    const html = await res.text();
-    const title = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim().slice(0, 160) ?? undefined;
-    // Strip tags naively for snippet
-    const text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 800);
-    const isOutdated = detectOutdatedFromText(text);
-    return { url, ok: true, status: res.status, finalUrl: res.url, title, snippet: text.slice(0, 500), fetchedAt: at, isOutdated: isOutdated ?? undefined };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { url, ok: false, fetchedAt: at, error: msg.includes("abort") ? "timeout" : msg };
-  }
+  // One authoritative live-fetch boundary. DNS resolution, every redirect
+  // hop, private/link-local targets, content type, timeout and body size are
+  // all handled by sourceRetrieval.ts before verification sees the result.
+  return fetchedSourceFromRetrieved(await retrieveSource(url, { timeoutMs: FETCH_TIMEOUT_MS }));
 }
 
 function detectOutdatedFromText(text: string): boolean | null {

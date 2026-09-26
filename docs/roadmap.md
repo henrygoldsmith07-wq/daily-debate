@@ -77,14 +77,15 @@ those links to tangential, and docks its score for decorative citations.
 
 ## 1. Evaluation corpus — the headline
 
-- Large genuine debate corpus.
-- 1,000+ debates.
-- 3+ independent raters/debate.
+- One staged genuine-debate corpus, using `VALIDATION_STAGES` as the threshold source of truth:
+  - Stage 1 pilot: 100+ debates, ≥2 independent ratings/debate.
+  - Stage 2 calibration: 500+ debates, ≥3 independent ratings/debate.
+  - Stage 3 mature: 1,000+ debates, ≥3 independent ratings/debate plus balanced strata.
 - Rater guidance.
 - Adjudicated disagreements.
 - Human consensus labels.
-- Real judge-vs-human benchmark *(extend — `humanCorpus.ts` is 9 debates; scale to
-  1,000+ with multi-rater consensus and use `judgeVsHumanAgreement` as the metric)*.
+- Real judge-vs-human benchmark *(extend — fixture labels are not human truth;
+  scale through the staged corpus and keep winner agreement alongside per-dimension/coaching validation)*.
 
 ## 2. Model benchmarks & bias testing
 

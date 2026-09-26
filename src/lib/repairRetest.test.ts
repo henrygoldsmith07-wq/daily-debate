@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isDifferentRetestContext,
   pendingRepairRetest,
   pointMeasuresDimension,
   repairKindToDimension,
@@ -12,6 +13,7 @@ function point(
   completedAt: string,
   values: Partial<Record<MetricKey, number | null>> = {},
   opportunities?: { majorClaims: number; opponentMoves: number },
+  topicId = "topic-b",
 ): SkillMetricPoint {
   const metrics = {
     unsupportedClaimRate: null,
@@ -29,16 +31,23 @@ function point(
     clarity: null,
     ...values,
   } satisfies Record<MetricKey, number | null>;
-  return { debateId, completedAt, metrics, opportunities };
+  return { debateId, completedAt, topicId, metrics, opportunities };
 }
 
 const anchor: RepairRetestAnchor = {
   debateId: "repaired",
   targetKind: "evidence",
   attemptedAt: "2026-06-10T12:00:00Z",
+  topicId: "topic-a",
 };
 
 describe("repair retest policy", () => {
+  it("requires a different topic before calling a later debate a transfer retest", () => {
+    expect(isDifferentRetestContext("topic-a", "topic-b")).toBe(true);
+    expect(isDifferentRetestContext("topic-a", "topic-a")).toBe(false);
+    expect(isDifferentRetestContext(null, "topic-b")).toBe(false);
+  });
+
   it("maps every repair kind onto its coach dimension", () => {
     expect(repairKindToDimension("evidence")).toBe("evidence");
     expect(repairKindToDimension("rebuttal")).toBe("rebuttal");
@@ -77,9 +86,24 @@ describe("repair retest policy", () => {
 
   it("does not let the repaired debate satisfy its own retest", () => {
     const points = [
-      point("repaired", "2026-06-11T12:00:00Z", { unsupportedClaimRate: 0 }),
+      point("repaired", "2026-06-11T12:00:00Z", { unsupportedClaimRate: 0 }, undefined, "topic-a"),
     ];
     expect(pendingRepairRetest(points, anchor)?.dimension).toBe("evidence");
+  });
+
+  it("does not let a same-topic replay clear transfer state", () => {
+    const points = [
+      point("same-topic-replay", "2026-06-11T12:00:00Z", { unsupportedClaimRate: 0 }, undefined, "topic-a"),
+    ];
+    expect(pendingRepairRetest(points, anchor)?.dimension).toBe("evidence");
+  });
+
+  it("clears transfer state only after an observable different-topic debate", () => {
+    const points = [
+      point("same-topic-replay", "2026-06-11T12:00:00Z", { unsupportedClaimRate: 0 }, undefined, "topic-a"),
+      point("new-context", "2026-06-12T12:00:00Z", { unsupportedClaimRate: 0 }, undefined, "topic-c"),
+    ];
+    expect(pendingRepairRetest(points, anchor)).toBeNull();
   });
 
   it("uses either structural metric when its underlying opportunity exists", () => {

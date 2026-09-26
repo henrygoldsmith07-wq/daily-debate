@@ -130,11 +130,11 @@ export default async function ProgressPage() {
       <PageHeader
         eyebrow="Your argument skills"
         title="Progress"
-        description={`Built from ${ledger.debates} completed debate${ledger.debates === 1 ? "" : "s"} — every score is recomputed from the arguments you actually made.`}
+        description={`Built from ${ledger.debates} completed debate${ledger.debates === 1 ? "" : "s"} — headline reads show observed direction and relative focus; raw metrics are available below.`}
       />
 
-      {/* ── The seven skills: score + simple trend ─────────────────────────── */}
-      <section className="surface-card p-5" aria-label="Skill scores">
+      {/* ── The seven skills: evidence-backed direction, no synthetic rating ── */}
+      <section className="surface-card p-5" aria-label="Skill signals">
         <div className="flex flex-col gap-2.5" data-testid="skill-list">
           {summary.skills.map((skill) => {
             const { glyph, tone } = TREND_GLYPH[skill.trend];
@@ -142,9 +142,9 @@ export default async function ProgressPage() {
               <div key={skill.key} className="grid grid-cols-[1fr_auto] items-center gap-3" data-skill={skill.key}>
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-sm font-medium">{skill.label}</span>
-                  <span className="tabular text-sm font-semibold">{skill.score ?? "—"}</span>
+                  <span className="text-xs text-ink3">{skill.trendLabel}</span>
                 </div>
-                <span className={`tabular text-sm ${tone}`} title={skill.trendLabel} aria-label={`${skill.label} ${skill.score ?? "no data"}, ${skill.trendLabel}`}>
+                <span className={`tabular text-sm ${tone}`} title={skill.trendLabel} aria-label={`${skill.label}: ${skill.trendLabel}`}>
                   {glyph}
                 </span>
               </div>
@@ -153,11 +153,11 @@ export default async function ProgressPage() {
         </div>
 
         <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-[var(--rule)] pt-3 text-xs text-ink3">
-          {summary.strongest && <span>Strongest: <span className="font-medium text-ink2">{summary.strongest.label}</span></span>}
-          {summary.weakest && <span>Weakest: <span className="font-medium text-ink2">{summary.weakest.label}</span></span>}
+          {summary.strongest && <span>Stronger current signal: <span className="font-medium text-ink2">{summary.strongest.label}</span></span>}
+          {summary.weakest && <span>Current coaching gap: <span className="font-medium text-ink2">{summary.weakest.label}</span></span>}
         </div>
         <p className="mt-3 text-[11px] leading-5 text-ink3">
-          Scores settle after a few debates — early numbers move around a lot. {summary.debatesAnalysed < summary.minDebatesForStableScores && `You have ${summary.debatesAnalysed} so far.`}
+          Trends need repeated observable opportunities before they are useful. {summary.debatesAnalysed < summary.minDebatesForStableScores && `You have ${summary.debatesAnalysed} debate${summary.debatesAnalysed === 1 ? "" : "s"} so far, so treat these as early signals.`}
         </p>
       </section>
 

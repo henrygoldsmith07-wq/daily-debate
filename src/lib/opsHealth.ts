@@ -1007,6 +1007,7 @@ export interface HumanValidationInput {
   items: number;
   raters: number;
   itemsWithTwoPlusRatings: number;
+  itemsWithThreePlusRatings?: number;
   consensusReady: number;
   unresolvedDisagreements: number;
   meanWinnerKappa: number | null;
@@ -1021,6 +1022,7 @@ export function assessHumanValidation(input: HumanValidationInput): EvidenceSect
     { label: "Corpus items", value: String(input.items) },
     { label: "Raters", value: String(input.raters) },
     { label: "Independently rated (≥2)", value: String(input.itemsWithTwoPlusRatings) },
+    { label: "Calibration-rated (≥3)", value: String(input.itemsWithThreePlusRatings ?? 0) },
     { label: "Consensus-ready", value: String(input.consensusReady) },
     { label: "Unresolved disagreements", value: String(input.unresolvedDisagreements) },
     { label: "Adjudicated", value: String(input.adjudicatedItems ?? 0) },
@@ -1044,16 +1046,16 @@ export function assessHumanValidation(input: HumanValidationInput): EvidenceSect
   if (input.canUseAsGroundTruth) {
     return {
       status: "healthy",
-      headline: "meets ground-truth requirements (raters + agreement)",
+      headline: "pilot consensus gate met",
       facts,
-      note: "Judge-vs-human claims may be computed over consensus-ready items only.",
+      note: "Judge-vs-human pilot estimates may use consensus-ready items only; stronger validity claims still require the staged 500/1,000-item corpus targets.",
     };
   }
   return {
     status: "degraded",
-    headline: "collecting — below rater/agreement thresholds for ground truth",
+    headline: "collecting — pilot consensus gate not yet met",
     facts,
-    note: "Sample-gated: not yet human ground truth; agreement numbers are provisional.",
+    note: "Agreement numbers are provisional; Stage 2/3 validity claims require larger, ≥3-rater samples.",
   };
 }
 
