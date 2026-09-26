@@ -99,6 +99,7 @@ export default function DebateRoom({
   }, [turns, sending]);
 
   const [debateMode, setDebateMode] = useState("text");
+  const [showAdvancedModes, setShowAdvancedModes] = useState(false);
 
   async function submitTurn(data: ComposerSubmitData) {
     setSending(true);
@@ -122,8 +123,10 @@ export default function DebateRoom({
       );
       setRoundCount(resData.roundCount);
       if (resData.nextTurn && ttsSupported) speak(resData.nextTurn.ai_message);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit response.");
+      return false;
     } finally {
       setSending(false);
     }
@@ -447,12 +450,10 @@ export default function DebateRoom({
 
       {composerVisible && (
         <div className="flex flex-col gap-2">
-          <div className="flex gap-2 flex-wrap" role="group" aria-label="Debate mode">
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Debate mode">
             {[
               { id: "text", label: "📝 Text" },
               { id: "speech", label: "🎙️ Speech" },
-              { id: "rapid-rebuttal", label: "⚡ Rapid (60s)" },
-              { id: "prepared-speech", label: "📋 Speech (5min)" },
             ].map((m) => (
               <button
                 key={m.id}
@@ -464,6 +465,32 @@ export default function DebateRoom({
                 {m.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setShowAdvancedModes((visible) => !visible)}
+              aria-expanded={showAdvancedModes}
+              className="btn btn-ghost px-3 py-1.5 text-xs"
+            >
+              {showAdvancedModes ? "Fewer modes" : "More modes"}
+            </button>
+            {showAdvancedModes && (
+              <>
+                {[
+                  { id: "rapid-rebuttal", label: "⚡ Rapid (60s)" },
+                  { id: "prepared-speech", label: "📋 Prepared (5min)" },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setDebateMode(m.id)}
+                    aria-pressed={debateMode === m.id}
+                    className={`btn px-3 py-1.5 text-xs ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </>
+            )}
           </div>
           <MessageComposer onSubmit={submitTurn} disabled={sending} modeId={debateMode} />
         </div>
