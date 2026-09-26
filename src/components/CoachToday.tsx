@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { DRILL_FEEDBACK_COPY, normaliseDrillSignals } from "@/lib/drillFeedback";
 
 interface Dim {
   key: string;
@@ -102,12 +103,12 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
         body: JSON.stringify({ assignmentId: assignment.id, text: attemptText }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to check your practice.");
-      setFeedback({ signals: data.signals ?? [] });
+      if (!res.ok) throw new Error(data.error || DRILL_FEEDBACK_COPY.errorFallback);
+      setFeedback({ signals: normaliseDrillSignals(data.signals) });
       setAttemptText("");
       void load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to check your practice.");
+      setError(err instanceof Error ? err.message : DRILL_FEEDBACK_COPY.errorFallback);
     } finally {
       setSubmitting(false);
     }
@@ -159,20 +160,18 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
 
           {feedback ? (
             <div className="rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] p-4" role="status">
-              <p className="text-sm font-semibold">Practice checked</p>
-              <p className="mt-1 text-xs text-ink3">Observed in this draft:</p>
+              <p className="text-sm font-semibold">{DRILL_FEEDBACK_COPY.heading}</p>
+              <p className="mt-1 text-xs text-ink3">{DRILL_FEEDBACK_COPY.observationLabel}</p>
               <ul className="mt-1 list-inside list-disc text-xs text-ink3">
                 {feedback.signals.map((s) => (
                   <li key={s}>{s}</li>
                 ))}
               </ul>
-              <p className="mt-2 text-xs text-ink3">
-                This is formative practice feedback, not an ability score. Skill movement is measured only in later debates.
-              </p>
+              <p className="mt-2 text-xs text-ink3">{DRILL_FEEDBACK_COPY.note}</p>
             </div>
           ) : assignment.status === "attempted" ? (
             <p className="text-sm text-ink3" role="status">
-              Practice checked. This drill is saved; improvement is measured against later debates, not this attempt alone.
+              {DRILL_FEEDBACK_COPY.savedNote}
             </p>
           ) : (
             <textarea
@@ -198,7 +197,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
                 disabled={submitting || attemptText.trim().length < 10}
                 className="btn btn-primary px-4 py-2 text-sm disabled:opacity-40"
               >
-                {submitting ? "Checking…" : "Check practice move"}
+                {submitting ? DRILL_FEEDBACK_COPY.submitBusy : DRILL_FEEDBACK_COPY.submitIdle}
               </button>
             </>
           )}
