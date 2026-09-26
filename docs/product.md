@@ -134,6 +134,7 @@ Argument-graph citations distinguish **source identity** from **claim support**.
 - weak or mismatched claim/source overlap → `tangential`;
 - only substantive source-text overlap can produce `supports`;
 - grounded-evidence coverage counts only `supports`.
+- a recognised source name must also use its registered root domain; name/domain mismatches remain `unverified` even when the attached excerpt appears to match the claim.
 
 This prevents a plausible source name, missing excerpt, or decorative citation from silently increasing evidence coverage.
 
