@@ -11,6 +11,7 @@ import PageViewEvent from "@/components/PageViewEvent";
 import { computeLoopStatuses, type DrillAssignmentLite, type LoopStage } from "@/lib/coachLoop";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getCurrentUser } from "@/lib/currentViewer";
+import { getTodayTopic } from "@/lib/dailyTopic";
 
 export const dynamic = "force-dynamic";
 
@@ -78,7 +79,8 @@ export default async function ProgressPage() {
     );
   }
 
-  const coachingContext = await loadCoachingContext(user.id);
+  const topic = await getTodayTopic();
+  const coachingContext = await loadCoachingContext(user.id, { currentTopicId: topic.id });
   const ledger = coachingContext.ledger;
   if (!ledger) {
     return (

@@ -123,18 +123,20 @@ test.describe("daily sprint repair loop", () => {
     await page.getByTestId("toggle-full-analysis").click();
     await expect(page.getByTestId("full-analysis")).toBeVisible();
 
-    // 9. Back to Today — the repaired skill is now the explicit next-debate
-    // retest, rather than being silently replaced by the generic weakest-skill
-    // selector.
+    // 9. Back to Today — this is still the SAME daily topic as the repaired
+    // debate, so replaying it may be useful practice but must NOT be labelled
+    // as transfer. The pending repair remains queued for a future different
+    // topic instead of being cleared or falsely surfaced here.
     await page.goto("/");
     await expect(page.getByTestId("start-sprint")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText("Retest after repair", { exact: true })).toBeVisible();
+    await expect(page.getByText("Retest after repair", { exact: true })).toHaveCount(0);
 
-    // Progress and the drill coach must agree with Today — no parallel
-    // selector is allowed to silently switch the target dimension.
+    // Progress and the drill coach must agree with Today for the current
+    // motion — no parallel selector may relabel this same-topic replay as a
+    // transfer retest.
     await page.goto("/progress");
-    await expect(page.getByText("Retest after repair", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByTestId("repair-retest-card")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Retest after repair", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("repair-retest-card")).toHaveCount(0);
 
     // 10. Replay uses the same hierarchy: repair already done → status shown,
     // no Fix-this-now CTA, and the graph stays collapsed until asked for.
