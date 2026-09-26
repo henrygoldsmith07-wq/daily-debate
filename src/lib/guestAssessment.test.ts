@@ -44,6 +44,13 @@ describe("inspectGuestResponse", () => {
         OPPONENTS[0],
       ).namesEvidence,
     ).toBe(false);
+
+    expect(
+      inspectGuestResponse(
+        "AI tools are useful because they can help students explain difficult ideas.",
+        OPPONENTS[0],
+      ).namesEvidence,
+    ).toBe(false);
   });
 });
 
@@ -80,6 +87,20 @@ describe("assessGuestPractice", () => {
     expect(result.weakness.kind).toBe("evidence");
     expect(result.counts.evidence).toBe(0);
     expect(result.note).toMatch(/not a debate score/i);
+  });
+
+  it("repairs missing reasoning before asking for evidence", () => {
+    const result = assessGuestPractice(
+      [
+        "Schools should use a phone-free hour for students.",
+        "However, accessibility and family care are concerns, but schools should allow exceptions.",
+        "On balance, learning matters more than convenience for students.",
+      ],
+      OPPONENTS,
+    );
+
+    expect(result.counts.evidence).toBe(0);
+    expect(result.weakness.kind).toBe("reasoning");
   });
 
   it("moves to rebuttal when evidence exists but the opponent is not answered", () => {
