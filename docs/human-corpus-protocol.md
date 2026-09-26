@@ -46,8 +46,9 @@ real human-grounded judge evidence. Every rule here exists to keep a future
 ## Reliability before validity
 
 - Minimum 2 raters per item (`MIN_RATERS_PER_ITEM`) is the **Stage 1 pilot
-  floor**; items flip to `rated` only then. Stage 2/3 evidence counts only
-  items with ≥3 independent ratings.
+  floor**. Collection deliberately remains open after the second rating; an
+  item flips to `rated` only at the 3-rater `RATING_COLLECTION_TARGET`, which
+  is also the Stage 2/3 calibration requirement.
 - Human–human agreement FIRST: per-dimension ICC, pairwise Cohen κ (≥5
   shared items), winner agreement. Disagreements (≥2 raters differ) enter
   the adjudication queue; an admin settles them by majority or moderator
@@ -57,9 +58,12 @@ real human-grounded judge evidence. Every rule here exists to keep a future
   Clearing it permits pilot judge-vs-human estimates only; it does **not**
   establish external validity. Every surface labels results below or at this
   stage as provisional.
-- System-vs-human accuracy is computed ONLY over agreementReady items
-  (unanimous or adjudicated) via the admin `system-comparison` flow, which
-  never re-judges an item and records a position-swap stability check.
+- System-vs-human accuracy is computed only over canonical resolved human
+  ground truth: a strict independent-rater winner consensus or an explicit,
+  non-stale moderator adjudication. Split/tie-majority items stay unresolved
+  until adjudicated. The admin `system-comparison` flow atomically claims an
+  item before the paid model call, never re-judges a stored verdict, and can
+  record a position-swap stability check.
 - Public aggregates (`/metrics`) are sample-gated to null/dash below
   thresholds (`evidenceState` gates); ECE, close-debate accuracy and
   position-swap stability are reported with denominators.

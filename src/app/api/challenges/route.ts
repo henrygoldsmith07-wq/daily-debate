@@ -7,6 +7,7 @@ import { recordProductEventForUser } from "@/lib/productEvents";
 import type { DebateSide } from "@/lib/types";
 
 interface CreatedChallengeRow {
+  result: "created" | "reused";
   id: string;
   code: string;
   expires_at: string;
@@ -44,7 +45,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to create the challenge." }, { status: 500 });
   }
 
-  await recordProductEventForUser(user.id, "challenge_link_created", { side });
+  if (invite.result === "created") {
+    await recordProductEventForUser(user.id, "challenge_link_created", { side });
+  }
 
   return NextResponse.json({
     invite: { id: invite.id, code: invite.code, expires_at: invite.expires_at },
@@ -52,5 +55,6 @@ export async function POST(request: Request) {
     challengerSide: side,
     opponentSide: opponentSideOf(side),
     url: `/challenge/${invite.code}`,
+    reused: invite.result === "reused",
   });
 }

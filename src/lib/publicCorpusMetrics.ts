@@ -1,6 +1,6 @@
 import "server-only";
 
-import { unstable_cache } from "next/cache";
+import { revalidateTag, unstable_cache } from "next/cache";
 import { createServiceClient } from "@/lib/backend/server";
 import { computeCorpusMetrics, type MetricItem, type MetricRating } from "@/lib/corpusMetrics";
 
@@ -37,3 +37,7 @@ export const loadPublicCorpusMetrics = unstable_cache(
 
 export const PUBLIC_CORPUS_METRICS_CACHE_CONTROL =
   `public, s-maxage=${PUBLIC_METRICS_REVALIDATE_SECONDS}, stale-while-revalidate=${PUBLIC_METRICS_REVALIDATE_SECONDS * 2}`;
+
+export function invalidatePublicCorpusMetrics(): void {
+  revalidateTag("public-corpus-metrics", "max");
+}

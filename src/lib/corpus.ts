@@ -7,7 +7,9 @@ import { EVAL_DIMENSIONS } from "./debateEvaluation";
 
 /** Operational floor: enough independent ratings to make a pilot item usable. */
 export const MIN_RATERS_PER_ITEM = 2;
-export const CALIBRATION_RATERS_PER_ITEM = 3;
+/** Normal collection target: keep an item open until three independent ratings land. */
+export const RATING_COLLECTION_TARGET = 3;
+export const CALIBRATION_RATERS_PER_ITEM = RATING_COLLECTION_TARGET;
 
 export const VALIDATION_STAGES = {
   infrastructure: {

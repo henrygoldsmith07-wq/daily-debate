@@ -781,7 +781,7 @@ export interface DatabaseHealth {
   note: string | null;
 }
 
-/** Explicit readiness per migration the production topic pipeline depends on. */
+/** Explicit readiness per migration the running application depends on. */
 export interface MigrationReadiness {
   /** 016: topic_run_log telemetry columns (run_created_at, queue_delay_ms, generator_result, provider_health). */
   migration016TelemetryReady: boolean | null;
@@ -795,6 +795,8 @@ export interface MigrationReadiness {
   migration022ProductEventReasonReady: boolean | null;
   /** 023: atomic friend-challenge functions + one-open-invite index are present. */
   migration023FriendChallengeReady: boolean | null;
+  /** 024: human-validation integrity + system-judge claim table are present. */
+  migration024HumanValidationReady: boolean | null;
   /** Latest application schema required by the running build. */
   latestApplicationSchemaReady: boolean | null;
   note: string | null;
@@ -807,7 +809,7 @@ export interface MigrationReadiness {
  * AND value-constraint readiness are both derived from actual schema — never
  * from a migration count.
  */
-export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019" | "022" | "023", Array<{ table: string; columns: string[] }>> = {
+export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019" | "022" | "023" | "024", Array<{ table: string; columns: string[] }>> = {
   "016": [{ table: "topic_run_log", columns: ["run_created_at", "queue_delay_ms", "generator_result", "provider_health"] }],
   "017": [
     {
@@ -845,6 +847,12 @@ export const MIGRATION_REQUIRED_COLUMNS: Record<"016" | "017" | "018" | "019" | 
       ],
     },
   ],
+  "024": [
+    {
+      table: "corpus_system_judge_claims",
+      columns: ["corpus_id", "claim_token", "claimed_at"],
+    },
+  ],
 };
 
 /**
@@ -862,11 +870,12 @@ export function assessMigrationReadiness(
       migration019GenerationReasonReady: null,
       migration022ProductEventReasonReady: null,
       migration023FriendChallengeReady: null,
+      migration024HumanValidationReady: null,
       latestApplicationSchemaReady: null,
       note: "Schema unreadable — migration readiness could not be verified.",
     };
   }
-  const check = (key: "016" | "017" | "018" | "019" | "022" | "023"): boolean =>
+  const check = (key: "016" | "017" | "018" | "019" | "022" | "023" | "024"): boolean =>
     MIGRATION_REQUIRED_COLUMNS[key].every(({ table, columns }) => {
       const cols = present.get(table);
       return !!cols && columns.every((c) => cols.has(c));
@@ -877,6 +886,7 @@ export function assessMigrationReadiness(
   const ready19 = check("019");
   const ready22 = check("022");
   const ready23 = check("023");
+  const ready24 = check("024");
   const missing = [
     ...(ready16 ? [] : ["016_topic_run_telemetry.sql"]),
     ...(ready17 ? [] : ["017_route_lifecycle.sql"]),
@@ -884,6 +894,7 @@ export function assessMigrationReadiness(
     ...(ready19 ? [] : ["019_generation_reason.sql"]),
     ...(ready22 ? [] : ["022_product_event_reason_privacy.sql"]),
     ...(ready23 ? [] : ["023_atomic_friend_challenges.sql"]),
+    ...(ready24 ? [] : ["024_human_validation_integrity.sql"]),
   ];
   return {
     migration016TelemetryReady: ready16,
@@ -892,6 +903,7 @@ export function assessMigrationReadiness(
     migration019GenerationReasonReady: ready19,
     migration022ProductEventReasonReady: ready22,
     migration023FriendChallengeReady: ready23,
+    migration024HumanValidationReady: ready24,
     latestApplicationSchemaReady: missing.length === 0,
     note: missing.length
       ? `Required application schema is incomplete (${missing.join(", ")}).`

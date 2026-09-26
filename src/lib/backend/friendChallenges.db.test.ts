@@ -52,7 +52,7 @@ async function clearOwnedState() {
   );
 }
 
-d("atomic friend challenges (migration 023)", () => {
+d("atomic friend challenges (migrations 023-024)", () => {
   beforeAll(async () => {
     pool = new pg.Pool({ connectionString: databaseUrl, max: 5 });
     await applyTestMigrations(pool);
@@ -81,6 +81,7 @@ d("atomic friend challenges (migration 023)", () => {
       expect(second.rows).toHaveLength(1);
       expect(first.rows[0].code).toBe(second.rows[0].code);
       expect(first.rows[0].code).toMatch(/^[2-9a-hj-km-np-z]{12}$/);
+      expect([first.rows[0].result, second.rows[0].result].sort()).toEqual(["created", "reused"]);
 
       const open = await pool.query(
         "SELECT * FROM challenge_invites WHERE challenger_id = $1 AND status = 'open'",
@@ -156,5 +157,23 @@ d("atomic friend challenges (migration 023)", () => {
     expect(accepted.rows[0].result).toBe("active_match");
     const invite = await pool.query("SELECT status, opponent_id, match_id FROM challenge_invites WHERE code = $1", [created.rows[0].code]);
     expect(invite.rows[0]).toMatchObject({ status: "open", opponent_id: null, match_id: null });
+  });
+
+  it("returns the existing match when the same recipient retries after a lost response", async () => {
+    const [a, b] = emails.slice(0, 2).map((email) => ids.get(email)!);
+    const topic = await topicId();
+    const created = await pool.query("SELECT * FROM create_friend_challenge($1, $2, 'for', 7)", [a, topic]);
+    const first = await pool.query("SELECT * FROM accept_friend_challenge($1, $2, 5)", [created.rows[0].code, b]);
+    expect(first.rows[0].result).toBe("accepted");
+
+    const retry = await pool.query("SELECT * FROM accept_friend_challenge($1, $2, 5)", [created.rows[0].code, b]);
+    expect(retry.rows[0].result).toBe("accepted_existing");
+    expect(retry.rows[0].created_match_id).toBe(first.rows[0].created_match_id);
+
+    const matches = await pool.query(
+      "SELECT id FROM pvp_matches WHERE player_a = $1 AND player_b = $2 AND status = 'active'",
+      [a, b],
+    );
+    expect(matches.rows).toHaveLength(1);
   });
 });

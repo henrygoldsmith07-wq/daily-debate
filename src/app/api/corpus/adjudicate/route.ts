@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/backend/server";
-import { consensusLabel } from "@/lib/corpusAdjudication";
-import type { RaterVerdict, WinnerLabel } from "@/lib/humanCorpus";
+import { CALIBRATION_RATERS_PER_ITEM } from "@/lib/corpus";
+import type { WinnerLabel } from "@/lib/humanCorpus";
+import { resolveHumanGroundTruth } from "@/lib/humanGroundTruth";
 import { getRequestAuthContext } from "@/lib/requestAuth";
+import { writeCorpusAdjudication } from "@/lib/corpusVerdictStore";
+import { invalidatePublicCorpusMetrics } from "@/lib/publicCorpusMetrics";
 
-// Admin-only adjudication: settle items whose raters disagree. The consensus
-// label (majority vote, tie on split) is written back as the item's
-// reference verdict so it can join the agreement-ready set.
+// Admin-only adjudication: after the 3-rater collection target, record either
+// a strict rater majority or an explicit moderator resolution as canonical
+// human ground truth without overwriting system-verdict provenance.
 
 export async function POST(request: Request) {
   const auth = await getRequestAuthContext();
@@ -28,38 +31,45 @@ export async function POST(request: Request) {
 
   const service = createServiceClient();
   const { data: ratings } = await service.from("corpus_ratings").select("rater_id, winner").eq("corpus_id", corpusId);
-  if (!ratings || ratings.length < 2) {
-    return NextResponse.json({ error: "Item needs at least two ratings before adjudication." }, { status: 409 });
+  if (!ratings || ratings.length < CALIBRATION_RATERS_PER_ITEM) {
+    return NextResponse.json(
+      { error: `Item needs at least ${CALIBRATION_RATERS_PER_ITEM} ratings before adjudication.` },
+      { status: 409 },
+    );
   }
 
-  let consensusWinner: string;
+  let consensusWinner: WinnerLabel;
   let basis: string;
   if (override) {
-    consensusWinner = override;
+    consensusWinner = override as WinnerLabel;
     basis = `moderator override (${user.email})`;
   } else {
-    const verdicts: RaterVerdict[] = ratings.map((r) => ({ raterId: r.rater_id, winner: r.winner as WinnerLabel }));
-    consensusWinner = consensusLabel(verdicts).winner;
+    const resolved = resolveHumanGroundTruth(
+      { status: "rated", side_mapping: {} },
+      ratings.map((r) => ({ rater_id: r.rater_id, winner: r.winner })),
+    );
+    if (resolved.state !== "consensus" || !resolved.winner) {
+      return NextResponse.json(
+        { error: "This disagreement needs an explicit moderator winner override." },
+        { status: 409 },
+      );
+    }
+    consensusWinner = resolved.winner;
     basis = "rater majority";
   }
 
-  // Merge the consensus into the existing side_mapping instead of replacing
-  // it — system_verdict and other provenance keys must survive adjudication.
-  const { data: currentItem } = await service
-    .from("corpus_items")
-    .select("id, side_mapping")
-    .eq("id", corpusId)
-    .single();
-  const mergedSideMapping = {
-    ...(currentItem?.side_mapping ?? {}),
-    consensus_winner: consensusWinner,
+  const applied = await writeCorpusAdjudication({
+    corpusId,
+    winner: consensusWinner,
     basis,
-  };
-
-  await service
-    .from("corpus_items")
-    .update({ status: "adjudicated", side_mapping: mergedSideMapping })
-    .eq("id", corpusId);
+    actor: user.email ?? user.id,
+    at: new Date().toISOString(),
+    minimumRatings: CALIBRATION_RATERS_PER_ITEM,
+  });
+  if (!applied) {
+    return NextResponse.json({ error: "Item is not ready for adjudication." }, { status: 409 });
+  }
+  invalidatePublicCorpusMetrics();
 
   return NextResponse.json({ ok: true, corpusId, consensusWinner, basis });
 }

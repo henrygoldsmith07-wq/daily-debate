@@ -13,6 +13,7 @@ import {
 import { assessArgumentGraph, mergeAssessmentGraphs, graphFromTurn } from "@/lib/observableAssessment";
 import { styleFeatures } from "@/lib/debateEvaluation";
 import { getRequestAuthContext } from "@/lib/requestAuth";
+import { invalidatePublicCorpusMetrics } from "@/lib/publicCorpusMetrics";
 
 // Admin-only: import finished debates into the blind-rating corpus.
 // Anonymisation happens HERE — raters never see contributor identity,
@@ -178,6 +179,8 @@ export async function POST(request: Request) {
       errors.push(`pvp ${match.id}: ${String(e)}`);
     }
   }
+
+  if (imported > 0) invalidatePublicCorpusMetrics();
 
   return NextResponse.json({ imported, errors: errors.slice(0, 20) });
 }

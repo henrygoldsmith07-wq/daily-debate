@@ -3,7 +3,7 @@ import pg from "pg";
 import { applyTestMigrations } from "../../tests/helpers/applyTestMigrations";
 import { findCandidates, repairItemWithLock } from "../../scripts/lib/corpus-repair.mjs";
 import { insertImmutableRating } from "@/lib/corpusRatingStore";
-import { MIN_RATERS_PER_ITEM } from "@/lib/corpus";
+import { RATING_COLLECTION_TARGET } from "@/lib/corpus";
 
 /**
  * REAL-POSTGRES tests for the lock-safe corpus repair path
@@ -22,7 +22,7 @@ const d = databaseUrl && process.env.DATABASE_URL?.trim() ? describe : describe.
 
 
 let pool: pg.Pool;
-const emails = ["rp-a@test.local", "rp-b@test.local", "rp-contrib@test.local"];
+const emails = ["rp-a@test.local", "rp-b@test.local", "rp-c@test.local", "rp-contrib@test.local"];
 const userIds = new Map<string, string>();
 const itemIds: string[] = [];
 
@@ -99,7 +99,7 @@ function storeRating(corpusId: string, raterId: string, winner = "a") {
       rationale: "repair race test",
       presentedFirst: "a",
     },
-    MIN_RATERS_PER_ITEM,
+    RATING_COLLECTION_TARGET,
   );
 }
 
@@ -125,7 +125,7 @@ d("corpus closure repair (real Postgres)", () => {
     await rawRating(item, userIds.get("rp-a@test.local")!); // 1 rating, stored 0
     const client = await pool.connect();
     try {
-      const res = await repairItemWithLock(client, item, MIN_RATERS_PER_ITEM, { apply: true });
+      const res = await repairItemWithLock(client, item, RATING_COLLECTION_TARGET, { apply: true });
       expect(res.changed).toBe(true);
     } finally {
       client.release();
@@ -136,115 +136,121 @@ d("corpus closure repair (real Postgres)", () => {
   it("closes an open item whose FRESH count meets the threshold; syncs counter", async () => {
     const item = await makeItem();
     await rawRating(item, userIds.get("rp-a@test.local")!, "a");
-    await rawRating(item, userIds.get("rp-b@test.local")!, "a"); // stored 0, actual 2
+    await rawRating(item, userIds.get("rp-b@test.local")!, "a");
+    await rawRating(item, userIds.get("rp-c@test.local")!, "a"); // stored 0, actual 3
     const client = await pool.connect();
     try {
-      const res = await repairItemWithLock(client, item, MIN_RATERS_PER_ITEM, { apply: true });
+      const res = await repairItemWithLock(client, item, RATING_COLLECTION_TARGET, { apply: true });
       expect(res.changed).toBe(true);
-      expect(res.after).toEqual({ stored: 2, status: "rated" });
+      expect(res.after).toEqual({ stored: 3, status: "rated" });
     } finally {
       client.release();
     }
-    expect(await state(item)).toEqual({ status: "rated", stored: 2, actual: 2 });
+    expect(await state(item)).toEqual({ status: "rated", stored: 3, actual: 3 });
   });
 
   it("leaves already-correct items untouched (and a second run is a no-op)", async () => {
     const item = await makeItem();
     await rawRating(item, userIds.get("rp-a@test.local")!, "a");
     await rawRating(item, userIds.get("rp-b@test.local")!, "a");
+    await rawRating(item, userIds.get("rp-c@test.local")!, "a");
     const client = await pool.connect();
     try {
-      await repairItemWithLock(client, item, MIN_RATERS_PER_ITEM, { apply: true });
-      const second = await repairItemWithLock(client, item, MIN_RATERS_PER_ITEM, { apply: true });
+      await repairItemWithLock(client, item, RATING_COLLECTION_TARGET, { apply: true });
+      const second = await repairItemWithLock(client, item, RATING_COLLECTION_TARGET, { apply: true });
       expect(second.changed).toBe(false);
       expect(second.wouldChange).toBe(false);
     } finally {
       client.release();
     }
-    expect(await state(item)).toEqual({ status: "rated", stored: 2, actual: 2 });
+    expect(await state(item)).toEqual({ status: "rated", stored: 3, actual: 3 });
   });
 
   it("dry-run reports exactly what apply would do and mutates nothing", async () => {
     const item = await makeItem();
     await rawRating(item, userIds.get("rp-a@test.local")!, "a");
     await rawRating(item, userIds.get("rp-b@test.local")!, "a");
+    await rawRating(item, userIds.get("rp-c@test.local")!, "a");
     const client = await pool.connect();
     try {
-      const dry = await repairItemWithLock(client, item, MIN_RATERS_PER_ITEM, { apply: false });
+      const dry = await repairItemWithLock(client, item, RATING_COLLECTION_TARGET, { apply: false });
       expect(dry.wouldChange).toBe(true);
       expect(dry.changed).toBe(false);
     } finally {
       client.release();
     }
-    expect(await state(item)).toEqual({ status: "open", stored: 0, actual: 2 });
+    expect(await state(item)).toEqual({ status: "open", stored: 0, actual: 3 });
     const applied = await pool.connect();
     try {
-      await repairItemWithLock(applied, item, MIN_RATERS_PER_ITEM, { apply: true });
+      await repairItemWithLock(applied, item, RATING_COLLECTION_TARGET, { apply: true });
     } finally {
       applied.release();
     }
-    expect(await state(item)).toEqual({ status: "rated", stored: 2, actual: 2 });
+    expect(await state(item)).toEqual({ status: "rated", stored: 3, actual: 3 });
   });
 
-  it("does not re-open or close below-threshold rated items (syncs count only)", async () => {
+  it("re-opens below-target rated items so the remaining rating can be collected", async () => {
     const item = await makeItem();
     await pool.query("UPDATE corpus_items SET status = 'rated' WHERE id = $1", [item]);
     await rawRating(item, userIds.get("rp-a@test.local")!, "a"); // rated with 1 < threshold
     const client = await pool.connect();
     try {
-      const res = await repairItemWithLock(client, item, MIN_RATERS_PER_ITEM, { apply: true });
-      expect(res.after).toEqual({ stored: 1, status: "rated" });
+      const res = await repairItemWithLock(client, item, RATING_COLLECTION_TARGET, { apply: true });
+      expect(res.after).toEqual({ stored: 1, status: "open" });
     } finally {
       client.release();
     }
-    expect(await state(item)).toEqual({ status: "rated", stored: 1, actual: 1 });
+    expect(await state(item)).toEqual({ status: "open", stored: 1, actual: 1 });
   });
 
   it("race: rating lands AFTER the scan but BEFORE the locked recount -> fresh count wins", async () => {
     const item = await makeItem();
-    await rawRating(item, userIds.get("rp-a@test.local")!, "a"); // actual 1, stored 1 (no drift yet)
+    await rawRating(item, userIds.get("rp-a@test.local")!, "a");
+    await rawRating(item, userIds.get("rp-b@test.local")!, "a");
+    await pool.query("UPDATE corpus_items SET rating_count = 2 WHERE id = $1", [item]); // actual 2, stored 2
     const candidates = await findCandidates(
       async (t, p) => (await pool.query(t, p)).rows as Record<string, unknown>[],
-      MIN_RATERS_PER_ITEM,
+      RATING_COLLECTION_TARGET,
     );
     expect(candidates.map((c) => c.id)).toContain(item); // open, one below threshold
-    // A second rating arrives after the scan (raw, drift-producing):
-    await rawRating(item, userIds.get("rp-b@test.local")!, "a");
+    // The final rating arrives after the scan (raw, drift-producing):
+    await rawRating(item, userIds.get("rp-c@test.local")!, "a");
     const client = await pool.connect();
     try {
-      const res = await repairItemWithLock(client, item, MIN_RATERS_PER_ITEM, { apply: true });
-      expect(res.actual).toBe(2); // recounted under the lock, not from the scan
-      expect(res.after).toEqual({ stored: 2, status: "rated" });
+      const res = await repairItemWithLock(client, item, RATING_COLLECTION_TARGET, { apply: true });
+      expect(res.actual).toBe(3); // recounted under the lock, not from the scan
+      expect(res.after).toEqual({ stored: 3, status: "rated" });
     } finally {
       client.release();
     }
-    expect(await state(item)).toEqual({ status: "rated", stored: 2, actual: 2 });
+    expect(await state(item)).toEqual({ status: "rated", stored: 3, actual: 3 });
   });
 
   it("race: final store-rater blocks on the repair lock; both commit; nothing lost, state exact", async () => {
     const item = await makeItem();
-    await rawRating(item, userIds.get("rp-a@test.local")!, "a"); // 1/2, open, stored 0 (drift)
-    await pool.query("UPDATE corpus_items SET rating_count = 1 WHERE id = $1", [item]); // exact race: no drift
+    await rawRating(item, userIds.get("rp-a@test.local")!, "a");
+    await rawRating(item, userIds.get("rp-b@test.local")!, "a"); // 2/3, open
+    await pool.query("UPDATE corpus_items SET rating_count = 2 WHERE id = $1", [item]); // exact race: no drift
     const client = await pool.connect();
     try {
-      const rater = userIds.get("rp-b@test.local")!;
+      const rater = userIds.get("rp-c@test.local")!;
       let pendingRating: ReturnType<typeof storeRating> | null = null;
-      const res = await repairItemWithLock(client, item, MIN_RATERS_PER_ITEM, {
+      const res = await repairItemWithLock(client, item, RATING_COLLECTION_TARGET, {
         apply: true,
         // While repair holds the row lock, the final threshold rating is
         // attempted through the real store path: it must WAIT for the lock,
         // then close the item itself. Repair must NOT use a stale count.
         onLockedAfterCount: async (_repairClient, info) => {
-          expect(info.actual).toBe(1); // concurrent insert not yet visible: correct
+          expect(info.actual).toBe(2); // concurrent insert not yet visible: correct
           pendingRating = storeRating(item, rater, "b"); // not awaited: races on purpose
           await new Promise((r) => setTimeout(r, 150)); // let it reach the lock
         },
       });
-      expect(res.changed).toBe(false); // fresh count 1 < 2, counter exact: no write
+      expect(res.changed).toBe(false); // fresh count 2 < 3, counter exact: no write
       expect(pendingRating).not.toBeNull(); // the hook ran and started the racing insert
       const outcome = await pendingRating!;
       expect(outcome.result).toBe("accepted");
-      expect(await state(item)).toEqual({ status: "rated", stored: 2, actual: 2 });
+      expect(await state(item)).toEqual({ status: "rated", stored: 3, actual: 3 });
     } finally {
       client.release();
     }
@@ -253,16 +259,18 @@ d("corpus closure repair (real Postgres)", () => {
   it("findCandidates flags drift and threshold items; clean items absent", async () => {
     const drifted = await makeItem(); // stored 0, actual 1 -> drift
     await rawRating(drifted, userIds.get("rp-a@test.local")!, "a");
-    const clean = await makeItem(); // correct: stored 1, actual 1, open, below threshold-1? min-1=1 -> candidate by widening
+    const clean = await makeItem(); // correct: stored 2, actual 2, open, one below target -> candidate by widening
     await rawRating(clean, userIds.get("rp-b@test.local")!, "a");
-    await pool.query("UPDATE corpus_items SET rating_count = 1 WHERE id = $1", [clean]);
+    await rawRating(clean, userIds.get("rp-c@test.local")!, "a");
+    await pool.query("UPDATE corpus_items SET rating_count = 2 WHERE id = $1", [clean]);
     const done = await makeItem(); // fully rated and consistent -> not a candidate
     await rawRating(done, userIds.get("rp-a@test.local")!, "a");
     await rawRating(done, userIds.get("rp-b@test.local")!, "a");
-    await pool.query("UPDATE corpus_items SET rating_count = 2, status = 'rated' WHERE id = $1", [done]);
+    await rawRating(done, userIds.get("rp-c@test.local")!, "a");
+    await pool.query("UPDATE corpus_items SET rating_count = 3, status = 'rated' WHERE id = $1", [done]);
     const found = await findCandidates(
       async (t, p) => (await pool.query(t, p)).rows as Record<string, unknown>[],
-      MIN_RATERS_PER_ITEM,
+      RATING_COLLECTION_TARGET,
     );
     const ids = found.map((c) => c.id);
     expect(ids).toContain(drifted);
