@@ -145,7 +145,7 @@ test.describe("daily sprint repair loop", () => {
     await signIn(page, "c");
 
     await page.getByTestId("start-sprint").click();
-    await page.waitForURL(/\\/debate\\//, { timeout: 20_000 });
+    await page.waitForURL(/\/debate\//, { timeout: 20_000 });
 
     // Normal daily use stays focused: specialist modes are opt-in.
     await expect(page.getByRole("button", { name: /rapid/i })).toHaveCount(0);
