@@ -447,8 +447,8 @@ async function probeMigrationColumns(): Promise<Map<string, Set<string>> | null>
       if (!cols) map.set(r.table_name, (cols = new Set()));
       cols.add(r.column_name);
     }
-    // Constraints ride the same map (prefixed) so 019 readiness needs its
-    // VALUE constraint present too — the column alone would accept any value.
+    // Constraints ride the same map (prefixed) so readiness can require value
+    // constraints, not just columns.
     const constraints = await queryRows<{ table_name: string; constraint_name: string }>(
       `SELECT table_name, constraint_name FROM information_schema.table_constraints
         WHERE table_schema = 'public' AND constraint_type = 'CHECK'
@@ -459,6 +459,49 @@ async function probeMigrationColumns(): Promise<Map<string, Set<string>> | null>
       let cols = map.get(c.table_name);
       if (!cols) map.set(c.table_name, (cols = new Set()));
       cols.add(`constraint:${c.constraint_name}`);
+    }
+    const indexes = await queryRows<{ table_name: string; index_name: string }>(
+      `SELECT tablename AS table_name, indexname AS index_name
+         FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename IN (${tables.map((_, i) => `$${i + 1}`).join(", ")})`,
+      tables,
+    );
+    for (const idx of indexes) {
+      let cols = map.get(idx.table_name);
+      if (!cols) map.set(idx.table_name, (cols = new Set()));
+      cols.add(`index:${idx.index_name}`);
+    }
+
+    const requiredFunctions = [
+      ...new Set(
+        Object.values(MIGRATION_REQUIRED_COLUMNS)
+          .flatMap((groups) => groups.flatMap((g) => g.columns))
+          .filter((c) => c.startsWith("function:"))
+          .map((c) => c.slice("function:".length)),
+      ),
+    ];
+    if (requiredFunctions.length) {
+      const functions = await queryRows<{ function_name: string }>(
+        `SELECT p.proname AS function_name
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public'
+            AND p.proname IN (${requiredFunctions.map((_, i) => `$${i + 1}`).join(", ")})`,
+        requiredFunctions,
+      );
+      const presentFunctions = new Set(functions.map((f) => f.function_name));
+      for (const groups of Object.values(MIGRATION_REQUIRED_COLUMNS)) {
+        for (const requirement of groups) {
+          let cols = map.get(requirement.table);
+          if (!cols) map.set(requirement.table, (cols = new Set()));
+          for (const token of requirement.columns) {
+            if (!token.startsWith("function:")) continue;
+            const functionName = token.slice("function:".length);
+            if (presentFunctions.has(functionName)) cols.add(token);
+          }
+        }
+      }
     }
     return map;
   } catch {

@@ -9,6 +9,12 @@ interface RouteParams {
   params: Promise<{ code: string }>;
 }
 
+interface AcceptChallengeOutcome {
+  result: "accepted" | "not_found" | "self" | "closed" | "active_match";
+  created_match_id: string | null;
+  challenger_side: string | null;
+}
+
 /** The invite row with its joined topic title and challenger username. */
 interface InviteWithJoins {
   id: string;
@@ -75,68 +81,34 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (!isValidChallengeCode(code)) return NextResponse.json({ error: "Invalid challenge link." }, { status: 400 });
 
   const service = createServiceClient();
-  const { data: inviteRow } = await service
-    .from("challenge_invites")
-    .select("*")
-    .eq("code", code)
-    .maybeSingle();
-  if (!inviteRow) return NextResponse.json({ error: "Challenge not found." }, { status: 404 });
-  const invite = inviteRow as unknown as InviteWithJoins;
-  if (invite.challenger_id === user.id) {
-    return NextResponse.json({ error: "You can't accept your own challenge — share the link with a friend." }, { status: 409 });
-  }
-  if (invite.status !== "open" || new Date(invite.expires_at).getTime() < Date.now()) {
-    return NextResponse.json({ error: "This challenge is no longer open." }, { status: 409 });
-  }
-
-  const { data: activeMatch } = await service
-    .from("pvp_matches")
-    .select("id")
-    .or(`player_a.eq.${user.id},player_b.eq.${user.id}`)
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
-  if (activeMatch) {
-    return NextResponse.json({ error: "Finish your active PvP match before accepting a challenge." }, { status: 409 });
-  }
-
-  // Claim the invite atomically: only the first concurrent accept wins.
-  const { data: claimed, error: claimError } = await service
-    .from("challenge_invites")
-    .update({ status: "accepted", opponent_id: user.id })
-    .eq("id", invite.id)
-    .eq("status", "open")
-    .select("id");
-  if (claimError) {
-    console.error("Failed to claim challenge invite:", claimError);
+  const accepted = await service.rpc("accept_friend_challenge", {
+    p_code: code,
+    p_opponent: user.id,
+    p_round_limit: PVP_ROUNDS,
+  });
+  if (accepted.error) {
+    console.error("Failed to accept challenge invite:", accepted.error);
     return NextResponse.json({ error: "Failed to accept the challenge." }, { status: 500 });
   }
-  if (!claimed || claimed.length === 0) {
+
+  const outcome = Array.isArray(accepted.data)
+    ? (accepted.data[0] as unknown as AcceptChallengeOutcome | undefined) ?? null
+    : null;
+  if (!outcome || outcome.result === "not_found") {
+    return NextResponse.json({ error: "Challenge not found." }, { status: 404 });
+  }
+  if (outcome.result === "self") {
+    return NextResponse.json({ error: "You can't accept your own challenge — share the link with a friend." }, { status: 409 });
+  }
+  if (outcome.result === "active_match") {
+    return NextResponse.json({ error: "Finish your active PvP match before accepting a challenge." }, { status: 409 });
+  }
+  if (outcome.result !== "accepted" || typeof outcome.created_match_id !== "string") {
     return NextResponse.json({ error: "This challenge is no longer open." }, { status: 409 });
   }
 
-  const { data: match, error: matchError } = await service
-    .from("pvp_matches")
-    .insert({
-      topic_id: invite.topic_id,
-      player_a: invite.challenger_id,
-      player_b: user.id,
-      player_a_side: invite.challenger_side,
-      round_limit: PVP_ROUNDS,
-      current_turn_player: invite.challenger_id, // challenger opens the debate
-      turn_started_at: new Date().toISOString(),
-    })
-    .select("id")
-    .single();
-  if (matchError || !match) {
-    console.error("Failed to create challenge match:", matchError);
-    await service.from("challenge_invites").update({ status: "open", opponent_id: null }).eq("id", invite.id);
-    return NextResponse.json({ error: matchError?.code === "23505" ? "Finish your active PvP match before accepting a challenge." : "Failed to accept the challenge." }, { status: matchError?.code === "23505" ? 409 : 500 });
-  }
+  const challengerSide = outcome.challenger_side === "for" ? "for" : "against";
+  await recordProductEventForUser(user.id, "challenge_link_accepted", { side: opponentSideOf(challengerSide) });
 
-  await service.from("challenge_invites").update({ match_id: match.id }).eq("id", invite.id);
-
-  await recordProductEventForUser(user.id, "challenge_link_accepted", { side: opponentSideOf(invite.challenger_side) });
-
-  return NextResponse.json({ matchId: match.id, opponentSide: opponentSideOf(invite.challenger_side) });
+  return NextResponse.json({ matchId: outcome.created_match_id, opponentSide: opponentSideOf(challengerSide) });
 }

@@ -31,7 +31,7 @@ function unknownReport(): OpsHealthReport {
       note: null,
     },
     judge: {},
-    database: { status: "blocked", reachable: false, latencyMs: null, migrationsApplied: null, requiredTablesOk: null, missingTables: [], topicRunLogFidelity: "unknown", migrationReadiness: { migration016TelemetryReady: null, migration017RouteLifecycleReady: null, migration018TopicFingerprintReady: null, migration019GenerationReasonReady: null, note: null }, note: null },
+    database: { status: "blocked", reachable: false, latencyMs: null, migrationsApplied: null, requiredTablesOk: null, missingTables: [], topicRunLogFidelity: "unknown", migrationReadiness: { migration016TelemetryReady: null, migration017RouteLifecycleReady: null, migration018TopicFingerprintReady: null, migration019GenerationReasonReady: null, migration022ProductEventReasonReady: null, migration023FriendChallengeReady: null, latestApplicationSchemaReady: null, note: null }, note: null },
     app: {},
     human: { status: "unknown", headline: "", facts: [], note: null },
     training: { status: "unknown", headline: "", facts: [], note: null, measurement: "unknown", outcomes: [] },

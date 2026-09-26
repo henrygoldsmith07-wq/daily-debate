@@ -44,7 +44,8 @@ function fmtMigrationReadiness(r: MigrationReadiness): string {
   const bit = (v: boolean | null) => (v === null ? "unknown" : v ? "ready" : "PENDING");
   return (
     `016=${bit(r.migration016TelemetryReady)} · 017=${bit(r.migration017RouteLifecycleReady)} · ` +
-    `018=${bit(r.migration018TopicFingerprintReady)} · 019=${bit(r.migration019GenerationReasonReady)}`
+    `018=${bit(r.migration018TopicFingerprintReady)} · 019=${bit(r.migration019GenerationReasonReady)} · ` +
+    `022=${bit(r.migration022ProductEventReasonReady)} · 023=${bit(r.migration023FriendChallengeReady)}`
   );
 }
 
@@ -201,6 +202,16 @@ export default async function OpsHealthPage() {
           <Fact label="Required tables" value={report.database.requiredTablesOk === null ? "—" : report.database.requiredTablesOk ? "all present" : `missing: ${report.database.missingTables.join(", ")}`} />
           <Fact label="topic_run_log fidelity (016)" value={report.database.topicRunLogFidelity} />
           <Fact label="migration readiness" value={fmtMigrationReadiness(report.database.migrationReadiness)} />
+          <Fact
+            label="latest application schema"
+            value={
+              report.database.migrationReadiness.latestApplicationSchemaReady === null
+                ? "unknown"
+                : report.database.migrationReadiness.latestApplicationSchemaReady
+                  ? "ready"
+                  : "PENDING"
+            }
+          />
         </div>
         {report.database.note && <p className="mt-2 text-xs text-ink3">{report.database.note}</p>}
       </section>

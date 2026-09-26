@@ -1,8 +1,7 @@
-import { createServiceClient } from "@/lib/backend/server";
-import { computeCorpusMetrics, type MetricItem, type MetricRating } from "@/lib/corpusMetrics";
 import { POPULATION_TARGET_ITEMS, VALIDATION_STAGES, validationStageForCoverage } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
+import { loadPublicCorpusMetrics } from "@/lib/publicCorpusMetrics";
 
 export const dynamic = "force-dynamic";
 
@@ -22,14 +21,7 @@ function ciStr(g: { estimate: number | null; ciLower: number | null; ciUpper: nu
 }
 
 export default async function MetricsPage() {
-  const service = createServiceClient();
-  const [{ data: items }, { data: ratings }] = await Promise.all([
-    service.from("corpus_items").select("id, side_mapping, status"),
-    service
-      .from("corpus_ratings")
-      .select("corpus_id, rater_id, winner, confidence, scores_a, scores_b, presented_first, corrections"),
-  ]);
-  const m = computeCorpusMetrics((items ?? []) as MetricItem[], (ratings ?? []) as unknown as MetricRating[]);
+  const m = await loadPublicCorpusMetrics();
   const stage = validationStageForCoverage({
     itemsWithTwoPlusRatings: m.corpus.itemsWithTwoPlusRatings,
     itemsWithThreePlusRatings: m.corpus.itemsWithThreePlusRatings,
