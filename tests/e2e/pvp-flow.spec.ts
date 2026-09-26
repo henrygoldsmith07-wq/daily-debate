@@ -119,7 +119,9 @@ test.describe("pvp + history surfaces", () => {
     const challenger = await challengerContext.newPage();
     const recipient = await recipientContext.newPage();
 
-    await signIn(challenger, "d");
+    // Dedicated identities so this accepted challenge cannot leave an active
+    // match that contaminates pvp-two-browser.spec (which reserves c/d).
+    await signIn(challenger, "f");
     const created = await challenger.evaluate(async () => {
       const response = await fetch("/api/challenges", {
         method: "POST",
@@ -137,7 +139,7 @@ test.describe("pvp + history surfaces", () => {
     await recipient.getByTestId("accept-challenge").click();
     await recipient.waitForURL((url) => url.pathname === "/login" && url.searchParams.get("next") === `/challenge/${code}`);
 
-    await recipient.getByLabel(/email/i).fill(testEmail("e"));
+    await recipient.getByLabel(/email/i).fill(testEmail("g"));
     await recipient.getByLabel(/password/i).fill(testPassword());
     await recipient.getByTestId("auth-submit").click();
     await recipient.waitForURL((url) => url.pathname === `/challenge/${code}`, { timeout: 20_000 });
