@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { keywordsFrom, pickPassage, sourceTypeFor, assembleCard } from "./topicEvidence";
+import {
+  assembleCard,
+  evidenceBudgetPlan,
+  keywordsFrom,
+  pickPassage,
+  sourceTypeFor,
+} from "./topicEvidence";
 import { stubRetrievedSource } from "./sourceRetrieval";
 
 describe("keywordsFrom", () => {
@@ -77,5 +83,37 @@ describe("assembleCard verification checks", () => {
   it("rejects sources with too little retrieved content", () => {
     const src = stubRetrievedSource({ url: "https://x.example/", publisher: "X", excerpt: "tiny" });
     expect(assembleCard(topic, src)).toBeNull();
+  });
+});
+
+describe("evidence retrieval budget", () => {
+  it("carries only the remaining time into retrieval", () => {
+    expect(evidenceBudgetPlan(14_000, 0)).toMatchObject({
+      remainingMs: 14_000,
+      exhausted: false,
+      discoveryTimeoutMs: 8_000,
+      retrievalTimeoutMs: 9_000,
+    });
+
+    expect(evidenceBudgetPlan(14_000, 7_500)).toMatchObject({
+      remainingMs: 6_500,
+      exhausted: false,
+      discoveryTimeoutMs: 6_500,
+      retrievalTimeoutMs: 6_500,
+    });
+  });
+
+  it("marks the budget exhausted instead of starting a fresh retrieval window", () => {
+    const plan = evidenceBudgetPlan(5_000, 5_200);
+    expect(plan.remainingMs).toBe(0);
+    expect(plan.exhausted).toBe(true);
+    expect(plan.retrievalTimeoutMs).toBe(1);
+  });
+
+  it("bounds tiny or invalid budgets to safe positive timeouts", () => {
+    const plan = evidenceBudgetPlan(0, 0);
+    expect(plan.remainingMs).toBe(1);
+    expect(plan.discoveryTimeoutMs).toBe(1);
+    expect(plan.retrievalTimeoutMs).toBe(1);
   });
 });
