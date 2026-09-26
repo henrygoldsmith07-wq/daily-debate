@@ -15,7 +15,15 @@ if (!databaseUrl) {
 const sql = await createExecutor(databaseUrl);
 const scrypt = promisify(scryptCallback);
 const password = process.env.E2E_TEST_PASSWORD ?? "e2e-test-pass-123";
-const users = ["e2e-a@test.local", "e2e-b@test.local", "e2e-c@test.local", "e2e-d@test.local", "e2e-e@test.local"];
+const users = [
+  "e2e-a@test.local",
+  "e2e-b@test.local",
+  "e2e-c@test.local",
+  "e2e-d@test.local",
+  "e2e-e@test.local",
+  "e2e-f@test.local",
+  "e2e-g@test.local",
+];
 
 async function passwordHash(value) {
   const salt = randomBytes(16);

@@ -25,6 +25,7 @@ export class BackendClient {
       | "enqueue_pvp_if_unmatched"
       | "join_pvp_queue_and_match"
       | "create_friend_challenge"
+      | "create_friend_challenge_v2"
       | "accept_friend_challenge",
     args: RpcArgs,
   ) {
@@ -62,6 +63,13 @@ export class BackendClient {
       if (name === "create_friend_challenge") {
         const rows = await queryRows<Record<string, unknown>>(
           "SELECT * FROM create_friend_challenge($1, $2, $3, $4)",
+          [args.p_challenger, args.p_topic_id, args.p_challenger_side, args.p_expiry_days],
+        );
+        return { data: rows, error: null };
+      }
+      if (name === "create_friend_challenge_v2") {
+        const rows = await queryRows<Record<string, unknown>>(
+          "SELECT * FROM create_friend_challenge_v2($1, $2, $3, $4)",
           [args.p_challenger, args.p_topic_id, args.p_challenger_side, args.p_expiry_days],
         );
         return { data: rows, error: null };

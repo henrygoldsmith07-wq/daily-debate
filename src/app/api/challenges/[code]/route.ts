@@ -10,7 +10,7 @@ interface RouteParams {
 }
 
 interface AcceptChallengeOutcome {
-  result: "accepted" | "not_found" | "self" | "closed" | "active_match";
+  result: "accepted" | "accepted_existing" | "not_found" | "self" | "closed" | "active_match";
   created_match_id: string | null;
   challenger_side: string | null;
 }
@@ -103,12 +103,21 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (outcome.result === "active_match") {
     return NextResponse.json({ error: "Finish your active PvP match before accepting a challenge." }, { status: 409 });
   }
-  if (outcome.result !== "accepted" || typeof outcome.created_match_id !== "string") {
+  if (
+    (outcome.result !== "accepted" && outcome.result !== "accepted_existing") ||
+    typeof outcome.created_match_id !== "string"
+  ) {
     return NextResponse.json({ error: "This challenge is no longer open." }, { status: 409 });
   }
 
   const challengerSide = outcome.challenger_side === "for" ? "for" : "against";
-  await recordProductEventForUser(user.id, "challenge_link_accepted", { side: opponentSideOf(challengerSide) });
+  if (outcome.result === "accepted") {
+    await recordProductEventForUser(user.id, "challenge_link_accepted", { side: opponentSideOf(challengerSide) });
+  }
 
-  return NextResponse.json({ matchId: outcome.created_match_id, opponentSide: opponentSideOf(challengerSide) });
+  return NextResponse.json({
+    matchId: outcome.created_match_id,
+    opponentSide: opponentSideOf(challengerSide),
+    reused: outcome.result === "accepted_existing",
+  });
 }

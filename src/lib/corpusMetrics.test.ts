@@ -71,8 +71,8 @@ describe("computeCorpusMetrics with sample gates", () => {
       rating("i1", "r1", "a"), rating("i1", "r2", "a"), rating("i1", "r3", "a"),
       // i2: 2-1 majority a → consensus (strict majority, decisive)
       rating("i2", "r1", "a"), rating("i2", "r2", "a"), rating("i2", "r3", "b"),
-      // i3: 1-1 split → unresolved
-      rating("i3", "r1", "a"), rating("i3", "r2", "b"),
+      // i3: completed 1-1-1 split → unresolved and ready for moderator review
+      rating("i3", "r1", "a"), rating("i3", "r2", "b"), rating("i3", "r3", "tie"),
       // i4: single rater → not counted at all
       rating("i4", "r1", "a"),
     ];
@@ -142,7 +142,7 @@ describe("corpus lifecycle facts", () => {
   it("counts adjudicated items, corrected ratings and presentation balance", () => {
     const items: MetricItem[] = [
       { id: "i1", side_mapping: {}, status: "rated" },
-      { id: "i2", side_mapping: {}, status: "adjudicated" },
+      { id: "i2", side_mapping: { consensus_winner: "a", basis: "moderator override" }, status: "adjudicated" },
       { id: "i3", side_mapping: {}, status: "open" },
     ];
     const r = (corpus_id: string, rater_id: string, extra: Partial<MetricRating>): MetricRating => ({
@@ -153,12 +153,13 @@ describe("corpus lifecycle facts", () => {
       r("i1", "x2", { presented_first: "a", corrections: [{ at: "t", actor: "adm", reason: "x", before: {}, after: {} }] }),
       r("i2", "x3", { presented_first: "a" }),
       r("i2", "x4", { presented_first: "b", corrections: [] }),
+      r("i2", "x6", { presented_first: "b" }),
       r("i3", "x5", {}), // pre-migration row without presented_first
     ];
     const m = computeCorpusMetrics(items, ratings);
     expect(m.corpus.adjudicatedItems).toBe(1);
     expect(m.corpus.correctedRatings).toBe(1); // empty corrections does not count
-    expect(m.corpus.presentation).toEqual({ firstA: 3, firstB: 1, unknown: 1, balance: 0.333 });
+    expect(m.corpus.presentation).toEqual({ firstA: 3, firstB: 2, unknown: 1, balance: 0.667 });
   });
 
   it("stays backward compatible when callers omit the new fields", () => {
@@ -223,6 +224,42 @@ describe("judge-vs-human slices (item 13)", () => {
     const m = computeCorpusMetrics(items, ratings);
     expect(m.judgeVsHuman.slices.byDifficulty.close).toBeUndefined();
     expect(m.judgeVsHuman.errorCategories.judgeTieVsHumanWinner + m.judgeVsHuman.errorCategories.sideFlip).toBe(0);
+  });
+
+  it("uses an explicit adjudicated winner instead of recomputing the rater majority", () => {
+    const items: MetricItem[] = [
+      {
+        id: "adj-1",
+        status: "adjudicated",
+        side_mapping: {
+          consensus_winner: "b",
+          basis: "moderator override",
+          system_verdict: { winner: "b", confidence: 0.8 },
+        },
+        dynamics_tier: "close",
+      },
+    ];
+    const ratings: MetricRating[] = [
+      rating("adj-1", "r1", "a"),
+      rating("adj-1", "r2", "a"),
+      rating("adj-1", "r3", "b"),
+    ];
+    const m = computeCorpusMetrics(items, ratings);
+    expect(m.corpus.adjudicatedItems).toBe(1);
+    expect(m.judgeVsConsensus.n).toBe(1);
+    expect(m.judgeVsConsensus.agree).toBe(1);
+    expect(m.judgeVsHuman.slices.byDifficulty.close).toEqual({ n: 1, agree: 1, rate: 1 });
+  });
+
+  it("includes three-rater items in pairwise winner kappa", () => {
+    const items = Array.from({ length: 6 }, (_, i) => item(`kappa-${i}`));
+    const ratings = items.flatMap((it) => [
+      rating(it.id, "r1", "a"),
+      rating(it.id, "r2", "a"),
+      rating(it.id, "r3", "a"),
+    ]);
+    const m = computeCorpusMetrics(items, ratings);
+    expect(m.humanValidation.meanWinnerKappa).toBe(1);
   });
 });
 

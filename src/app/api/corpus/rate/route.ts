@@ -3,12 +3,14 @@ import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { insertImmutableRating } from "@/lib/corpusRatingStore";
 import {
+  CALIBRATION_RATERS_PER_ITEM,
   MIN_RATERS_PER_ITEM,
   assignPresentationSide,
   normalizeRatingToOriginal,
   swapTranscriptSides,
   validateRating,
 } from "@/lib/corpus";
+import { invalidatePublicCorpusMetrics } from "@/lib/publicCorpusMetrics";
 
 // Blind rater assignment. Returns the next open corpus item this user is
 // eligible to rate: not authored by them, not already rated by them.
@@ -32,8 +34,9 @@ export async function GET(request: Request) {
     service.from("corpus_ratings").select("corpus_id").eq("rater_id", user.id),
     service
       .from("corpus_items")
-      .select("id, transcript, topic")
+      .select("id, transcript, topic, rating_count")
       .eq("status", "open")
+      .order("rating_count", { ascending: true })
       .order("created_at", { ascending: true })
       .limit(100),
   ]);
@@ -69,7 +72,8 @@ export async function GET(request: Request) {
   return NextResponse.json({
     item: { id: next.id, transcript, topic: next.topic },
     presentedFirst,
-    ratersRequired: MIN_RATERS_PER_ITEM,
+    pilotRatersRequired: MIN_RATERS_PER_ITEM,
+    ratersRequired: CALIBRATION_RATERS_PER_ITEM,
     myRatingsCount,
   });
 }
@@ -116,11 +120,9 @@ export async function POST(request: Request) {
     presentedFirst,
   );
 
-  // Immutable append-once storage with transactional closure: the insert and
-  // the open->rated flip share one locked statement, so duplicate
-  // submissions are rejected (never overwritten), closed items refuse new
-  // ratings at insert time, and two simultaneous final raters serialise
-  // safely. See src/lib/corpusRatingStore.ts.
+  // Immutable append-once storage with transactional closure. Two ratings make
+  // an item pilot-usable, but collection deliberately stays open until the
+  // third independent rating needed by calibration/mature validation stages.
   const outcome = await insertImmutableRating(
     {
       corpusId,
@@ -132,7 +134,7 @@ export async function POST(request: Request) {
       rationale: (body.rationale ?? "").slice(0, 1000),
       presentedFirst,
     },
-    MIN_RATERS_PER_ITEM,
+    CALIBRATION_RATERS_PER_ITEM,
   );
 
   if (outcome.result === "duplicate") {
@@ -155,6 +157,8 @@ export async function POST(request: Request) {
     .from("corpus_ratings")
     .select("id", { count: "exact", head: true })
     .eq("corpus_id", corpusId);
+
+  invalidatePublicCorpusMetrics();
 
   return NextResponse.json({
     ok: true,

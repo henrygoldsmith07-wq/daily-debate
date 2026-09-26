@@ -45,7 +45,8 @@ function fmtMigrationReadiness(r: MigrationReadiness): string {
   return (
     `016=${bit(r.migration016TelemetryReady)} · 017=${bit(r.migration017RouteLifecycleReady)} · ` +
     `018=${bit(r.migration018TopicFingerprintReady)} · 019=${bit(r.migration019GenerationReasonReady)} · ` +
-    `022=${bit(r.migration022ProductEventReasonReady)} · 023=${bit(r.migration023FriendChallengeReady)}`
+    `022=${bit(r.migration022ProductEventReasonReady)} · 023=${bit(r.migration023FriendChallengeReady)} · ` +
+    `024=${bit(r.migration024HumanValidationReady)}`
   );
 }
 

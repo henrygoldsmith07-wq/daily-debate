@@ -129,17 +129,31 @@ export async function appendRatingCorrection(input: {
 }): Promise<{ applied: boolean; corrections: CorrectionEntry[] | null }> {
   const rows = await queryRows<{ id: string; corrections: CorrectionEntry[] }>(
     `
-    UPDATE corpus_ratings
-    SET corrections = corrections || jsonb_build_array(jsonb_build_object(
-          'at', $3::text, 'actor', $4::text, 'reason', $5::text,
-          'before', jsonb_build_object('winner', winner, 'scoresA', scores_a, 'scoresB', scores_b),
-          'after', jsonb_build_object('winner', $6::text, 'scoresA', $7::jsonb, 'scoresB', $8::jsonb)
-        )),
-        winner = $6,
-        scores_a = $7::jsonb,
-        scores_b = $8::jsonb
-    WHERE corpus_id = $1 AND rater_id = $2
-    RETURNING id, corrections
+    WITH corrected AS (
+      UPDATE corpus_ratings
+      SET corrections = corrections || jsonb_build_array(jsonb_build_object(
+            'at', $3::text, 'actor', $4::text, 'reason', $5::text,
+            'before', jsonb_build_object('winner', winner, 'scoresA', scores_a, 'scoresB', scores_b),
+            'after', jsonb_build_object('winner', $6::text, 'scoresA', $7::jsonb, 'scoresB', $8::jsonb)
+          )),
+          winner = $6,
+          scores_a = $7::jsonb,
+          scores_b = $8::jsonb
+      WHERE corpus_id = $1 AND rater_id = $2
+      RETURNING id, corpus_id, corrections
+    ), invalidated AS (
+      UPDATE corpus_items ci
+      SET status = 'rated',
+          side_mapping = coalesce(ci.side_mapping, '{}'::jsonb) || jsonb_build_object(
+            'adjudication_stale', true,
+            'adjudication_stale_at', $3::text,
+            'adjudication_stale_actor', $4::text
+          )
+      FROM corrected c
+      WHERE ci.id = c.corpus_id AND ci.status = 'adjudicated'
+      RETURNING ci.id
+    )
+    SELECT id, corrections FROM corrected
     `,
     [
       input.corpusId,

@@ -42,7 +42,7 @@ function report(over: Partial<OpsHealthReport> = {}): OpsHealthReport {
       note: null,
     },
     judge: {},
-    database: { status: "healthy", reachable: true, latencyMs: 5, migrationsApplied: 14, requiredTablesOk: true, missingTables: [], note: null, migrationReadiness: { migration016TelemetryReady: true, migration017RouteLifecycleReady: true, migration018TopicFingerprintReady: true, migration019GenerationReasonReady: true, migration022ProductEventReasonReady: true, migration023FriendChallengeReady: true, latestApplicationSchemaReady: true, note: null } },
+    database: { status: "healthy", reachable: true, latencyMs: 5, migrationsApplied: 14, requiredTablesOk: true, missingTables: [], note: null, migrationReadiness: { migration016TelemetryReady: true, migration017RouteLifecycleReady: true, migration018TopicFingerprintReady: true, migration019GenerationReasonReady: true, migration022ProductEventReasonReady: true, migration023FriendChallengeReady: true, migration024HumanValidationReady: true, latestApplicationSchemaReady: true, note: null } },
     app: {},
     human: { status: "healthy", headline: "", facts: [], note: null },
     training: { status: "healthy", headline: "", facts: [], note: null, measurement: "valid", outcomes: [] },
@@ -85,7 +85,7 @@ describe("derivePublicHealthState (non-sensitive reduction)", () => {
           proofs: { databaseReachable: false, manualSuccess: false, scheduledSuccessAfterManual: false, sameDateContentIdempotence: false, onTimeBeforeDeadline: false, aiGeneratedProductionSuccess: false },
           note: null,
         },
-        database: { status: "healthy", reachable: true, latencyMs: 5, migrationsApplied: 14, requiredTablesOk: true, missingTables: [], note: null, migrationReadiness: { migration016TelemetryReady: true, migration017RouteLifecycleReady: true, migration018TopicFingerprintReady: false, migration019GenerationReasonReady: false, migration022ProductEventReasonReady: false, migration023FriendChallengeReady: false, latestApplicationSchemaReady: false, note: null } },
+        database: { status: "healthy", reachable: true, latencyMs: 5, migrationsApplied: 14, requiredTablesOk: true, missingTables: [], note: null, migrationReadiness: { migration016TelemetryReady: true, migration017RouteLifecycleReady: true, migration018TopicFingerprintReady: false, migration019GenerationReasonReady: false, migration022ProductEventReasonReady: false, migration023FriendChallengeReady: false, migration024HumanValidationReady: false, latestApplicationSchemaReady: false, note: null } },
       } as unknown as OpsHealthReport),
       now,
     );

@@ -15,7 +15,7 @@
  * Candidate scan (READ-ONLY hint list; never trusted for decisions).
  * Deliberately wide: drift, open items AT or ONE BELOW threshold (a racing
  * final rating may land between this scan and the lock), and closed-below
- * anomalies (reported; the repairer will not re-open anything).
+ * anomalies (re-opened so the remaining independent ratings can be collected).
  */
 export async function findCandidates(query, minRaters) {
   return query(
@@ -67,7 +67,11 @@ export async function repairItemWithLock(client, itemId, minRaters, { apply = tr
     if (onLockedAfterCount) await onLockedAfterCount(client, { itemId, actual });
 
     const targetStatus =
-      before.status === "open" && actual >= minRaters ? "rated" : before.status;
+      before.status === "open" && actual >= minRaters
+        ? "rated"
+        : before.status === "rated" && actual < minRaters
+          ? "open"
+          : before.status;
     const changes = actual !== before.stored || targetStatus !== before.status;
     if (apply && changes) {
       await client.query(

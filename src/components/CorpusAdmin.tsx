@@ -320,9 +320,9 @@ export default function CorpusAdmin() {
       </section>
 
       <section className="surface-card flex flex-col gap-3 p-5">
-        <h2 className="text-sm font-semibold">Adjudication queue</h2>
+        <h2 className="text-sm font-semibold">Moderator resolution queue</h2>
         {report.adjudicationQueue.length === 0 ? (
-          <p className="text-xs text-ink3">No disputed items. Raters agree so far.</p>
+          <p className="text-xs text-ink3">No completed items currently need moderator resolution.</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {report.adjudicationQueue.map(({ id, verdicts }) => {
@@ -336,20 +336,9 @@ export default function CorpusAdmin() {
                     <span className="tabular text-ink3">
                       {id.slice(0, 8)}… · raters split: {split}
                     </span>
-                    <span className="flex gap-2">
-                      <button type="button" onClick={() => openReview(id)} className="btn btn-ghost px-2 py-1 text-xs">
-                        {expandedId === id ? "Hide" : "Review"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => adjudicate(id)}
-                        disabled={busy}
-                        className="btn btn-ghost px-2 py-1 text-xs disabled:opacity-40"
-                        title="Settle by rater majority"
-                      >
-                        Accept majority
-                      </button>
-                    </span>
+                    <button type="button" onClick={() => openReview(id)} className="btn btn-ghost px-2 py-1 text-xs">
+                      {expandedId === id ? "Hide" : "Review"}
+                    </button>
                   </div>
                   {expandedId === id && (
                     <div className="flex flex-col gap-3 border-t border-[var(--rule)] pt-3">

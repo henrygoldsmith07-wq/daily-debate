@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { HAS_BACKEND, signIn } from "./helpers";
+import { HAS_BACKEND, signIn, testEmail, testPassword } from "./helpers";
 
 // PvP / history / evaluation-surface E2E flows.
 //
@@ -108,6 +108,48 @@ test.describe("pvp + history surfaces", () => {
 
     await ctxA.close();
     await ctxB.close();
+  });
+
+  test("signed-out friend challenge returns through login, accepts, and opens the match", async ({ browser }) => {
+    test.skip(!HAS_E2E_BACKEND, "Requires seeded backend");
+    test.setTimeout(90_000);
+
+    const challengerContext = await browser.newContext();
+    const recipientContext = await browser.newContext();
+    const challenger = await challengerContext.newPage();
+    const recipient = await recipientContext.newPage();
+
+    // Dedicated identities so this accepted challenge cannot leave an active
+    // match that contaminates pvp-two-browser.spec (which reserves c/d).
+    await signIn(challenger, "f");
+    const created = await challenger.evaluate(async () => {
+      const response = await fetch("/api/challenges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ side: "for" }),
+      });
+      return { status: response.status, body: await response.json() };
+    });
+    expect(created.status).toBe(200);
+    const code = created.body?.invite?.code as string;
+    expect(code).toMatch(/^[2-9a-hj-km-np-z]{12}$/);
+
+    await recipient.goto(`/challenge/${code}`);
+    await expect(recipient.getByTestId("challenge-card")).toBeVisible();
+    await recipient.getByTestId("accept-challenge").click();
+    await recipient.waitForURL((url) => url.pathname === "/login" && url.searchParams.get("next") === `/challenge/${code}`);
+
+    await recipient.getByLabel(/email/i).fill(testEmail("g"));
+    await recipient.getByLabel(/password/i).fill(testPassword());
+    await recipient.getByTestId("auth-submit").click();
+    await recipient.waitForURL((url) => url.pathname === `/challenge/${code}`, { timeout: 20_000 });
+
+    await recipient.getByTestId("accept-challenge").click();
+    await recipient.waitForURL(/\/pvp\/[^/]+$/, { timeout: 30_000 });
+    await expect(recipient.getByText(/Player vs Player|Round|Your turn|Waiting/i).first()).toBeVisible({ timeout: 15_000 });
+
+    await challengerContext.close();
+    await recipientContext.close();
   });
 
   test("authenticated player sees reconnect indicator only when realtime drops", async ({ page, context }) => {

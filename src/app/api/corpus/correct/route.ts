@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { validateRating } from "@/lib/corpus";
 import { appendRatingCorrection } from "@/lib/corpusRatingStore";
 import { getRequestAuthContext } from "@/lib/requestAuth";
+import { invalidatePublicCorpusMetrics } from "@/lib/publicCorpusMetrics";
 
 // Admin-only correction of a corpus rating. Normal ratings are immutable
 // (first submission wins, duplicates rejected with 409); when a verdict is
@@ -46,10 +47,11 @@ export async function POST(request: Request) {
   if (!result.applied) {
     return NextResponse.json({ error: "Rating not found." }, { status: 404 });
   }
+  invalidatePublicCorpusMetrics();
 
   return NextResponse.json({
     ok: true,
     corrections: result.corrections,
-    note: "Original values are preserved in the correction audit trail.",
+    note: "Original values are preserved in the correction audit trail. Any prior adjudication is marked stale and requires review again.",
   });
 }

@@ -63,9 +63,9 @@ Budgets are aspirational until request-timing instrumentation lands; the `ai_cal
 
 The blinded human corpus is the future ground truth for the judge, so its state is guarded by explicit invariants:
 
-- `npm run check:corpus` (`scripts/check-corpus-invariants.mjs`) fails on impossible states: open items at/over the rating threshold, closed items below it, `rating_count` drift, duplicate `(corpus_id, rater_id)`, contributor self-ratings, malformed `presented_first`/winner values, incomplete correction audit events, and broken correction chains. CI runs it against real Postgres after the DB suite and again after the E2E suite.
-- `npm run repair:corpus [-- --apply]` fixes historical closure drift safely: dry-run first (reports ids/counts), only flips `open -> rated` where the actual count meets the threshold, only syncs `rating_count` to reality, never deletes or edits ratings, idempotent.
-- Real-Postgres concurrency coverage lives in `src/lib/corpusRatingStore.db.test.ts` (runs in CI via `TEST_DATABASE_URL`): threshold closure, simultaneous final raters, post-closure rejects, rollback atomicity, correction audit chains.
+- `npm run check:corpus` (`scripts/check-corpus-invariants.mjs`) fails on impossible states against the **3-rating collection target**: open items at/over the target, `rated` items below it, `rating_count` drift, duplicate `(corpus_id, rater_id)`, contributor self-ratings, malformed `presented_first`/winner values, incomplete correction audit events, and broken correction chains. CI runs it against real Postgres after the DB suite and again after the E2E suite.
+- `npm run repair:corpus [-- --apply]` fixes historical closure drift safely: dry-run first (reports ids/counts), flips `open -> rated` at the 3-rating target, reopens below-target `rated` rows so collection can finish, syncs `rating_count` to reality, never deletes or edits ratings, and is idempotent.
+- Real-Postgres concurrency coverage lives in `src/lib/corpusRatingStore.db.test.ts` and `src/lib/corpusVerdictStore.db.test.ts`: three-rating closure, simultaneous final raters, post-closure rejects, rollback atomicity, correction audit chains, adjudication preservation, and one-owner system-judge claims.
 
 ## Branch protection (main)
 

@@ -685,7 +685,7 @@ describe("migration readiness (actual schema, never migration counts)", () => {
     expect(readiness.note).toMatch(/Required application schema is incomplete/);
   });
 
-  it("requires the 022 privacy constraint and 023 challenge transaction primitives", () => {
+  it("requires the 022 privacy constraint, 023 challenge primitives and 024 validation claim table", () => {
     const present = new Map<string, Set<string>>([
       ["topic_run_log", new Set(["run_created_at", "queue_delay_ms", "generator_result", "provider_health", "topic_fingerprint", "provider_attempts"])],
       ["route_lifecycle", new Set(["route", "registration_version", "state", "evaluated_at", "sample_window", "sample_n", "gate_result", "human_result", "adopted_at", "suspended_at", "reason", "updated_at"])],
@@ -695,12 +695,15 @@ describe("migration readiness (actual schema, never migration counts)", () => {
       ["challenge_invites", new Set([
         "index:challenge_invites_one_open_per_challenger",
         "function:create_friend_challenge",
+        "function:create_friend_challenge_v2",
         "function:accept_friend_challenge",
       ])],
+      ["corpus_system_judge_claims", new Set(["corpus_id", "claim_token", "claimed_at"])],
     ]);
     const ready = assessMigrationReadiness(present);
     expect(ready.migration022ProductEventReasonReady).toBe(true);
     expect(ready.migration023FriendChallengeReady).toBe(true);
+    expect(ready.migration024HumanValidationReady).toBe(true);
     expect(ready.latestApplicationSchemaReady).toBe(true);
 
     present.get("product_events")!.delete("constraint:product_events_reason_check");

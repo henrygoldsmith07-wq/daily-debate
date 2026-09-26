@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import pg from "pg";
 import { applyTestMigrations } from "../../tests/helpers/applyTestMigrations";
 import { insertImmutableRating, appendRatingCorrection } from "@/lib/corpusRatingStore";
-import { MIN_RATERS_PER_ITEM } from "@/lib/corpus";
+import { RATING_COLLECTION_TARGET } from "@/lib/corpus";
 
 /**
  * REAL-POSTGRES integration tests for corpus rating integrity
@@ -23,7 +23,7 @@ const d = databaseUrl && process.env.DATABASE_URL?.trim() ? describe : describe.
 
 let pool: pg.Pool;
 
-const emails = ["cr-a@test.local", "cr-b@test.local", "cr-c@test.local", "cr-contrib@test.local"];
+const emails = ["cr-a@test.local", "cr-b@test.local", "cr-c@test.local", "cr-d@test.local", "cr-contrib@test.local"];
 const userIds = new Map<string, string>();
 const itemIds: string[] = [];
 
@@ -108,33 +108,36 @@ afterAll(async () => {
 });
 
 d("corpus rating store (real Postgres)", () => {
-  it("0->1 open, 1->2 rated IMMEDIATELY; later ratings rejected; duplicates rejected at every stage", async () => {
+  it("keeps two-rating pilot items open, closes on the third rating, and rejects later ratings", async () => {
     const item = await makeItem();
     const a = userIds.get("cr-a@test.local")!;
     const b = userIds.get("cr-b@test.local")!;
     const c = userIds.get("cr-c@test.local")!;
+    const dUser = userIds.get("cr-d@test.local")!;
 
-    const r1 = await insertImmutableRating(rating(item, a), MIN_RATERS_PER_ITEM);
+    const r1 = await insertImmutableRating(rating(item, a), RATING_COLLECTION_TARGET);
     expect(r1.result).toBe("accepted");
     expect(await state(item)).toEqual({ ratings: 1, status: "open" });
 
-    // The threshold rating closes the item IN THE SAME statement — the fix
-    // for the snapshot bug where the flip CTE could not see the new row.
-    const r2 = await insertImmutableRating(rating(item, b), MIN_RATERS_PER_ITEM);
+    const r2 = await insertImmutableRating(rating(item, b), RATING_COLLECTION_TARGET);
     expect(r2.result).toBe("accepted");
-    if (r2.result === "accepted") expect(r2.flippedToRated).toBe(true);
-    expect(await state(item)).toEqual({ ratings: 2, status: "rated" });
+    if (r2.result === "accepted") expect(r2.flippedToRated).toBe(false);
+    expect(await state(item)).toEqual({ ratings: 2, status: "open" });
 
-    // Extra rater after closure: rejected, no new row, status untouched.
-    const r3 = await insertImmutableRating(rating(item, c), MIN_RATERS_PER_ITEM);
-    expect(r3.result).toBe("item-closed");
-    expect(await state(item)).toEqual({ ratings: 2, status: "rated" });
+    const r3 = await insertImmutableRating(rating(item, c), RATING_COLLECTION_TARGET);
+    expect(r3.result).toBe("accepted");
+    if (r3.result === "accepted") expect(r3.flippedToRated).toBe(true);
+    expect(await state(item)).toEqual({ ratings: 3, status: "rated" });
+
+    const r4 = await insertImmutableRating(rating(item, dUser), RATING_COLLECTION_TARGET);
+    expect(r4.result).toBe("item-closed");
+    expect(await state(item)).toEqual({ ratings: 3, status: "rated" });
 
     // Duplicate while/after closure: rejected as duplicate, original preserved.
     const dupOpen = await makeItem();
-    const d1 = await insertImmutableRating(rating(dupOpen, a, "a"), MIN_RATERS_PER_ITEM);
+    const d1 = await insertImmutableRating(rating(dupOpen, a, "a"), RATING_COLLECTION_TARGET);
     expect(d1.result).toBe("accepted");
-    const d2 = await insertImmutableRating(rating(dupOpen, a, "b"), MIN_RATERS_PER_ITEM);
+    const d2 = await insertImmutableRating(rating(dupOpen, a, "b"), RATING_COLLECTION_TARGET);
     expect(d2.result).toBe("duplicate");
     expect(await state(dupOpen)).toEqual({ ratings: 1, status: "open" });
     const stored = await pool.query<{ winner: string }>(
@@ -149,51 +152,53 @@ d("corpus rating store (real Postgres)", () => {
     const a = userIds.get("cr-a@test.local")!;
     const b = userIds.get("cr-b@test.local")!;
     const c = userIds.get("cr-c@test.local")!;
-    await insertImmutableRating(rating(item, a), MIN_RATERS_PER_ITEM);
+    const dUser = userIds.get("cr-d@test.local")!;
+    await insertImmutableRating(rating(item, a), RATING_COLLECTION_TARGET);
+    await insertImmutableRating(rating(item, b), RATING_COLLECTION_TARGET);
 
     const results = (await race(
-      () => insertImmutableRating(rating(item, b, "a"), MIN_RATERS_PER_ITEM),
-      () => insertImmutableRating(rating(item, c, "b"), MIN_RATERS_PER_ITEM),
+      () => insertImmutableRating(rating(item, c, "b"), RATING_COLLECTION_TARGET),
+      () => insertImmutableRating(rating(item, dUser, "a"), RATING_COLLECTION_TARGET),
     )) as Array<{ result: string }>;
 
     const accepted = results.filter((r) => r.result === "accepted").length;
     expect(accepted).toBe(1);
     expect(results.filter((r) => r.result === "item-closed").length).toBe(1);
-    expect(await state(item)).toEqual({ ratings: 2, status: "rated" });
+    expect(await state(item)).toEqual({ ratings: 3, status: "rated" });
   });
 
-  it("two simultaneous FIRST raters both land and the item closes at exactly the threshold", async () => {
+  it("two simultaneous first raters both land but leave the item open for calibration", async () => {
     const item = await makeItem();
     const a = userIds.get("cr-a@test.local")!;
     const b = userIds.get("cr-b@test.local")!;
     const results = (await race(
-      () => insertImmutableRating(rating(item, a, "a"), MIN_RATERS_PER_ITEM),
-      () => insertImmutableRating(rating(item, b, "b"), MIN_RATERS_PER_ITEM),
+      () => insertImmutableRating(rating(item, a, "a"), RATING_COLLECTION_TARGET),
+      () => insertImmutableRating(rating(item, b, "b"), RATING_COLLECTION_TARGET),
     )) as Array<{ result: string }>;
     expect(results.every((r) => r.result === "accepted")).toBe(true);
-    expect(await state(item)).toEqual({ ratings: 2, status: "rated" });
+    expect(await state(item)).toEqual({ ratings: 2, status: "open" });
   });
 
-  it("three simultaneous raters on an open item: exactly MIN land, the rest are closed-rejects", async () => {
+  it("three simultaneous raters all land and close exactly at the collection target", async () => {
     const item = await makeItem();
     const [a, b, c] = ["cr-a", "cr-b", "cr-c"].map((k) => userIds.get(`${k}@test.local`)!);
     const results = (await Promise.all([
-      insertImmutableRating(rating(item, a), MIN_RATERS_PER_ITEM),
-      insertImmutableRating(rating(item, b), MIN_RATERS_PER_ITEM),
-      insertImmutableRating(rating(item, c), MIN_RATERS_PER_ITEM),
+      insertImmutableRating(rating(item, a), RATING_COLLECTION_TARGET),
+      insertImmutableRating(rating(item, b), RATING_COLLECTION_TARGET),
+      insertImmutableRating(rating(item, c), RATING_COLLECTION_TARGET),
     ])) as Array<{ result: string }>;
-    expect(results.filter((r) => r.result === "accepted").length).toBe(MIN_RATERS_PER_ITEM);
-    expect(results.filter((r) => r.result === "item-closed").length).toBe(3 - MIN_RATERS_PER_ITEM);
-    expect(await state(item)).toEqual({ ratings: MIN_RATERS_PER_ITEM, status: "rated" });
+    expect(results.filter((r) => r.result === "accepted").length).toBe(RATING_COLLECTION_TARGET);
+    expect(results.filter((r) => r.result === "item-closed").length).toBe(3 - RATING_COLLECTION_TARGET);
+    expect(await state(item)).toEqual({ ratings: RATING_COLLECTION_TARGET, status: "rated" });
   });
 
   it("rejected and missing items are refused", async () => {
     const rejected = await makeItem("rejected");
-    const res = await insertImmutableRating(rating(rejected, userIds.get("cr-a@test.local")!), MIN_RATERS_PER_ITEM);
+    const res = await insertImmutableRating(rating(rejected, userIds.get("cr-a@test.local")!), RATING_COLLECTION_TARGET);
     expect(res.result).toBe("item-closed");
     const missing = await insertImmutableRating(
       rating("00000000-0000-0000-0000-000000000000", userIds.get("cr-a@test.local")!),
-      MIN_RATERS_PER_ITEM,
+      RATING_COLLECTION_TARGET,
     );
     expect(missing.result).toBe("item-missing");
   });
@@ -203,7 +208,7 @@ d("corpus rating store (real Postgres)", () => {
     // winner 'z' violates the CHECK constraint -> the whole statement aborts,
     // so neither a rating row nor the closure flip may be visible.
     await expect(
-      insertImmutableRating(rating(item, userIds.get("cr-a@test.local")!, "z"), MIN_RATERS_PER_ITEM),
+      insertImmutableRating(rating(item, userIds.get("cr-a@test.local")!, "z"), RATING_COLLECTION_TARGET),
     ).rejects.toThrow(/check|constraint/i);
     expect(await state(item)).toEqual({ ratings: 0, status: "open" });
   });
@@ -212,8 +217,8 @@ d("corpus rating store (real Postgres)", () => {
     const item = await makeItem();
     const a = userIds.get("cr-a@test.local")!;
     const b = userIds.get("cr-b@test.local")!;
-    await insertImmutableRating(rating(item, a, "a"), MIN_RATERS_PER_ITEM);
-    await insertImmutableRating(rating(item, b, "a"), MIN_RATERS_PER_ITEM);
+    await insertImmutableRating(rating(item, a, "a"), RATING_COLLECTION_TARGET);
+    await insertImmutableRating(rating(item, b, "a"), RATING_COLLECTION_TARGET);
 
     const c1 = await appendRatingCorrection({
       corpusId: item, raterId: a, winner: "b",
@@ -267,5 +272,39 @@ d("corpus rating store (real Postgres)", () => {
       scoresA: cur.rows[0].scores_a,
       scoresB: cur.rows[0].scores_b,
     });
+  });
+
+  it("a correction invalidates a prior adjudication atomically", async () => {
+    const item = await makeItem();
+    const [a, b, c] = ["cr-a", "cr-b", "cr-c"].map((k) => userIds.get(`${k}@test.local`)!);
+    await insertImmutableRating(rating(item, a, "a"), RATING_COLLECTION_TARGET);
+    await insertImmutableRating(rating(item, b, "b"), RATING_COLLECTION_TARGET);
+    await insertImmutableRating(rating(item, c, "a"), RATING_COLLECTION_TARGET);
+    await pool.query(
+      `UPDATE corpus_items
+       SET status = 'adjudicated',
+           side_mapping = jsonb_build_object('consensus_winner', 'a', 'basis', 'moderator override')
+       WHERE id = $1`,
+      [item],
+    );
+
+    const corrected = await appendRatingCorrection({
+      corpusId: item,
+      raterId: a,
+      winner: "b",
+      scoresA: { evidenceQuality: 2 },
+      scoresB: { evidenceQuality: 5 },
+      actor: "admin@test.local",
+      reason: "Evidence review changed the original rating materially.",
+      at: "2026-09-26T18:00:00Z",
+    });
+    expect(corrected.applied).toBe(true);
+    const row = await pool.query<{ status: string; side_mapping: Record<string, unknown> }>(
+      "SELECT status, side_mapping FROM corpus_items WHERE id = $1",
+      [item],
+    );
+    expect(row.rows[0].status).toBe("rated");
+    expect(row.rows[0].side_mapping.adjudication_stale).toBe(true);
+    expect(row.rows[0].side_mapping.consensus_winner).toBe("a");
   });
 });
