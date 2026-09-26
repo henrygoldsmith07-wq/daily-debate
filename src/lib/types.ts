@@ -2,6 +2,7 @@ import type { ArgGraph } from "./argGraph";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
 import type { DebateFormat } from "./sprint";
 import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
+import type { RepairKind } from "./argumentRepair";
 
 export type DebateSide = "for" | "against";
 export type InputMode = "text" | "voice";
@@ -62,9 +63,11 @@ export interface CoachingRecord {
   /** If present, this debate deliberately retests a recently repaired weakness. */
   repairRetest?: {
     repairDebateId: string;
-    targetKind: string;
+    targetKind: RepairKind;
     attemptedAt: string;
   } | null;
+  /** Best-effort coaching context can degrade without blocking the debate. */
+  degradationReasons?: CoachingContextDegradationReason[] | null;
   /** Observed behaviour from the finished debate (set at finish). */
   snapshot?: {
     responsesAnswered?: number;
@@ -80,6 +83,24 @@ export interface CoachingRecord {
   weaknessKind?: string | null;
   /** How many recent prior debates showed the same weakness (0 = first). */
   recurrenceCount?: number | null;
+}
+
+export const COACHING_CONTEXT_DEGRADATION_REASONS = [
+  "skill-ledger-unavailable",
+  "repair-retest-unavailable",
+  "drill-outcomes-unavailable",
+] as const;
+
+export type CoachingContextDegradationReason =
+  (typeof COACHING_CONTEXT_DEGRADATION_REASONS)[number];
+
+export function isCoachingContextDegradationReason(
+  value: unknown,
+): value is CoachingContextDegradationReason {
+  return (
+    typeof value === "string" &&
+    (COACHING_CONTEXT_DEGRADATION_REASONS as readonly string[]).includes(value)
+  );
 }
 
 export interface SoloDebateTurn {
@@ -218,4 +239,3 @@ export const PVP_ROUNDS = 5;
 // A PvP turn older than this can be claimed as a forfeit by the waiting
 // opponent, and new submissions past it are rejected as late.
 export const TURN_ABANDON_MINUTES = 30;
-

@@ -10,7 +10,7 @@
 // was genuinely tested. A debate with no opportunity for the target skill does
 // not close it.
 
-import type { RepairKind } from "./argumentRepair";
+import { isRepairKind, type RepairKind } from "./argumentRepair";
 import type { CoachDimension } from "./adaptiveCoach";
 import type { MetricKey, SkillMetricPoint } from "./skillLedger";
 
@@ -25,7 +25,7 @@ export const REPAIR_KIND_TO_DIMENSION: Record<RepairKind, CoachDimension> = {
 
 export interface RepairRetestAnchor {
   debateId: string;
-  targetKind: string;
+  targetKind: RepairKind;
   attemptedAt: string;
   /** Topic of the repaired debate; transfer must occur on a different topic. */
   topicId: string | null;
@@ -49,10 +49,8 @@ const RETEST_METRICS: Record<CoachDimension, readonly MetricKey[]> = {
   structure: ["droppedArguments", "contradictions"],
 };
 
-export function repairKindToDimension(kind: string): CoachDimension | null {
-  return Object.prototype.hasOwnProperty.call(REPAIR_KIND_TO_DIMENSION, kind)
-    ? REPAIR_KIND_TO_DIMENSION[kind as RepairKind]
-    : null;
+export function repairKindToDimension(kind: unknown): CoachDimension | null {
+  return isRepairKind(kind) ? REPAIR_KIND_TO_DIMENSION[kind] : null;
 }
 
 /** Transfer requires a different debate context, not a replay of the repaired topic. */
@@ -139,4 +137,20 @@ export function pendingRepairRetest(
   });
 
   return observedLater ? null : { ...anchor, dimension };
+}
+
+/**
+ * Return every successful repair that still needs a genuine later transfer
+ * test, oldest first. The UI can still surface one focus at a time while the
+ * unresolved queue remains intact instead of being replaced by the newest
+ * repair.
+ */
+export function pendingRepairRetests(
+  points: SkillMetricPoint[],
+  anchors: RepairRetestAnchor[],
+): PendingRepairRetest[] {
+  return anchors
+    .map((anchor) => pendingRepairRetest(points, anchor))
+    .filter((value): value is PendingRepairRetest => value !== null)
+    .sort((a, b) => Date.parse(a.attemptedAt) - Date.parse(b.attemptedAt));
 }

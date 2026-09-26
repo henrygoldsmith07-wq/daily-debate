@@ -16,6 +16,7 @@ import {
   type FunnelEventRow,
 } from "./productFunnel";
 import type { DebateWeaknessRow, RepairRow } from "./repairEffectiveness";
+import type { RepairKind } from "./argumentRepair";
 
 const NOW = "2026-06-15T12:00:00Z";
 
@@ -407,7 +408,7 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
   const T0 = "2026-06-01T12:00:00Z";
   const NOW2 = "2026-07-15T12:00:00Z";
 
-  function repair(user: string, debate: string, kind: string, at: string): RepairRow {
+  function repair(user: string, debate: string, kind: RepairKind, at: string): RepairRow {
     return { user_id: user, debate_id: debate, target_kind: kind, score: 80, succeeded: true, created_at: at };
   }
 

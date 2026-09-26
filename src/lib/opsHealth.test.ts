@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assessAppHealth,
+  assessCoachingRuntimeHealth,
   assessDatabaseHealth,
   assessHumanValidation,
   assessJudgeHealth,
@@ -608,6 +609,68 @@ describe("evidence sections (never green-washed)", () => {
     };
     expect(invalidSection.measurement).toBe("invalid");
     expect(invalidSection.outcomes).toHaveLength(0);
+  });
+
+  it("coach runtime distinguishes no traffic, healthy starts, and degraded context", () => {
+    const empty = assessCoachingRuntimeHealth({
+      startsSampled: 0,
+      degradedStarts: 0,
+      latestDegradedAt: null,
+      reasonCounts: {},
+    });
+    expect(empty.status).toBe("unknown");
+
+    const healthy = assessCoachingRuntimeHealth({
+      startsSampled: 12,
+      degradedStarts: 0,
+      latestDegradedAt: null,
+      reasonCounts: {},
+    });
+    expect(healthy.status).toBe("healthy");
+
+    const degraded = assessCoachingRuntimeHealth({
+      startsSampled: 12,
+      degradedStarts: 2,
+      latestDegradedAt: "2026-09-26T18:00:00Z",
+      reasonCounts: { "repair-retest-unavailable": 2 },
+    });
+    expect(degraded.status).toBe("degraded");
+    expect(degraded.facts).toContainEqual({
+      label: "Degradation · repair-retest-unavailable",
+      value: "2",
+    });
+  });
+
+  it("coach runtime degradation participates in the overall ops-health rollup", () => {
+    const now = "2026-09-26T18:00:00Z";
+    const report = buildOpsHealthReport({
+      generatedAt: now,
+      topic: assessTopicHealth(
+        { topic_date: "2026-09-27", title: "T", generation_source: "ai", evidence_cards: 2 },
+        now,
+      ),
+      topicSlo: assessTopicSlo(
+        { productionDbReadable: true, tomorrowReady: true, runs: [] },
+        now,
+      ),
+      judge: assessJudgeHealth(
+        { at: now, limit: 24, allPass: true, models: ["model"] },
+        now,
+      ),
+      database: assessDatabaseHealth({ reachable: true, latencyMs: 10 }),
+      app: assessAppHealth(
+        [{ name: "Daily Debate", status: "completed", conclusion: "success" }],
+        "https://example.invalid/actions",
+      ),
+      coach: assessCoachingRuntimeHealth({
+        startsSampled: 10,
+        degradedStarts: 1,
+        latestDegradedAt: now,
+        reasonCounts: { "skill-ledger-unavailable": 1 },
+      }),
+    });
+    expect(report.coach?.status).toBe("degraded");
+    expect(report.overall).toBe("degraded");
   });
 });
 

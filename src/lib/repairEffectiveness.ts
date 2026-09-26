@@ -30,7 +30,7 @@ import { eligibleOpponentMoves, unansweredOpportunitiesBy } from "./opportunity"
 export interface RepairRow {
   user_id: string;
   debate_id: string;
-  target_kind: string;
+  target_kind: RepairKind;
   score: number;
   succeeded: boolean;
   created_at: string;
@@ -102,7 +102,7 @@ export type RepairOutcome =
   | "insufficient-baseline";
 
 export interface RepairOutcomeDetail {
-  target_kind: string;
+  target_kind: RepairKind;
   debate_id: string;
   created_at: string;
   outcome: RepairOutcome;
@@ -115,7 +115,7 @@ export interface RepairOutcomeDetail {
 }
 
 export interface RepairKindEffectiveness {
-  target_kind: string;
+  target_kind: RepairKind | "all";
   repairs: number;
   measurable: number;
   improved: number;
@@ -162,7 +162,7 @@ export interface RetestStats {
  * measurable" and can never enter the improved/unchanged/worse comparison —
  * not even by accidentally comparing 0% vs 0%.
  */
-export const NOT_CURRENTLY_MEASURABLE_KINDS: ReadonlySet<string> = new Set(["clarity"]);
+export const NOT_CURRENTLY_MEASURABLE_KINDS: ReadonlySet<RepairKind> = new Set(["clarity"]);
 
 /**
  * Which observable weakness kinds a repair kind maps to. Every mapped kind
@@ -184,8 +184,8 @@ export const NOT_CURRENTLY_MEASURABLE_KINDS: ReadonlySet<string> = new Set(["cla
  *                arguments unanswered + OWN contradictions) ✓
  * - clarity    → NO detector (subjective wording quality) — not measurable
  */
-export function weaknessKindsFor(kind: string): string[] {
-  switch (kind as RepairKind) {
+export function weaknessKindsFor(kind: RepairKind): string[] {
+  switch (kind) {
     case "evidence":
       return ["evidence"];
     case "rebuttal":
@@ -198,8 +198,6 @@ export function weaknessKindsFor(kind: string): string[] {
       return ["dropped", "contradiction"];
     case "clarity":
       return ["clarity"];
-    default:
-      return [kind];
   }
 }
 
@@ -367,7 +365,7 @@ export function classifyRepair(
 }
 
 function summarise(
-  target_kind: string,
+  target_kind: RepairKind | "all",
   details: RepairOutcomeDetail[],
   totalRepairs: number,
 ): RepairKindEffectiveness {
@@ -386,7 +384,7 @@ function summarise(
     worse,
     improvedRate: canClaim && measurable.length ? +(improved / measurable.length).toFixed(3) : null,
     retest: retestStats(details),
-    note: NOT_CURRENTLY_MEASURABLE_KINDS.has(target_kind)
+    note: target_kind !== "all" && NOT_CURRENTLY_MEASURABLE_KINDS.has(target_kind)
       ? `not currently measurable — no deterministic ${target_kind} signal exists in the argument graph yet`
       : canClaim
         ? null

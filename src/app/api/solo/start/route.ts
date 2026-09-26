@@ -5,7 +5,8 @@ import { debateOpening } from "@/lib/openrouter";
 import { debateOpening as anthropicOpening } from "@/lib/anthropic";
 import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidOpening } from "@/lib/aiSchema";
-import type { DebateSide } from "@/lib/types";
+import type { CoachingContextDegradationReason, DebateSide } from "@/lib/types";
+import type { RepairKind } from "@/lib/argumentRepair";
 import { resolveDebateFormat, type DebateFormat } from "@/lib/sprint";
 import {
   assignChallengeSide,
@@ -16,8 +17,8 @@ import {
 import { pickFocusDimension } from "@/lib/coachingGoal";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { recordProductEventForUser } from "@/lib/productEvents";
-import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
-import { isDifferentRetestContext, pendingRepairRetest } from "@/lib/repairRetest";
+import { successfulRepairRetestAnchors } from "@/lib/repairRetestServer";
+import { isDifferentRetestContext, pendingRepairRetests } from "@/lib/repairRetest";
 import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 
 export async function POST(request: Request) {
@@ -99,16 +100,30 @@ export async function POST(request: Request) {
   // The daily goal travels with the debate: whichever dimension the coach
   // focuses on today is what the finish step will assess.
   let coachingDimension: string | null = null;
+  const degradationReasons: CoachingContextDegradationReason[] = [];
   let repairRetest:
-    | { repairDebateId: string; targetKind: string; attemptedAt: string }
+    | { repairDebateId: string; targetKind: RepairKind; attemptedAt: string }
     | null = null;
-  try {
-    const [ledger, repairAnchor] = await Promise.all([
-      buildLedgerForUser(user.id),
-      latestRepairRetestAnchor(user.id),
-    ]);
-    const drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
-    const pendingRetest = pendingRepairRetest(ledger.points, repairAnchor);
+
+  const [ledgerResult, repairAnchorsResult] = await Promise.allSettled([
+    buildLedgerForUser(user.id),
+    successfulRepairRetestAnchors(user.id),
+  ]);
+  if (ledgerResult.status === "rejected") degradationReasons.push("skill-ledger-unavailable");
+  if (repairAnchorsResult.status === "rejected") degradationReasons.push("repair-retest-unavailable");
+
+  if (ledgerResult.status === "fulfilled") {
+    const ledger = ledgerResult.value;
+    let drillOutcomes = {};
+    try {
+      drillOutcomes = await latestDrillOutcomes(user.id, ledger.points);
+    } catch {
+      degradationReasons.push("drill-outcomes-unavailable");
+    }
+    const pendingRetest =
+      repairAnchorsResult.status === "fulfilled"
+        ? pendingRepairRetests(ledger.points, repairAnchorsResult.value)[0] ?? null
+        : null;
     coachingDimension = pickFocusDimension(
       ledger.points,
       drillOutcomes,
@@ -122,12 +137,7 @@ export async function POST(request: Request) {
             attemptedAt: pendingRetest.attemptedAt,
           }
         : null;
-    } else {
-      repairRetest = null;
     }
-  } catch {
-    coachingDimension = null;
-    repairRetest = null;
   }
 
   const { data: debate, error: debateError } = await db
@@ -138,7 +148,12 @@ export async function POST(request: Request) {
       side,
       round_count: 1,
       format,
-      coaching: { dimension: coachingDimension, sideReason, repairRetest },
+      coaching: {
+        dimension: coachingDimension,
+        sideReason,
+        repairRetest,
+        degradationReasons: degradationReasons.length ? degradationReasons : null,
+      },
     })
     .select("*")
     .single();
@@ -157,7 +172,7 @@ export async function POST(request: Request) {
     await recordProductEventForUser(user.id, "retest_started", {
       format,
       side,
-      reason: repairRetest.targetKind as import("@/lib/productEvents").ProductEventReason,
+      reason: repairRetest.targetKind,
       debateId: debate.id,
     });
   }

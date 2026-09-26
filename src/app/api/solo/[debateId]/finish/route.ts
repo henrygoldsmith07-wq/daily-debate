@@ -14,7 +14,7 @@ import { minRoundsFor, measurementHonestyFor } from "@/lib/sprint";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { snapshotFromAssessment } from "@/lib/coachingGoal";
 import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
-import { recordProductEventForUser, type ProductEventReason } from "@/lib/productEvents";
+import { recordProductEventForUser } from "@/lib/productEvents";
 import { MAX_ROUNDS, type CoachingRecord } from "@/lib/types";
 import { mergeSoloAssessmentsByDebate } from "@/lib/soloAssessmentHistory";
 import { extractSkillPoint } from "@/lib/skillLedger";
@@ -256,14 +256,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       await recordProductEventForUser(user.id, "retest_completed", {
         format,
         side: eventSide,
-        reason: coaching.repairRetest.targetKind as ProductEventReason,
+        reason: coaching.repairRetest.targetKind,
         debateId,
       });
       if (snapshot.goalOutcome.demonstrated === true) {
         await recordProductEventForUser(user.id, "retest_skill_demonstrated", {
           format,
           side: eventSide,
-          reason: coaching.repairRetest.targetKind as ProductEventReason,
+          reason: coaching.repairRetest.targetKind,
           debateId,
         });
       }

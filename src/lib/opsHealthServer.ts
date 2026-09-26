@@ -5,6 +5,7 @@ import { createServiceClient } from "./backend/server";
 import type { TableName } from "./backend/query";
 import {
   assessAppHealth,
+  assessCoachingRuntimeHealth,
   assessMigrationReadiness,
   assessDatabaseHealth,
   assessHumanValidation,
@@ -21,6 +22,7 @@ import {
   matchesExactAiTelemetry,
   parseArtifactWitness,
   type EvidenceSection,
+  type CoachingRuntimeHealth,
   type OpsHealthReport,
   type TopicArtifactWitness,
   type TopicRunTelemetryRow,
@@ -32,6 +34,10 @@ import { findZipEntry } from "./zipEntry";
 import { computeCorpusMetrics, type MetricItem, type MetricRating } from "./corpusMetrics";
 import { buildRepairOutcomeFunnel } from "./productFunnel";
 import { loadFunnelData } from "./productFunnelServer";
+import {
+  isCoachingContextDegradationReason,
+  type CoachingContextDegradationReason,
+} from "./types";
 
 // Server-side data gathering for the operational-health report. All state
 // interpretation lives in the pure opsHealth.ts assessors (unit-tested);
@@ -200,6 +206,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   const now = nowIso ?? new Date().toISOString();
   const service = createServiceClient();
   const human = await loadHumanSection();
+  const coach = await loadCoachingRuntimeSection(service, now);
   const training = await loadTrainingSection(now);
 
   // --- Database: connectivity, latency, migrations, required tables --------
@@ -401,7 +408,60 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
     now,
   );
 
-  return buildOpsHealthReport({ generatedAt: now, topic, topicReadSqlstate, topicReadShapeMatrix, topicSlo, judge, database, app, human, training });
+  return buildOpsHealthReport({ generatedAt: now, topic, topicReadSqlstate, topicReadShapeMatrix, topicSlo, judge, database, app, human, coach, training });
+}
+
+async function loadCoachingRuntimeSection(
+  service: ReturnType<typeof createServiceClient>,
+  now: string,
+): Promise<CoachingRuntimeHealth> {
+  const cutoff = new Date(Date.parse(now) - 7 * 86_400_000).toISOString();
+  try {
+    const { data, error } = await service
+      .from("solo_debates")
+      .select("created_at, coaching")
+      .gte("created_at", cutoff)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (error) throw new Error(error.message ?? "coaching runtime sample unreadable");
+
+    let degradedStarts = 0;
+    let latestDegradedAt: string | null = null;
+    const reasonCounts: Partial<Record<CoachingContextDegradationReason, number>> = {};
+    for (const row of data ?? []) {
+      const coaching = row.coaching && typeof row.coaching === "object"
+        ? (row.coaching as { degradationReasons?: unknown })
+        : null;
+      const reasons = Array.isArray(coaching?.degradationReasons)
+        ? coaching.degradationReasons.filter(isCoachingContextDegradationReason)
+        : [];
+      if (!reasons.length) continue;
+      degradedStarts += 1;
+      if (!latestDegradedAt || Date.parse(row.created_at) > Date.parse(latestDegradedAt)) {
+        latestDegradedAt = row.created_at;
+      }
+      for (const reason of new Set(reasons)) {
+        reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
+      }
+    }
+    return assessCoachingRuntimeHealth({
+      startsSampled: (data ?? []).length,
+      degradedStarts,
+      latestDegradedAt,
+      reasonCounts,
+    });
+  } catch {
+    return {
+      status: "unknown",
+      headline: "coaching runtime health could not be read",
+      facts: [],
+      note: "Recent solo-debate coaching context is unavailable to ops health.",
+      startsSampled: 0,
+      degradedStarts: 0,
+      latestDegradedAt: null,
+      reasonCounts: {},
+    };
+  }
 }
 
 /**
@@ -751,9 +811,20 @@ async function loadHumanSection(): Promise<EvidenceSection> {
  */
 async function loadTrainingSection(now: string): Promise<TrainingEvidence> {
   try {
-    const { events, repairs, debateWeaknesses } = await loadFunnelData();
+    const funnelData = await loadFunnelData();
+    if (funnelData.status === "unavailable") {
+      return {
+        status: "blocked",
+        headline: "training-loop analytics source unavailable",
+        facts: [],
+        note: `Could not read funnel data (${funnelData.errorCategory ?? "unknown"}) — zero activity is not being inferred.`,
+        measurement: "invalid" as const,
+        outcomes: [],
+      };
+    }
+    const { events, repairs, debateWeaknesses } = funnelData;
     const funnel = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { now });
-    return assessTrainingEvidence({
+    const assessed = assessTrainingEvidence({
       repairs: funnel.repairs,
       retestsObserved: funnel.retestsObserved,
       retestsPending: funnel.retestsPending,
@@ -763,6 +834,14 @@ async function loadTrainingSection(now: string): Promise<TrainingEvidence> {
       medianOpportunitiesToRecurrence: funnel.opportunitiesBeforeRecurrence.median,
       censoredRepairs: funnel.timeToFirstRecurrence.censoredRepairs,
     });
+    if (funnelData.status === "partial") {
+      return {
+        ...assessed,
+        status: assessed.status === "healthy" ? "degraded" : assessed.status,
+        note: `${assessed.note ?? ""}${assessed.note ? " " : ""}Underlying funnel data is partial${funnelData.errorCategory ? ` (${funnelData.errorCategory})` : ""}.`,
+      };
+    }
+    return assessed;
   } catch {
     return {
       status: "blocked",

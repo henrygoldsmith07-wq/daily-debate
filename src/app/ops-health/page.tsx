@@ -234,6 +234,13 @@ export default async function OpsHealthPage() {
         </p>
       </section>
 
+      {report.coach && (
+        <EvidenceSectionCard
+          id="coach-runtime-heading"
+          title="Coach runtime"
+          section={report.coach}
+        />
+      )}
       {report.human && <EvidenceSectionCard id="human-heading" title="Human validation" section={report.human} />}
       {report.training && <TrainingSectionCard section={report.training} />}
     </AppShell>

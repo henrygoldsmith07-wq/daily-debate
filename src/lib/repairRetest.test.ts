@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isDifferentRetestContext,
   pendingRepairRetest,
+  pendingRepairRetests,
   pointMeasuresDimension,
   repairKindToDimension,
   type RepairRetestAnchor,
@@ -64,6 +65,51 @@ describe("repair retest policy", () => {
       point("quiet", "2026-06-11T12:00:00Z", { unsupportedClaimRate: null }),
     ];
     expect(pendingRepairRetest(points, anchor)?.dimension).toBe("evidence");
+  });
+
+  it("keeps multiple unresolved repairs and prioritises the oldest instead of the newest", () => {
+    const older: RepairRetestAnchor = {
+      debateId: "repair-older",
+      targetKind: "evidence",
+      attemptedAt: "2026-06-09T12:00:00Z",
+      topicId: "topic-old",
+    };
+    const newer: RepairRetestAnchor = {
+      debateId: "repair-newer",
+      targetKind: "rebuttal",
+      attemptedAt: "2026-06-10T12:00:00Z",
+      topicId: "topic-new",
+    };
+    const pending = pendingRepairRetests([], [newer, older]);
+    expect(pending.map((item) => item.debateId)).toEqual(["repair-older", "repair-newer"]);
+  });
+
+  it("removes only the repair whose target was genuinely retested", () => {
+    const anchors: RepairRetestAnchor[] = [
+      {
+        debateId: "repair-evidence",
+        targetKind: "evidence",
+        attemptedAt: "2026-06-09T12:00:00Z",
+        topicId: "topic-a",
+      },
+      {
+        debateId: "repair-rebuttal",
+        targetKind: "rebuttal",
+        attemptedAt: "2026-06-10T12:00:00Z",
+        topicId: "topic-b",
+      },
+    ];
+    const points = [
+      point(
+        "later-evidence",
+        "2026-06-11T12:00:00Z",
+        { unsupportedClaimRate: 0 },
+        { majorClaims: 1, opponentMoves: 0 },
+        "topic-c",
+      ),
+    ];
+    const pending = pendingRepairRetests(points, anchors);
+    expect(pending.map((item) => item.debateId)).toEqual(["repair-rebuttal"]);
   });
 
   it("treats a failed but observable evidence retest as a real retest", () => {

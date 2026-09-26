@@ -1,3 +1,5 @@
+import type { CoachingContextDegradationReason } from "./types";
+
 // Operational health — explicit states for critical background systems.
 //
 // Every section reports one of: healthy / degraded / blocked / stale /
@@ -1126,6 +1128,59 @@ export interface TrainingEvidenceInput {
   censoredRepairs: number;
 }
 
+export interface CoachingRuntimeInput {
+  startsSampled: number;
+  degradedStarts: number;
+  latestDegradedAt: string | null;
+  reasonCounts: Partial<Record<CoachingContextDegradationReason, number>>;
+}
+
+export interface CoachingRuntimeHealth extends EvidenceSection {
+  startsSampled: number;
+  degradedStarts: number;
+  latestDegradedAt: string | null;
+  reasonCounts: Partial<Record<CoachingContextDegradationReason, number>>;
+}
+
+export function assessCoachingRuntimeHealth(
+  input: CoachingRuntimeInput,
+): CoachingRuntimeHealth {
+  const facts = [
+    { label: "Recent solo starts sampled", value: String(input.startsSampled) },
+    { label: "Starts with degraded coaching context", value: String(input.degradedStarts) },
+  ];
+  for (const [reason, count] of Object.entries(input.reasonCounts)) {
+    if (!count) continue;
+    facts.push({ label: `Degradation · ${reason}`, value: String(count) });
+  }
+
+  if (input.startsSampled === 0) {
+    return {
+      status: "unknown",
+      headline: "no recent solo starts to assess coaching runtime",
+      facts,
+      note: "Runtime coaching availability is unresolved until a solo debate starts.",
+      ...input,
+    };
+  }
+  if (input.degradedStarts === 0) {
+    return {
+      status: "healthy",
+      headline: "recent solo starts loaded coaching context successfully",
+      facts,
+      note: null,
+      ...input,
+    };
+  }
+  return {
+    status: "degraded",
+    headline: `${input.degradedStarts}/${input.startsSampled} recent solo starts degraded coaching context`,
+    facts,
+    note: "Debates remain usable by design, but one or more coaching dependencies failed. Investigate before treating a missing goal/retest as intentional.",
+    ...input,
+  };
+}
+
 /** Measurement readiness — never an outcome judgement. */
 export type MeasurementState = "insufficient" | "measurable" | "stale" | "invalid";
 
@@ -1203,6 +1258,7 @@ export interface OpsHealthReport {
   database: DatabaseHealth;
   app: AppHealth;
   human?: EvidenceSection;
+  coach?: CoachingRuntimeHealth;
   training?: TrainingEvidence;
   overall: HealthState;
   unknowns: string[];
@@ -1219,21 +1275,32 @@ export function buildOpsHealthReport(parts: {
   database: DatabaseHealth;
   app: AppHealth;
   human?: EvidenceSection;
+  coach?: CoachingRuntimeHealth;
   training?: TrainingEvidence;
 }): OpsHealthReport {
   const unknowns: string[] = [];
   if (parts.app.status === "unknown") unknowns.push("app/ci");
   if (parts.topicSlo.status === "unknown") unknowns.push("topic-slo");
+  if (parts.coach?.status === "unknown") unknowns.push("coach-runtime");
   const notes = [
     parts.topic.note,
     parts.topicSlo.note,
     parts.judge.note,
     parts.database.note,
     parts.app.note,
+    parts.coach?.note,
   ].filter((n): n is string => !!n);
+  const overallStates = [
+    parts.topic.status,
+    parts.topicSlo.status,
+    parts.judge.status,
+    parts.database.status,
+    parts.app.status,
+    ...(parts.coach ? [parts.coach.status] : []),
+  ];
   return {
     ...parts,
-    overall: rollupOverall([parts.topic.status, parts.topicSlo.status, parts.judge.status, parts.database.status, parts.app.status]),
+    overall: rollupOverall(overallStates),
     unknowns,
     notes,
   };
