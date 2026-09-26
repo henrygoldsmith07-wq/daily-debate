@@ -173,6 +173,11 @@ export class AuthApi {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
       return { error: { message: "Enter a valid email address." } };
     }
+    // Fail consistently for every valid address when delivery is not
+    // configured. This is both honest to the user and non-enumerating.
+    if (!this.resetTokenSender) {
+      return { error: { message: "Password reset email is temporarily unavailable." } };
+    }
     try {
       const rows = await queryRows<{ id: string }>(
         "SELECT id FROM app_users WHERE email = $1 LIMIT 1",
@@ -189,8 +194,17 @@ export class AuthApi {
            VALUES ($1, $2, now() + ($3 * interval '1 second'))`,
           [user.id, tokenHash(token), PASSWORD_RESET_TTL_SECONDS],
         );
-        if (this.resetTokenSender) {
+        try {
           await this.resetTokenSender(normalized, token);
+        } catch (deliveryError) {
+          // Do not reveal whether the account exists by changing the public
+          // response. Revoke the undelivered token and record only a bounded
+          // infrastructure error (never the recipient or raw token).
+          await queryRows("DELETE FROM password_reset_tokens WHERE user_id = $1", [user.id]).catch(() => []);
+          const candidate = deliveryError as { message?: string };
+          console.error("[auth] password reset email delivery failed", {
+            error: candidate?.message ?? "unknown delivery error",
+          });
         }
       }
       return { error: null };

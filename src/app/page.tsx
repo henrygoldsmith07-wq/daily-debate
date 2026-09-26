@@ -4,18 +4,19 @@ import { getTodayTopic } from "@/lib/dailyTopic";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import GuestArena from "@/components/GuestArena";
+import PageViewEvent from "@/components/PageViewEvent";
 import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import SkillProfileBars from "@/components/SkillProfileBars";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, type CoachingSnapshot } from "@/lib/coachingGoal";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
-import { recordProductEvent } from "@/lib/productEvents";
 import { isDatabaseConfigured } from "@/lib/backend/env";
 import { latestRepairRetestAnchor } from "@/lib/repairRetestServer";
 import { pendingRepairRetest } from "@/lib/repairRetest";
 import { latestDrillOutcomes } from "@/lib/adaptiveCoachServer";
 import { latestUnfinishedRepair } from "@/lib/repairResume";
+import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +33,7 @@ export default async function DashboardPage() {
   }
 
   const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return <GuestArena />;
@@ -43,7 +42,6 @@ export default async function DashboardPage() {
   // getTodayTopic never throws — it falls back to a curated motion when
   // nothing is pre-stored, so the dashboard always has content.
   const topic = await getTodayTopic();
-  void recordProductEvent("daily_viewed");
 
   const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger, repairAnchor] =
     await Promise.all([
@@ -56,7 +54,7 @@ export default async function DashboardPage() {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      db.from("profiles").select("total_points, level, current_streak").eq("id", user.id).single(),
+      getProfileSummary(user.id).then((data) => ({ data })),
       db
         .from("topic_evidence")
         .select("*")
@@ -129,6 +127,7 @@ export default async function DashboardPage() {
 
   return (
     <AppShell>
+      <PageViewEvent name="daily_viewed" />
       <PageHeader
         eyebrow="Daily practice"
         title="Today"

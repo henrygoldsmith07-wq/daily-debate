@@ -3,12 +3,11 @@ import { getFactorRatings } from "@/lib/ratings";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import RatingBreakdown from "@/components/RatingBreakdown";
+import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 
 export default async function LeaderboardPage() {
   const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getCurrentUser();
 
   const { data: profiles } = await db
     .from("profiles")
@@ -23,7 +22,7 @@ export default async function LeaderboardPage() {
   // top 50 shown in the table.
   let yourRank: number | null = null;
   if (user) {
-    const { data: mine } = await db.from("profiles").select("total_points").eq("id", user.id).single();
+    const mine = await getProfileSummary(user.id);
     if (mine) {
       const { count } = await db
         .from("profiles")
@@ -36,10 +35,10 @@ export default async function LeaderboardPage() {
   return (
     <AppShell width="narrow">
       <PageHeader
-        eyebrow="Rankings"
-        title="Leaderboard"
-        description="Ranked by total points earned across solo debates and PvP matches."
-        actions={yourRank !== null && <span className="pill tabular">You&apos;re #{yourRank}</span>}
+        eyebrow="Practice activity"
+        title="Points leaderboard"
+        description="Ordered by total training points earned across solo debates and PvP matches. Points reflect participation and practice activity, not validated debating ability."
+        actions={yourRank !== null && <span className="pill tabular">Points position #{yourRank}</span>}
       />
       {ratings && <RatingBreakdown ratings={ratings} />}
       <div className="surface-card overflow-hidden">
@@ -49,7 +48,7 @@ export default async function LeaderboardPage() {
           </p>
         ) : (
           <table className="w-full text-sm">
-            <caption className="sr-only">Global leaderboard ranked by total points</caption>
+            <caption className="sr-only">Global practice leaderboard ordered by total training points</caption>
             <thead>
               <tr className="border-b border-[var(--rule)] text-left text-xs uppercase tracking-wide text-ink3">
                 <th scope="col" className="px-4 py-3">#</th>
@@ -62,7 +61,6 @@ export default async function LeaderboardPage() {
             <tbody>
               {list.map((profile, index) => {
                 const isYou = profile.id === user?.id;
-                const medal = ["🥇", "🥈", "🥉"][index];
                 return (
                   <tr
                     key={profile.id}
@@ -70,7 +68,7 @@ export default async function LeaderboardPage() {
                       isYou ? "bg-[var(--accent-soft)]" : ""
                     }`}
                   >
-                    <td className="px-4 py-3 text-ink3">{medal ?? index + 1}</td>
+                    <td className="px-4 py-3 text-ink3">{index + 1}</td>
                     <td className="px-4 py-3">
                       {profile.username ?? "Anonymous"}
                       {isYou && (

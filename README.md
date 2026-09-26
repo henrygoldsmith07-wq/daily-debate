@@ -62,7 +62,7 @@ Honest labels for what is shipped, provisional, or gated:
 ## Setup
 
 1. Create a standard Postgres database (a pooled Neon/Vercel Postgres URL is recommended for serverless deployments).
-2. Run `npm install`, copy `.env.example` to `.env.local`, and set `DATABASE_URL` plus at least one AI provider key.
+2. Run `npm install`, copy `.env.example` to `.env.local`, and set `DATABASE_URL` plus at least one AI provider key. Configure the password-reset email variables before relying on account recovery.
 3. Run `npm run db:migrate && npm run dev`.
 
 Authenticated users get the full daily-topic experience. Signed-out users get a local guest practice loop first, so the product can be evaluated before starting a debate account.
@@ -81,6 +81,9 @@ Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only chec
 | `OPENROUTER_MODEL` | optional | Defaults to `nvidia/nemotron-3-super-120b-a12b:free`. |
 | `OPENROUTER_FALLBACK_MODELS` | optional | Comma-separated failover chain. Defaults to free Nemotron 3 Super then Ultra. Empty string pins to one model. |
 | `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |
+| `RESEND_API_KEY` | required for password reset | Server-only Resend API key. Reset requests report the service unavailable when email delivery is not configured. |
+| `PASSWORD_RESET_FROM` | required for password reset | Verified sender, for example `Daily Debate <accounts@yourdomain.com>`. |
+| `APP_BASE_URL` | recommended | Canonical public origin used in reset links, for example `https://debate.example.com`. Vercel production URL is used as a fallback. |
 
 After setting `DATABASE_URL`, run `npm run db:migrate` locally against the same database before deploying authenticated features.
 

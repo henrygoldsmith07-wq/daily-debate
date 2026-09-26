@@ -40,8 +40,21 @@ export default function ResearchPage() {
       <PageHeader
         eyebrow="Trust & research"
         title="How the judging works — and how it is checked"
-        description="Scores come from AI judges, so the trust surface is the judges themselves. This page explains the evidence classes used across the app and links the validation work."
+        description="Daily Debate uses different assessment paths for solo coaching and competitive judging. This page explains what each path does, the evidence classes used across the app, and the validation work behind competitive verdicts."
       />
+
+      <section className="surface-card p-5 flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Two assessment paths</h2>
+        <p className="text-xs leading-5 text-ink3">
+          <strong className="text-ink2">Solo practice:</strong> observable turn signals and persisted scores are
+          recomputed by deterministic assessment code. AI generates coaching feedback and the next challenge, but its
+          own numeric score is not treated as ground truth.
+        </p>
+        <p className="text-xs leading-5 text-ink3">
+          <strong className="text-ink2">PvP judging:</strong> model judges contribute to the competitive verdict, so
+          those results remain subject to the human-corpus, calibration and invariance checks linked below.
+        </p>
+      </section>
 
       <section className="surface-card p-5 flex flex-col gap-4">
         <h2 className="text-sm font-semibold">Evidence classes</h2>
@@ -74,8 +87,9 @@ export default function ResearchPage() {
           ))}
         </ul>
         <p className="text-xs text-ink3">
-          Uncertainty note: per-debate agreement/confidence signals are provisional heuristics over judge behaviour —
-          calibrated quantities live in the corpus metrics above, and only appear once enough human ratings exist.
+          Uncertainty note: competitive per-debate agreement/confidence signals are provisional heuristics over judge
+          behaviour. Calibrated quantities live in the corpus metrics above and only appear once enough human ratings
+          exist.
         </p>
       </section>
     </AppShell>

@@ -37,12 +37,11 @@ Shipped in earlier passes: rater-guidance/consensus-label scaffolding +
 adjudication helpers (`corpusAdjudication.ts`), source-date checking +
 original-source detection (`citationVerifier.ts`), political-topic /
 ideological asymmetry / writing-complexity / source-prestige bias audit
-(`judgeInvariance.ts`), team debates / classroom debates / teacher-assigned
-motions (`classroom.ts`), and judge uncertainty in the UI — every PvP verdict
-now stores confidence, a score-gap band, per-judge agreement, and a "too close
-to call" result (`ensembleJudge.ts`). Still open: the 1,000+ debate data
-collection, live-model benchmark runs (need API keys), and better STT (needs a
-transcription service).
+(`judgeInvariance.ts`), and judge uncertainty in the UI — PvP verdicts store
+confidence, a score-gap band, per-judge agreement, and a "too close to call"
+result (`ensembleJudge.ts`). Classroom/team formats remain roadmap work. Still
+open: the 1,000+ debate data collection, live-model benchmark runs (need API
+keys), and better STT (needs a transcription service).
 
 Second pass (§4 citation & evidence integrity): quote verification
 (`quoteVerification.ts`) — quoted spans in evidence are checked against the cited
@@ -70,9 +69,9 @@ those links to tangential, and docks its score for decorative citations.
 | Judge invariance transforms (swap labels, strip names, verbosity, hedge, fake source) | `src/lib/judgeInvariance.ts` |
 | Labelled fixture corpus (provenance currently unverified) | `src/lib/humanCorpus.ts` |
 | Heuristic enrichers (repetition, rebuttal coverage, fallacy hints) | `src/lib/argHeuristics.ts` |
-| Targeted drills + weakness profile | `src/lib/drills.ts` |
+| Adaptive drills + weakness/profile selection | `src/lib/adaptiveCoach.ts`, `src/lib/coachLoop.ts` |
 | Elo gating + matchmaking | `src/lib/competitive.ts` |
-| Transcripts / replay / async scaffold | `src/lib/transcript.ts` |
+| Finished-debate replay from persisted turns | `src/app/debate/[debateId]/page.tsx` |
 | Voice input/output (Web Speech API, Chrome-family) | `src/components` |
 
 ## 1. Evaluation corpus — the headline
@@ -153,19 +152,19 @@ those links to tangential, and docks its score for decorative citations.
 - Tournament mode after judge validation *(extend — gated by `eloGate`)*.
 - Ranked mode after validation *(extend — gated by `eloGate`)*.
 - Skill progression.
-- Targeted drills *(extend — `drillsFor` / `weaknessProfile`)*.
+- Targeted drills *(extend — `adaptiveCoach.ts` / `coachLoop.ts`)*.
 - Measure drill effectiveness.
 
 ## 9. Sharing
 
-- Shareable debate replay *(extend — `transcriptForReplay` exists)*.
+- Shareable debate replay *(current replay exists for signed-in persisted debates; public sharing is still open)*.
 
 ## Gating rule (unchanged)
 
-Ranked, tournament, and challenge modes stay behind the existing gate — judge
-invariance measured on the real model **and** ≥70% human agreement against the
-Section 1 corpus. Sections 1–3 are the unlock path for everything in Section 8:
-no large labelled corpus, no ranked play.
+Ranked and tournament modes stay behind the existing gate — a mature Stage 3
+corpus, judge invariance measured on the real model, and ≥75% human agreement
+against the Section 1 corpus. Friend challenges are experimental unranked play,
+so they do not imply that the competitive ranking gate has passed.
 
 ## North star
 

@@ -19,7 +19,8 @@ export default function ForgotPasswordForm() {
       <div className="surface-raised flex w-full max-w-sm flex-col gap-4 p-6 text-center">
         <h2 className="font-semibold">Check your inbox</h2>
         <p className="text-sm text-ink3">
-          If an account exists for that email, a reset link is on its way. The link is valid for 30 minutes.
+          If an account exists for that email, check for a reset message. The link is valid for 30 minutes. If nothing
+          arrives after a few minutes, try again in case email delivery is temporarily unavailable.
         </p>
       </div>
     );
