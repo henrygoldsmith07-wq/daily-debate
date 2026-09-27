@@ -78,7 +78,9 @@ export default function DebateRoom({
   const initialPending = initialTurns[initialTurns.length - 1];
   const initialMode: DebateModeId = isDebateModeId(initialPending?.staged_mode)
     ? initialPending.staged_mode
-    : "text";
+    : isDebateModeId(initialPending?.response_mode)
+      ? initialPending.response_mode
+      : "text";
   const [turns, setTurns] = useState(initialTurns);
   const [roundCount, setRoundCount] = useState(debate.round_count);
   const [status, setStatus] = useState(debate.status);
@@ -100,6 +102,7 @@ export default function DebateRoom({
   const pending = turns[turns.length - 1];
   const answeredCount = turns.filter((t) => t.user_message).length;
   const canFinish = answeredCount >= minRounds;
+  const canFinishWithSaved = !!pending?.staged_user_message && answeredCount + 1 >= minRounds;
   const sideReason =
     (debate.coaching as { sideReason?: string | null } | null)?.sideReason ??
     ((debate as unknown as { side_reason?: string | null }).side_reason ?? null);
@@ -127,6 +130,41 @@ export default function DebateRoom({
     !submissionSaved &&
     DEBATE_MODES[debateMode].hardTimeLimitSecs !== null &&
     modeStartedAt === null;
+
+  // Reloading an active timed round must restore the same server-issued
+  // window rather than silently falling back to Text or resetting the clock.
+  useEffect(() => {
+    if (!initialPending?.id || initialPending.staged_user_message) return;
+    const limit = DEBATE_MODES[initialMode].hardTimeLimitSecs;
+    if (limit === null) return;
+
+    let cancelled = false;
+    const restore = async () => {
+      setModeWindowStarting(true);
+      try {
+        const res = await fetch(`/api/solo/${debate.id}/turn-window`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ turnId: initialPending.id, modeId: initialMode }),
+        });
+        const data = await res.json();
+        if (!res.ok || cancelled) return;
+        const remaining = typeof data.remainingSeconds === "number"
+          ? Math.max(0, Math.min(limit, data.remainingSeconds))
+          : limit;
+        setModeStartedAt(localCountdownAnchorMs(limit, remaining));
+        if (remaining <= 0) {
+          setError(`${DEBATE_MODES[initialMode].label} time limit has expired. Switch modes to continue this round.`);
+        }
+      } finally {
+        if (!cancelled) setModeWindowStarting(false);
+      }
+    };
+    void restore();
+    return () => {
+      cancelled = true;
+    };
+  }, [debate.id, initialMode, initialPending?.id, initialPending?.staged_user_message]);
 
   async function startResponseWindow(modeId: DebateModeId, turnId: string) {
     setModeWindowStarting(true);
@@ -252,15 +290,17 @@ export default function DebateRoom({
     }
   }
 
-  async function finishDebate() {
+  async function finishDebate(finishSavedResponse = false) {
     setFinishing(true);
     setError(null);
     try {
-      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       const res = await fetch(`/api/solo/${debate.id}/finish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ timeZone }),
+        body: JSON.stringify({
+          finishSavedResponse,
+          expectedTurnId: finishSavedResponse ? pending?.id ?? "" : undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to finish debate.");
@@ -691,7 +731,8 @@ export default function DebateRoom({
           />
           {submissionSaved ? (
             <p className="text-xs text-ink3" role="status">
-              Your response is saved. Send it again to resume opponent generation; the original response deadline no longer applies.
+              Your response is saved. Send it again to resume opponent generation
+              {canFinishWithSaved ? ", or finish now using this saved response" : ""}; the original response deadline no longer applies.
             </p>
           ) : opponentSpeaking ? (
             <p className="text-xs text-ink3" role="status">Opponent is speaking — your response clock starts when they finish.</p>
@@ -707,15 +748,19 @@ export default function DebateRoom({
         </p>
       )}
 
-      {canFinish && status === "active" && (
+      {(canFinish || canFinishWithSaved) && status === "active" && (
         <button
           type="button"
-          onClick={finishDebate}
-          disabled={finishing || sending || submissionSaved}
+          onClick={() => void finishDebate(submissionSaved)}
+          disabled={finishing || sending || (submissionSaved && !canFinishWithSaved)}
           className="btn chip-elevated px-4 py-2 text-sm text-[var(--accent)] disabled:opacity-40"
           data-testid="finish-debate"
         >
-          {finishing ? "Finishing your debate…" : submissionSaved ? "Finish the saved response first" : "Finish debate"}
+          {finishing
+            ? "Finishing your debate…"
+            : submissionSaved
+              ? "Finish with saved response"
+              : "Finish debate"}
         </button>
       )}
     </div>
