@@ -47,7 +47,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const finishSavedResponse = body?.finishSavedResponse === true;
   const expectedTurnId = typeof body?.expectedTurnId === "string" ? body.expectedTurnId : "";
 
-  const [{ data: debate, error: debateError }, { data: profile }] = await Promise.all([
+  const [{ data: debate, error: debateError }, { data: profile, error: profileError }] = await Promise.all([
     db
       .from("solo_debates")
       .select("*")
@@ -56,8 +56,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       .single(),
     db.from("profiles").select("timezone").eq("id", user.id).single(),
   ]);
-  const timeZone = normalizeIanaTimeZone(profile?.timezone);
   if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
+  if (profileError || !profile?.timezone) {
+    console.error("Failed to load profile timezone for solo finalization:", profileError);
+    return NextResponse.json(
+      { error: "Your account timezone could not be loaded. Please retry finishing the debate." },
+      { status: 503 },
+    );
+  }
+  const timeZone = normalizeIanaTimeZone(profile.timezone);
+  if (timeZone !== profile.timezone) {
+    console.error("Stored profile timezone is invalid during solo finalization.");
+    return NextResponse.json(
+      { error: "Your account timezone could not be validated. Please retry finishing the debate." },
+      { status: 503 },
+    );
+  }
 
   if (debate.status === "completed") {
     if (debate.result_payload && typeof debate.result_payload === "object") {
@@ -103,7 +117,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
               : "The saved response could not be used to finish this debate. Refresh and try again.";
       return NextResponse.json({ error: message, code: stagedResult.reason ?? "saved_response_unavailable" }, { status: 409 });
     }
-    if (typeof stagedResult.completedTurn?.round_number === "number") {
+    if (
+      stagedResult.reason === "saved-for-finish" &&
+      typeof stagedResult.completedTurn?.round_number === "number"
+    ) {
       await recordProductEventForUser(user.id, "round_completed", {
         format,
         side: debate.side as "for" | "against",
