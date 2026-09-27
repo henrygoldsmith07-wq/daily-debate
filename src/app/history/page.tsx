@@ -4,12 +4,18 @@ import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
 import type { PvpVerdict } from "@/lib/types";
+import { normalizeIanaTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, timeZone: string): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone,
+  });
 }
 
 export default async function HistoryPage() {
@@ -29,7 +35,7 @@ export default async function HistoryPage() {
     );
   }
 
-  const [soloRes, pvpRes] = await Promise.all([
+  const [soloRes, pvpRes, profileRes] = await Promise.all([
     db
       .from("solo_debates")
       .select("id, status, side, round_count, total_score, performance_score, bonus_xp, created_at, completed_at, topic_id")
@@ -42,10 +48,12 @@ export default async function HistoryPage() {
       .or(`player_a.eq.${user.id},player_b.eq.${user.id}`)
       .order("created_at", { ascending: false })
       .limit(50),
+    db.from("profiles").select("timezone").eq("id", user.id).single(),
   ]);
 
   const soloDebates = soloRes.data ?? [];
   const pvpMatches = pvpRes.data ?? [];
+  const timeZone = normalizeIanaTimeZone(profileRes.data?.timezone);
   const topicIds = [...new Set([...soloDebates, ...pvpMatches].map((row) => row.topic_id))];
   const topicTitles = new Map<string, string>();
   if (topicIds.length) {
@@ -76,7 +84,7 @@ export default async function HistoryPage() {
           <p className="text-sm text-ink3">No solo debates yet.</p>
         ) : (
           soloDebates.map((d) => {
-            const performance = d.performance_score ?? 0;
+            const performance = d.performance_score;
             const xp = (d.total_score ?? 0) + (d.bonus_xp ?? 0);
             return (
             <Link
@@ -87,13 +95,15 @@ export default async function HistoryPage() {
               <span className="flex min-w-0 flex-col">
                 <span className="truncate font-medium">{topicTitles.get(d.topic_id) ?? "Daily topic"}</span>
                 <span className="text-xs text-ink3">
-                  {formatDate(d.completed_at ?? d.created_at)} · arguing {d.side} · {d.round_count} rounds
+                  {formatDate(d.completed_at ?? d.created_at, timeZone)} · arguing {d.side} · {d.round_count} rounds
                 </span>
               </span>
               <span className="shrink-0 text-right">
                 {d.status === "completed" ? (
                   <>
-                    <span className="block tabular font-medium">{performance}/100 performance</span>
+                    <span className="block tabular font-medium">
+                      {performance === null ? "Performance unavailable" : `${performance}/100 performance`}
+                    </span>
                     <span className="block text-xs text-ink3">+{xp} XP</span>
                   </>
                 ) : (
@@ -134,7 +144,7 @@ export default async function HistoryPage() {
               >
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate font-medium">{topicTitles.get(m.topic_id) ?? "Daily topic"}</span>
-                  <span className="text-xs text-ink3">{formatDate(m.completed_at)}</span>
+                  <span className="text-xs text-ink3">{formatDate(m.completed_at, timeZone)}</span>
                 </span>
                 <span className="shrink-0 text-right">
                   <span
