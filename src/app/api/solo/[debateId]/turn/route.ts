@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/backend/server";
-import { checkRateLimit } from "@/lib/rateLimit";
+import { checkRateLimit, checkRateLimitKey } from "@/lib/rateLimit";
 import { debateTurn } from "@/lib/openrouter";
 import { debateTurn as anthropicTurn } from "@/lib/anthropic";
 import { withProviderFallback } from "@/lib/aiFallback";
@@ -64,8 +64,10 @@ function stagedResponsePayload(staged: Partial<StagedSubmission> | undefined) {
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
-  const limited = await checkRateLimit(request, { name: "solo-turn", limit: 20, windowMs: 60_000 });
-  if (limited) return limited;
+  // Secondary network-abuse ceiling. Authenticated users get their own tighter
+  // bucket below so people sharing school/home/work NATs do not throttle each other.
+  const ipLimited = await checkRateLimit(request, { name: "solo-turn-ip", limit: 120, windowMs: 60_000 });
+  if (ipLimited) return ipLimited;
 
   const { debateId } = await params;
   const db = await createClient();
@@ -74,8 +76,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const userLimit = await checkRateLimitKey(user.id, { name: "solo-turn-user", limit: 30, windowMs: 60_000 });
+  if (!userLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many turn submissions. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(userLimit.retryAfterSeconds), "Cache-Control": "no-store" } },
+    );
+  }
+
   const body = await request.json().catch(() => null);
   const message = typeof body?.message === "string" ? body.message.trim() : "";
+  const expectedTurnId = typeof body?.expectedTurnId === "string" ? body.expectedTurnId : "";
   const inputMode: InputMode = body?.inputMode === "voice" ? "voice" : "text";
   const modeId = body?.modeId === undefined || body?.modeId === null || body?.modeId === ""
     ? "text"
@@ -90,6 +101,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const speechTiming = inputMode === "voice" ? parseTurnTiming(body?.timing) : null;
 
   if (!message) return NextResponse.json({ error: "message is required." }, { status: 400 });
+  if (!expectedTurnId) {
+    return NextResponse.json({ error: "expectedTurnId is required." }, { status: 400 });
+  }
   if (isSuspiciousLength(message)) {
     return NextResponse.json({ error: "Response is too long. Keep it under 6,000 characters." }, { status: 400 });
   }
@@ -127,13 +141,51 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Debate has no turns." }, { status: 500 });
   }
 
-  const pendingTurn = turns[turns.length - 1];
-  if (pendingTurn.user_message) {
-    return NextResponse.json({ error: "Latest round already answered." }, { status: 409 });
-  }
-
   const debateFormat = debate.format === "sprint" ? "sprint" : "full";
   const roundCap = roundCapFor(debateFormat);
+  const expectedTurn = turns.find((turn) => turn.id === expectedTurnId) ?? null;
+  const pendingTurn = turns[turns.length - 1];
+
+  // Lost-response retry: if this exact answer already committed for the exact
+  // turn the client intended, replay the committed state instead of returning
+  // a generic conflict or attaching the draft to a newer round.
+  if (expectedTurn?.user_message) {
+    if (expectedTurn.user_message === message) {
+      const nextTurn =
+        turns.find((turn) => turn.round_number === expectedTurn.round_number + 1) ?? null;
+      return NextResponse.json({
+        completedTurn: expectedTurn,
+        nextTurn,
+        roundCount: debate.round_count,
+        debateComplete: expectedTurn.round_number >= roundCap,
+        replayed: true,
+      });
+    }
+    return NextResponse.json(
+      {
+        error: "This round was already answered in another tab. Refresh before continuing.",
+        code: "stale_turn",
+        currentTurnId: pendingTurn?.id ?? null,
+      },
+      { status: 409 },
+    );
+  }
+
+  if (!expectedTurn || !pendingTurn || pendingTurn.id !== expectedTurnId) {
+    return NextResponse.json(
+      {
+        error: "This debate advanced in another tab. Your draft was not submitted; refresh before continuing.",
+        code: "stale_turn",
+        currentTurnId: pendingTurn?.id ?? null,
+      },
+      { status: 409 },
+    );
+  }
+
+  if (pendingTurn.user_message) {
+    return NextResponse.json({ error: "Latest round already answered.", code: "stale_turn" }, { status: 409 });
+  }
+
   const isFinalRound = pendingTurn.round_number >= roundCap;
 
   const answered = turns.filter((turn) => turn.user_message);
@@ -202,6 +254,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       return NextResponse.json(
         { error: `${mode.label} time limit expired. Switch modes to continue this round.` },
         { status: 422 },
+      );
+    }
+    if (claim.reason === "debate-finalizing") {
+      return NextResponse.json(
+        { error: "This debate is being finished in another tab. Your response was not submitted.", code: "debate_finalizing" },
+        { status: 409 },
+      );
+    }
+    if (claim.reason === "stale-turn") {
+      return NextResponse.json(
+        { error: "This debate advanced before your response could be claimed. Refresh before continuing.", code: "stale_turn" },
+        { status: 409 },
       );
     }
     if (claim.reason === "submission-in-progress") {

@@ -16,12 +16,13 @@ import { trackEvent } from "@/lib/trackClientEvent";
 import { DEBATE_MODES, isDebateModeId, type DebateModeId } from "@/lib/debateModes";
 
 function localCountdownAnchorMs(limitSeconds: number, remainingSeconds: number): number {
-  return Date.now() - Math.max(0, limitSeconds - remainingSeconds) * 1000;
+  return performance.now() - Math.max(0, limitSeconds - remainingSeconds) * 1000;
 }
 
 interface RewardEventView { kind: string; xp: number; label: string; detail?: string; dimension?: string; }
 interface DebateSummaryPayload {
   totalScore: number;
+  performanceScore: number;
   bonusXP: number;
   rewardEvents: RewardEventView[];
   summary: DebateSummary;
@@ -35,6 +36,7 @@ interface DebateSummaryPayload {
 /** The shared result/replay story: action first, coaching second, detail last. */
 interface ReplayView {
   totalScore: number;
+  performanceScore: number;
   snapshot: ResultSnapshot | null;
   argGraph: ArgGraph | null;
   /** Whether a repair has already been recorded for this debate. */
@@ -60,6 +62,7 @@ export default function DebateRoom({
   initialTurns: SoloDebateTurn[];
   completedResult?: {
     totalScore: number;
+    performanceScore: number;
     argGraph?: ArgGraph;
     snapshot?: ResultSnapshot | null;
     /** Whether a repair has already been recorded for this debate (server-side). */
@@ -177,6 +180,7 @@ export default function DebateRoom({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          expectedTurnId: pending?.id ?? "",
           message: data.message,
           inputMode: data.inputMode,
           modeId: data.modeId,
@@ -252,7 +256,12 @@ export default function DebateRoom({
     setFinishing(true);
     setError(null);
     try {
-      const res = await fetch(`/api/solo/${debate.id}/finish`, { method: "POST" });
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const res = await fetch(`/api/solo/${debate.id}/finish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeZone }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to finish debate.");
       setStatus("completed");
@@ -267,7 +276,7 @@ export default function DebateRoom({
   function copyResult() {
     if (!result) return;
     const text = [
-      `Debate complete — ${result.totalScore} pts`,
+      `Debate complete — performance ${result.performanceScore}/100 · +${result.totalScore + result.bonusXP} XP`,
       topic.title,
       "",
       result.summary.overallFeedback,
@@ -305,6 +314,7 @@ export default function DebateRoom({
   const view: ReplayView | null = result
     ? {
         totalScore: result.totalScore,
+        performanceScore: result.performanceScore,
         snapshot: result.snapshot ?? null,
         argGraph: result.summary.argGraph ?? null,
         repaired: repairSucceeded,
@@ -320,6 +330,7 @@ export default function DebateRoom({
     : debate.status === "completed" && completedResult
       ? {
           totalScore: completedResult.totalScore,
+          performanceScore: completedResult.performanceScore,
           snapshot: completedResult.snapshot ?? null,
           argGraph: completedResult.argGraph ?? null,
           repaired: repairSucceeded,
@@ -410,18 +421,18 @@ export default function DebateRoom({
             </div>
           )}
 
-          {/* Score & XP demoted to secondary */}
+          {/* Performance is length-normalized; XP remains cumulative reward volume. */}
           <div className="flex items-baseline gap-3 pt-1">
-            <span className="text-xs uppercase tracking-wide text-ink3">Score</span>
-            <span className="tabular text-xl font-bold">{view.totalScore}</span>
-            {(view.bonusXP ?? 0) > 0 && <span className="tabular text-sm text-[var(--accent)]">+{view.bonusXP} XP</span>}
+            <span className="text-xs uppercase tracking-wide text-ink3">Performance</span>
+            <span className="tabular text-xl font-bold">{view.performanceScore}/100</span>
+            <span className="tabular text-sm text-[var(--accent)]">+{view.totalScore + (view.bonusXP ?? 0)} XP</span>
             {view.topRewardLabel && <span className="text-xs text-ink3">· {view.topRewardLabel}</span>}
             {view.topRewardDetail && <span className="text-xs text-ink3">({view.topRewardDetail})</span>}
           </div>
           {view.honestyNote && <p className="text-xs leading-5 text-ink3">{view.honestyNote}</p>}
           {view.summarySource === "fallback" && (
             <p className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink3" role="status">
-              Detailed generated feedback was unavailable for this finish. Scores, the main weakness, repair guidance and progress signals still come from the stored deterministic assessment.
+              Detailed generated feedback was unavailable for this finish. Performance, the main weakness, repair guidance and progress signals still come from the stored deterministic assessment.
             </p>
           )}
 
@@ -700,11 +711,11 @@ export default function DebateRoom({
         <button
           type="button"
           onClick={finishDebate}
-          disabled={finishing}
+          disabled={finishing || sending || submissionSaved}
           className="btn chip-elevated px-4 py-2 text-sm text-[var(--accent)] disabled:opacity-40"
           data-testid="finish-debate"
         >
-          {finishing ? "Scoring your debate…" : "Finish & get scored"}
+          {finishing ? "Finishing your debate…" : submissionSaved ? "Finish the saved response first" : "Finish debate"}
         </button>
       )}
     </div>

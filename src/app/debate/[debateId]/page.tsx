@@ -8,6 +8,7 @@ import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { measurementHonestyFor } from "@/lib/sprint";
 import type { CoachingRecord, PersistedSoloResult, SoloDebate, SoloDebateTurn } from "@/lib/types";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
+import { performanceScoreForTurns } from "@/lib/gamification";
 
 export default async function DebatePage({ params }: { params: Promise<{ debateId: string }> }) {
   const { debateId } = await params;
@@ -40,6 +41,7 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
   let completedResult:
     | {
         totalScore: number;
+        performanceScore: number;
         argGraph?: ObservableAssessment["graph"];
         snapshot: ReturnType<typeof buildResultSnapshot> | null;
         repaired: boolean;
@@ -94,6 +96,9 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
       .maybeSingle();
     completedResult = {
       totalScore: debate.total_score ?? 0,
+      performanceScore:
+        persisted?.performanceScore ??
+        performanceScoreForTurns((turns ?? []).map((turn) => turn.turn_score)),
       argGraph: persistedAssessment?.graph ?? finalAssessment?.graph,
       snapshot: persistedSnapshot ?? rebuiltSnapshot,
       repaired: !!repair,

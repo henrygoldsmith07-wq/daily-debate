@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/backend/server";
-import { checkRateLimit } from "@/lib/rateLimit";
+import { checkRateLimit, checkRateLimitKey } from "@/lib/rateLimit";
 import { summarizeSoloDebate } from "@/lib/openrouter";
 import { summarizeSoloDebate as anthropicSummarize } from "@/lib/anthropic";
 import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidSummary } from "@/lib/aiSchema";
-import { POINTS_PER_LEVEL } from "@/lib/gamification";
+import { performanceScoreForTurns, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { computeCoachRewards, totalBonusXP } from "@/lib/coachRewards";
 import { buildEvaluationResult } from "@/lib/evaluationEnvelope";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
@@ -21,10 +21,11 @@ import { mergeSoloAssessmentsByDebate } from "@/lib/soloAssessmentHistory";
 import { extractSkillPoint } from "@/lib/skillLedger";
 import { pointMeasuresDimension, repairKindToDimension } from "@/lib/repairRetest";
 import { buildTrainingSummary } from "@/lib/trainingSummary";
+import { normalizeIanaTimeZone } from "@/lib/timeZone";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
-  const limited = await checkRateLimit(request, { name: "solo-finish", limit: 10, windowMs: 60_000 });
-  if (limited) return limited;
+  const ipLimited = await checkRateLimit(request, { name: "solo-finish-ip", limit: 60, windowMs: 60_000 });
+  if (ipLimited) return ipLimited;
 
   const { debateId } = await params;
   const db = await createClient();
@@ -33,6 +34,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = user.id;
+
+  const userLimit = await checkRateLimitKey(user.id, { name: "solo-finish-user", limit: 10, windowMs: 60_000 });
+  if (!userLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many finish attempts. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(userLimit.retryAfterSeconds), "Cache-Control": "no-store" } },
+    );
+  }
+
+  const body = await request.json().catch(() => null);
+  const timeZone = normalizeIanaTimeZone(body?.timeZone);
 
   const { data: debate, error: debateError } = await db
     .from("solo_debates")
@@ -51,22 +63,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const format = debate.format === "sprint" ? "sprint" : "full";
   const minRounds = minRoundsFor(format);
 
-  const { data: turns, error: turnsError } = await db
-    .from("solo_debate_turns")
-    .select("*")
-    .eq("debate_id", debateId)
-    .order("round_number", { ascending: true });
-  if (turnsError || !turns) return NextResponse.json({ error: "Failed to load turns." }, { status: 500 });
-
-  const answered = turns.filter((turn) => turn.user_message);
-  if (answered.length < minRounds) {
-    return NextResponse.json(
-      { error: `Complete at least ${minRounds} rounds before finishing.` },
-      { status: 400 },
-    );
-  }
-
-  const totalScore = answered.reduce((sum, turn) => sum + (turn.turn_score ?? 0), 0);
+  // Claim the finalization barrier before loading the transcript. A turn that
+  // is already committing finishes first because both paths lock the debate;
+  // new turn work is rejected once this token exists. This prevents a result
+  // snapshot from omitting a response accepted concurrently in another tab.
   const finalizationToken = randomUUID();
   const { data: claimed, error: claimError } = await db.rpc("claim_solo_debate_finalization", {
     p_debate_id: debateId,
@@ -79,8 +79,52 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Failed to finish debate." }, { status: 500 });
   }
   if (!claimed) {
+    const { data: stagedTurn } = await db
+      .from("solo_debate_turns")
+      .select("id")
+      .eq("debate_id", debateId)
+      .is("user_message", null)
+      .not("staged_user_message", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (stagedTurn) {
+      return NextResponse.json(
+        { error: "A saved response still needs to finish advancing before this debate can be completed.", code: "submission_pending" },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ error: "This debate is already being finalized. Try again shortly." }, { status: 409 });
   }
+
+  async function releaseFinalizationClaim() {
+    await db.rpc("release_solo_debate_finalization", {
+      p_debate_id: debateId,
+      p_user_id: userId,
+      p_token: finalizationToken,
+    });
+  }
+
+  const { data: turns, error: turnsError } = await db
+    .from("solo_debate_turns")
+    .select("*")
+    .eq("debate_id", debateId)
+    .order("round_number", { ascending: true });
+  if (turnsError || !turns) {
+    await releaseFinalizationClaim();
+    return NextResponse.json({ error: "Failed to load turns." }, { status: 500 });
+  }
+
+  const answered = turns.filter((turn) => turn.user_message);
+  if (answered.length < minRounds) {
+    await releaseFinalizationClaim();
+    return NextResponse.json(
+      { error: `Complete at least ${minRounds} rounds before finishing.` },
+      { status: 400 },
+    );
+  }
+
+  const totalScore = answered.reduce((sum, turn) => sum + (turn.turn_score ?? 0), 0);
+  const performanceScore = performanceScoreForTurns(answered.map((turn) => turn.turn_score));
 
   async function refreshFinalizationLease() {
     const { data, error } = await db.rpc("refresh_solo_debate_finalization", {
@@ -257,6 +301,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   }
   const resultPayload: PersistedSoloResult = {
     totalScore,
+    performanceScore,
     bonusXP,
     rewardEvents,
     summary,
@@ -274,15 +319,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Debate finalization was restarted elsewhere. Retry to load the saved result." }, { status: 409 });
   }
 
-  const { data: finalized, error: finalizeError } = await db.rpc("finalize_solo_debate", {
+  const { data: finalized, error: finalizeError } = await db.rpc("finalize_solo_debate_v2", {
     p_debate_id: debateId,
     p_user_id: user.id,
     p_token: finalizationToken,
     p_total_score: totalScore,
     p_bonus_xp: bonusXP,
     p_points_per_level: POINTS_PER_LEVEL,
-    p_activity_date: completedAt.slice(0, 10),
     p_completed_at: completedAt,
+    p_timezone: timeZone,
     p_coaching: JSON.stringify(coachingUpdate),
     p_result_payload: JSON.stringify(resultPayload),
     p_has_retest: retestCompletion !== null,

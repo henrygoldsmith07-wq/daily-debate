@@ -46,10 +46,10 @@ Default view shows only:
 2. **You did well** — one strength, grounded in the debate ("You directly responded to 3 of 3 opposing arguments.").
 3. **Main weakness** — one highest-priority miss ("2 important claims had no supporting evidence") plus why it matters in plain language.
 4. **FIX THIS NOW** — the primary action. It scrolls **directly to the repair exercise**; Full Analysis is not expanded automatically.
-5. Score + XP, secondary.
+5. Length-normalized performance + cumulative XP, secondary.
 6. **View full analysis** — collapsed: model feedback lists, argument graph, tracking grid.
 
-Replays of finished debates render the same hierarchy server-side (strength, weakness, repair status, score, collapsed analysis), so a revisit never dumps the graph back on the user.
+Replays of finished debates render the same hierarchy server-side (strength, weakness, repair status, normalized performance, collapsed analysis), so a revisit never dumps the graph back on the user.
 
 ## Weak-link repair
 
@@ -69,7 +69,7 @@ Learner-facing repair checks use three formative states: **Needs another pass**,
 
 For longitudinal measurement, multiple rewrite submissions for the same user + debate + weakness kind are one **repair episode**. The first attempt anchors retry/conversion history, while the **first successful submission** anchors effectiveness and retest timing. Retries are preserved but cannot inflate repair denominators or create fake intervention cutoffs. A failed submission is practice history only: it stays retryable, does **not** count as repair completion, and does **not** unlock a deliberate next-debate retest.
 
-The debate's own score never changes.
+The debate's stored performance read never changes; cumulative XP remains a separate reward quantity.
 
 ## Guest practice
 
