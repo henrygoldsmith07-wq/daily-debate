@@ -20,15 +20,19 @@ export default function MessageComposer({
   placeholder,
   modeId = "text",
   startedAtMs = null,
+  initialText = "",
+  resumeSavedSubmission = false,
 }: {
   onSubmit: (data: ComposerSubmitData) => void | boolean | Promise<void | boolean>;
   disabled: boolean;
   placeholder?: string;
   modeId?: string;
   startedAtMs?: number | null;
+  initialText?: string;
+  resumeSavedSubmission?: boolean;
 }) {
   const mode = resolveMode(modeId);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const [usedVoice, setUsedVoice] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const busy = disabled || submitting;
@@ -128,7 +132,7 @@ export default function MessageComposer({
     ? Math.max(0, mode.hardTimeLimitSecs - elapsedSecs)
     : null;
   const timeUrgent = timeRemaining !== null && timeRemaining < 15;
-  const timeExpired = timeRemaining === 0;
+  const timeExpired = !resumeSavedSubmission && timeRemaining === 0;
 
   return (
     <div className="flex flex-col gap-2 border-t border-[var(--rule)] pt-4">
@@ -140,11 +144,13 @@ export default function MessageComposer({
         >
           {mode.label}
         </span>
-        {isTimed && (
+        {isTimed && resumeSavedSubmission ? (
+          <span className="text-xs font-medium text-[var(--success)]">✓ response saved</span>
+        ) : isTimed ? (
           <span className={`tabular text-xs font-medium ${timeUrgent ? "text-[var(--bad)]" : "text-ink3"}`}>
             ⏱ {timeRemaining}s remaining
           </span>
-        )}
+        ) : null}
         {!isTimed && listening && (
           <span className="tabular text-xs text-ink3">{elapsedSecs}s</span>
         )}
@@ -161,7 +167,7 @@ export default function MessageComposer({
         onKeyDown={handleKeyDown}
         placeholder={placeholder ?? "Make your case… (Ctrl/⌘+Enter to send)"}
         rows={3}
-        disabled={busy || listening || timeExpired}
+        disabled={busy || listening || timeExpired || resumeSavedSubmission}
         aria-label="Your debate response"
         className="w-full resize-none rounded-lg border border-[var(--rule)] bg-transparent px-3 py-2 text-sm disabled:opacity-50"
       />
@@ -171,7 +177,7 @@ export default function MessageComposer({
             <button
               type="button"
               onClick={toggleListening}
-              disabled={busy || timeExpired}
+              disabled={busy || timeExpired || resumeSavedSubmission}
               aria-pressed={listening}
               aria-label={listening ? "Stop listening" : "Start voice input"}
               className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${listening ? "border border-[var(--bad)] text-[var(--bad)]" : "btn-ghost"}`}
