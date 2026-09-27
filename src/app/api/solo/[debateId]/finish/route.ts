@@ -71,7 +71,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     p_debate_id: debateId,
     p_user_id: user.id,
     p_token: finalizationToken,
-    p_stale_after_seconds: 180,
+    p_stale_after_seconds: 300,
   });
   if (claimError) {
     console.error("Failed to claim debate finalization:", claimError);
@@ -81,6 +81,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "This debate is already being finalized. Try again shortly." }, { status: 409 });
   }
 
+  async function refreshFinalizationLease() {
+    const { data, error } = await db
+      .from("solo_debates")
+      .update({ finalization_started_at: new Date().toISOString() })
+      .eq("id", debateId)
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .eq("finalization_token", finalizationToken)
+      .select("id");
+    return !error && !!data?.length;
+  }
+
   const { data: topic } = await db.from("daily_topics").select("title").eq("id", debate.topic_id).single();
 
   const transcript = answered
@@ -88,6 +100,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     .join("\n\n");
 
   let summary;
+  let summarySource: "ai" | "fallback" = "ai";
   try {
     summary = await withProviderFallback(
       () => summarizeSoloDebate({ topicTitle: topic?.title ?? "the debate", transcript }),
@@ -96,7 +109,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     );
   } catch (error) {
     console.error("Failed to summarize debate:", error);
-    summary = { overallFeedback: "Great work completing the debate.", strengths: [], improvements: [] };
+    summarySource = "fallback";
+    summary = {
+      overallFeedback: "Detailed generated feedback was unavailable. Your deterministic assessment and coaching result are still shown below.",
+      strengths: [],
+      improvements: [],
+    };
+  }
+
+  if (!(await refreshFinalizationLease())) {
+    return NextResponse.json({ error: "Debate finalization was restarted elsewhere. Retry to load the saved result." }, { status: 409 });
   }
 
   const turnAssessments = answered
@@ -240,6 +262,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     bonusXP,
     rewardEvents,
     summary,
+    summarySource,
     assessment: finalAssessment ?? undefined,
     evaluation,
     format,
@@ -248,6 +271,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     coaching: coachingUpdate,
     trainingSummary,
   };
+
+  if (!(await refreshFinalizationLease())) {
+    return NextResponse.json({ error: "Debate finalization was restarted elsewhere. Retry to load the saved result." }, { status: 409 });
+  }
 
   const { data: finalized, error: finalizeError } = await db.rpc("finalize_solo_debate", {
     p_debate_id: debateId,
