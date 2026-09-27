@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildTrainingSummary } from "./trainingSummary";
 
 describe("buildTrainingSummary", () => {
-  it("aggregates mode and speech observations without inventing missing data", () => {
+  it("aggregates mode and speech observations without mixing per-mode profiles", () => {
     const summary = buildTrainingSummary([
       {
         training_meta: {
@@ -18,7 +18,7 @@ describe("buildTrainingSummary", () => {
         training_meta: {
           modeId: "speech",
           elapsedSeconds: 70,
-          modeWarnings: ["Exceeded Speech time limit (180s)."],
+          modeWarnings: [],
           speechTiming: null,
           speechAnalysis: { paceWpm: 150, fillerDensity: 1, structureDensity: 2, fillerCount: 1, pauseCount: 0, pauseRatio: 0, hasContrastiveMove: true, repetitionScore: null, wordCount: 100 },
           speechQuality: { overall: 86, breakdown: { paceScore: 90, fillerScore: 80, structureScore: 50, repetitionPenalty: 0, contrastiveBonus: 10 } },
@@ -27,6 +27,9 @@ describe("buildTrainingSummary", () => {
     ]);
 
     expect(summary.modeCounts).toEqual({ "rapid-rebuttal": 1, speech: 1 });
+    expect(summary.byMode?.["rapid-rebuttal"]?.avgPaceWpm).toBe(130);
+    expect(summary.byMode?.speech?.avgPaceWpm).toBe(150);
+    expect(summary.byMode?.["rapid-rebuttal"]?.avgElapsedSeconds).toBe(42);
     expect(summary.speechTurns).toBe(2);
     expect(summary.avgPaceWpm).toBe(140);
     expect(summary.avgSpeechQuality).toBe(82);
@@ -40,5 +43,6 @@ describe("buildTrainingSummary", () => {
     expect(summary.avgSpeechQuality).toBeNull();
     expect(summary.timedTurns).toBe(0);
     expect(summary.avgElapsedSeconds).toBeNull();
+    expect(summary.byMode?.text?.avgElapsedSeconds).toBeNull();
   });
 });
