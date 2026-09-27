@@ -397,6 +397,7 @@ create or replace function commit_staged_solo_turn_for_finish(
   p_debate_id uuid,
   p_user_id uuid,
   p_turn_id uuid,
+  p_min_rounds integer,
   p_stale_after_seconds integer default 300
 )
 returns jsonb
@@ -447,6 +448,15 @@ begin
 
   if v_turn.staged_user_message is null then
     return jsonb_build_object('saved', false, 'reason', 'no-staged-response');
+  end if;
+
+  if (
+    select count(*)
+    from solo_debate_turns answered
+    where answered.debate_id = p_debate_id
+      and answered.user_message is not null
+  ) + 1 < greatest(p_min_rounds, 1) then
+    return jsonb_build_object('saved', false, 'reason', 'minimum-rounds-not-met');
   end if;
 
   if v_turn.submission_token is not null
