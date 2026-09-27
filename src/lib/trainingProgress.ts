@@ -2,6 +2,9 @@ import type { DebateModeId } from "./debateModes";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { TrainingModeSummary } from "./types";
 
+export const MIN_MODE_TREND_DEBATES = 3;
+export const MIN_MODE_TREND_TURNS = 5;
+
 export interface ModeTrainingProgress {
   debates: number;
   turns: number;
@@ -13,6 +16,8 @@ export interface ModeTrainingProgress {
   avgResponseSeconds: number | null;
   speechQualityChange: number | null;
   responseTimeChangeSeconds: number | null;
+  speechTrendReady: boolean;
+  responseTrendReady: boolean;
 }
 
 export interface TrainingProgressSummary {
@@ -35,11 +40,21 @@ function weightedAverage(rows: Array<{ value: number | null; weight: number }>):
   return Math.round((usable.reduce((sum, row) => sum + row.value * row.weight, 0) / weight) * 10) / 10;
 }
 
-function observedChange(rows: TrainingModeSummary[], key: "avgSpeechQuality" | "avgElapsedSeconds"): number | null {
+function trendReady(rows: TrainingModeSummary[], weightKey: "speechTurns" | "timedTurns"): boolean {
+  return rows.length >= MIN_MODE_TREND_DEBATES
+    && rows.reduce((sum, row) => sum + row[weightKey], 0) >= MIN_MODE_TREND_TURNS;
+}
+
+function observedChange(
+  rows: TrainingModeSummary[],
+  key: "avgSpeechQuality" | "avgElapsedSeconds",
+  weightKey: "speechTurns" | "timedTurns",
+): number | null {
+  if (!trendReady(rows, weightKey)) return null;
   const values = rows
     .map((row) => row[key])
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  if (values.length < 2) return null;
+  if (values.length < MIN_MODE_TREND_DEBATES) return null;
   return Math.round((values[values.length - 1] - values[0]) * 10) / 10;
 }
 
@@ -58,6 +73,9 @@ export function buildTrainingProgress(points: SkillMetricPoint[]): TrainingProgr
       .map((point) => point.training?.byMode?.[mode] ?? null)
       .filter((row): row is TrainingModeSummary => !!row && row.turns > 0);
     if (!rows.length) continue;
+
+    const speechReady = trendReady(rows, "speechTurns");
+    const responseReady = trendReady(rows, "timedTurns");
     perMode[mode] = {
       debates: rows.length,
       turns: rows.reduce((sum, row) => sum + row.turns, 0),
@@ -67,8 +85,10 @@ export function buildTrainingProgress(points: SkillMetricPoint[]): TrainingProgr
       avgFillerDensity: weightedAverage(rows.map((row) => ({ value: row.avgFillerDensity, weight: row.speechTurns }))),
       avgStructureDensity: weightedAverage(rows.map((row) => ({ value: row.avgStructureDensity, weight: row.speechTurns }))),
       avgResponseSeconds: weightedAverage(rows.map((row) => ({ value: row.avgElapsedSeconds, weight: row.timedTurns }))),
-      speechQualityChange: observedChange(rows, "avgSpeechQuality"),
-      responseTimeChangeSeconds: observedChange(rows, "avgElapsedSeconds"),
+      speechQualityChange: observedChange(rows, "avgSpeechQuality", "speechTurns"),
+      responseTimeChangeSeconds: observedChange(rows, "avgElapsedSeconds", "timedTurns"),
+      speechTrendReady: speechReady,
+      responseTrendReady: responseReady,
     };
   }
 

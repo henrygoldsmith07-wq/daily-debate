@@ -60,6 +60,17 @@ export type SoloDebateTurnRow = {
   response_mode: string | null;
   response_window_started_at: string | null;
   response_window_expires_at: string | null;
+  response_windows: unknown;
+  submission_token: string | null;
+  submission_started_at: string | null;
+  staged_user_message: string | null;
+  staged_input_mode: string | null;
+  staged_scores: unknown;
+  staged_turn_score: number | null;
+  staged_assessment: unknown;
+  staged_training_meta: unknown;
+  staged_mode: string | null;
+  staged_submitted_at: string | null;
   created_at: string;
 };
 

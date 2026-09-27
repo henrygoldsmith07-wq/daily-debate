@@ -25,6 +25,10 @@ export class BackendClient {
       | "release_solo_debate_finalization"
       | "finalize_solo_debate"
       | "start_solo_turn_window"
+      | "claim_solo_turn_submission"
+      | "release_solo_turn_submission"
+      | "finalize_solo_turn_submission"
+      | "refresh_solo_debate_finalization"
       | "advance_solo_debate_turn"
       | "claim_pvp_opponent_and_create_match"
       | "enqueue_pvp_if_unmatched"
@@ -87,6 +91,60 @@ export class BackendClient {
           [args.p_debate_id, args.p_user_id, args.p_turn_id, args.p_mode, args.p_limit_seconds],
         );
         return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "claim_solo_turn_submission") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          `SELECT claim_solo_turn_submission(
+            $1, $2, $3, $4::uuid, $5, $6::boolean, $7, $8, $9::jsonb, $10,
+            $11::jsonb, $12::jsonb, $13, $14
+          ) AS result`,
+          [
+            args.p_debate_id,
+            args.p_user_id,
+            args.p_turn_id,
+            args.p_token,
+            args.p_mode,
+            args.p_require_window,
+            args.p_user_message,
+            args.p_input_mode,
+            args.p_scores,
+            args.p_turn_score,
+            args.p_assessment,
+            args.p_training_meta,
+            args.p_elapsed_seconds,
+            args.p_stale_after_seconds,
+          ],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "release_solo_turn_submission") {
+        const rows = await queryRows<{ released: boolean }>(
+          "SELECT release_solo_turn_submission($1, $2, $3, $4::uuid) AS released",
+          [args.p_debate_id, args.p_user_id, args.p_turn_id, args.p_token],
+        );
+        return { data: rows[0]?.released === true, error: null };
+      }
+      if (name === "finalize_solo_turn_submission") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          "SELECT finalize_solo_turn_submission($1, $2, $3, $4::uuid, $5, $6, $7) AS result",
+          [
+            args.p_debate_id,
+            args.p_user_id,
+            args.p_turn_id,
+            args.p_token,
+            args.p_feedback,
+            args.p_next_round_number,
+            args.p_next_ai_message,
+          ],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "refresh_solo_debate_finalization") {
+        const rows = await queryRows<{ refreshed: boolean }>(
+          "SELECT refresh_solo_debate_finalization($1, $2, $3::uuid) AS refreshed",
+          [args.p_debate_id, args.p_user_id, args.p_token],
+        );
+        return { data: rows[0]?.refreshed === true, error: null };
       }
       if (name === "advance_solo_debate_turn") {
         const rows = await queryRows<{ result: Record<string, unknown> | null }>(

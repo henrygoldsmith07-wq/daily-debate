@@ -2,7 +2,12 @@ import Link from "next/link";
 import { createServiceClient } from "@/lib/backend/server";
 import { METRIC_KEYS, METRIC_LABELS, HIGHER_IS_BETTER } from "@/lib/skillLedger";
 import { buildProgressSummary } from "@/lib/progressSummary";
-import { buildTrainingProgress, type ModeTrainingProgress } from "@/lib/trainingProgress";
+import {
+  buildTrainingProgress,
+  MIN_MODE_TREND_DEBATES,
+  MIN_MODE_TREND_TURNS,
+  type ModeTrainingProgress,
+} from "@/lib/trainingProgress";
 import { DEBATE_MODES, type DebateModeId } from "@/lib/debateModes";
 import { buildCoachingGoal } from "@/lib/coachingGoal";
 import AppShell from "@/components/AppShell";
@@ -243,6 +248,11 @@ export default async function ProgressPage() {
                           {stats.speechQualityChange !== null && stats.responseTimeChangeSeconds !== null ? " ·" : ""}
                           {stats.responseTimeChangeSeconds !== null ? ` response time ${stats.responseTimeChangeSeconds > 0 ? "+" : ""}${stats.responseTimeChangeSeconds}s` : ""}.
                           Observed change only; not a causal claim.
+                        </p>
+                      )}
+                      {stats.speechQualityChange === null && stats.responseTimeChangeSeconds === null && (
+                        <p className="mt-3 text-[11px] leading-5 text-ink3">
+                          More observations are needed before showing change. Trends require at least {MIN_MODE_TREND_DEBATES} debates and {MIN_MODE_TREND_TURNS} measured turns in this mode.
                         </p>
                       )}
                     </article>

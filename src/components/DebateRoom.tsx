@@ -13,7 +13,11 @@ import type { ArgGraph } from "@/lib/argGraph";
 import type { ResultSnapshot } from "@/lib/resultSnapshot";
 import { minRoundsFor } from "@/lib/sprint";
 import { trackEvent } from "@/lib/trackClientEvent";
-import { DEBATE_MODES, type DebateModeId } from "@/lib/debateModes";
+import { DEBATE_MODES, isDebateModeId, type DebateModeId } from "@/lib/debateModes";
+
+function localCountdownAnchorMs(limitSeconds: number, remainingSeconds: number): number {
+  return Date.now() - Math.max(0, limitSeconds - remainingSeconds) * 1000;
+}
 
 interface RewardEventView { kind: string; xp: number; label: string; detail?: string; dimension?: string; }
 interface DebateSummaryPayload {
@@ -68,6 +72,10 @@ export default function DebateRoom({
     summarySource?: "ai" | "fallback";
   } | null;
 }) {
+  const initialPending = initialTurns[initialTurns.length - 1];
+  const initialMode: DebateModeId = isDebateModeId(initialPending?.staged_mode)
+    ? initialPending.staged_mode
+    : "text";
   const [turns, setTurns] = useState(initialTurns);
   const [roundCount, setRoundCount] = useState(debate.round_count);
   const [status, setStatus] = useState(debate.status);
@@ -93,11 +101,10 @@ export default function DebateRoom({
     (debate.coaching as { sideReason?: string | null } | null)?.sideReason ??
     ((debate as unknown as { side_reason?: string | null }).side_reason ?? null);
   const repairRetest = debate.coaching?.repairRetest ?? null;
-  // Sprint rounds are answered up to and including round 3 (the cap itself);
-  // full debates keep the legacy behaviour where round_count counts created
-  // turns and the composer hides at 12.
+  // Both formats keep the cap itself playable. Round 12 is the final
+  // answerable full-debate round; the API deliberately creates no round 13.
   const composerVisible =
-    status === "active" && !pending?.user_message && (format === "sprint" ? roundCount <= 3 : roundCount < MAX_ROUNDS);
+    status === "active" && !pending?.user_message && (format === "sprint" ? roundCount <= 3 : roundCount <= MAX_ROUNDS);
 
   useEffect(() => {
     // Follow new messages only while the reader is already near the bottom;
@@ -107,13 +114,16 @@ export default function DebateRoom({
     }
   }, [turns, sending]);
 
-  const [debateMode, setDebateMode] = useState<DebateModeId>("text");
+  const [debateMode, setDebateMode] = useState<DebateModeId>(initialMode);
   const [modeStartedAt, setModeStartedAt] = useState<number | null>(null);
   const [showAdvancedModes, setShowAdvancedModes] = useState(false);
   const [opponentSpeaking, setOpponentSpeaking] = useState(false);
   const [modeWindowStarting, setModeWindowStarting] = useState(false);
+  const submissionSaved = !!pending?.staged_user_message;
   const waitingForModeWindow =
-    DEBATE_MODES[debateMode].hardTimeLimitSecs !== null && modeStartedAt === null;
+    !submissionSaved &&
+    DEBATE_MODES[debateMode].hardTimeLimitSecs !== null &&
+    modeStartedAt === null;
 
   async function startResponseWindow(modeId: DebateModeId, turnId: string) {
     setModeWindowStarting(true);
@@ -131,18 +141,19 @@ export default function DebateRoom({
         setModeStartedAt(null);
         return true;
       }
-      const remaining = typeof data.remainingSeconds === "number" ? data.remainingSeconds : limit;
-      const serverStartedAt =
-        typeof data.startedAt === "string" && Number.isFinite(Date.parse(data.startedAt))
-          ? Date.parse(data.startedAt)
-          : null;
+      const remaining = typeof data.remainingSeconds === "number"
+        ? Math.max(0, Math.min(limit, data.remainingSeconds))
+        : limit;
+      // Convert the authoritative DB duration into a local monotonic-ish
+      // countdown anchor. Never compare the user's wall clock with a DB timestamp.
+      const localStartedAt = localCountdownAnchorMs(limit, remaining);
       if (remaining <= 0) {
-        setModeStartedAt(serverStartedAt);
+        setModeStartedAt(localCountdownAnchorMs(limit, 0));
         setError(`${DEBATE_MODES[modeId].label} time limit has expired. Switch modes to continue this round.`);
         return false;
       }
-      setModeStartedAt(serverStartedAt);
-      return serverStartedAt !== null;
+      setModeStartedAt(localStartedAt);
+      return true;
     } catch (err) {
       setModeStartedAt(null);
       setError(err instanceof Error ? err.message : "Failed to start response timer.");
@@ -153,7 +164,7 @@ export default function DebateRoom({
   }
 
   async function chooseMode(modeId: DebateModeId) {
-    if (!pending?.id || opponentSpeaking || modeWindowStarting) return;
+    if (!pending?.id || opponentSpeaking || modeWindowStarting || submissionSaved) return;
     setDebateMode(modeId);
     await startResponseWindow(modeId, pending.id);
   }
@@ -174,6 +185,31 @@ export default function DebateRoom({
         }),
       });
       const resData = await res.json();
+      if (!res.ok && resData.submissionSaved) {
+        const savedMode = isDebateModeId(resData.stagedMode)
+          ? resData.stagedMode
+          : isDebateModeId(data.modeId)
+            ? data.modeId
+            : debateMode;
+        setDebateMode(savedMode);
+        setModeStartedAt(null);
+        setTurns((prev) => {
+          if (!prev.length) return prev;
+          const latest = prev[prev.length - 1];
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...latest,
+              staged_user_message: typeof resData.stagedMessage === "string" ? resData.stagedMessage : data.message,
+              staged_input_mode: data.inputMode,
+              staged_mode: savedMode,
+              staged_training_meta: resData.trainingMeta ?? latest.staged_training_meta ?? null,
+            },
+          ];
+        });
+        setError(resData.error || "Your response is saved. Retry to continue opponent generation.");
+        return false;
+      }
       if (!res.ok) throw new Error(resData.error || "Failed to submit response.");
 
       // Final round: no next turn is created — the room switches to its
@@ -596,7 +632,7 @@ export default function DebateRoom({
               <button
                 key={m.id}
                 type="button"
-                disabled={opponentSpeaking || modeWindowStarting}
+                disabled={opponentSpeaking || modeWindowStarting || submissionSaved}
                 onClick={() => void chooseMode(m.id as DebateModeId)}
                 aria-pressed={debateMode === m.id}
                 className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
@@ -606,7 +642,7 @@ export default function DebateRoom({
             ))}
             <button
               type="button"
-              disabled={opponentSpeaking || modeWindowStarting}
+              disabled={opponentSpeaking || modeWindowStarting || submissionSaved}
               onClick={() => setShowAdvancedModes((visible) => !visible)}
               aria-expanded={showAdvancedModes}
               className="btn btn-ghost px-3 py-1.5 text-xs disabled:opacity-40"
@@ -622,7 +658,7 @@ export default function DebateRoom({
                   <button
                     key={m.id}
                     type="button"
-                    disabled={opponentSpeaking || modeWindowStarting}
+                    disabled={opponentSpeaking || modeWindowStarting || submissionSaved}
                     onClick={() => void chooseMode(m.id as DebateModeId)}
                     aria-pressed={debateMode === m.id}
                     className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
@@ -634,13 +670,19 @@ export default function DebateRoom({
             )}
           </div>
           <MessageComposer
-            key={`${debateMode}-${pending?.id ?? "none"}`}
+            key={`${debateMode}-${pending?.id ?? "none"}-${submissionSaved ? "saved" : "open"}`}
             onSubmit={submitTurn}
             disabled={sending || opponentSpeaking || modeWindowStarting || waitingForModeWindow}
             modeId={debateMode}
             startedAtMs={modeStartedAt}
+            initialText={pending?.staged_user_message ?? ""}
+            resumeSavedSubmission={submissionSaved}
           />
-          {opponentSpeaking ? (
+          {submissionSaved ? (
+            <p className="text-xs text-ink3" role="status">
+              Your response is saved. Send it again to resume opponent generation; the original response deadline no longer applies.
+            </p>
+          ) : opponentSpeaking ? (
             <p className="text-xs text-ink3" role="status">Opponent is speaking — your response clock starts when they finish.</p>
           ) : modeWindowStarting || waitingForModeWindow ? (
             <p className="text-xs text-ink3" role="status">Preparing the server-timed response window…</p>

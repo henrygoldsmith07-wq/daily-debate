@@ -119,4 +119,49 @@ test.describe("solo full-flow", () => {
     await page.goto(debateUrl);
     await expect(page.getByText(/Replay|points/i).first()).toBeVisible({ timeout: 15_000 });
   });
+  test("full debate keeps round 12 playable and never creates round 13", async ({ page }) => {
+    test.setTimeout(120_000);
+    // This deliberately sends 12 turn requests in one test. Give it its own
+    // test-only client IP so it cannot exhaust the production-style per-IP
+    // turn budget for unrelated E2E scenarios sharing the same CI browser host.
+    await page.setExtraHTTPHeaders({ "x-forwarded-for": "198.51.100.12" });
+    mockAIProviders(page.context());
+
+    await page.goto("/login");
+    await page.getByLabel(/email/i).fill("e2e-b@test.local");
+    await page.getByLabel(/password/i).fill("e2e-test-pass-123");
+    await page.getByTestId("auth-submit").click();
+    await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
+
+    await expect(page.getByText(/Today.*debate|Today.*topic/i).first()).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("start-full").click();
+    await page.waitForURL(/\/debate\//, { timeout: 20_000 });
+
+    for (let round = 1; round <= 11; round++) {
+      const composer = page.getByLabel("Your debate response");
+      await expect(composer).toBeVisible({ timeout: 30_000 });
+      await composer.fill(
+        `Round ${round}: My distinct argument ${round} weighs evidence, responds to the opponent, and explains why the practical impact matters for the motion.`
+      );
+      await page.getByRole("button", { name: /^send$/i }).click();
+      await expect(page.getByTestId("round-status")).toContainText(`Round ${round + 1}`, { timeout: 30_000 });
+    }
+
+    await expect(page.getByTestId("round-status")).toContainText("Round 12");
+    const finalComposer = page.getByLabel("Your debate response");
+    await expect(finalComposer).toBeVisible();
+    await finalComposer.fill(
+      "Round 12: My final answer directly resolves the remaining clash, compares the impacts, and closes the case with a distinct conclusion."
+    );
+    await page.getByRole("button", { name: /^send$/i }).click();
+
+    await expect(page.getByLabel("Your debate response")).toBeHidden({ timeout: 30_000 });
+    await expect(page.getByTestId("round-status")).toContainText("Round 12");
+    await expect(page.getByText(/Round 13/i)).toHaveCount(0);
+
+    const finishBtn = page.getByRole("button", { name: /finish/i });
+    await expect(finishBtn).toBeVisible();
+    await finishBtn.click();
+    await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 30_000 });
+  });
 });

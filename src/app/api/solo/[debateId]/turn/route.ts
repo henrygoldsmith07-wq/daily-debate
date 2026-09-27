@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
@@ -7,10 +8,15 @@ import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidDebateTurn } from "@/lib/aiSchema";
 import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
-import { type InputMode, type SoloDebateTurn, type TurnTrainingMeta } from "@/lib/types";
+import {
+  type InputMode,
+  type SoloDebateTurn,
+  type TurnScores,
+  type TurnTrainingMeta,
+} from "@/lib/types";
 import { roundCapFor } from "@/lib/sprint";
 import { recordProductEventForUser } from "@/lib/productEvents";
-import { checkModeConstraints, hardTimeLimitError, isDebateModeId, resolveMode } from "@/lib/debateModes";
+import { checkModeConstraints, isDebateModeId, resolveMode, type DebateModeId } from "@/lib/debateModes";
 import { analyseSpeechTurn, parseTurnTiming, scoreSpeechQuality } from "@/lib/speechAnalysis";
 import {
   classifyArgumentBatchDetailed,
@@ -20,11 +26,42 @@ import {
 } from "@/lib/argumentRouting";
 import type { ArgumentRoute } from "@/lib/argumentTaxonomy";
 
-type AdvanceResult = {
+interface StagedSubmission {
+  userMessage: string;
+  inputMode: InputMode;
+  scores: TurnScores;
+  turnScore: number;
+  assessment: unknown;
+  trainingMeta: TurnTrainingMeta;
+  modeId: DebateModeId;
+  submittedAt: string | null;
+}
+
+interface ClaimSubmissionResult {
+  claimed?: boolean;
+  reason?: string;
+  resumed?: boolean;
+  elapsedSeconds?: number | null;
+  staged?: Partial<StagedSubmission>;
+}
+
+interface FinalizeSubmissionResult {
   saved?: boolean;
   reason?: string;
+  completedTurn?: SoloDebateTurn | null;
   nextTurn?: SoloDebateTurn | null;
-};
+}
+
+function stagedResponsePayload(staged: Partial<StagedSubmission> | undefined) {
+  return {
+    submissionSaved: true,
+    stagedMessage: typeof staged?.userMessage === "string" ? staged.userMessage : undefined,
+    stagedMode: isDebateModeId(staged?.modeId) ? staged.modeId : undefined,
+    trainingMeta: staged?.trainingMeta && typeof staged.trainingMeta === "object"
+      ? staged.trainingMeta
+      : undefined,
+  };
+}
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   const limited = await checkRateLimit(request, { name: "solo-turn", limit: 20, windowMs: 60_000 });
@@ -38,10 +75,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => null);
-  // Timestamp only after the request body is present. Starting an HTTP request
-  // before expiry and delaying the body must not extend a timed response window.
-  const receivedAtMs = Date.now();
-  const receivedAt = new Date(receivedAtMs).toISOString();
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   const inputMode: InputMode = body?.inputMode === "voice" ? "voice" : "text";
   const modeId = body?.modeId === undefined || body?.modeId === null || body?.modeId === ""
@@ -63,7 +96,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
   const mod = moderateContent(message);
   if (mod.blocked) {
-    return NextResponse.json({ error: `Message blocked: ${mod.flags.map((f) => f.note).join(" ")}`, moderation: mod.flags }, { status: 400 });
+    return NextResponse.json(
+      { error: `Message blocked: ${mod.flags.map((f) => f.note).join(" ")}`, moderation: mod.flags },
+      { status: 400 },
+    );
   }
 
   const { data: debate, error: debateError } = await db
@@ -100,42 +136,102 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const roundCap = roundCapFor(debateFormat);
   const isFinalRound = pendingTurn.round_number >= roundCap;
 
-  let elapsedSeconds = clientElapsedSeconds;
-  if (mode.hardTimeLimitSecs !== null) {
-    const startedAtMs = pendingTurn.response_window_started_at
-      ? Date.parse(pendingTurn.response_window_started_at)
-      : Number.NaN;
-    const expiresAtMs = pendingTurn.response_window_expires_at
-      ? Date.parse(pendingTurn.response_window_expires_at)
-      : Number.NaN;
+  const answered = turns.filter((turn) => turn.user_message);
+  const prevUserMessage = answered[answered.length - 1]?.user_message ?? null;
+  if (prevUserMessage && repeatScore([prevUserMessage, message]) === 1) {
+    return NextResponse.json({ error: "That response repeats your previous turn — make a new argument." }, { status: 400 });
+  }
 
-    if (
-      pendingTurn.response_mode !== modeId ||
-      !Number.isFinite(startedAtMs) ||
-      !Number.isFinite(expiresAtMs)
-    ) {
-      return NextResponse.json(
-        { error: `Start the ${mode.label} response timer before submitting.` },
-        { status: 422 },
-      );
-    }
-    if (receivedAtMs < startedAtMs || receivedAtMs > expiresAtMs) {
+  // Everything below this point that can be computed locally is prepared
+  // before the submission claim. No external provider is called until the
+  // user's response is durably staged.
+  const observable = assessTurn({
+    userMessage: message,
+    opponentMessage: pendingTurn.ai_message,
+    round: pendingTurn.round_number,
+  });
+  const scores = observable.scores;
+  const turnScore = observable.turnScore;
+  const wordCount = message.trim().split(/\s+/).filter(Boolean).length;
+  // Timed elapsedSeconds is overwritten inside PostgreSQL using the DB clock.
+  // Supplying 0 here avoids inventing a "timing unavailable" warning before
+  // the authoritative elapsed value exists.
+  const provisionalElapsed = mode.hardTimeLimitSecs === null ? clientElapsedSeconds : 0;
+  const modeWarnings = checkModeConstraints(mode, wordCount, provisionalElapsed, inputMode);
+  if (inputMode === "voice" && !speechTiming) {
+    modeWarnings.push("Speech timing was unavailable, so pace and filler analysis were not recorded.");
+  }
+  const speechAnalysis = speechTiming
+    ? analyseSpeechTurn(message, speechTiming, prevUserMessage ?? undefined)
+    : null;
+  const speechQuality = speechAnalysis ? scoreSpeechQuality(speechAnalysis) : null;
+  const candidateTrainingMeta: TurnTrainingMeta = {
+    modeId,
+    elapsedSeconds: provisionalElapsed,
+    modeWarnings,
+    speechTiming,
+    speechAnalysis,
+    speechQuality,
+  };
+
+  const submissionToken = randomUUID();
+  const { data: claimData, error: claimError } = await db.rpc("claim_solo_turn_submission", {
+    p_debate_id: debateId,
+    p_user_id: user.id,
+    p_turn_id: pendingTurn.id,
+    p_token: submissionToken,
+    p_mode: modeId,
+    p_require_window: mode.hardTimeLimitSecs !== null,
+    p_user_message: message,
+    p_input_mode: inputMode,
+    p_scores: JSON.stringify(scores),
+    p_turn_score: turnScore,
+    p_assessment: JSON.stringify(observable.assessment),
+    p_training_meta: JSON.stringify(candidateTrainingMeta),
+    p_elapsed_seconds: clientElapsedSeconds,
+    p_stale_after_seconds: 300,
+  });
+  if (claimError) {
+    console.error("Failed to stage solo submission:", claimError);
+    return NextResponse.json({ error: "Failed to save your response. Please retry." }, { status: 500 });
+  }
+
+  const claim = (claimData ?? {}) as ClaimSubmissionResult;
+  if (!claim.claimed) {
+    if (claim.reason === "timing-window-invalid") {
       return NextResponse.json(
         { error: `${mode.label} time limit expired. Switch modes to continue this round.` },
         { status: 422 },
       );
     }
-    elapsedSeconds = Math.max(0, Math.round((receivedAtMs - startedAtMs) / 1000));
+    if (claim.reason === "submission-in-progress") {
+      return NextResponse.json(
+        {
+          error: "Your response is already saved and the opponent reply is being generated.",
+          ...stagedResponsePayload(claim.staged),
+        },
+        { status: 409 },
+      );
+    }
+    if (claim.reason === "submission-already-staged") {
+      return NextResponse.json(
+        {
+          error: "A response is already saved for this round. The saved response has been restored so you can retry opponent generation.",
+          ...stagedResponsePayload(claim.staged),
+        },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ error: "Latest round already answered or debate no longer active." }, { status: 409 });
   }
 
-  const timingError = hardTimeLimitError(mode, elapsedSeconds);
-  if (timingError) return NextResponse.json({ error: timingError }, { status: 422 });
-
-  const answered = turns.filter((t) => t.user_message);
-  const prevUserMessage = answered[answered.length - 1]?.user_message ?? null;
-  if (prevUserMessage && repeatScore([prevUserMessage, message]) === 1) {
-    return NextResponse.json({ error: "That response repeats your previous turn — make a new argument." }, { status: 400 });
-  }
+  const staged = claim.staged;
+  const effectiveMessage = typeof staged?.userMessage === "string" ? staged.userMessage : message;
+  const effectiveModeId = isDebateModeId(staged?.modeId) ? staged.modeId : modeId;
+  const effectiveTrainingMeta =
+    staged?.trainingMeta && typeof staged.trainingMeta === "object"
+      ? staged.trainingMeta as TurnTrainingMeta
+      : { ...candidateTrainingMeta, elapsedSeconds: claim.elapsedSeconds ?? candidateTrainingMeta.elapsedSeconds };
 
   let feedback: string | null = null;
   let nextAiMessage: string | null = null;
@@ -149,13 +245,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
     let argumentRoute: ArgumentRoute | undefined;
     try {
-      const classified = await classifyArgumentBatchDetailed([message], {
+      const classified = await classifyArgumentBatchDetailed([effectiveMessage], {
         topicTitle: topic.title,
         topicPrompt: topic.prompt,
         tier: "fast",
       });
       const plan = routeClassifiedArguments(
-        [{ id: `solo-${pendingTurn.id}`, text: message, owner: "a", round: pendingTurn.round_number }],
+        [{ id: `solo-${pendingTurn.id}`, text: effectiveMessage, owner: "a", round: pendingTurn.round_number }],
         classified.classifications,
         classified.batchCount,
       );
@@ -173,7 +269,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
             topicPrompt: topic.prompt,
             userSide: debate.side as "for" | "against",
             history,
-            latestUserMessage: message,
+            latestUserMessage: effectiveMessage,
             argumentRoute,
           }),
         isValidDebateTurn,
@@ -183,7 +279,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
             topicPrompt: topic.prompt,
             userSide: debate.side as "for" | "against",
             history,
-            latestUserMessage: message,
+            latestUserMessage: effectiveMessage,
             argumentRoute,
           }),
       );
@@ -191,70 +287,80 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       nextAiMessage = result.aiMessage;
     } catch (error) {
       console.error("Failed to generate the next debate turn:", error);
+      await db.rpc("release_solo_turn_submission", {
+        p_debate_id: debateId,
+        p_user_id: user.id,
+        p_turn_id: pendingTurn.id,
+        p_token: submissionToken,
+      });
       return NextResponse.json(
-        { error: "The opponent is temporarily unavailable. Your draft has not been submitted; retry when ready." },
+        {
+          error: "Your response was saved, but the opponent is temporarily unavailable. Retry to continue from the saved response.",
+          ...stagedResponsePayload({
+            ...staged,
+            userMessage: effectiveMessage,
+            modeId: effectiveModeId,
+            trainingMeta: effectiveTrainingMeta,
+          }),
+        },
         { status: 502 },
       );
     }
   }
 
-  const observable = assessTurn({
-    userMessage: message,
-    opponentMessage: pendingTurn.ai_message,
-    round: pendingTurn.round_number,
-  });
-  const scores = observable.scores;
-  const turnScore = observable.turnScore;
-  const wordCount = message.trim().split(/\s+/).filter(Boolean).length;
-  const modeWarnings = checkModeConstraints(mode, wordCount, elapsedSeconds, inputMode);
-  if (inputMode === "voice" && !speechTiming) {
-    modeWarnings.push("Speech timing was unavailable, so pace and filler analysis were not recorded.");
-  }
-  const speechAnalysis = speechTiming
-    ? analyseSpeechTurn(message, speechTiming, prevUserMessage ?? undefined)
-    : null;
-  const speechQuality = speechAnalysis ? scoreSpeechQuality(speechAnalysis) : null;
-  const trainingMeta: TurnTrainingMeta = {
-    modeId,
-    elapsedSeconds,
-    modeWarnings,
-    speechTiming,
-    speechAnalysis,
-    speechQuality,
-  };
-
   const nextRoundNumber = isFinalRound ? null : pendingTurn.round_number + 1;
-  const { data: advanceData, error: advanceError } = await db.rpc("advance_solo_debate_turn", {
+  const { data: finalizeData, error: finalizeError } = await db.rpc("finalize_solo_turn_submission", {
     p_debate_id: debateId,
     p_user_id: user.id,
     p_turn_id: pendingTurn.id,
-    p_received_at: receivedAt,
-    p_mode: modeId,
-    p_require_window: mode.hardTimeLimitSecs !== null,
-    p_user_message: message,
-    p_input_mode: inputMode,
-    p_scores: JSON.stringify(scores),
-    p_turn_score: turnScore,
+    p_token: submissionToken,
     p_feedback: feedback,
-    p_assessment: JSON.stringify(observable.assessment),
-    p_training_meta: JSON.stringify(trainingMeta),
     p_next_round_number: nextRoundNumber,
     p_next_ai_message: nextAiMessage,
   });
-  if (advanceError) {
-    console.error("Failed to advance solo debate atomically:", advanceError);
-    return NextResponse.json({ error: "Failed to save your response. Nothing was changed; please retry." }, { status: 500 });
+
+  if (finalizeError) {
+    console.error("Failed to finalize staged solo submission:", finalizeError);
+    await db.rpc("release_solo_turn_submission", {
+      p_debate_id: debateId,
+      p_user_id: user.id,
+      p_turn_id: pendingTurn.id,
+      p_token: submissionToken,
+    });
+    return NextResponse.json(
+      {
+        error: "Your response is saved, but the round could not advance. Retry to continue from the saved response.",
+        ...stagedResponsePayload({
+          ...staged,
+          userMessage: effectiveMessage,
+          modeId: effectiveModeId,
+          trainingMeta: effectiveTrainingMeta,
+        }),
+      },
+      { status: 500 },
+    );
   }
 
-  const advanced = (advanceData ?? {}) as AdvanceResult;
-  if (!advanced.saved) {
-    if (advanced.reason === "timing-window-invalid") {
-      return NextResponse.json(
-        { error: `${mode.label} time limit expired. Switch modes to continue this round.` },
-        { status: 422 },
-      );
-    }
-    return NextResponse.json({ error: "Latest round already answered or debate no longer active." }, { status: 409 });
+  const finalized = (finalizeData ?? {}) as FinalizeSubmissionResult;
+  if (!finalized.saved || !finalized.completedTurn) {
+    await db.rpc("release_solo_turn_submission", {
+      p_debate_id: debateId,
+      p_user_id: user.id,
+      p_turn_id: pendingTurn.id,
+      p_token: submissionToken,
+    });
+    return NextResponse.json(
+      {
+        error: "Your response is saved, but another request took over opponent generation. Retry to load the completed round.",
+        ...stagedResponsePayload({
+          ...staged,
+          userMessage: effectiveMessage,
+          modeId: effectiveModeId,
+          trainingMeta: effectiveTrainingMeta,
+        }),
+      },
+      { status: 409 },
+    );
   }
 
   await recordProductEventForUser(user.id, "round_completed", {
@@ -264,19 +370,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     debateId,
   });
 
-  const nextTurn = (advanced.nextTurn ?? null) as SoloDebateTurn | null;
   return NextResponse.json({
-    completedTurn: {
-      ...pendingTurn,
-      user_message: message,
-      input_mode: inputMode,
-      scores,
-      turn_score: turnScore,
-      feedback,
-      assessment: observable.assessment,
-      training_meta: trainingMeta,
-    },
-    nextTurn,
+    completedTurn: finalized.completedTurn,
+    nextTurn: finalized.nextTurn ?? null,
     roundCount: nextRoundNumber ?? pendingTurn.round_number,
     debateComplete: isFinalRound,
   });
