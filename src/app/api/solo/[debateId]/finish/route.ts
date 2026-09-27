@@ -57,6 +57,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     db.from("profiles").select("timezone").eq("id", user.id).single(),
   ]);
   if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
+  if (debate.status === "completed") {
+    if (debate.result_payload && typeof debate.result_payload === "object") {
+      return NextResponse.json(debate.result_payload);
+    }
+    return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
+  }
+
   if (profileError || !profile?.timezone) {
     console.error("Failed to load profile timezone for solo finalization:", profileError);
     return NextResponse.json(
@@ -71,13 +78,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       { error: "Your account timezone could not be validated. Please retry finishing the debate." },
       { status: 503 },
     );
-  }
-
-  if (debate.status === "completed") {
-    if (debate.result_payload && typeof debate.result_payload === "object") {
-      return NextResponse.json(debate.result_payload);
-    }
-    return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
   }
 
   const format = debate.format === "sprint" ? "sprint" : "full";
