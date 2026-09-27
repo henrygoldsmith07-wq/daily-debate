@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import Link from "next/link";
 import { signIn, signUp, type AuthState } from "./actions";
 
@@ -8,6 +8,11 @@ const initialState: AuthState = { error: null };
 
 export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [timeZone, setTimeZone] = useState("UTC");
+  useEffect(() => {
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (detected) setTimeZone(detected);
+  }, []);
   const [signInState, signInAction, signInPending] = useActionState(signIn, initialState);
   const [signUpState, signUpAction, signUpPending] = useActionState(signUp, initialState);
 
@@ -42,6 +47,7 @@ export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
 
       <form action={action} className="flex flex-col gap-4">
         <input type="hidden" name="next" value={nextPath} />
+        <input type="hidden" name="timeZone" value={timeZone} />
         {mode === "sign-up" && (
           <label className="flex flex-col gap-1 text-sm">
             Display name
