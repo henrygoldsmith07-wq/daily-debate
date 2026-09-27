@@ -9,7 +9,7 @@ import { HAS_BACKEND } from "./helpers";
 //
 // Pipeline tested:
 //   signup/login → load topic → start debate → 5 rounds → finish
-//   → score stored → graph produced → points awarded once → history replay
+//   → performance stored → graph produced → XP awarded once → history replay
 
 test.describe("solo full-flow", () => {
   test.skip(!HAS_BACKEND, "Requires ephemeral Postgres");
@@ -55,7 +55,7 @@ test.describe("solo full-flow", () => {
     context.route("**/api.anthropic.com/**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(aiResponse) }));
   }
 
-  test("signup → topic → debate → 5 rounds → finish → score → history", async ({ page }) => {
+  test("signup → topic → debate → 5 rounds → finish → performance → history", async ({ page }) => {
     mockAIProviders(page.context());
 
     // 1. Sign in
@@ -91,16 +91,16 @@ test.describe("solo full-flow", () => {
       await expect(page.getByTestId("round-status")).toContainText(`Round ${round + 2}`, { timeout: 30_000 });
     }
 
-    // 5. Finish & get scored
+    // 5. Finish & get a length-normalized performance read
     const finishBtn = page.getByRole("button", { name: /finish/i });
     await expect(finishBtn).toBeVisible({ timeout: 10_000 });
     await finishBtn.click();
 
-    // 6. Simplified result card: one weakness, Fix-this-now CTA, score + XP
-    // secondary ("Score" label and number render in separate spans).
+    // 6. Simplified result card: one weakness, Fix-this-now CTA, normalized
+    // performance plus cumulative XP as secondary feedback.
     await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("main-weakness")).toBeVisible();
-    await expect(page.getByText("Score", { exact: true })).toBeVisible();
+    await expect(page.getByText("Performance", { exact: true })).toBeVisible();
     await expect(page.getByTestId("fix-this-now")).toBeVisible();
     await expect(page.getByText(/Debate complete|Replay/i).first()).toBeVisible({ timeout: 15_000 });
 
@@ -164,4 +164,62 @@ test.describe("solo full-flow", () => {
     await finishBtn.click();
     await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 30_000 });
   });
+  test("stale-tab drafts cannot attach to a newer round and committed retries are idempotent", async ({ page, context }) => {
+    test.setTimeout(90_000);
+    await page.setExtraHTTPHeaders({ "x-forwarded-for": "198.51.100.18" });
+    mockAIProviders(context);
+
+    await page.goto("/login");
+    await page.getByLabel(/email/i).fill("e2e-h@test.local");
+    await page.getByLabel(/password/i).fill("e2e-test-pass-123");
+    await page.getByTestId("auth-submit").click();
+    await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
+
+    await page.getByTestId("start-sprint").click();
+    await page.waitForURL(/\/debate\//, { timeout: 20_000 });
+    const debateUrl = page.url();
+
+    const staleTab = await context.newPage();
+    await staleTab.setExtraHTTPHeaders({ "x-forwarded-for": "198.51.100.18" });
+    await staleTab.goto(debateUrl);
+    const staleComposer = staleTab.getByLabel("Your debate response");
+    await expect(staleComposer).toBeVisible({ timeout: 20_000 });
+    const staleDraft = "This draft answers the original round-one challenge and must never be attached to round two.";
+    await staleComposer.fill(staleDraft);
+
+    let firstSubmissionBody: Record<string, unknown> | null = null;
+    page.on("request", (request) => {
+      if (request.method() === "POST" && /\/api\/solo\/[^/]+\/turn$/.test(new URL(request.url()).pathname)) {
+        firstSubmissionBody = request.postDataJSON() as Record<string, unknown>;
+      }
+    });
+
+    const primaryComposer = page.getByLabel("Your debate response");
+    await primaryComposer.fill(
+      "Round one committed answer: evidence supports the claim, but the counterfactual limits how broadly we should generalise it."
+    );
+    await page.getByRole("button", { name: /^send$/i }).click();
+    await expect(page.getByTestId("round-status")).toContainText("Round 2", { timeout: 30_000 });
+    expect(firstSubmissionBody?.expectedTurnId).toBeTruthy();
+
+    const replay = await page.evaluate(async ({ body }) => {
+      const response = await fetch(window.location.pathname.replace(/^\/debate\//, "/api/solo/") + "/turn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return { status: response.status, data: await response.json() };
+    }, { body: firstSubmissionBody });
+    expect(replay.status).toBe(200);
+    expect(replay.data.replayed).toBe(true);
+
+    await staleTab.getByRole("button", { name: /^send$/i }).click();
+    await expect(staleTab.getByRole("alert")).toContainText(/advanced in another tab|already answered in another tab/i, { timeout: 15_000 });
+    await expect(staleComposer).toHaveValue(staleDraft);
+
+    await staleTab.reload();
+    await expect(staleTab.getByTestId("round-status")).toContainText("Round 2", { timeout: 20_000 });
+    await staleTab.close();
+  });
+
 });
