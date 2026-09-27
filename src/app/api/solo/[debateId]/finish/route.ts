@@ -44,9 +44,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   }
 
   const body = await request.json().catch(() => null);
-  const timeZone = normalizeIanaTimeZone(body?.timeZone);
+  const finishSavedResponse = body?.finishSavedResponse === true;
+  const expectedTurnId = typeof body?.expectedTurnId === "string" ? body.expectedTurnId : "";
 
-  const { data: debate, error: debateError } = await db
+  const [{ data: debate, error: debateError }, { data: profile }] = await Promise.all([
+    db
+      .from("solo_debates")
+      .select("*")
+      .eq("id", debateId)
+      .eq("user_id", user.id)
+      .single(),
+    db.from("profiles").select("timezone").eq("id", user.id).single(),
+  ]);
+  const timeZone = normalizeIanaTimeZone(profile?.timezone);
+  if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
+
     .from("solo_debates")
     .select("*")
     .eq("id", debateId)
@@ -62,6 +74,47 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
   const format = debate.format === "sprint" ? "sprint" : "full";
   const minRounds = minRoundsFor(format);
+
+  // Provider failure after an accepted response must not trap a sufficiently
+  // complete debate. Commit that exact staged response as the final answered
+  // round without creating another opponent turn, then run normal finalization.
+  if (finishSavedResponse) {
+    if (!expectedTurnId) {
+      return NextResponse.json({ error: "expectedTurnId is required to finish a saved response." }, { status: 400 });
+    }
+    const { data: stagedData, error: stagedError } = await db.rpc("commit_staged_solo_turn_for_finish", {
+      p_debate_id: debateId,
+      p_user_id: user.id,
+      p_turn_id: expectedTurnId,
+      p_stale_after_seconds: 300,
+    });
+    if (stagedError) {
+      console.error("Failed to commit staged response for finish:", stagedError);
+      return NextResponse.json({ error: "Your saved response is still available, but it could not be committed yet." }, { status: 500 });
+    }
+    const stagedResult = (stagedData ?? {}) as {
+      saved?: boolean;
+      reason?: string;
+      completedTurn?: { round_number?: number } | null;
+    };
+    if (!stagedResult.saved) {
+      const message =
+        stagedResult.reason === "submission-in-progress"
+          ? "Opponent generation is still active for this saved response. Try again shortly."
+          : stagedResult.reason === "debate-finalizing"
+            ? "This debate is already being finalized in another tab."
+            : "The saved response could not be used to finish this debate. Refresh and try again.";
+      return NextResponse.json({ error: message, code: stagedResult.reason ?? "saved_response_unavailable" }, { status: 409 });
+    }
+    if (typeof stagedResult.completedTurn?.round_number === "number") {
+      await recordProductEventForUser(user.id, "round_completed", {
+        format,
+        side: debate.side as "for" | "against",
+        round: stagedResult.completedTurn.round_number,
+        debateId,
+      });
+    }
+  }
 
   // Claim the finalization barrier before loading the transcript. A turn that
   // is already committing finishes first because both paths lock the debate;
