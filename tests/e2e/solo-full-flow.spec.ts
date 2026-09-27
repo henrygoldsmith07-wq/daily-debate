@@ -164,13 +164,14 @@ test.describe("solo full-flow", () => {
     await finishBtn.click();
     await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 30_000 });
   });
-  test("stale-tab drafts cannot attach to a newer round and committed retries are idempotent", async ({ page, context }) => {
+  test("stale-tab drafts cannot attach to a newer round and committed retries are idempotent", async ({ page, context }, testInfo) => {
     test.setTimeout(90_000);
     await page.setExtraHTTPHeaders({ "x-forwarded-for": "198.51.100.18" });
     mockAIProviders(context);
 
+    const identity = testInfo.retry === 0 ? "e2e-h@test.local" : "e2e-i@test.local";
     await page.goto("/login");
-    await page.getByLabel(/email/i).fill("e2e-h@test.local");
+    await page.getByLabel(/email/i).fill(identity);
     await page.getByLabel(/password/i).fill("e2e-test-pass-123");
     await page.getByTestId("auth-submit").click();
     await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
@@ -214,7 +215,7 @@ test.describe("solo full-flow", () => {
     expect(replay.data.replayed).toBe(true);
 
     await staleTab.getByRole("button", { name: /^send$/i }).click();
-    await expect(staleTab.getByRole("alert")).toContainText(/advanced in another tab|already answered in another tab/i, { timeout: 15_000 });
+    await expect(staleTab.locator('p[role="alert"]')).toContainText(/advanced in another tab|already answered in another tab/i, { timeout: 15_000 });
     await expect(staleComposer).toHaveValue(staleDraft);
 
     await staleTab.reload();
