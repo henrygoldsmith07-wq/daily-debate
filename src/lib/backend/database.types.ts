@@ -8,6 +8,7 @@ export type ProfileRow = {
   current_streak: number;
   longest_streak: number;
   last_activity_date: string | null;
+  timezone: string;
   created_at: string;
 };
 
