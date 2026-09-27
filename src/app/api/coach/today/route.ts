@@ -11,7 +11,7 @@ import {
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getTodayTopic } from "@/lib/dailyTopic";
 import { getCurrentUser } from "@/lib/currentViewer";
-import { dateKeyInTimeZone } from "@/lib/timeZone";
+import { dateKeyInTimeZone, normalizeIanaTimeZone } from "@/lib/timeZone";
 
 // Today's training focus: the lowest skill dimension adjusted by movement
 // (improving dimensions are deprioritised; dimensions whose previous drill
@@ -40,7 +40,26 @@ export async function GET(request: Request) {
   const ledger = context.ledger;
   const outcomes = context.drillOutcomes;
   const service = createServiceClient();
-  const { data: profile } = await service.from("profiles").select("timezone").eq("id", user.id).single();
+  const { data: profile, error: profileError } = await service
+    .from("profiles")
+    .select("timezone")
+    .eq("id", user.id)
+    .single();
+  if (profileError || !profile?.timezone) {
+    console.error("Failed to load profile timezone for daily coaching:", profileError);
+    return NextResponse.json(
+      { error: "Your account timezone is temporarily unavailable." },
+      { status: 503 },
+    );
+  }
+  const timeZone = normalizeIanaTimeZone(profile.timezone);
+  if (timeZone !== profile.timezone) {
+    console.error("Stored profile timezone is invalid for daily coaching.");
+    return NextResponse.json(
+      { error: "Your account timezone is temporarily unavailable." },
+      { status: 503 },
+    );
+  }
   const pendingRetest = context.selectedRetest;
 
   const { dims, slopes } = buildCoachProfile(ledger.points);
@@ -72,7 +91,7 @@ export async function GET(request: Request) {
     });
   }
 
-  const today = dateKeyInTimeZone(profile?.timezone ?? "UTC");
+  const today = dateKeyInTimeZone(timeZone);
   const drill = todaysDrill(focus.key, `${today}T12:00:00.000Z`);
 
   // Idempotent per (user, day), with one exception: an OPEN generic drill may
