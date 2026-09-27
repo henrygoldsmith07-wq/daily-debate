@@ -230,8 +230,12 @@ d("durable solo-turn submissions", () => {
     await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
   });
 
-  it("persists the IANA timezone and derives the streak day from the database clock", async () => {
+  it("uses the stored IANA timezone for streaks and persists compact result metadata without overwriting it", async () => {
     const { debateId, turnId } = await createDebate();
+    await pool.query(
+      "UPDATE profiles SET timezone = 'Pacific/Kiritimati' WHERE id = $1",
+      [userId],
+    );
     await pool.query(
       "UPDATE solo_debate_turns SET user_message = 'Completed answer', turn_score = 25 WHERE id = $1",
       [turnId],
@@ -250,8 +254,8 @@ d("durable solo-turn submissions", () => {
 
     const finalized = await pool.query<{ finalized: boolean }>(
       `SELECT finalize_solo_debate_v2(
-        $1, $2, $3::uuid, 25, 0, 500, clock_timestamp(),
-        'Pacific/Kiritimati', '{}'::jsonb, '{}'::jsonb,
+        $1, $2, $3::uuid, 25, 7, 500, clock_timestamp(),
+        'Pacific/Kiritimati', '{}'::jsonb, '{"performanceScore":50,"bonusXP":7}'::jsonb,
         false, NULL::uuid, false, NULL::boolean
       ) AS finalized`,
       [debateId, userId, finishToken],
@@ -265,10 +269,142 @@ d("durable solo-turn submissions", () => {
     expect(profile.rows[0].timezone).toBe("Pacific/Kiritimati");
     expect(profile.rows[0].last_activity_date).toBe(expected.rows[0].activity_date);
 
+    const compact = await pool.query<{ performance_score: number; bonus_xp: number }>(
+      "SELECT performance_score, bonus_xp FROM solo_debates WHERE id = $1",
+      [debateId],
+    );
+    expect(compact.rows[0]).toEqual({ performance_score: 50, bonus_xp: 7 });
+
     await pool.query(
       "UPDATE profiles SET total_points = 0, level = 1, current_streak = 0, longest_streak = 0, last_activity_date = NULL, timezone = 'UTC' WHERE id = $1",
       [userId],
     );
+    await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
+  });
+
+  it("recovers a stale finalization lease before accepting new turn work", async () => {
+    const { debateId, turnId } = await createDebate();
+    const finishToken = crypto.randomUUID();
+    const claimed = await pool.query<{ claimed: boolean }>(
+      "SELECT claim_solo_debate_finalization($1, $2, $3::uuid, 300) AS claimed",
+      [debateId, userId, finishToken],
+    );
+    expect(claimed.rows[0].claimed).toBe(true);
+
+    await pool.query(
+      "UPDATE solo_debates SET finalization_started_at = clock_timestamp() - interval '301 seconds' WHERE id = $1",
+      [debateId],
+    );
+
+    const submissionToken = crypto.randomUUID();
+    const turnClaim = await pool.query<{ result: { claimed: boolean; reason: string } }>(
+      `SELECT claim_solo_turn_submission(
+        $1, $2, $3, $4::uuid, 'text', false,
+        'Recovered after stale finish', 'text', '{}'::jsonb, 10, '{}'::jsonb,
+        '{"modeId":"text","elapsedSeconds":8,"modeWarnings":[],"speechTiming":null,"speechAnalysis":null,"speechQuality":null}'::jsonb,
+        8, 300
+      ) AS result`,
+      [debateId, userId, turnId, submissionToken],
+    );
+    expect(turnClaim.rows[0].result).toMatchObject({ claimed: true, reason: "staged" });
+
+    const debateState = await pool.query<{ finalization_token: string | null }>(
+      "SELECT finalization_token::text FROM solo_debates WHERE id = $1",
+      [debateId],
+    );
+    expect(debateState.rows[0].finalization_token).toBeNull();
+
+    await pool.query(
+      "SELECT release_solo_turn_submission($1, $2, $3, $4::uuid)",
+      [debateId, userId, turnId, submissionToken],
+    );
+    await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
+  });
+
+  it("recovers a stale finalization lease before restoring a timed window", async () => {
+    const { debateId, turnId } = await createDebate();
+    const finishToken = crypto.randomUUID();
+    await pool.query(
+      "SELECT claim_solo_debate_finalization($1, $2, $3::uuid, 300)",
+      [debateId, userId, finishToken],
+    );
+    await pool.query(
+      "UPDATE solo_debates SET finalization_started_at = clock_timestamp() - interval '301 seconds' WHERE id = $1",
+      [debateId],
+    );
+
+    const window = await pool.query<{ result: { modeId: string; remainingSeconds: number } | null }>(
+      "SELECT start_solo_turn_window($1, $2, $3, 'rapid-rebuttal', 60) AS result",
+      [debateId, userId, turnId],
+    );
+    expect(window.rows[0].result?.modeId).toBe("rapid-rebuttal");
+    expect(window.rows[0].result?.remainingSeconds).toBeGreaterThan(0);
+
+    await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
+  });
+
+  it("commits a staged response as the final answered round without creating another opponent turn", async () => {
+    const { debateId, turnId } = await createDebate();
+    await pool.query(
+      "UPDATE solo_debate_turns SET user_message = 'Round 1 answer', turn_score = 20 WHERE id = $1",
+      [turnId],
+    );
+    for (let round = 2; round <= 4; round++) {
+      await pool.query(
+        "INSERT INTO solo_debate_turns (debate_id, round_number, ai_message, user_message, turn_score) VALUES ($1, $2, $3, $4, 20)",
+        [debateId, round, `Opponent ${round}`, `Answer ${round}`],
+      );
+    }
+    const pending = await pool.query<{ id: string }>(
+      "INSERT INTO solo_debate_turns (debate_id, round_number, ai_message) VALUES ($1, 5, 'Opponent 5') RETURNING id",
+      [debateId],
+    );
+    await pool.query("UPDATE solo_debates SET round_count = 5 WHERE id = $1", [debateId]);
+
+    const token = crypto.randomUUID();
+    const staged = await pool.query<{ result: { claimed: boolean } }>(
+      `SELECT claim_solo_turn_submission(
+        $1, $2, $3, $4::uuid, 'text', false,
+        'Saved round five', 'text', '{}'::jsonb, 30, '{}'::jsonb,
+        '{"modeId":"text","elapsedSeconds":9,"modeWarnings":[],"speechTiming":null,"speechAnalysis":null,"speechQuality":null}'::jsonb,
+        9, 300
+      ) AS result`,
+      [debateId, userId, pending.rows[0].id, token],
+    );
+    expect(staged.rows[0].result.claimed).toBe(true);
+    await pool.query(
+      "SELECT release_solo_turn_submission($1, $2, $3, $4::uuid)",
+      [debateId, userId, pending.rows[0].id, token],
+    );
+
+    const committed = await pool.query<{ result: { saved: boolean; reason: string; completedTurn: { user_message: string } } }>(
+      "SELECT commit_staged_solo_turn_for_finish($1, $2, $3, 5, 300) AS result",
+      [debateId, userId, pending.rows[0].id],
+    );
+    expect(committed.rows[0].result).toMatchObject({ saved: true, reason: "saved-for-finish" });
+    expect(committed.rows[0].result.completedTurn.user_message).toBe("Saved round five");
+
+    const state = await pool.query<{ turns: string; round_count: number }>(
+      `SELECT
+         (SELECT count(*)::text FROM solo_debate_turns WHERE debate_id = $1) AS turns,
+         round_count
+       FROM solo_debates WHERE id = $1`,
+      [debateId],
+    );
+    expect(Number(state.rows[0].turns)).toBe(5);
+    expect(state.rows[0].round_count).toBe(5);
+
+    await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
+  });
+
+  it("enforces one durable turn per debate round", async () => {
+    const { debateId } = await createDebate();
+    await expect(
+      pool.query(
+        "INSERT INTO solo_debate_turns (debate_id, round_number, ai_message) VALUES ($1, 1, 'Duplicate')",
+        [debateId],
+      ),
+    ).rejects.toMatchObject({ code: "23505" });
     await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
   });
 
