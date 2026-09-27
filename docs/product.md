@@ -194,3 +194,13 @@ The database also enforces **one active PvP match per player across both roles**
 ## Async friend challenges
 
 `POST /api/challenges` creates a shareable invite code on today's motion; the friend opens `/challenge/<code>`, accepts (sign-in required), and the pre-created PvP match routes them in. No simultaneity: the challenger opens, the opponent responds whenever. Match state persists in the normal PvP tables; invites expire after 7 days and claim atomically. The transcript replays through the existing PvP room. This is a foundation — the flow is functional but marked experimental.
+
+
+## Recovery guarantees
+
+- Accepted responses are durable before opponent generation begins.
+- If opponent generation fails after an accepted response, the user can retry generation without re-entering the answer.
+- Once the accepted saved response reaches the minimum debate length, **Finish with saved response** commits that exact response as the final answered round and completes the debate without requiring another AI opponent call.
+- A crashed Finish request cannot permanently lock the debate: stale finalization leases are recoverable by normal turn/timer activity and scheduled maintenance.
+- Rapid Rebuttal and Prepared Speech keep their original server-issued timer across reloads.
+- Per-user streaks and daily drills share the stored profile timezone; the global Daily Topic remains one UTC-keyed motion for everyone.
