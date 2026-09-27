@@ -38,10 +38,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "This round is no longer available." }, { status: 409 });
   }
 
-  const payload = data as { modeId?: string; startedAt?: string | null; expiresAt?: string | null };
-  const remainingSeconds = mode.hardTimeLimitSecs !== null && payload.expiresAt
-    ? Math.max(0, Math.ceil((Date.parse(payload.expiresAt) - Date.now()) / 1000))
-    : null;
+  // remainingSeconds is computed inside PostgreSQL from the same clock that
+  // created the window. Do not recompute it with the application-server clock.
+  const payload = data as {
+    modeId?: string;
+    startedAt?: string | null;
+    expiresAt?: string | null;
+    remainingSeconds?: number | null;
+    expired?: boolean;
+  };
 
-  return NextResponse.json({ ...payload, remainingSeconds });
+  return NextResponse.json(payload);
 }
