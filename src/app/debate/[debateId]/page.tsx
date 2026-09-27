@@ -48,6 +48,7 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
         bonusXP?: number;
         rewardEvents?: PersistedSoloResult["rewardEvents"];
         trainingSummary?: PersistedSoloResult["trainingSummary"];
+        summarySource?: PersistedSoloResult["summarySource"];
       }
     | null = null;
   if (debate.status === "completed") {
@@ -101,6 +102,7 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
       bonusXP: persisted?.bonusXP,
       rewardEvents: persisted?.rewardEvents,
       trainingSummary: persisted?.trainingSummary,
+      summarySource: persisted?.summarySource,
     };
   }
 
