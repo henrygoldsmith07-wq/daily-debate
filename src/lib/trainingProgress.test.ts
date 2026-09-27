@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTrainingProgress } from "./trainingProgress";
+import { buildTrainingProgress, MIN_MODE_TREND_DEBATES, MIN_MODE_TREND_TURNS } from "./trainingProgress";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { TrainingSummary } from "./types";
 
@@ -7,29 +7,62 @@ function point(completedAt: string, training: TrainingSummary): SkillMetricPoint
   return { debateId: crypto.randomUUID(), completedAt, metrics: {} as SkillMetricPoint["metrics"], training };
 }
 
+function speechSummary(turns: number, quality: number, elapsed: number): TrainingSummary {
+  return {
+    modeCounts: { speech: turns },
+    byMode: {
+      speech: {
+        turns,
+        timedTurns: turns,
+        speechTurns: turns,
+        avgElapsedSeconds: elapsed,
+        avgPaceWpm: 130,
+        avgFillerDensity: 1,
+        avgStructureDensity: 2,
+        avgSpeechQuality: quality,
+      },
+    },
+    totalTurns: turns,
+    timedTurns: turns,
+    limitBreaches: 0,
+    speechTurns: turns,
+    avgElapsedSeconds: elapsed,
+    avgPaceWpm: 130,
+    avgFillerDensity: 1,
+    avgStructureDensity: 2,
+    avgSpeechQuality: quality,
+    paceChangeWpm: null,
+  };
+}
+
 describe("buildTrainingProgress", () => {
-  it("keeps within-mode trends separate while retaining overall weighted summaries", () => {
+  it("withholds within-mode change until enough debates and turns exist", () => {
     const summary = buildTrainingProgress([
-      point("2026-09-20T08:00:00Z", {
-        modeCounts: { speech: 2 },
-        byMode: { speech: { turns: 2, timedTurns: 2, speechTurns: 2, avgElapsedSeconds: 70, avgPaceWpm: 120, avgFillerDensity: 2, avgStructureDensity: 1, avgSpeechQuality: 70 } },
-        totalTurns: 2, timedTurns: 2, limitBreaches: 0, speechTurns: 2, avgElapsedSeconds: 70, avgPaceWpm: 120, avgFillerDensity: 2, avgStructureDensity: 1, avgSpeechQuality: 70, paceChangeWpm: null,
-      }),
-      point("2026-09-27T08:00:00Z", {
-        modeCounts: { speech: 1, "rapid-rebuttal": 1 },
-        byMode: {
-          speech: { turns: 1, timedTurns: 1, speechTurns: 1, avgElapsedSeconds: 55, avgPaceWpm: 135, avgFillerDensity: 1, avgStructureDensity: 2, avgSpeechQuality: 82 },
-          "rapid-rebuttal": { turns: 1, timedTurns: 1, speechTurns: 1, avgElapsedSeconds: 40, avgPaceWpm: 150, avgFillerDensity: 1, avgStructureDensity: 2, avgSpeechQuality: 90 },
-        },
-        totalTurns: 2, timedTurns: 2, limitBreaches: 0, speechTurns: 2, avgElapsedSeconds: 47.5, avgPaceWpm: 142.5, avgFillerDensity: 1, avgStructureDensity: 2, avgSpeechQuality: 86, paceChangeWpm: null,
-      }),
+      point("2026-09-20T08:00:00Z", speechSummary(2, 70, 70)),
+      point("2026-09-27T08:00:00Z", speechSummary(1, 82, 55)),
     ]);
 
-    expect(summary.modeTurns).toEqual({ speech: 3, "rapid-rebuttal": 1 });
-    expect(summary.perMode.speech?.debates).toBe(2);
+    expect(MIN_MODE_TREND_DEBATES).toBe(3);
+    expect(MIN_MODE_TREND_TURNS).toBe(5);
+    expect(summary.perMode.speech?.speechTrendReady).toBe(false);
+    expect(summary.perMode.speech?.responseTrendReady).toBe(false);
+    expect(summary.perMode.speech?.speechQualityChange).toBeNull();
+    expect(summary.perMode.speech?.responseTimeChangeSeconds).toBeNull();
+  });
+
+  it("shows within-mode change only after the evidence threshold is met", () => {
+    const summary = buildTrainingProgress([
+      point("2026-09-13T08:00:00Z", speechSummary(2, 70, 70)),
+      point("2026-09-20T08:00:00Z", speechSummary(1, 76, 63)),
+      point("2026-09-27T08:00:00Z", speechSummary(2, 82, 55)),
+    ]);
+
+    expect(summary.modeTurns).toEqual({ speech: 5 });
+    expect(summary.perMode.speech?.debates).toBe(3);
+    expect(summary.perMode.speech?.speechTrendReady).toBe(true);
+    expect(summary.perMode.speech?.responseTrendReady).toBe(true);
     expect(summary.perMode.speech?.speechQualityChange).toBe(12);
     expect(summary.perMode.speech?.responseTimeChangeSeconds).toBe(-15);
-    expect(summary.perMode["rapid-rebuttal"]?.avgPaceWpm).toBe(150);
-    expect(summary.avgPaceWpm).toBe(131.3);
+    expect(summary.avgPaceWpm).toBe(130);
   });
 });
