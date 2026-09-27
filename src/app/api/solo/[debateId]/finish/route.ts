@@ -59,12 +59,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const timeZone = normalizeIanaTimeZone(profile?.timezone);
   if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
 
-    .from("solo_debates")
-    .select("*")
-    .eq("id", debateId)
-    .eq("user_id", user.id)
-    .single();
-  if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
   if (debate.status === "completed") {
     if (debate.result_payload && typeof debate.result_payload === "object") {
       return NextResponse.json(debate.result_payload);
