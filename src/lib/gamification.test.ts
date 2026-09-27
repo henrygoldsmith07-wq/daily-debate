@@ -1,5 +1,5 @@
-import { performanceScoreForTurns, describe, it, expect } from "vitest";
-import { pointsForTurn, levelForPoints, updateStreak } from "./gamification";
+import { describe, it, expect } from "vitest";
+import { performanceScoreForTurns, pointsForTurn, levelForPoints, updateStreak } from "./gamification";
 
 describe("gamification", () => {
   it("pointsForTurn sums 5 factors", () => {
