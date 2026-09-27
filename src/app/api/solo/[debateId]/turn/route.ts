@@ -7,7 +7,7 @@ import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidDebateTurn } from "@/lib/aiSchema";
 import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
-import { type InputMode, type TurnTrainingMeta } from "@/lib/types";
+import { type InputMode, type SoloDebateTurn, type TurnTrainingMeta } from "@/lib/types";
 import { roundCapFor } from "@/lib/sprint";
 import { recordProductEventForUser } from "@/lib/productEvents";
 import { checkModeConstraints, hardTimeLimitError, isDebateModeId, resolveMode } from "@/lib/debateModes";
@@ -20,7 +20,15 @@ import {
 } from "@/lib/argumentRouting";
 import type { ArgumentRoute } from "@/lib/argumentTaxonomy";
 
+type AdvanceResult = {
+  saved?: boolean;
+  reason?: string;
+  nextTurn?: SoloDebateTurn | null;
+};
+
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
+  const receivedAtMs = Date.now();
+  const receivedAt = new Date(receivedAtMs).toISOString();
   const limited = await checkRateLimit(request, { name: "solo-turn", limit: 20, windowMs: 60_000 });
   if (limited) return limited;
 
@@ -41,18 +49,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       : null;
   if (!modeId) return NextResponse.json({ error: "Unknown debate mode." }, { status: 400 });
   const mode = resolveMode(modeId);
-  const elapsedSeconds = typeof body?.elapsedSeconds === "number" && Number.isFinite(body.elapsedSeconds)
+  const clientElapsedSeconds = typeof body?.elapsedSeconds === "number" && Number.isFinite(body.elapsedSeconds)
     ? Math.max(0, Math.min(60 * 60, Math.round(body.elapsedSeconds)))
     : null;
   const speechTiming = inputMode === "voice" ? parseTurnTiming(body?.timing) : null;
-  const timingError = hardTimeLimitError(mode, elapsedSeconds);
-  if (timingError) return NextResponse.json({ error: timingError }, { status: 422 });
+
   if (!message) return NextResponse.json({ error: "message is required." }, { status: 400 });
   if (isSuspiciousLength(message)) {
     return NextResponse.json({ error: "Response is too long. Keep it under 6,000 characters." }, { status: 400 });
   }
 
-  // Moderation: block high-severity only; do not alter scoring
   const mod = moderateContent(message);
   if (mod.blocked) {
     return NextResponse.json({ error: `Message blocked: ${mod.flags.map((f) => f.note).join(" ")}`, moderation: mod.flags }, { status: 400 });
@@ -87,80 +93,109 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (pendingTurn.user_message) {
     return NextResponse.json({ error: "Latest round already answered." }, { status: 409 });
   }
+
   const debateFormat = debate.format === "sprint" ? "sprint" : "full";
   const roundCap = roundCapFor(debateFormat);
-  // The cap is the last round the user may ANSWER: a sprint's round 3 is
-  // playable, but it creates no round 4. Full debates keep the same semantics
-  // against their 12-round cap.
   const isFinalRound = pendingTurn.round_number >= roundCap;
 
-  // Anti-cheat: refuse a verbatim repeat of the user's previous response.
+  let elapsedSeconds = clientElapsedSeconds;
+  if (mode.hardTimeLimitSecs !== null) {
+    const startedAtMs = pendingTurn.response_window_started_at
+      ? Date.parse(pendingTurn.response_window_started_at)
+      : Number.NaN;
+    const expiresAtMs = pendingTurn.response_window_expires_at
+      ? Date.parse(pendingTurn.response_window_expires_at)
+      : Number.NaN;
+
+    if (
+      pendingTurn.response_mode !== modeId ||
+      !Number.isFinite(startedAtMs) ||
+      !Number.isFinite(expiresAtMs)
+    ) {
+      return NextResponse.json(
+        { error: `Start the ${mode.label} response timer before submitting.` },
+        { status: 422 },
+      );
+    }
+    if (receivedAtMs < startedAtMs || receivedAtMs > expiresAtMs) {
+      return NextResponse.json(
+        { error: `${mode.label} time limit expired. Switch modes to continue this round.` },
+        { status: 422 },
+      );
+    }
+    elapsedSeconds = Math.max(0, Math.round((receivedAtMs - startedAtMs) / 1000));
+  }
+
+  const timingError = hardTimeLimitError(mode, elapsedSeconds);
+  if (timingError) return NextResponse.json({ error: timingError }, { status: 422 });
+
   const answered = turns.filter((t) => t.user_message);
   const prevUserMessage = answered[answered.length - 1]?.user_message ?? null;
   if (prevUserMessage && repeatScore([prevUserMessage, message]) === 1) {
     return NextResponse.json({ error: "That response repeats your previous turn — make a new argument." }, { status: 400 });
   }
 
-  const history = turns.slice(0, -1).flatMap((turn) => [
-    { role: "ai" as const, text: turn.ai_message },
-    ...(turn.user_message ? [{ role: "user" as const, text: turn.user_message }] : []),
-  ]);
-  history.push({ role: "ai", text: pendingTurn.ai_message });
+  let feedback: string | null = null;
+  let nextAiMessage: string | null = null;
 
-  // Structural routing is a response-shaping hint only. It can identify a
-  // question or an off-topic move, but it never supplies a score or decides
-  // which side is correct; the deterministic assessment below remains the
-  // source of truth.
-  let argumentRoute: ArgumentRoute | undefined;
-  try {
-    const classified = await classifyArgumentBatchDetailed([message], {
-      topicTitle: topic.title,
-      topicPrompt: topic.prompt,
-      tier: "fast",
-    });
-    const plan = routeClassifiedArguments(
-      [{ id: `solo-${pendingTurn.id}`, text: message, owner: "a", round: pendingTurn.round_number }],
-      classified.classifications,
-      classified.batchCount,
-    );
-    recordRoutingTelemetry(routingSummary(plan, 0));
-    if (plan.route === "response-generation" || plan.route === "lightweight") argumentRoute = plan.route;
-  } catch {
-    // The classifier is an optimisation and must never make a turn fail.
-    console.warn("Structural argument routing unavailable; continuing with the normal response path.");
+  if (!isFinalRound) {
+    const history = turns.slice(0, -1).flatMap((turn) => [
+      { role: "ai" as const, text: turn.ai_message },
+      ...(turn.user_message ? [{ role: "user" as const, text: turn.user_message }] : []),
+    ]);
+    history.push({ role: "ai", text: pendingTurn.ai_message });
+
+    let argumentRoute: ArgumentRoute | undefined;
+    try {
+      const classified = await classifyArgumentBatchDetailed([message], {
+        topicTitle: topic.title,
+        topicPrompt: topic.prompt,
+        tier: "fast",
+      });
+      const plan = routeClassifiedArguments(
+        [{ id: `solo-${pendingTurn.id}`, text: message, owner: "a", round: pendingTurn.round_number }],
+        classified.classifications,
+        classified.batchCount,
+      );
+      recordRoutingTelemetry(routingSummary(plan, 0));
+      if (plan.route === "response-generation" || plan.route === "lightweight") argumentRoute = plan.route;
+    } catch {
+      console.warn("Structural argument routing unavailable; continuing with the normal response path.");
+    }
+
+    try {
+      const result = await withProviderFallback(
+        () =>
+          debateTurn({
+            topicTitle: topic.title,
+            topicPrompt: topic.prompt,
+            userSide: debate.side as "for" | "against",
+            history,
+            latestUserMessage: message,
+            argumentRoute,
+          }),
+        isValidDebateTurn,
+        () =>
+          anthropicTurn({
+            topicTitle: topic.title,
+            topicPrompt: topic.prompt,
+            userSide: debate.side as "for" | "against",
+            history,
+            latestUserMessage: message,
+            argumentRoute,
+          }),
+      );
+      feedback = result.feedback;
+      nextAiMessage = result.aiMessage;
+    } catch (error) {
+      console.error("Failed to generate the next debate turn:", error);
+      return NextResponse.json(
+        { error: "The opponent is temporarily unavailable. Your draft has not been submitted; retry when ready." },
+        { status: 502 },
+      );
+    }
   }
 
-  let result;
-  try {
-    result = await withProviderFallback(
-      () =>
-        debateTurn({
-          topicTitle: topic.title,
-          topicPrompt: topic.prompt,
-          userSide: debate.side as "for" | "against",
-          history,
-          latestUserMessage: message,
-          argumentRoute,
-        }),
-      isValidDebateTurn,
-      () =>
-        anthropicTurn({
-          topicTitle: topic.title,
-          topicPrompt: topic.prompt,
-          userSide: debate.side as "for" | "against",
-          history,
-          latestUserMessage: message,
-          argumentRoute,
-        }),
-    );
-  } catch (error) {
-    console.error("Failed to score debate turn:", error);
-    return NextResponse.json({ error: "Failed to evaluate your response." }, { status: 502 });
-  }
-
-  // The model only supplies feedback and the next challenge. Scores are
-  // recomputed from a deterministic turn graph so verbosity cannot buy points
-  // and no model-authored 0–10 number is persisted as ground truth.
   const observable = assessTurn({
     userMessage: message,
     opponentMessage: pendingTurn.ai_message,
@@ -186,29 +221,38 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     speechQuality,
   };
 
-  // Claim the turn atomically: only the first concurrent submit may write the
-  // answer. A loser gets zero rows back and must not insert a duplicate
-  // next-round turn.
-  const { data: claimed, error: updateError } = await db
-    .from("solo_debate_turns")
-    .update({
-      user_message: message,
-      input_mode: inputMode,
-      scores,
-      turn_score: turnScore,
-      feedback: result.feedback,
-      assessment: observable.assessment,
-      training_meta: trainingMeta,
-    })
-    .eq("id", pendingTurn.id)
-    .is("user_message", null)
-    .select("id");
-  if (updateError) {
-    console.error("Failed to save turn result:", updateError);
-    return NextResponse.json({ error: "Failed to save your response." }, { status: 500 });
+  const nextRoundNumber = isFinalRound ? null : pendingTurn.round_number + 1;
+  const { data: advanceData, error: advanceError } = await db.rpc("advance_solo_debate_turn", {
+    p_debate_id: debateId,
+    p_user_id: user.id,
+    p_turn_id: pendingTurn.id,
+    p_received_at: receivedAt,
+    p_mode: modeId,
+    p_require_window: mode.hardTimeLimitSecs !== null,
+    p_user_message: message,
+    p_input_mode: inputMode,
+    p_scores: JSON.stringify(scores),
+    p_turn_score: turnScore,
+    p_feedback: feedback,
+    p_assessment: JSON.stringify(observable.assessment),
+    p_training_meta: JSON.stringify(trainingMeta),
+    p_next_round_number: nextRoundNumber,
+    p_next_ai_message: nextAiMessage,
+  });
+  if (advanceError) {
+    console.error("Failed to advance solo debate atomically:", advanceError);
+    return NextResponse.json({ error: "Failed to save your response. Nothing was changed; please retry." }, { status: 500 });
   }
-  if (!claimed || claimed.length === 0) {
-    return NextResponse.json({ error: "Latest round already answered." }, { status: 409 });
+
+  const advanced = (advanceData ?? {}) as AdvanceResult;
+  if (!advanced.saved) {
+    if (advanced.reason === "timing-window-invalid") {
+      return NextResponse.json(
+        { error: `${mode.label} time limit expired. Switch modes to continue this round.` },
+        { status: 422 },
+      );
+    }
+    return NextResponse.json({ error: "Latest round already answered or debate no longer active." }, { status: 409 });
   }
 
   await recordProductEventForUser(user.id, "round_completed", {
@@ -218,40 +262,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     debateId,
   });
 
-  // Final round: the debate is done — the client is told to finish. No round
-  // N+1 turn is created, so nothing can dangle if the user walks away.
-  if (isFinalRound) {
-    await db.from("solo_debates").update({ round_count: pendingTurn.round_number }).eq("id", debateId);
-    return NextResponse.json({
-      completedTurn: {
-        ...pendingTurn,
-        user_message: message,
-        input_mode: inputMode,
-        scores,
-        turn_score: turnScore,
-        feedback: result.feedback,
-        assessment: observable.assessment,
-        training_meta: trainingMeta,
-      },
-      nextTurn: null,
-      roundCount: pendingTurn.round_number,
-      debateComplete: true,
-    });
-  }
-
-  const nextRoundNumber = pendingTurn.round_number + 1;
-  const { data: nextTurn, error: nextTurnError } = await db
-    .from("solo_debate_turns")
-    .insert({ debate_id: debateId, round_number: nextRoundNumber, ai_message: result.aiMessage })
-    .select("*")
-    .single();
-  if (nextTurnError || !nextTurn) {
-    console.error("Failed to create next turn:", nextTurnError);
-    return NextResponse.json({ error: "Failed to continue debate." }, { status: 500 });
-  }
-
-  await db.from("solo_debates").update({ round_count: nextRoundNumber }).eq("id", debateId);
-
+  const nextTurn = (advanced.nextTurn ?? null) as SoloDebateTurn | null;
   return NextResponse.json({
     completedTurn: {
       ...pendingTurn,
@@ -259,13 +270,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       input_mode: inputMode,
       scores,
       turn_score: turnScore,
-      feedback: result.feedback,
+      feedback,
       assessment: observable.assessment,
       training_meta: trainingMeta,
     },
     nextTurn,
-    roundCount: nextRoundNumber,
-    debateComplete: false,
+    roundCount: nextRoundNumber ?? pendingTurn.round_number,
+    debateComplete: isFinalRound,
   });
 }
-

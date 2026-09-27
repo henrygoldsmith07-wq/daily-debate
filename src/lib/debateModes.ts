@@ -85,7 +85,7 @@ export function hardTimeLimitError(mode: DebateModeConfig, elapsedSeconds: numbe
   if (mode.hardTimeLimitSecs === null) return null;
   if (elapsedSeconds === null) return `${mode.label} requires an active response timer.`;
   if (elapsedSeconds > mode.hardTimeLimitSecs) {
-    return `${mode.label} time limit expired. Restart the mode or choose another mode.`;
+    return `${mode.label} time limit expired. Switch modes to continue this round.`;
   }
   return null;
 }

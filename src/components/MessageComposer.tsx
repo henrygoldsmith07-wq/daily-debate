@@ -200,7 +200,7 @@ export default function MessageComposer({
       </div>
       {timeExpired ? (
         <p className="text-xs text-[var(--bad)]" role="status">
-          Time expired for {mode.label}. Choose the mode again to restart the clock, or switch modes to continue.
+          Time expired for {mode.label}. Switch to another mode to continue this round.
         </p>
       ) : null}
     </div>

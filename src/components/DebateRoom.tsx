@@ -13,6 +13,7 @@ import type { ArgGraph } from "@/lib/argGraph";
 import type { ResultSnapshot } from "@/lib/resultSnapshot";
 import { minRoundsFor } from "@/lib/sprint";
 import { trackEvent } from "@/lib/trackClientEvent";
+import { DEBATE_MODES, type DebateModeId } from "@/lib/debateModes";
 
 interface RewardEventView { kind: string; xp: number; label: string; detail?: string; dimension?: string; }
 interface DebateSummaryPayload {
@@ -103,10 +104,41 @@ export default function DebateRoom({
     }
   }, [turns, sending]);
 
-  const [debateMode, setDebateMode] = useState("text");
+  const [debateMode, setDebateMode] = useState<DebateModeId>("text");
   const [modeStartedAt, setModeStartedAt] = useState<number | null>(null);
   const [showAdvancedModes, setShowAdvancedModes] = useState(false);
   const [opponentSpeaking, setOpponentSpeaking] = useState(false);
+  const [modeWindowStarting, setModeWindowStarting] = useState(false);
+  const waitingForModeWindow =
+    DEBATE_MODES[debateMode].hardTimeLimitSecs !== null && modeStartedAt === null;
+
+  async function startResponseWindow(modeId: DebateModeId, turnId: string) {
+    setModeWindowStarting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/solo/${debate.id}/turn-window`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ turnId, modeId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to start response timer.");
+      setModeStartedAt(modeId === "text" ? null : Date.now());
+      return true;
+    } catch (err) {
+      setModeStartedAt(null);
+      setError(err instanceof Error ? err.message : "Failed to start response timer.");
+      return false;
+    } finally {
+      setModeWindowStarting(false);
+    }
+  }
+
+  async function chooseMode(modeId: DebateModeId) {
+    if (!pending?.id || opponentSpeaking || modeWindowStarting) return;
+    setDebateMode(modeId);
+    await startResponseWindow(modeId, pending.id);
+  }
 
   async function submitTurn(data: ComposerSubmitData) {
     setSending(true);
@@ -136,19 +168,22 @@ export default function DebateRoom({
       );
       setRoundCount(resData.roundCount);
       if (resData.nextTurn && debateMode !== "text") {
+        setModeStartedAt(null);
         if (ttsSupported) {
-          setModeStartedAt(null);
           setOpponentSpeaking(true);
           speak(resData.nextTurn.ai_message, () => {
             setOpponentSpeaking(false);
-            setModeStartedAt(Date.now());
+            void startResponseWindow(debateMode, resData.nextTurn.id);
           });
         } else {
-          setModeStartedAt(Date.now());
+          void startResponseWindow(debateMode, resData.nextTurn.id);
         }
       } else {
         setModeStartedAt(null);
-        if (resData.nextTurn && ttsSupported) speak(resData.nextTurn.ai_message);
+        if (resData.nextTurn && ttsSupported) {
+          setOpponentSpeaking(true);
+          speak(resData.nextTurn.ai_message, () => setOpponentSpeaking(false));
+        }
       }
       return true;
     } catch (err) {
@@ -484,7 +519,7 @@ export default function DebateRoom({
         </p>
       )}
       <div className="flex items-center justify-between">
-        <p className="tabular text-sm text-ink3">
+        <p className="tabular text-sm text-ink3" data-testid="round-status">
           Round {roundCount} {roundCount < minRounds && `· ${minRounds - roundCount + 1} to go`}
         </p>
       </div>
@@ -536,11 +571,8 @@ export default function DebateRoom({
               <button
                 key={m.id}
                 type="button"
-                disabled={opponentSpeaking}
-                onClick={() => {
-                  setDebateMode(m.id);
-                  setModeStartedAt(m.id === "text" ? null : Date.now());
-                }}
+                disabled={opponentSpeaking || modeWindowStarting}
+                onClick={() => void chooseMode(m.id as DebateModeId)}
                 aria-pressed={debateMode === m.id}
                 className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
               >
@@ -549,7 +581,7 @@ export default function DebateRoom({
             ))}
             <button
               type="button"
-              disabled={opponentSpeaking}
+              disabled={opponentSpeaking || modeWindowStarting}
               onClick={() => setShowAdvancedModes((visible) => !visible)}
               aria-expanded={showAdvancedModes}
               className="btn btn-ghost px-3 py-1.5 text-xs disabled:opacity-40"
@@ -565,11 +597,8 @@ export default function DebateRoom({
                   <button
                     key={m.id}
                     type="button"
-                    disabled={opponentSpeaking}
-                    onClick={() => {
-                      setDebateMode(m.id);
-                      setModeStartedAt(Date.now());
-                    }}
+                    disabled={opponentSpeaking || modeWindowStarting}
+                    onClick={() => void chooseMode(m.id as DebateModeId)}
                     aria-pressed={debateMode === m.id}
                     className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
                   >
@@ -582,12 +611,14 @@ export default function DebateRoom({
           <MessageComposer
             key={`${debateMode}-${pending?.id ?? "none"}`}
             onSubmit={submitTurn}
-            disabled={sending || opponentSpeaking}
+            disabled={sending || opponentSpeaking || modeWindowStarting || waitingForModeWindow}
             modeId={debateMode}
             startedAtMs={modeStartedAt}
           />
           {opponentSpeaking ? (
             <p className="text-xs text-ink3" role="status">Opponent is speaking — your response clock starts when they finish.</p>
+          ) : modeWindowStarting || waitingForModeWindow ? (
+            <p className="text-xs text-ink3" role="status">Preparing the server-timed response window…</p>
           ) : null}
         </div>
       )}

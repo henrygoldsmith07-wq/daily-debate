@@ -123,6 +123,10 @@ export interface SoloDebateTurn {
   feedback: string | null;
   assessment?: ObservableAssessment | null;
   training_meta?: TurnTrainingMeta | null;
+  /** Server-issued response window for timed training modes (migration 028). */
+  response_mode?: DebateModeId | "text" | null;
+  response_window_started_at?: string | null;
+  response_window_expires_at?: string | null;
   created_at: string;
 }
 
