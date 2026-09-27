@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import MessageComposer, { type ComposerSubmitData } from "./MessageComposer";
-import ScoreBadges from "./ScoreBadges";
 import RoundProgress from "./RoundProgress";
 import ThinkingIndicator from "./ThinkingIndicator";
 import ArgumentRepair, { FixThisNowButton } from "./ArgumentRepair";
@@ -79,7 +78,6 @@ export default function DebateRoom({
   const pending = turns[turns.length - 1];
   const answeredCount = turns.filter((t) => t.user_message).length;
   const canFinish = answeredCount >= minRounds;
-  const runningTotal = turns.reduce((sum, t) => sum + (t.turn_score ?? 0), 0);
   const sideReason =
     (debate.coaching as { sideReason?: string | null } | null)?.sideReason ??
     ((debate as unknown as { side_reason?: string | null }).side_reason ?? null);
@@ -99,6 +97,7 @@ export default function DebateRoom({
   }, [turns, sending]);
 
   const [debateMode, setDebateMode] = useState("text");
+  const [modeStartedAt, setModeStartedAt] = useState<number | null>(null);
   const [showAdvancedModes, setShowAdvancedModes] = useState(false);
 
   async function submitTurn(data: ComposerSubmitData) {
@@ -108,7 +107,13 @@ export default function DebateRoom({
       const res = await fetch(`/api/solo/${debate.id}/turn`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: data.message, inputMode: data.inputMode }),
+        body: JSON.stringify({
+          message: data.message,
+          inputMode: data.inputMode,
+          modeId: data.modeId,
+          timing: data.timing,
+          elapsedSeconds: data.elapsedSeconds,
+        }),
       });
       const resData = await res.json();
       if (!res.ok) throw new Error(resData.error || "Failed to submit response.");
@@ -122,6 +127,7 @@ export default function DebateRoom({
           : [...prev.slice(0, -1), resData.completedTurn],
       );
       setRoundCount(resData.roundCount);
+      setModeStartedAt(resData.nextTurn && debateMode !== "text" ? Date.now() : null);
       if (resData.nextTurn && ttsSupported) speak(resData.nextTurn.ai_message);
       return true;
     } catch (err) {
@@ -410,7 +416,6 @@ export default function DebateRoom({
       <div className="flex items-center justify-between">
         <p className="tabular text-sm text-ink3">
           Round {roundCount} {roundCount < minRounds && `· ${minRounds - roundCount + 1} to go`}
-          {runningTotal > 0 && ` · ${runningTotal} pts so far`}
         </p>
       </div>
 
@@ -433,8 +438,11 @@ export default function DebateRoom({
             {turn.user_message && (
               <div className="ml-auto flex max-w-[85%] flex-col items-end gap-1">
                 <div className="rounded-2xl rounded-tr-sm bg-surface/10 px-3 py-2 text-sm">{turn.user_message}</div>
-                {turn.scores && <ScoreBadges scores={turn.scores} />}
-                {turn.feedback && <p className="text-xs text-ink3">{turn.feedback}</p>}
+                {turn.training_meta?.modeWarnings?.length ? (
+                  <p className="max-w-md text-right text-xs text-ink3">
+                    {turn.training_meta.modeWarnings[0]}
+                  </p>
+                ) : null}
               </div>
             )}
           </div>
@@ -458,7 +466,10 @@ export default function DebateRoom({
               <button
                 key={m.id}
                 type="button"
-                onClick={() => setDebateMode(m.id)}
+                onClick={() => {
+                  setDebateMode(m.id);
+                  setModeStartedAt(m.id === "text" ? null : Date.now());
+                }}
                 aria-pressed={debateMode === m.id}
                 className={`btn px-3 py-1.5 text-xs ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
               >
@@ -482,7 +493,10 @@ export default function DebateRoom({
                   <button
                     key={m.id}
                     type="button"
-                    onClick={() => setDebateMode(m.id)}
+                    onClick={() => {
+                      setDebateMode(m.id);
+                      setModeStartedAt(Date.now());
+                    }}
                     aria-pressed={debateMode === m.id}
                     className={`btn px-3 py-1.5 text-xs ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
                   >
@@ -492,7 +506,13 @@ export default function DebateRoom({
               </>
             )}
           </div>
-          <MessageComposer onSubmit={submitTurn} disabled={sending} modeId={debateMode} />
+          <MessageComposer
+            key={`${debateMode}-${pending?.id ?? "none"}`}
+            onSubmit={submitTurn}
+            disabled={sending}
+            modeId={debateMode}
+            startedAtMs={modeStartedAt}
+          />
         </div>
       )}
 

@@ -16,6 +16,31 @@ export interface TurnTiming {
   durationSeconds: number;
 }
 
+/** Parse untrusted client timing into the bounded shape used by analysis. */
+export function parseTurnTiming(value: unknown): TurnTiming | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<TurnTiming>;
+  if (
+    typeof candidate.startedAt !== "string" ||
+    typeof candidate.endedAt !== "string" ||
+    typeof candidate.durationSeconds !== "number" ||
+    !Number.isFinite(candidate.durationSeconds)
+  ) {
+    return null;
+  }
+  const started = Date.parse(candidate.startedAt);
+  const ended = Date.parse(candidate.endedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) return null;
+  const derivedSeconds = Math.round((ended - started) / 1000);
+  if (candidate.durationSeconds < 0 || candidate.durationSeconds > 60 * 60) return null;
+  if (Math.abs(derivedSeconds - candidate.durationSeconds) > 3) return null;
+  return {
+    startedAt: new Date(started).toISOString(),
+    endedAt: new Date(ended).toISOString(),
+    durationSeconds: candidate.durationSeconds,
+  };
+}
+
 export interface SpeechTurnAnalysis {
   /** Words per minute — ideal range is 120–170 for debate clarity */
   paceWpm: number | null;

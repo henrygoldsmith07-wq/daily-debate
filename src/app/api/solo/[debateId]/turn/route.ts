@@ -7,9 +7,11 @@ import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidDebateTurn } from "@/lib/aiSchema";
 import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
-import { type InputMode } from "@/lib/types";
+import { type InputMode, type TurnTrainingMeta } from "@/lib/types";
 import { roundCapFor } from "@/lib/sprint";
 import { recordProductEventForUser } from "@/lib/productEvents";
+import { checkModeConstraints, isDebateModeId, resolveMode } from "@/lib/debateModes";
+import { analyseSpeechTurn, parseTurnTiming, scoreSpeechQuality } from "@/lib/speechAnalysis";
 import {
   classifyArgumentBatchDetailed,
   recordRoutingTelemetry,
@@ -32,6 +34,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const body = await request.json().catch(() => null);
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   const inputMode: InputMode = body?.inputMode === "voice" ? "voice" : "text";
+  const modeId = body?.modeId === undefined || body?.modeId === null || body?.modeId === ""
+    ? "text"
+    : isDebateModeId(body.modeId)
+      ? body.modeId
+      : null;
+  if (!modeId) return NextResponse.json({ error: "Unknown debate mode." }, { status: 400 });
+  const mode = resolveMode(modeId);
+  const elapsedSeconds = typeof body?.elapsedSeconds === "number" && Number.isFinite(body.elapsedSeconds)
+    ? Math.max(0, Math.min(60 * 60, Math.round(body.elapsedSeconds)))
+    : null;
+  const speechTiming = inputMode === "voice" ? parseTurnTiming(body?.timing) : null;
   if (!message) return NextResponse.json({ error: "message is required." }, { status: 400 });
   if (isSuspiciousLength(message)) {
     return NextResponse.json({ error: "Response is too long. Keep it under 6,000 characters." }, { status: 400 });
@@ -153,6 +166,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   });
   const scores = observable.scores;
   const turnScore = observable.turnScore;
+  const wordCount = message.trim().split(/\s+/).filter(Boolean).length;
+  const modeWarnings = checkModeConstraints(mode, wordCount, elapsedSeconds, inputMode);
+  if (inputMode === "voice" && !speechTiming) {
+    modeWarnings.push("Speech timing was unavailable, so pace and filler analysis were not recorded.");
+  }
+  const speechAnalysis = speechTiming
+    ? analyseSpeechTurn(message, speechTiming, prevUserMessage ?? undefined)
+    : null;
+  const speechQuality = speechAnalysis ? scoreSpeechQuality(speechAnalysis) : null;
+  const trainingMeta: TurnTrainingMeta = {
+    modeId,
+    elapsedSeconds,
+    modeWarnings,
+    speechTiming,
+    speechAnalysis,
+    speechQuality,
+  };
 
   // Claim the turn atomically: only the first concurrent submit may write the
   // answer. A loser gets zero rows back and must not insert a duplicate
@@ -166,6 +196,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       turn_score: turnScore,
       feedback: result.feedback,
       assessment: observable.assessment,
+      training_meta: trainingMeta,
     })
     .eq("id", pendingTurn.id)
     .is("user_message", null)
@@ -190,7 +221,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (isFinalRound) {
     await db.from("solo_debates").update({ round_count: pendingTurn.round_number }).eq("id", debateId);
     return NextResponse.json({
-      completedTurn: { ...pendingTurn, user_message: message, scores, turn_score: turnScore, feedback: result.feedback, assessment: observable.assessment },
+      completedTurn: {
+        ...pendingTurn,
+        user_message: message,
+        input_mode: inputMode,
+        scores,
+        turn_score: turnScore,
+        feedback: result.feedback,
+        assessment: observable.assessment,
+        training_meta: trainingMeta,
+      },
       nextTurn: null,
       roundCount: pendingTurn.round_number,
       debateComplete: true,
@@ -211,7 +251,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   await db.from("solo_debates").update({ round_count: nextRoundNumber }).eq("id", debateId);
 
   return NextResponse.json({
-    completedTurn: { ...pendingTurn, user_message: message, scores, turn_score: turnScore, feedback: result.feedback, assessment: observable.assessment },
+    completedTurn: {
+      ...pendingTurn,
+      user_message: message,
+      input_mode: inputMode,
+      scores,
+      turn_score: turnScore,
+      feedback: result.feedback,
+      assessment: observable.assessment,
+      training_meta: trainingMeta,
+    },
     nextTurn,
     roundCount: nextRoundNumber,
     debateComplete: false,

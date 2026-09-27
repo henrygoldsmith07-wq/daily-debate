@@ -11,6 +11,7 @@ export interface ComposerSubmitData {
   inputMode: InputMode;
   modeId: string;
   timing: TurnTiming | null;
+  elapsedSeconds: number | null;
 }
 
 export default function MessageComposer({
@@ -18,11 +19,13 @@ export default function MessageComposer({
   disabled,
   placeholder,
   modeId = "text",
+  startedAtMs = null,
 }: {
   onSubmit: (data: ComposerSubmitData) => void | boolean | Promise<void | boolean>;
   disabled: boolean;
   placeholder?: string;
   modeId?: string;
+  startedAtMs?: number | null;
 }) {
   const mode = resolveMode(modeId);
   const [text, setText] = useState("");
@@ -32,6 +35,8 @@ export default function MessageComposer({
   const { supported, listening, transcript, interim, error: speechError, start, stop } = useSpeechRecognition();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const voiceStartedAt = useRef<number | null>(null);
+  const [responseStartedAt, setResponseStartedAt] = useState<number | null>(null);
+  const effectiveResponseStartedAt = startedAtMs ?? responseStartedAt;
 
   // While listening, the textarea mirrors the live transcript (final + interim)
   const displayValue = listening ? (transcript + (interim ? ` ${interim}` : "")).trimStart() : text;
@@ -48,7 +53,9 @@ export default function MessageComposer({
       stop();
     } else {
       setUsedVoice(true);
-      voiceStartedAt.current = Date.now();
+      const now = Date.now();
+      voiceStartedAt.current = now;
+      if (startedAtMs === null) setResponseStartedAt((current) => current ?? now);
       start();
     }
   }
@@ -72,6 +79,9 @@ export default function MessageComposer({
         inputMode: usedVoice ? "voice" : "text",
         modeId,
         timing: usedVoice ? buildTiming() : null,
+        elapsedSeconds: effectiveResponseStartedAt === null
+          ? null
+          : Math.max(0, Math.round((Date.now() - effectiveResponseStartedAt) / 1000)),
       });
       // Preserve the user's draft when the parent reports a failed request.
       // Losing a response because Wi-Fi dropped is much worse than making the
@@ -80,6 +90,8 @@ export default function MessageComposer({
       setText("");
       setUsedVoice(false);
       voiceStartedAt.current = null;
+      setResponseStartedAt(null);
+      setElapsedSecs(0);
     } finally {
       setSubmitting(false);
     }
@@ -92,19 +104,18 @@ export default function MessageComposer({
     }
   }
 
-  // Timer for rapid-rebuttal / prepared-speech modes
+  // Timed modes measure the whole response window, not only microphone time.
   const [elapsedSecs, setElapsedSecs] = useState(0);
   useEffect(() => {
-    if (!listening) return;
-    const start = Date.now();
-    const tick = () => setElapsedSecs(Math.floor((Date.now() - start) / 1000));
+    if (effectiveResponseStartedAt === null || (mode.hardTimeLimitSecs === null && !listening)) return;
+    const tick = () => setElapsedSecs(Math.floor((Date.now() - effectiveResponseStartedAt) / 1000));
     const initial = setTimeout(tick, 0);
     const t = setInterval(tick, 1000);
     return () => { clearTimeout(initial); clearInterval(t); };
-  }, [listening]);
+  }, [effectiveResponseStartedAt, mode.hardTimeLimitSecs, listening]);
 
   const isTimed = mode.hardTimeLimitSecs !== null;
-  const timeRemaining = (isTimed && listening && mode.hardTimeLimitSecs !== null)
+  const timeRemaining = (isTimed && mode.hardTimeLimitSecs !== null)
     ? Math.max(0, mode.hardTimeLimitSecs - elapsedSecs)
     : null;
   const timeUrgent = timeRemaining !== null && timeRemaining < 15;
@@ -119,7 +130,7 @@ export default function MessageComposer({
         >
           {mode.label}
         </span>
-        {isTimed && listening && (
+        {isTimed && (
           <span className={`tabular text-xs font-medium ${timeUrgent ? "text-[var(--bad)]" : "text-ink3"}`}>
             ⏱ {timeRemaining}s remaining
           </span>
@@ -133,6 +144,7 @@ export default function MessageComposer({
         ref={textareaRef}
         value={displayValue}
         onChange={(e) => {
+          if (startedAtMs === null) setResponseStartedAt((current) => current ?? Date.now());
           setText(e.target.value);
           setUsedVoice(false);
         }}
