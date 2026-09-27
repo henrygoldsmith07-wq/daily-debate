@@ -60,7 +60,7 @@ export default async function DashboardPage() {
         .limit(4),
       db
         .from("solo_debates")
-        .select("id, topic_id, side, total_score, round_count, created_at, completed_at, format, coaching")
+        .select("id, topic_id, side, total_score, performance_score, bonus_xp, round_count, created_at, completed_at, format, coaching")
         .eq("user_id", user.id)
         .eq("status", "completed")
         .order("completed_at", { ascending: false })
@@ -124,6 +124,7 @@ export default async function DashboardPage() {
     weekday: "long",
     day: "numeric",
     month: "long",
+    timeZone: profile?.timezone ?? "UTC",
   }).format(new Date());
 
   return (
@@ -227,7 +228,7 @@ export default async function DashboardPage() {
             {previousDebate ? (
               <p className="home-secondary-meta">
                 {formatShortDate(previousDebate.completed_at ?? previousDebate.created_at)} · arguing{" "}
-                {previousDebate.side} · {previousDebate.total_score ?? "—"} pts
+                {previousDebate.side} · {previousDebate.performance_score ?? "—"}/100 performance
                 {improvementKey ? <span className="block text-[var(--accent)]">Improving: {improvementKey.replace(/([A-Z])/g, " $1").toLowerCase()}</span> : null}
               </p>
             ) : (
