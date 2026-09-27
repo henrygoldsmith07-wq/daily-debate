@@ -11,6 +11,7 @@ import {
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getTodayTopic } from "@/lib/dailyTopic";
 import { getCurrentUser } from "@/lib/currentViewer";
+import { dateKeyInTimeZone } from "@/lib/timeZone";
 
 // Today's training focus: the lowest skill dimension adjusted by movement
 // (improving dimensions are deprioritised; dimensions whose previous drill
@@ -39,6 +40,7 @@ export async function GET(request: Request) {
   const ledger = context.ledger;
   const outcomes = context.drillOutcomes;
   const service = createServiceClient();
+  const { data: profile } = await service.from("profiles").select("timezone").eq("id", user.id).single();
   const pendingRetest = context.selectedRetest;
 
   const { dims, slopes } = buildCoachProfile(ledger.points);
@@ -70,8 +72,8 @@ export async function GET(request: Request) {
     });
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-  const drill = todaysDrill(focus.key, new Date().toISOString());
+  const today = dateKeyInTimeZone(profile?.timezone ?? "UTC");
+  const drill = todaysDrill(focus.key, `${today}T12:00:00.000Z`);
 
   // Idempotent per (user, day), with one exception: an OPEN generic drill may
   // be repurposed when a new repair creates a deliberate retest. An attempted

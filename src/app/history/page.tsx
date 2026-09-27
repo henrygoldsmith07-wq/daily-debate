@@ -3,7 +3,7 @@ import { createClient } from "@/lib/backend/server";
 import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
-import type { PersistedSoloResult, PvpVerdict } from "@/lib/types";
+import type { PvpVerdict } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,7 @@ export default async function HistoryPage() {
   const [soloRes, pvpRes] = await Promise.all([
     db
       .from("solo_debates")
-      .select("id, status, side, round_count, total_score, result_payload, created_at, completed_at, topic_id")
+      .select("id, status, side, round_count, total_score, performance_score, bonus_xp, created_at, completed_at, topic_id")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(50),
@@ -76,16 +76,8 @@ export default async function HistoryPage() {
           <p className="text-sm text-ink3">No solo debates yet.</p>
         ) : (
           soloDebates.map((d) => {
-            const payload =
-              d.result_payload && typeof d.result_payload === "object"
-                ? (d.result_payload as PersistedSoloResult)
-                : null;
-            const fallbackPerformance =
-              d.round_count > 0
-                ? Math.max(0, Math.min(100, Math.round((((d.total_score ?? 0) / d.round_count) / 50) * 100)))
-                : 0;
-            const performance = payload?.performanceScore ?? fallbackPerformance;
-            const xp = (d.total_score ?? 0) + (payload?.bonusXP ?? 0);
+            const performance = d.performance_score ?? 0;
+            const xp = (d.total_score ?? 0) + (d.bonus_xp ?? 0);
             return (
             <Link
               key={d.id}

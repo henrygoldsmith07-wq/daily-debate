@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/backend/server";
 import { checkRateLimitKey } from "@/lib/rateLimit";
 import { safeReturnPath } from "@/lib/authRedirect";
+import { normalizeIanaTimeZone } from "@/lib/timeZone";
 
 export interface AuthState {
   error: string | null;
@@ -45,11 +46,21 @@ export async function signIn(_prevState: AuthState, formData: FormData): Promise
     return { error: AUTH_LIMIT_MESSAGE };
   }
   const db = await createClient();
-  const { error } = await db.auth.signInWithPassword({
+  const { data, error } = await db.auth.signInWithPassword({
     email,
     password: String(formData.get("password")),
   });
   if (error) return { error: error.message };
+
+  // Existing accounts created before timezone capture initialize it once.
+  // A non-UTC stored preference is never overwritten implicitly on sign-in.
+  const timeZone = normalizeIanaTimeZone(formData.get("timeZone"));
+  if (data.user && timeZone !== "UTC") {
+    const { data: profile } = await db.from("profiles").select("timezone").eq("id", data.user.id).single();
+    if (profile?.timezone === "UTC") {
+      await db.from("profiles").update({ timezone: timeZone }).eq("id", data.user.id).eq("timezone", "UTC");
+    }
+  }
 
   revalidatePath("/", "layout");
   redirect(nextPath);
@@ -65,7 +76,12 @@ export async function signUp(_prevState: AuthState, formData: FormData): Promise
   const { error } = await db.auth.signUp({
     email,
     password: String(formData.get("password")),
-    options: { data: { display_name: String(formData.get("displayName") || "") } },
+    options: {
+      data: {
+        display_name: String(formData.get("displayName") || ""),
+        time_zone: normalizeIanaTimeZone(formData.get("timeZone")),
+      },
+    },
   });
   if (error) return { error: error.message };
 

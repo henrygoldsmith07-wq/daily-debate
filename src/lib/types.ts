@@ -48,6 +48,9 @@ export interface SoloDebate {
   status: "active" | "completed";
   round_count: number;
   total_score: number | null;
+  /** Compact, length-normalized result metadata (migration 031). */
+  performance_score?: number | null;
+  bonus_xp?: number;
   /** "sprint" (3 rounds, reduced measurement confidence) or "full" (5–12). */
   format: DebateFormat;
   /** Coaching snapshot jsonb: goal dimension + observed behaviour from the debate. */

@@ -27,6 +27,7 @@ export class BackendClient {
       | "finalize_solo_debate_v2"
       | "start_solo_turn_window"
       | "claim_solo_turn_submission"
+      | "commit_staged_solo_turn_for_finish"
       | "release_solo_turn_submission"
       | "finalize_solo_turn_submission"
       | "refresh_solo_debate_finalization"
@@ -139,6 +140,13 @@ export class BackendClient {
             args.p_elapsed_seconds,
             args.p_stale_after_seconds,
           ],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "commit_staged_solo_turn_for_finish") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          "SELECT commit_staged_solo_turn_for_finish($1, $2, $3, $4, $5) AS result",
+          [args.p_debate_id, args.p_user_id, args.p_turn_id, args.p_min_rounds, args.p_stale_after_seconds],
         );
         return { data: rows[0]?.result ?? null, error: null };
       }

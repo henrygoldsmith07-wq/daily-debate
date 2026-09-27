@@ -26,6 +26,7 @@ Honest labels for what is shipped, provisional, or gated:
 **Shipped**
 
 - Daily Sprint (3 rounds) and Full Debate (5–12 rounds) through the same argument/evaluation pipeline.
+- Recovery-first solo state: stale Finish leases self-heal, timed modes survive reloads, and an accepted response can be used to **Finish with saved response** once the minimum debate length is satisfied.
 - Simplified result screen: one strength, one weakness, one evidence line, **Fix this now**, length-normalized performance + cumulative XP secondary, full analysis behind progressive disclosure.
 - Weak-link repair: server-checked rewrite of the flagged move with formative states and observable signals; the internal numeric rubric stays hidden, persists in `repair_results`, and links to the day's drill assignment for later retest scheduling.
 - "Challenge me" side assignment: explainable, history-based side choice (side balance → performance gap → alternation → random when no data). Lightweight by design — not presented as optimised.
@@ -36,7 +37,7 @@ Honest labels for what is shipped, provisional, or gated:
 - Async friend challenges: shareable `/challenge/<code>` link, persistent match state, expiry, turn state. (Foundation; UI marked experimental.)
 - Guest practice without an account: deterministic local checks react to the actual response (claim, reasoning, opponent engagement, impact comparison, named evidence), identify one observable weakness, and offer a mini repair. Guest mode deliberately shows no numeric ability score.
 - Product analytics: allowlisted, bounded, no-free-text funnel events (`src/lib/productEvents.ts`), with an internal admin report at `/analytics` covering the training funnel and observational repair-effectiveness measurement.
-- Expired sessions, password-reset tokens, rate-limit buckets, and stale challenge invites are swept daily by the unattended `backend-cleanup` workflow; `npm run db:cleanup` runs the same maintenance function manually. Database maintenance and manual migrations share one concurrency group so they cannot overlap.
+- Expired sessions, password-reset tokens, rate-limit buckets, stale solo finalization/submission leases, and stale challenge invites are swept daily by the unattended `backend-cleanup` workflow; `npm run db:cleanup` runs the same maintenance function manually. Database maintenance and manual migrations share one concurrency group so they cannot overlap.
 
 **Provisional (measured, not validated)**
 

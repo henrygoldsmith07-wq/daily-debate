@@ -3,6 +3,7 @@ import "server-only";
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { queryRows } from "./sql";
+import { normalizeIanaTimeZone } from "../timeZone";
 import { SESSION_COOKIE, SESSION_TTL_SECONDS } from "./session";
 
 const scrypt = promisify(scryptCallback);
@@ -134,7 +135,7 @@ export class AuthApi {
   async signUp(input: {
     email: string;
     password: string;
-    options?: { data?: { display_name?: string } };
+    options?: { data?: { display_name?: string; time_zone?: string } };
   }): Promise<{ data: { user: AppUser | null }; error: AuthError | null }> {
     if (!this.cookieStore) return { data: { user: null }, error: { message: "Cookies are unavailable." } };
     const email = normalizeEmail(input.email);
@@ -142,6 +143,7 @@ export class AuthApi {
     if (validationError) return { data: { user: null }, error: { message: validationError } };
     const requestedName = input.options?.data?.display_name?.trim();
     const displayName = (requestedName || email.split("@")[0]).slice(0, 40);
+    const timeZone = normalizeIanaTimeZone(input.options?.data?.time_zone);
     try {
       const hash = await passwordHash(input.password);
       const rows = await queryRows<AppUser>(
@@ -149,11 +151,11 @@ export class AuthApi {
            INSERT INTO app_users (email, password_hash) VALUES ($1, $2)
            RETURNING id, email
          ), new_profile AS (
-           INSERT INTO profiles (id, username)
-           SELECT id, $3 FROM new_user
+           INSERT INTO profiles (id, username, timezone)
+           SELECT id, $3, $4 FROM new_user
          )
          SELECT id, email FROM new_user`,
-        [email, hash, displayName],
+        [email, hash, displayName, timeZone],
       );
       const user = rows[0];
       if (!user) return { data: { user: null }, error: { message: "Could not create account." } };

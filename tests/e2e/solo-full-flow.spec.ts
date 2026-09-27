@@ -223,4 +223,30 @@ test.describe("solo full-flow", () => {
     await staleTab.close();
   });
 
+  test("timed training mode survives a page reload with the original window", async ({ page }) => {
+    mockAIProviders(page.context());
+
+    await page.goto("/login");
+    await page.getByLabel(/email/i).fill("e2e-j@test.local");
+    await page.getByLabel(/password/i).fill("e2e-test-pass-123");
+    await page.getByTestId("auth-submit").click();
+    await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
+
+    await page.getByTestId("start-sprint").click();
+    await page.waitForURL(/\/debate\//, { timeout: 20_000 });
+    await expect(page.getByLabel("Your debate response")).toBeVisible({ timeout: 20_000 });
+
+    await page.getByRole("button", { name: "More modes" }).click();
+    const rapid = page.getByRole("button", { name: /Rapid \(60s\)/ });
+    await rapid.click();
+    await expect(rapid).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText(/\d+s remaining/)).toBeVisible({ timeout: 10_000 });
+
+    await page.reload();
+    await page.getByRole("button", { name: "More modes" }).click();
+    const restoredRapid = page.getByRole("button", { name: /Rapid \(60s\)/ });
+    await expect(restoredRapid).toHaveAttribute("aria-pressed", "true", { timeout: 10_000 });
+    await expect(page.getByText(/\d+s remaining/)).toBeVisible({ timeout: 10_000 });
+  });
+
 });
