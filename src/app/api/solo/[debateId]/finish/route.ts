@@ -32,6 +32,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     data: { user },
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = user.id;
 
   const { data: debate, error: debateError } = await db
     .from("solo_debates")
@@ -86,7 +87,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       .from("solo_debates")
       .update({ finalization_started_at: new Date().toISOString() })
       .eq("id", debateId)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("status", "active")
       .eq("finalization_token", finalizationToken)
       .select("id");
