@@ -63,10 +63,10 @@ export default function MessageComposer({
       stop();
     } else {
       setUsedVoice(true);
-      const now = Date.now();
-      voiceStartedAt.current = now;
+      const wallNow = Date.now();
+      voiceStartedAt.current = wallNow;
       voiceEndedAt.current = null;
-      if (startedAtMs === null) setResponseStartedAt((current) => current ?? now);
+      if (startedAtMs === null) setResponseStartedAt((current) => current ?? performance.now());
       start();
     }
   }
@@ -93,7 +93,7 @@ export default function MessageComposer({
         timing: usedVoice ? buildTiming() : null,
         elapsedSeconds: effectiveResponseStartedAt === null
           ? null
-          : Math.max(0, Math.round((Date.now() - effectiveResponseStartedAt) / 1000)),
+          : Math.max(0, Math.round((performance.now() - effectiveResponseStartedAt) / 1000)),
       });
       // Preserve the user's draft when the parent reports a failed request.
       // Losing a response because Wi-Fi dropped is much worse than making the
@@ -121,7 +121,7 @@ export default function MessageComposer({
   const [elapsedSecs, setElapsedSecs] = useState(0);
   useEffect(() => {
     if (effectiveResponseStartedAt === null || (mode.hardTimeLimitSecs === null && !listening)) return;
-    const tick = () => setElapsedSecs(Math.floor((Date.now() - effectiveResponseStartedAt) / 1000));
+    const tick = () => setElapsedSecs(Math.floor((performance.now() - effectiveResponseStartedAt) / 1000));
     const initial = setTimeout(tick, 0);
     const t = setInterval(tick, 1000);
     return () => { clearTimeout(initial); clearInterval(t); };
@@ -160,7 +160,7 @@ export default function MessageComposer({
         ref={textareaRef}
         value={displayValue}
         onChange={(e) => {
-          if (startedAtMs === null) setResponseStartedAt((current) => current ?? Date.now());
+          if (startedAtMs === null) setResponseStartedAt((current) => current ?? performance.now());
           setText(e.target.value);
           setUsedVoice(false);
         }}
