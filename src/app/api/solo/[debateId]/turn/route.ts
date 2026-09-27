@@ -27,8 +27,6 @@ type AdvanceResult = {
 };
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
-  const receivedAtMs = Date.now();
-  const receivedAt = new Date(receivedAtMs).toISOString();
   const limited = await checkRateLimit(request, { name: "solo-turn", limit: 20, windowMs: 60_000 });
   if (limited) return limited;
 
@@ -40,6 +38,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => null);
+  // Timestamp only after the request body is present. Starting an HTTP request
+  // before expiry and delaying the body must not extend a timed response window.
+  const receivedAtMs = Date.now();
+  const receivedAt = new Date(receivedAtMs).toISOString();
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   const inputMode: InputMode = body?.inputMode === "voice" ? "voice" : "text";
   const modeId = body?.modeId === undefined || body?.modeId === null || body?.modeId === ""
