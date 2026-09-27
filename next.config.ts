@@ -12,7 +12,7 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' https: wss:${process.env.NODE_ENV === "development" ? " ws:" : ""}`,
+  `connect-src 'self'${process.env.NODE_ENV === "development" ? " http: https: ws: wss:" : " https://vercel.live https://*.vercel.live wss://*.vercel.live"}`,
   "worker-src 'self' blob:",
   "manifest-src 'self'",
 ].join("; ");
