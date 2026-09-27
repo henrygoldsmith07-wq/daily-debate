@@ -232,57 +232,21 @@ d("durable solo-turn submissions", () => {
 
   it("serializes timed-window mutation before finalization can claim the debate", async () => {
     const { debateId, turnId } = await createDebate();
-    const blocker = await pool.connect();
     const timerClient = await pool.connect();
     const finishClient = await pool.connect();
-    const advisoryKey = 9032032;
     const finishToken = crypto.randomUUID();
 
     try {
-      await pool.query(`
-        CREATE OR REPLACE FUNCTION test_block_solo_window_update()
-        RETURNS trigger
-        LANGUAGE plpgsql
-        AS $
-        BEGIN
-          IF current_setting('daily_debate.test_timer_race', true) = '1' THEN
-            PERFORM pg_advisory_xact_lock(9032032);
-          END IF;
-          RETURN NEW;
-        END;
-        $;
-      `);
-      await pool.query("DROP TRIGGER IF EXISTS test_block_solo_window_update ON solo_debate_turns");
-      await pool.query(`
-        CREATE TRIGGER test_block_solo_window_update
-        BEFORE UPDATE OF response_mode ON solo_debate_turns
-        FOR EACH ROW
-        EXECUTE FUNCTION test_block_solo_window_update()
-      `);
-
-      await blocker.query("SELECT pg_advisory_lock($1)", [advisoryKey]);
-      await timerClient.query("SET daily_debate.test_timer_race = '1'");
-      const pid = await timerClient.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
-
-      const timerPromise = timerClient.query<{ result: { modeId: string } | null }>(
+      await timerClient.query("BEGIN");
+      const timer = await timerClient.query<{ result: { modeId: string } | null }>(
         "SELECT start_solo_turn_window($1, $2, $3, 'rapid-rebuttal', 60) AS result",
         [debateId, userId, turnId],
       );
+      expect(timer.rows[0].result?.modeId).toBe("rapid-rebuttal");
 
-      let timerBlocked = false;
-      for (let attempt = 0; attempt < 50; attempt++) {
-        const activity = await pool.query<{ wait_event_type: string | null }>(
-          "SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1",
-          [pid.rows[0].pid],
-        );
-        if (activity.rows[0]?.wait_event_type === "Lock") {
-          timerBlocked = true;
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      expect(timerBlocked).toBe(true);
-
+      // start_solo_turn_window must retain a lock on the debate row until the
+      // transaction ends. Without that lock, Finish can claim finalization
+      // while timer mutation still owns the turn row.
       await finishClient.query("SET lock_timeout = '100ms'");
       await expect(
         finishClient.query(
@@ -291,23 +255,18 @@ d("durable solo-turn submissions", () => {
         ),
       ).rejects.toMatchObject({ code: "55P03" });
 
-      await blocker.query("SELECT pg_advisory_unlock($1)", [advisoryKey]);
-      const timer = await timerPromise;
-      expect(timer.rows[0].result?.modeId).toBe("rapid-rebuttal");
-
+      await timerClient.query("COMMIT");
       await finishClient.query("SET lock_timeout = '0'");
+
       const finish = await finishClient.query<{ claimed: boolean }>(
         "SELECT claim_solo_debate_finalization($1, $2, $3::uuid, 300) AS claimed",
         [debateId, userId, finishToken],
       );
       expect(finish.rows[0].claimed).toBe(true);
     } finally {
-      await blocker.query("SELECT pg_advisory_unlock($1)", [advisoryKey]).catch(() => undefined);
-      blocker.release();
+      await timerClient.query("ROLLBACK").catch(() => undefined);
       timerClient.release();
       finishClient.release();
-      await pool.query("DROP TRIGGER IF EXISTS test_block_solo_window_update ON solo_debate_turns");
-      await pool.query("DROP FUNCTION IF EXISTS test_block_solo_window_update()");
       await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
     }
   });
