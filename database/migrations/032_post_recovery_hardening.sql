@@ -9,12 +9,12 @@
 -- the migration.
 update solo_debates
 set performance_score = case
-      when coalesce(result_payload->>'performanceScore', '') ~ '^\\d{1,3}$'
+      when coalesce(result_payload->>'performanceScore', '') ~ '^[0-9]{1,3}$'
         then greatest(0, least(100, (result_payload->>'performanceScore')::integer))
       else performance_score
     end,
     bonus_xp = case
-      when coalesce(result_payload->>'bonusXP', '') ~ '^\\d{1,9}$'
+      when coalesce(result_payload->>'bonusXP', '') ~ '^[0-9]{1,9}$'
         then greatest(0, (result_payload->>'bonusXP')::integer)
       else bonus_xp
     end
