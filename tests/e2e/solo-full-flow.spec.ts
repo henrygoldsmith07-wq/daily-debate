@@ -86,10 +86,9 @@ test.describe("solo full-flow", () => {
         `Round ${round + 1}: According to NREL data, solar LCOE dropped below gas in most markets. However, grid reliability requires storage investment, which impacts the total cost calculation. Therefore, policy must weigh both factors together.`
       );
       await page.getByRole("button", { name: /^send$/i }).click();
-      // Wait for the next round's opening or the round counter to increment
-      await expect(page.getByText(new RegExp(`Round ${round + 2}|pts so far`, "i")).first())
-        .toBeVisible({ timeout: 30_000 }).catch(() => {});
-      await page.waitForTimeout(500);
+      // Round advancement is a hard assertion: if answer persistence and next-turn
+      // creation ever diverge, this must fail rather than silently continuing.
+      await expect(page.getByTestId("round-status")).toContainText(`Round ${round + 2}`, { timeout: 30_000 });
     }
 
     // 5. Finish & get scored
