@@ -37,6 +37,8 @@ export type SoloDebateRow = {
   status: string;
   round_count: number;
   total_score: number | null;
+  performance_score: number | null;
+  bonus_xp: number;
   format: string;
   coaching: unknown;
   result_payload: unknown;
