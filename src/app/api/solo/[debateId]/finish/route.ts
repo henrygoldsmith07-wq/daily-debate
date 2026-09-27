@@ -99,7 +99,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   async function releaseFinalizationClaim() {
     await db.rpc("release_solo_debate_finalization", {
       p_debate_id: debateId,
-      p_user_id: user.id,
+      p_user_id: userId,
       p_token: finalizationToken,
     });
   }
