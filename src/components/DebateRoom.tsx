@@ -25,6 +25,7 @@ interface DebateSummaryPayload {
   honesty?: { confidence: "standard" | "reduced"; note: string | null };
   snapshot?: ResultSnapshot;
   trainingSummary?: TrainingSummary;
+  summarySource?: "ai" | "fallback";
 }
 
 /** The shared result/replay story: action first, coaching second, detail last. */
@@ -40,6 +41,7 @@ interface ReplayView {
   honestyNote?: string | null;
   summary?: DebateSummary;
   trainingSummary?: TrainingSummary;
+  summarySource?: "ai" | "fallback";
   fresh?: boolean;
 }
 
@@ -63,6 +65,7 @@ export default function DebateRoom({
     bonusXP?: number;
     rewardEvents?: RewardEventView[];
     trainingSummary?: TrainingSummary;
+    summarySource?: "ai" | "fallback";
   } | null;
 }) {
   const [turns, setTurns] = useState(initialTurns);
@@ -260,6 +263,7 @@ export default function DebateRoom({
         honestyNote: result.honesty?.note ?? null,
         summary: result.summary,
         trainingSummary: result.trainingSummary,
+        summarySource: result.summarySource,
         fresh: true,
       }
     : debate.status === "completed" && completedResult
@@ -274,6 +278,7 @@ export default function DebateRoom({
           honestyNote: completedResult.honestyNote ?? null,
           summary: completedResult.summary,
           trainingSummary: completedResult.trainingSummary,
+          summarySource: completedResult.summarySource,
         }
       : null;
 
@@ -363,6 +368,11 @@ export default function DebateRoom({
             {view.topRewardDetail && <span className="text-xs text-ink3">({view.topRewardDetail})</span>}
           </div>
           {view.honestyNote && <p className="text-xs leading-5 text-ink3">{view.honestyNote}</p>}
+          {view.summarySource === "fallback" && (
+            <p className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink3" role="status">
+              Detailed generated feedback was unavailable for this finish. Scores, the main weakness, repair guidance and progress signals still come from the stored deterministic assessment.
+            </p>
+          )}
 
           {trainingSummary && (trainingSummary.speechTurns > 0 || Object.keys(trainingSummary.modeCounts).some((mode) => mode !== "text")) && (
             <section className="rounded-lg border border-[var(--rule)] bg-surface-2 p-4" aria-labelledby="delivery-analysis-heading">
