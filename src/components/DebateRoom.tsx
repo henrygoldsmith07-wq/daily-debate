@@ -132,13 +132,17 @@ export default function DebateRoom({
         return true;
       }
       const remaining = typeof data.remainingSeconds === "number" ? data.remainingSeconds : limit;
+      const serverStartedAt =
+        typeof data.startedAt === "string" && Number.isFinite(Date.parse(data.startedAt))
+          ? Date.parse(data.startedAt)
+          : null;
       if (remaining <= 0) {
-        setModeStartedAt(Date.now() - limit * 1000);
+        setModeStartedAt(serverStartedAt);
         setError(`${DEBATE_MODES[modeId].label} time limit has expired. Switch modes to continue this round.`);
         return false;
       }
-      setModeStartedAt(Date.now() - (limit - Math.min(limit, remaining)) * 1000);
-      return true;
+      setModeStartedAt(serverStartedAt);
+      return serverStartedAt !== null;
     } catch (err) {
       setModeStartedAt(null);
       setError(err instanceof Error ? err.message : "Failed to start response timer.");
