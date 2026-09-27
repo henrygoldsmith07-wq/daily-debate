@@ -1,8 +1,23 @@
 import type { DebateModeId } from "./debateModes";
 import type { SkillMetricPoint } from "./skillLedger";
+import type { TrainingModeSummary } from "./types";
+
+export interface ModeTrainingProgress {
+  debates: number;
+  turns: number;
+  speechTurns: number;
+  avgSpeechQuality: number | null;
+  avgPaceWpm: number | null;
+  avgFillerDensity: number | null;
+  avgStructureDensity: number | null;
+  avgResponseSeconds: number | null;
+  speechQualityChange: number | null;
+  responseTimeChangeSeconds: number | null;
+}
 
 export interface TrainingProgressSummary {
   modeTurns: Partial<Record<DebateModeId, number>>;
+  perMode: Partial<Record<DebateModeId, ModeTrainingProgress>>;
   debatesWithTrainingData: number;
   spokenDebates: number;
   spokenTurns: number;
@@ -20,6 +35,14 @@ function weightedAverage(rows: Array<{ value: number | null; weight: number }>):
   return Math.round((usable.reduce((sum, row) => sum + row.value * row.weight, 0) / weight) * 10) / 10;
 }
 
+function observedChange(rows: TrainingModeSummary[], key: "avgSpeechQuality" | "avgElapsedSeconds"): number | null {
+  const values = rows
+    .map((row) => row[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (values.length < 2) return null;
+  return Math.round((values[values.length - 1] - values[0]) * 10) / 10;
+}
+
 export function buildTrainingProgress(points: SkillMetricPoint[]): TrainingProgressSummary {
   const withTraining = points.filter((point) => point.training && point.training.totalTurns > 0);
   const modeTurns: Partial<Record<DebateModeId, number>> = {};
@@ -29,11 +52,32 @@ export function buildTrainingProgress(points: SkillMetricPoint[]): TrainingProgr
     }
   }
 
+  const perMode: Partial<Record<DebateModeId, ModeTrainingProgress>> = {};
+  for (const mode of Object.keys(modeTurns) as DebateModeId[]) {
+    const rows = withTraining
+      .map((point) => point.training?.byMode?.[mode] ?? null)
+      .filter((row): row is TrainingModeSummary => !!row && row.turns > 0);
+    if (!rows.length) continue;
+    perMode[mode] = {
+      debates: rows.length,
+      turns: rows.reduce((sum, row) => sum + row.turns, 0),
+      speechTurns: rows.reduce((sum, row) => sum + row.speechTurns, 0),
+      avgSpeechQuality: weightedAverage(rows.map((row) => ({ value: row.avgSpeechQuality, weight: row.speechTurns }))),
+      avgPaceWpm: weightedAverage(rows.map((row) => ({ value: row.avgPaceWpm, weight: row.speechTurns }))),
+      avgFillerDensity: weightedAverage(rows.map((row) => ({ value: row.avgFillerDensity, weight: row.speechTurns }))),
+      avgStructureDensity: weightedAverage(rows.map((row) => ({ value: row.avgStructureDensity, weight: row.speechTurns }))),
+      avgResponseSeconds: weightedAverage(rows.map((row) => ({ value: row.avgElapsedSeconds, weight: row.timedTurns }))),
+      speechQualityChange: observedChange(rows, "avgSpeechQuality"),
+      responseTimeChangeSeconds: observedChange(rows, "avgElapsedSeconds"),
+    };
+  }
+
   const spoken = withTraining.filter((point) => (point.training?.speechTurns ?? 0) > 0);
   const spokenTurns = spoken.reduce((sum, point) => sum + (point.training?.speechTurns ?? 0), 0);
 
   return {
     modeTurns,
+    perMode,
     debatesWithTrainingData: withTraining.length,
     spokenDebates: spoken.length,
     spokenTurns,
