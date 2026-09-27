@@ -80,6 +80,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       p_debate_id: debateId,
       p_user_id: user.id,
       p_turn_id: expectedTurnId,
+      p_min_rounds: minRounds,
       p_stale_after_seconds: 300,
     });
     if (stagedError) {
@@ -97,7 +98,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
           ? "Opponent generation is still active for this saved response. Try again shortly."
           : stagedResult.reason === "debate-finalizing"
             ? "This debate is already being finalized in another tab."
-            : "The saved response could not be used to finish this debate. Refresh and try again.";
+            : stagedResult.reason === "minimum-rounds-not-met"
+              ? `Complete at least ${minRounds} rounds before finishing.`
+              : "The saved response could not be used to finish this debate. Refresh and try again.";
       return NextResponse.json({ error: message, code: stagedResult.reason ?? "saved_response_unavailable" }, { status: 409 });
     }
     if (typeof stagedResult.completedTurn?.round_number === "number") {
