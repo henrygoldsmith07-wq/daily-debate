@@ -487,7 +487,9 @@ begin
     raise exception 'solo turn submission is still pending during finalization';
   end if;
 
-  activity_date := (p_completed_at at time zone p_timezone)::date;
+  -- Streak boundaries use the database clock in the user's persisted IANA
+  -- timezone; no application-server wall clock participates in the day choice.
+  activity_date := (clock_timestamp() at time zone p_timezone)::date;
 
   select case
     when last_activity_date = activity_date then current_streak
