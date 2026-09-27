@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { summarizeSoloDebate } from "@/lib/openrouter";
 import { summarizeSoloDebate as anthropicSummarize } from "@/lib/anthropic";
 import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidSummary } from "@/lib/aiSchema";
-import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
+import { POINTS_PER_LEVEL } from "@/lib/gamification";
 import { computeCoachRewards, totalBonusXP } from "@/lib/coachRewards";
 import { buildEvaluationResult } from "@/lib/evaluationEnvelope";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
@@ -15,11 +16,11 @@ import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { snapshotFromAssessment } from "@/lib/coachingGoal";
 import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
 import { recordProductEventForUser } from "@/lib/productEvents";
-import { MAX_ROUNDS, type CoachingRecord } from "@/lib/types";
+import { MAX_ROUNDS, type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
 import { mergeSoloAssessmentsByDebate } from "@/lib/soloAssessmentHistory";
 import { extractSkillPoint } from "@/lib/skillLedger";
 import { pointMeasuresDimension, repairKindToDimension } from "@/lib/repairRetest";
-import { completeRepairRetestAssignment } from "@/lib/repairRetestServer";
+import { buildTrainingSummary } from "@/lib/trainingSummary";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   const limited = await checkRateLimit(request, { name: "solo-finish", limit: 10, windowMs: 60_000 });
@@ -39,7 +40,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     .eq("user_id", user.id)
     .single();
   if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
-  if (debate.status === "completed") return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
+  if (debate.status === "completed") {
+    if (debate.result_payload && typeof debate.result_payload === "object") {
+      return NextResponse.json(debate.result_payload);
+    }
+    return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
+  }
 
   const format = debate.format === "sprint" ? "sprint" : "full";
   const minRounds = minRoundsFor(format);
@@ -60,22 +66,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   }
 
   const totalScore = answered.reduce((sum, turn) => sum + (turn.turn_score ?? 0), 0);
-
-  // Claim completion atomically before any model call or point award. Two
-  // concurrent finishes must not both summarize (double cost) or both award
-  // profile points (double credit).
-  const { data: completedDebate, error: completeError } = await db
-    .from("solo_debates")
-    .update({ status: "completed", total_score: totalScore, completed_at: new Date().toISOString() })
-    .eq("id", debateId)
-    .eq("status", "active")
-    .select("id");
-  if (completeError) {
-    console.error("Failed to complete debate:", completeError);
+  const finalizationToken = randomUUID();
+  const { data: claimed, error: claimError } = await db.rpc("claim_solo_debate_finalization", {
+    p_debate_id: debateId,
+    p_user_id: user.id,
+    p_token: finalizationToken,
+    p_stale_after_seconds: 180,
+  });
+  if (claimError) {
+    console.error("Failed to claim debate finalization:", claimError);
     return NextResponse.json({ error: "Failed to finish debate." }, { status: 500 });
   }
-  if (!completedDebate || completedDebate.length === 0) {
-    return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
+  if (!claimed) {
+    return NextResponse.json({ error: "This debate is already being finalized. Try again shortly." }, { status: 409 });
   }
 
   const { data: topic } = await db.from("daily_topics").select("title").eq("id", debate.topic_id).single();
@@ -168,39 +171,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     : [];
   const bonusXP = totalBonusXP(rewardEvents);
 
-  // Award points atomically through increment_total_points (defined in the
-  // owned-backend base migration); streak fields are idempotent per day.
-  const { data: profile } = await db.from("profiles").select("total_points, last_activity_date, current_streak, longest_streak").eq("id", user.id).single();
-  if (profile) {
-    const today = new Date().toISOString().slice(0, 10);
-    const streak = updateStreak(today, profile.last_activity_date, profile.current_streak, profile.longest_streak);
-
-    let awarded = false;
-    try {
-      const { data: newTotal } = await db.rpc("increment_total_points", {
-        p_user_id: user.id,
-        p_points: totalScore + bonusXP,
-        p_points_per_level: POINTS_PER_LEVEL,
-      });
-      awarded = typeof newTotal === "number";
-    } catch {
-      // RPC not deployed yet — fall through to read-modify-write.
-    }
-
-    if (!awarded) {
-      const newTotalPoints = profile.total_points + totalScore + bonusXP;
-      await db.from("profiles").update({ total_points: newTotalPoints, level: levelForPoints(newTotalPoints) }).eq("id", user.id);
-    }
-    await db
-      .from("profiles")
-      .update({
-        current_streak: streak.current_streak,
-        longest_streak: streak.longest_streak,
-        last_activity_date: streak.last_activity_date,
-      })
-      .eq("id", user.id);
-  }
-
   // ── Coaching loop: assess today's goal and persist the snapshot ─────────
   const coaching = (debate.coaching ?? {}) as CoachingRecord;
   const goalDimension = (coaching.dimension ?? null) as import("@/lib/adaptiveCoach").CoachDimension | null;
@@ -226,12 +196,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       weaknessKind: snapshot.weakness?.kind ?? null,
       recurrenceCount: snapshot.recurrence?.count ?? 0,
     };
-    await db.from("solo_debates").update({ coaching: coachingUpdate }).eq("id", debateId);
   }
 
-  const eventSide = debate.side as "for" | "against";
-  await recordProductEventForUser(user.id, "debate_completed", { format, side: eventSide, debateId });
-
+  const trainingSummary = buildTrainingSummary(answered);
+  const evaluation = buildEvaluationResult({
+    scoreStatus: finalAssessment?.status ?? "insufficient_evidence",
+    summary,
+    observableAssessment: finalAssessment ?? undefined,
+  });
+  const completedAt = new Date().toISOString();
+  let retestCompletion: {
+    repairResultId: string | null;
+    observable: boolean;
+    demonstrated: boolean | null;
+  } | null = null;
   if (coaching.repairRetest) {
     const retestDimension = repairKindToDimension(coaching.repairRetest.targetKind);
     const clarityValues = answered
@@ -243,39 +221,72 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     const avgClarity = clarityValues.length
       ? clarityValues.reduce((sum, value) => sum + value, 0) / clarityValues.length
       : null;
-    const completedAt = new Date().toISOString();
     const retestPoint = retestDimension && finalAssessment
       ? extractSkillPoint(debateId, completedAt, finalAssessment, "a", avgClarity)
       : null;
-    const observableRetest = !!(
+    const observable = !!(
       retestDimension &&
       retestPoint &&
       pointMeasuresDimension(retestPoint, retestDimension)
     );
-    const demonstrated = observableRetest
-      ? snapshot.goalOutcome.demonstrated === true
-      : null;
-
-    const durable = await completeRepairRetestAssignment({
-      userId: user.id,
+    retestCompletion = {
       repairResultId: coaching.repairRetest.repairResultId ?? null,
-      assignedDebateId: debateId,
-      completedAt,
-      observable: observableRetest,
-      demonstrated,
-    });
-    if (!durable.ok) {
-      console.error("Failed to persist repair retest outcome:", durable.message);
-    }
+      observable,
+      demonstrated: observable ? snapshot.goalOutcome.demonstrated === true : null,
+    };
+  }
+  const resultPayload: PersistedSoloResult = {
+    totalScore,
+    bonusXP,
+    rewardEvents,
+    summary,
+    assessment: finalAssessment ?? undefined,
+    evaluation,
+    format,
+    honesty: measurementHonestyFor(format),
+    snapshot,
+    coaching: coachingUpdate,
+    trainingSummary,
+  };
 
-    if (observableRetest) {
+  const { data: finalized, error: finalizeError } = await db.rpc("finalize_solo_debate", {
+    p_debate_id: debateId,
+    p_user_id: user.id,
+    p_token: finalizationToken,
+    p_total_score: totalScore,
+    p_bonus_xp: bonusXP,
+    p_points_per_level: POINTS_PER_LEVEL,
+    p_activity_date: completedAt.slice(0, 10),
+    p_completed_at: completedAt,
+    p_coaching: JSON.stringify(coachingUpdate),
+    p_result_payload: JSON.stringify(resultPayload),
+    p_has_retest: retestCompletion !== null,
+    p_repair_result_id: retestCompletion?.repairResultId ?? null,
+    p_retest_observable: retestCompletion?.observable ?? false,
+    p_retest_demonstrated: retestCompletion?.demonstrated ?? null,
+  });
+  if (finalizeError || !finalized) {
+    console.error("Failed durable debate finalization:", finalizeError);
+    await db.rpc("release_solo_debate_finalization", {
+      p_debate_id: debateId,
+      p_user_id: user.id,
+      p_token: finalizationToken,
+    });
+    return NextResponse.json({ error: "Failed to finish debate. Your debate is still available to retry." }, { status: 500 });
+  }
+
+  const eventSide = debate.side as "for" | "against";
+  await recordProductEventForUser(user.id, "debate_completed", { format, side: eventSide, debateId });
+
+  if (coaching.repairRetest && retestCompletion) {
+    if (retestCompletion.observable) {
       await recordProductEventForUser(user.id, "retest_completed", {
         format,
         side: eventSide,
         reason: coaching.repairRetest.targetKind,
         debateId,
       });
-      if (demonstrated === true) {
+      if (retestCompletion.demonstrated === true) {
         await recordProductEventForUser(user.id, "retest_skill_demonstrated", {
           format,
           side: eventSide,
@@ -286,21 +297,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     }
   }
 
-  const evaluation = buildEvaluationResult({
-    scoreStatus: finalAssessment?.status ?? "insufficient_evidence",
-    summary,
-    observableAssessment: finalAssessment ?? undefined,
-  });
-  return NextResponse.json({
-    totalScore,
-    bonusXP,
-    rewardEvents,
-    summary,
-    assessment: finalAssessment,
-    evaluation,
-    format,
-    honesty: measurementHonestyFor(format),
-    snapshot,
-    coaching: coachingUpdate,
-  });
+  return NextResponse.json(resultPayload);
 }

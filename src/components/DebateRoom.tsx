@@ -8,7 +8,7 @@ import ThinkingIndicator from "./ThinkingIndicator";
 import ArgumentRepair, { FixThisNowButton } from "./ArgumentRepair";
 import { ArgGraphInline, TrackingGrid } from "./ArgGraphView";
 import { useSpeechSynthesis } from "./useSpeechSynthesis";
-import { MAX_ROUNDS, type DebateSummary, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
+import { MAX_ROUNDS, type DebateSummary, type SoloDebate, type SoloDebateTurn, type TrainingSummary } from "@/lib/types";
 import type { ArgGraph } from "@/lib/argGraph";
 import type { ResultSnapshot } from "@/lib/resultSnapshot";
 import { minRoundsFor } from "@/lib/sprint";
@@ -23,6 +23,7 @@ interface DebateSummaryPayload {
   format?: "sprint" | "full";
   honesty?: { confidence: "standard" | "reduced"; note: string | null };
   snapshot?: ResultSnapshot;
+  trainingSummary?: TrainingSummary;
 }
 
 /** The shared result/replay story: action first, coaching second, detail last. */
@@ -36,6 +37,8 @@ interface ReplayView {
   topRewardLabel?: string;
   topRewardDetail?: string;
   honestyNote?: string | null;
+  summary?: DebateSummary;
+  trainingSummary?: TrainingSummary;
   fresh?: boolean;
 }
 
@@ -55,6 +58,10 @@ export default function DebateRoom({
     /** Whether a repair has already been recorded for this debate (server-side). */
     repaired?: boolean;
     honestyNote?: string | null;
+    summary?: DebateSummary;
+    bonusXP?: number;
+    rewardEvents?: RewardEventView[];
+    trainingSummary?: TrainingSummary;
   } | null;
 }) {
   const [turns, setTurns] = useState(initialTurns);
@@ -99,6 +106,7 @@ export default function DebateRoom({
   const [debateMode, setDebateMode] = useState("text");
   const [modeStartedAt, setModeStartedAt] = useState<number | null>(null);
   const [showAdvancedModes, setShowAdvancedModes] = useState(false);
+  const [opponentSpeaking, setOpponentSpeaking] = useState(false);
 
   async function submitTurn(data: ComposerSubmitData) {
     setSending(true);
@@ -127,8 +135,21 @@ export default function DebateRoom({
           : [...prev.slice(0, -1), resData.completedTurn],
       );
       setRoundCount(resData.roundCount);
-      setModeStartedAt(resData.nextTurn && debateMode !== "text" ? Date.now() : null);
-      if (resData.nextTurn && ttsSupported) speak(resData.nextTurn.ai_message);
+      if (resData.nextTurn && debateMode !== "text") {
+        if (ttsSupported) {
+          setModeStartedAt(null);
+          setOpponentSpeaking(true);
+          speak(resData.nextTurn.ai_message, () => {
+            setOpponentSpeaking(false);
+            setModeStartedAt(Date.now());
+          });
+        } else {
+          setModeStartedAt(Date.now());
+        }
+      } else {
+        setModeStartedAt(null);
+        if (resData.nextTurn && ttsSupported) speak(resData.nextTurn.ai_message);
+      }
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit response.");
@@ -202,6 +223,8 @@ export default function DebateRoom({
         topRewardLabel: result.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.label,
         topRewardDetail: result.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.detail,
         honestyNote: result.honesty?.note ?? null,
+        summary: result.summary,
+        trainingSummary: result.trainingSummary,
         fresh: true,
       }
     : debate.status === "completed" && completedResult
@@ -210,7 +233,12 @@ export default function DebateRoom({
           snapshot: completedResult.snapshot ?? null,
           argGraph: completedResult.argGraph ?? null,
           repaired: repairSucceeded,
+          bonusXP: completedResult.bonusXP,
+          topRewardLabel: completedResult.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.label,
+          topRewardDetail: completedResult.rewardEvents?.filter((e) => e.kind !== "complete-debate")[0]?.detail,
           honestyNote: completedResult.honestyNote ?? null,
+          summary: completedResult.summary,
+          trainingSummary: completedResult.trainingSummary,
         }
       : null;
 
@@ -218,7 +246,8 @@ export default function DebateRoom({
     const snapshot = view.snapshot;
     const weakness = snapshot?.weakness ?? null;
     const highlight = snapshot?.highlight ?? null;
-    const summary = result?.summary;
+    const summary = view.summary;
+    const trainingSummary = view.trainingSummary;
 
     return (
       <div className="flex flex-col gap-5">
@@ -299,6 +328,47 @@ export default function DebateRoom({
             {view.topRewardDetail && <span className="text-xs text-ink3">({view.topRewardDetail})</span>}
           </div>
           {view.honestyNote && <p className="text-xs leading-5 text-ink3">{view.honestyNote}</p>}
+
+          {trainingSummary && (trainingSummary.speechTurns > 0 || Object.keys(trainingSummary.modeCounts).some((mode) => mode !== "text")) && (
+            <section className="rounded-lg border border-[var(--rule)] bg-surface-2 p-4" aria-labelledby="delivery-analysis-heading">
+              <p className="text-xs uppercase tracking-wide text-ink3">Mode-specific analysis</p>
+              <h2 id="delivery-analysis-heading" className="mt-1 text-sm font-semibold">Pressure and delivery</h2>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {trainingSummary.avgPaceWpm !== null && (
+                  <div>
+                    <p className="text-xs text-ink3">Average pace</p>
+                    <p className="tabular text-sm font-semibold">{trainingSummary.avgPaceWpm} WPM</p>
+                  </div>
+                )}
+                {trainingSummary.avgSpeechQuality !== null && (
+                  <div>
+                    <p className="text-xs text-ink3">Delivery composite</p>
+                    <p className="tabular text-sm font-semibold">{trainingSummary.avgSpeechQuality}/100</p>
+                  </div>
+                )}
+                {trainingSummary.avgFillerDensity !== null && (
+                  <div>
+                    <p className="text-xs text-ink3">Fillers</p>
+                    <p className="tabular text-sm font-semibold">{trainingSummary.avgFillerDensity} / 100 words</p>
+                  </div>
+                )}
+                {trainingSummary.avgElapsedSeconds !== null && (
+                  <div>
+                    <p className="text-xs text-ink3">Response time</p>
+                    <p className="tabular text-sm font-semibold">{trainingSummary.avgElapsedSeconds}s avg</p>
+                  </div>
+                )}
+              </div>
+              {trainingSummary.paceChangeWpm !== null && trainingSummary.speechTurns >= 2 && (
+                <p className="mt-3 text-xs text-ink3">
+                  Pace changed {trainingSummary.paceChangeWpm > 0 ? "+" : ""}{trainingSummary.paceChangeWpm} WPM from your first to last measured speech turn.
+                </p>
+              )}
+              <p className="mt-3 text-[11px] leading-5 text-ink3">
+                Delivery observations are separate from the argument score. They describe pace, wording and timing in this training mode, not accent, voice quality or general ability.
+              </p>
+            </section>
+          )}
 
           <div className="flex flex-wrap gap-3 pt-1">
             <button
@@ -466,21 +536,23 @@ export default function DebateRoom({
               <button
                 key={m.id}
                 type="button"
+                disabled={opponentSpeaking}
                 onClick={() => {
                   setDebateMode(m.id);
                   setModeStartedAt(m.id === "text" ? null : Date.now());
                 }}
                 aria-pressed={debateMode === m.id}
-                className={`btn px-3 py-1.5 text-xs ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
+                className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
               >
                 {m.label}
               </button>
             ))}
             <button
               type="button"
+              disabled={opponentSpeaking}
               onClick={() => setShowAdvancedModes((visible) => !visible)}
               aria-expanded={showAdvancedModes}
-              className="btn btn-ghost px-3 py-1.5 text-xs"
+              className="btn btn-ghost px-3 py-1.5 text-xs disabled:opacity-40"
             >
               {showAdvancedModes ? "Fewer modes" : "More modes"}
             </button>
@@ -493,12 +565,13 @@ export default function DebateRoom({
                   <button
                     key={m.id}
                     type="button"
+                    disabled={opponentSpeaking}
                     onClick={() => {
                       setDebateMode(m.id);
                       setModeStartedAt(Date.now());
                     }}
                     aria-pressed={debateMode === m.id}
-                    className={`btn px-3 py-1.5 text-xs ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
+                    className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
                   >
                     {m.label}
                   </button>
@@ -509,10 +582,13 @@ export default function DebateRoom({
           <MessageComposer
             key={`${debateMode}-${pending?.id ?? "none"}`}
             onSubmit={submitTurn}
-            disabled={sending}
+            disabled={sending || opponentSpeaking}
             modeId={debateMode}
             startedAtMs={modeStartedAt}
           />
+          {opponentSpeaking ? (
+            <p className="text-xs text-ink3" role="status">Opponent is speaking — your response clock starts when they finish.</p>
+          ) : null}
         </div>
       )}
 

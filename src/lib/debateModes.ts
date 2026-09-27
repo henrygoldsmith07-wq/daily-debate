@@ -80,9 +80,20 @@ export function resolveMode(id: string | undefined | null): DebateModeConfig {
   return DEBATE_MODES.text;
 }
 
+/** Blocking timing validation used by the turn API for genuinely timed modes. */
+export function hardTimeLimitError(mode: DebateModeConfig, elapsedSeconds: number | null): string | null {
+  if (mode.hardTimeLimitSecs === null) return null;
+  if (elapsedSeconds === null) return `${mode.label} requires an active response timer.`;
+  if (elapsedSeconds > mode.hardTimeLimitSecs) {
+    return `${mode.label} time limit expired. Restart the mode or choose another mode.`;
+  }
+  return null;
+}
+
 /**
- * Check whether a turn meets the mode's constraints.
- * Returns warnings (not errors) — the debate isn't blocked, just flagged.
+ * Check non-blocking coaching constraints. Hard timing limits are enforced by
+ * the turn API before this helper runs; this function still records timing
+ * anomalies for legacy/imported rows and analysis.
  */
 export function checkModeConstraints(
   mode: DebateModeConfig,

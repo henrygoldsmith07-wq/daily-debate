@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEBATE_MODES, DEBATE_MODE_LIST, resolveMode, checkModeConstraints, isDebateModeId } from "./debateModes";
+import { DEBATE_MODES, DEBATE_MODE_LIST, resolveMode, checkModeConstraints, hardTimeLimitError, isDebateModeId } from "./debateModes";
 
 describe("debateModes", () => {
   it("defines exactly 4 modes", () => {
@@ -37,6 +37,13 @@ describe("debateModes", () => {
     expect(warnings.some((w) => w.includes("voice input"))).toBe(true);
   });
 
+  it("rejects missing or expired timing for hard-timed modes", () => {
+    expect(hardTimeLimitError(DEBATE_MODES["rapid-rebuttal"], null)).toContain("requires an active response timer");
+    expect(hardTimeLimitError(DEBATE_MODES["rapid-rebuttal"], 61)).toContain("time limit expired");
+    expect(hardTimeLimitError(DEBATE_MODES["rapid-rebuttal"], 60)).toBeNull();
+    expect(hardTimeLimitError(DEBATE_MODES.text, null)).toBeNull();
+  });
+
   it("flags typed responses in voice-expected modes even when elapsed timing exists", () => {
     const warnings = checkModeConstraints(DEBATE_MODES["rapid-rebuttal"], 50, 40, "text");
     expect(warnings.some((w) => w.includes("voice input"))).toBe(true);
@@ -47,7 +54,7 @@ describe("debateModes", () => {
     expect(warnings.some((w) => w.includes("voice input"))).toBe(false);
   });
 
-  it("flags over-limit turns without blocking", () => {
+  it("still flags over-limit legacy/imported rows for analysis", () => {
     const warnings = checkModeConstraints(DEBATE_MODES["rapid-rebuttal"], 30, 90);
     expect(warnings.some((w) => w.includes("time limit"))).toBe(true);
   });

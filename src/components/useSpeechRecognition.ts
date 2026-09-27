@@ -37,8 +37,9 @@ function subscribeNoop() {
   return () => {};
 }
 
-export function useSpeechRecognition(opts?: { lang?: string }) {
+export function useSpeechRecognition(opts?: { lang?: string; onEnd?: () => void }) {
   const lang = opts?.lang ?? "en-US";
+  const onEnd = opts?.onEnd;
   const supported = useSyncExternalStore(
     subscribeNoop,
     () => getSpeechRecognitionCtor() !== null,
@@ -73,10 +74,14 @@ export function useSpeechRecognition(opts?: { lang?: string }) {
       if (combined) setTranscript((prev) => (prev ? prev + " " : "") + combined.trim());
       setInterim(interimText);
     };
-    recognition.onend = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      onEnd?.();
+    };
     recognition.onerror = () => {
       setError("Mic error — check permissions and try again, or type.");
       setListening(false);
+      onEnd?.();
     };
     recognitionRef.current = recognition;
     setTranscript("");
@@ -88,7 +93,7 @@ export function useSpeechRecognition(opts?: { lang?: string }) {
       setError("Could not start microphone — check permissions.");
       setListening(false);
     }
-  }, [lang]);
+  }, [lang, onEnd]);
 
   const stop = useCallback(() => {
     recognitionRef.current?.stop();

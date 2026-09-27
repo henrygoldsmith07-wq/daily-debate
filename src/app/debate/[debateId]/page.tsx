@@ -6,7 +6,7 @@ import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAsse
 import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { measurementHonestyFor } from "@/lib/sprint";
-import type { CoachingRecord, SoloDebate, SoloDebateTurn } from "@/lib/types";
+import type { CoachingRecord, PersistedSoloResult, SoloDebate, SoloDebateTurn } from "@/lib/types";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
 
 export default async function DebatePage({ params }: { params: Promise<{ debateId: string }> }) {
@@ -44,28 +44,43 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
         snapshot: ReturnType<typeof buildResultSnapshot> | null;
         repaired: boolean;
         honestyNote: string | null;
+        summary?: PersistedSoloResult["summary"];
+        bonusXP?: number;
+        rewardEvents?: PersistedSoloResult["rewardEvents"];
+        trainingSummary?: PersistedSoloResult["trainingSummary"];
       }
     | null = null;
   if (debate.status === "completed") {
+    const persisted = debate.result_payload && typeof debate.result_payload === "object"
+      ? (debate.result_payload as PersistedSoloResult)
+      : null;
+    const persistedAssessment = persisted?.assessment && typeof persisted.assessment === "object" && "graph" in persisted.assessment
+      ? (persisted.assessment as ObservableAssessment)
+      : null;
     const assessments = (turns ?? [])
       .map((t) => t.assessment as ObservableAssessment | null)
       .filter((a): a is ObservableAssessment => !!a);
-    const finalAssessment = assessments.length
-      ? assessArgumentGraph(mergeAssessmentGraphs(assessments.map((a) => a.graph)), {
-          sideA: "a",
-          sideB: "ai",
-          extractionSource: "deterministic",
-          labelA: "You",
-          labelB: "AI opponent",
-        })
-      : null;
+    const finalAssessment = persistedAssessment ?? (
+      assessments.length
+        ? assessArgumentGraph(mergeAssessmentGraphs(assessments.map((a) => a.graph)), {
+            sideA: "a",
+            sideB: "ai",
+            extractionSource: "deterministic",
+            labelA: "You",
+            labelB: "AI opponent",
+          })
+        : null
+    );
     const coaching = (debate.coaching ?? null) as CoachingRecord | null;
     const goalDimension = (coaching?.dimension ?? null) as CoachDimension | null;
-    const snapshot = finalAssessment
+    const rebuiltSnapshot = finalAssessment
       ? buildResultSnapshot(finalAssessment, {
           format: debate.format === "sprint" ? "sprint" : "full",
           goalDimension,
         })
+      : null;
+    const persistedSnapshot = persisted?.snapshot && typeof persisted.snapshot === "object"
+      ? (persisted.snapshot as ReturnType<typeof buildResultSnapshot>)
       : null;
 
     const { data: repair } = await db
@@ -78,10 +93,14 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
       .maybeSingle();
     completedResult = {
       totalScore: debate.total_score ?? 0,
-      argGraph: finalAssessment?.graph,
-      snapshot,
+      argGraph: persistedAssessment?.graph ?? finalAssessment?.graph,
+      snapshot: persistedSnapshot ?? rebuiltSnapshot,
       repaired: !!repair,
-      honestyNote: measurementHonestyFor(debate.format === "sprint" ? "sprint" : "full").note,
+      honestyNote: persisted?.honesty?.note ?? measurementHonestyFor(debate.format === "sprint" ? "sprint" : "full").note,
+      summary: persisted?.summary,
+      bonusXP: persisted?.bonusXP,
+      rewardEvents: persisted?.rewardEvents,
+      trainingSummary: persisted?.trainingSummary,
     };
   }
 

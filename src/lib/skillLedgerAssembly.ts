@@ -2,6 +2,7 @@ import { extractSkillPoint, type SkillMetricPoint } from "./skillLedger";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "./observableAssessment";
 import type { ObservableAssessment } from "./observableAssessment";
 import { isRepairKind } from "./argumentRepair";
+import { buildTrainingSummary } from "./trainingSummary";
 
 export interface CompletedLedgerDebateRow {
   id: string;
@@ -15,6 +16,7 @@ export interface LedgerTurnRow {
   round_number: number;
   assessment: unknown;
   scores: { clarity?: number } | null;
+  training_meta?: unknown;
 }
 
 /** Pure row-to-ledger assembly used after one batched turn-history query. */
@@ -52,6 +54,7 @@ export function buildLedgerPointsFromRows(
     const avgClarity = clarityValues.length
       ? clarityValues.reduce((sum, clarity) => sum + clarity, 0) / clarityValues.length
       : null;
+    const training = buildTrainingSummary(debateTurns);
 
     const coaching = debate.coaching && typeof debate.coaching === "object"
       ? (debate.coaching as { repairRetest?: unknown })
@@ -82,6 +85,7 @@ export function buildLedgerPointsFromRows(
       ),
       topicId: debate.topic_id,
       repairRetest,
+      training: training.totalTurns > 0 ? training : null,
     });
   }
   return points;

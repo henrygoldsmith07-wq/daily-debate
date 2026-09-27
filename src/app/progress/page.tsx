@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createServiceClient } from "@/lib/backend/server";
 import { METRIC_KEYS, METRIC_LABELS, HIGHER_IS_BETTER } from "@/lib/skillLedger";
 import { buildProgressSummary } from "@/lib/progressSummary";
+import { buildTrainingProgress } from "@/lib/trainingProgress";
+import { DEBATE_MODES, type DebateModeId } from "@/lib/debateModes";
 import { buildCoachingGoal } from "@/lib/coachingGoal";
 import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
@@ -121,6 +123,7 @@ export default async function ProgressPage() {
         .slice(0, 3);
 
   const summary = buildProgressSummary(ledger.points);
+  const training = buildTrainingProgress(ledger.points);
   const goal = buildCoachingGoal(
     ledger.points,
     null,
@@ -177,6 +180,57 @@ export default async function ProgressPage() {
           Trends need repeated observable opportunities before they are useful. {summary.debatesAnalysed < summary.minDebatesForStableScores && `You have ${summary.debatesAnalysed} debate${summary.debatesAnalysed === 1 ? "" : "s"} so far, so treat these as early signals.`}
         </p>
       </section>
+
+      {training.debatesWithTrainingData > 0 && (
+        <section className="surface-card p-5" aria-labelledby="training-mode-progress">
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">Training modes</p>
+          <h2 id="training-mode-progress" className="mt-1 text-lg font-semibold">Pressure and delivery signals</h2>
+          <p className="mt-2 text-sm leading-6 text-ink3">
+            These timing and speech observations stay separate from your argument-skill trajectory. They describe how you performed under the selected training conditions, not overall debating ability.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {(Object.entries(training.modeTurns) as Array<[DebateModeId, number]>).map(([mode, count]) => (
+              <span key={mode} className="pill">
+                {DEBATE_MODES[mode].label}: {count} turn{count === 1 ? "" : "s"}
+              </span>
+            ))}
+          </div>
+
+          {training.spokenTurns > 0 && (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
+                <p className="text-xs text-ink3">Spoken pace</p>
+                <p className="mt-1 tabular text-base font-semibold">
+                  {training.avgPaceWpm === null ? "—" : `${training.avgPaceWpm} WPM`}
+                </p>
+              </div>
+              <div className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
+                <p className="text-xs text-ink3">Delivery composite</p>
+                <p className="mt-1 tabular text-base font-semibold">
+                  {training.avgSpeechQuality === null ? "—" : `${training.avgSpeechQuality}/100`}
+                </p>
+              </div>
+              <div className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
+                <p className="text-xs text-ink3">Fillers</p>
+                <p className="mt-1 tabular text-base font-semibold">
+                  {training.avgFillerDensity === null ? "—" : `${training.avgFillerDensity} / 100 words`}
+                </p>
+              </div>
+              <div className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
+                <p className="text-xs text-ink3">Timed response length</p>
+                <p className="mt-1 tabular text-base font-semibold">
+                  {training.avgResponseSeconds === null ? "—" : `${training.avgResponseSeconds}s avg`}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <p className="mt-3 text-[11px] leading-5 text-ink3">
+            Based on {training.debatesWithTrainingData} debate{training.debatesWithTrainingData === 1 ? "" : "s"} with mode metadata{training.spokenTurns > 0 ? ` and ${training.spokenTurns} spoken turn${training.spokenTurns === 1 ? "" : "s"}` : ""}.
+          </p>
+        </section>
+      )}
 
       {/* ── Current training focus ─────────────────────────────────────────── */}
       <section className="surface-card p-5" aria-labelledby="focus-heading" data-testid="focus-card">
