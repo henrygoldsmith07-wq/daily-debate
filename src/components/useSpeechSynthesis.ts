@@ -13,11 +13,22 @@ export function useSpeechSynthesis() {
     () => false,
   );
 
-  const speak = useCallback((text: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const speak = useCallback((text: string, onDone?: () => void) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      onDone?.();
+      return;
+    }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      onDone?.();
+    };
+    utterance.onend = finish;
+    utterance.onerror = finish;
     window.speechSynthesis.speak(utterance);
   }, []);
 

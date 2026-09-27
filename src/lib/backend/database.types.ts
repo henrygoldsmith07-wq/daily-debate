@@ -38,6 +38,9 @@ export type SoloDebateRow = {
   total_score: number | null;
   format: string;
   coaching: unknown;
+  result_payload: unknown;
+  finalization_token: string | null;
+  finalization_started_at: string | null;
   created_at: string;
   completed_at: string | null;
 };

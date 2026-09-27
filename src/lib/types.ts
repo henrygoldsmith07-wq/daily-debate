@@ -52,6 +52,10 @@ export interface SoloDebate {
   format: DebateFormat;
   /** Coaching snapshot jsonb: goal dimension + observed behaviour from the debate. */
   coaching: CoachingRecord | null;
+  /** Exact durable result returned by the finish route (migration 027). */
+  result_payload?: PersistedSoloResult | null;
+  finalization_token?: string | null;
+  finalization_started_at?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -129,6 +133,34 @@ export interface TurnTrainingMeta {
   speechTiming: TurnTiming | null;
   speechAnalysis: SpeechTurnAnalysis | null;
   speechQuality: SpeechQualityScore | null;
+}
+
+export interface TrainingSummary {
+  modeCounts: Partial<Record<DebateModeId, number>>;
+  totalTurns: number;
+  timedTurns: number;
+  limitBreaches: number;
+  speechTurns: number;
+  avgElapsedSeconds: number | null;
+  avgPaceWpm: number | null;
+  avgFillerDensity: number | null;
+  avgStructureDensity: number | null;
+  avgSpeechQuality: number | null;
+  paceChangeWpm: number | null;
+}
+
+export interface PersistedSoloResult {
+  totalScore: number;
+  bonusXP: number;
+  rewardEvents: Array<{ kind: string; xp: number; label: string; detail?: string; dimension?: string }>;
+  summary: DebateSummary;
+  assessment?: unknown;
+  evaluation?: unknown;
+  format: "sprint" | "full";
+  honesty?: { confidence: "standard" | "reduced"; note: string | null };
+  snapshot?: unknown;
+  coaching?: CoachingRecord;
+  trainingSummary?: TrainingSummary;
 }
 
 export interface Profile {

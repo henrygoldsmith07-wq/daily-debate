@@ -32,9 +32,14 @@ export default function MessageComposer({
   const [usedVoice, setUsedVoice] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const busy = disabled || submitting;
-  const { supported, listening, transcript, interim, error: speechError, start, stop } = useSpeechRecognition();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const voiceStartedAt = useRef<number | null>(null);
+  const voiceEndedAt = useRef<number | null>(null);
+  const { supported, listening, transcript, interim, error: speechError, start, stop } = useSpeechRecognition({
+    onEnd: () => {
+      if (voiceStartedAt.current !== null && voiceEndedAt.current === null) voiceEndedAt.current = Date.now();
+    },
+  });
   const [responseStartedAt, setResponseStartedAt] = useState<number | null>(null);
   const effectiveResponseStartedAt = startedAtMs ?? responseStartedAt;
 
@@ -50,11 +55,13 @@ export default function MessageComposer({
   function toggleListening() {
     if (listening) {
       setText(transcript);
+      voiceEndedAt.current = Date.now();
       stop();
     } else {
       setUsedVoice(true);
       const now = Date.now();
       voiceStartedAt.current = now;
+      voiceEndedAt.current = null;
       if (startedAtMs === null) setResponseStartedAt((current) => current ?? now);
       start();
     }
@@ -62,10 +69,11 @@ export default function MessageComposer({
 
   function buildTiming(): TurnTiming | null {
     if (!usedVoice || !voiceStartedAt.current) return null;
+    const endedAtMs = voiceEndedAt.current ?? Date.now();
     return {
       startedAt: new Date(voiceStartedAt.current).toISOString(),
-      endedAt: new Date().toISOString(),
-      durationSeconds: Math.round((Date.now() - voiceStartedAt.current) / 1000),
+      endedAt: new Date(endedAtMs).toISOString(),
+      durationSeconds: Math.round((endedAtMs - voiceStartedAt.current) / 1000),
     };
   }
 
@@ -90,6 +98,7 @@ export default function MessageComposer({
       setText("");
       setUsedVoice(false);
       voiceStartedAt.current = null;
+      voiceEndedAt.current = null;
       setResponseStartedAt(null);
       setElapsedSecs(0);
     } finally {
@@ -119,6 +128,7 @@ export default function MessageComposer({
     ? Math.max(0, mode.hardTimeLimitSecs - elapsedSecs)
     : null;
   const timeUrgent = timeRemaining !== null && timeRemaining < 15;
+  const timeExpired = timeRemaining === 0;
 
   return (
     <div className="flex flex-col gap-2 border-t border-[var(--rule)] pt-4">
@@ -151,7 +161,7 @@ export default function MessageComposer({
         onKeyDown={handleKeyDown}
         placeholder={placeholder ?? "Make your case… (Ctrl/⌘+Enter to send)"}
         rows={3}
-        disabled={busy || listening}
+        disabled={busy || listening || timeExpired}
         aria-label="Your debate response"
         className="w-full resize-none rounded-lg border border-[var(--rule)] bg-transparent px-3 py-2 text-sm disabled:opacity-50"
       />
@@ -161,7 +171,7 @@ export default function MessageComposer({
             <button
               type="button"
               onClick={toggleListening}
-              disabled={busy}
+              disabled={busy || timeExpired}
               aria-pressed={listening}
               aria-label={listening ? "Stop listening" : "Start voice input"}
               className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${listening ? "border border-[var(--bad)] text-[var(--bad)]" : "btn-ghost"}`}
@@ -181,13 +191,18 @@ export default function MessageComposer({
           <button
             type="button"
             onClick={submit}
-            disabled={busy || !displayValue.trim()}
+            disabled={busy || !displayValue.trim() || timeExpired}
             className="btn btn-primary px-4 py-1.5 text-sm disabled:opacity-40"
           >
             Send
           </button>
         </div>
       </div>
+      {timeExpired ? (
+        <p className="text-xs text-[var(--bad)]" role="status">
+          Time expired for {mode.label}. Choose the mode again to restart the clock, or switch modes to continue.
+        </p>
+      ) : null}
     </div>
   );
 }

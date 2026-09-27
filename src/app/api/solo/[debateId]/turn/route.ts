@@ -10,7 +10,7 @@ import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderati
 import { type InputMode, type TurnTrainingMeta } from "@/lib/types";
 import { roundCapFor } from "@/lib/sprint";
 import { recordProductEventForUser } from "@/lib/productEvents";
-import { checkModeConstraints, isDebateModeId, resolveMode } from "@/lib/debateModes";
+import { checkModeConstraints, hardTimeLimitError, isDebateModeId, resolveMode } from "@/lib/debateModes";
 import { analyseSpeechTurn, parseTurnTiming, scoreSpeechQuality } from "@/lib/speechAnalysis";
 import {
   classifyArgumentBatchDetailed,
@@ -45,6 +45,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     ? Math.max(0, Math.min(60 * 60, Math.round(body.elapsedSeconds)))
     : null;
   const speechTiming = inputMode === "voice" ? parseTurnTiming(body?.timing) : null;
+  const timingError = hardTimeLimitError(mode, elapsedSeconds);
+  if (timingError) return NextResponse.json({ error: timingError }, { status: 422 });
   if (!message) return NextResponse.json({ error: "message is required." }, { status: 400 });
   if (isSuspiciousLength(message)) {
     return NextResponse.json({ error: "Response is too long. Keep it under 6,000 characters." }, { status: 400 });

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { applyTestMigrations } from "../../../tests/helpers/applyTestMigrations";
 import { normalizeNumerics } from "@/lib/backend/sql";
@@ -334,6 +335,160 @@ d("daily coach loop schema", () => {
 
     await pool.query("DELETE FROM solo_debates WHERE id = ANY($1::uuid[])", [
       [repairedDebate.rows[0].id, firstAssigned.rows[0].id, secondAssigned.rows[0].id],
+    ]);
+  });
+
+  it("finalizes a solo debate atomically and only awards profile progress once", async () => {
+    const userId = userIds.get("coach-a@test.local")!;
+    const topicId = await todayTopicId();
+    await pool.query(
+      `UPDATE profiles
+       SET total_points = 0, level = 1, current_streak = 0, longest_streak = 0, last_activity_date = null
+       WHERE id = $1`,
+      [userId],
+    );
+
+    const debate = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format, coaching)
+       VALUES ($1, $2, 'for', 'sprint', '{"dimension":"rebuttal"}'::jsonb)
+       RETURNING id`,
+      [userId, topicId],
+    );
+    const debateId = debate.rows[0].id;
+    const token = randomUUID();
+    const secondToken = randomUUID();
+
+    const firstClaim = await pool.query<{ claimed: boolean }>(
+      "SELECT claim_solo_debate_finalization($1, $2, $3, 180) AS claimed",
+      [debateId, userId, token],
+    );
+    expect(firstClaim.rows[0].claimed).toBe(true);
+
+    const competingClaim = await pool.query<{ claimed: boolean }>(
+      "SELECT claim_solo_debate_finalization($1, $2, $3, 180) AS claimed",
+      [debateId, userId, secondToken],
+    );
+    expect(competingClaim.rows[0].claimed).toBe(false);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const completedAt = new Date().toISOString();
+    const payload = { totalScore: 40, bonusXP: 10, format: "sprint", summary: { overallFeedback: "ok", strengths: [], improvements: [] } };
+    const finalized = await pool.query<{ finalized: boolean }>(
+      `SELECT finalize_solo_debate(
+        $1, $2, $3, 40, 10, 500, $4::date, $5::timestamptz,
+        '{"dimension":"rebuttal","demonstrated":true}'::jsonb,
+        $6::jsonb, false, null::uuid, false, null::boolean
+      ) AS finalized`,
+      [debateId, userId, token, today, completedAt, JSON.stringify(payload)],
+    );
+    expect(finalized.rows[0].finalized).toBe(true);
+
+    const stored = await pool.query<{
+      status: string;
+      total_score: number;
+      result_payload: { totalScore?: number } | null;
+      finalization_token: string | null;
+    }>(
+      "SELECT status, total_score, result_payload, finalization_token FROM solo_debates WHERE id = $1",
+      [debateId],
+    );
+    expect(stored.rows[0].status).toBe("completed");
+    expect(stored.rows[0].total_score).toBe(40);
+    expect(stored.rows[0].result_payload?.totalScore).toBe(40);
+    expect(stored.rows[0].finalization_token).toBeNull();
+
+    const profile = await pool.query<{ total_points: number; level: number; current_streak: number }>(
+      "SELECT total_points, level, current_streak FROM profiles WHERE id = $1",
+      [userId],
+    );
+    expect(profile.rows[0].total_points).toBe(50);
+    expect(profile.rows[0].level).toBe(1);
+    expect(profile.rows[0].current_streak).toBe(1);
+
+    const finalizeAgain = await pool.query<{ finalized: boolean }>(
+      `SELECT finalize_solo_debate(
+        $1, $2, $3, 40, 10, 500, $4::date, $5::timestamptz,
+        '{}'::jsonb, $6::jsonb, false, null::uuid, false, null::boolean
+      ) AS finalized`,
+      [debateId, userId, token, today, completedAt, JSON.stringify(payload)],
+    );
+    expect(finalizeAgain.rows[0].finalized).toBe(false);
+    const profileAfterRetry = await pool.query<{ total_points: number }>(
+      "SELECT total_points FROM profiles WHERE id = $1",
+      [userId],
+    );
+    expect(profileAfterRetry.rows[0].total_points).toBe(50);
+
+    await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
+  });
+
+  it("commits a repair-retest outcome in the same finalization transaction", async () => {
+    const userId = userIds.get("coach-b@test.local")!;
+    const topicId = await todayTopicId();
+    const sourceDebate = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, status, format, completed_at)
+       VALUES ($1, $2, 'against', 'completed', 'sprint', now()) RETURNING id`,
+      [userId, topicId],
+    );
+    const repair = await pool.query<{ id: string }>(
+      `INSERT INTO repair_results (
+         user_id, debate_id, target_kind, source_text, rewrite_text, score, succeeded
+       ) VALUES ($1, $2, 'rebuttal', 'old response', 'better response', 90, true)
+       RETURNING id`,
+      [userId, sourceDebate.rows[0].id],
+    );
+    const assigned = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format, coaching)
+       VALUES ($1, $2, 'for', 'sprint', $3::jsonb) RETURNING id`,
+      [
+        userId,
+        topicId,
+        JSON.stringify({
+          dimension: "rebuttal",
+          repairRetest: {
+            repairResultId: repair.rows[0].id,
+            repairDebateId: sourceDebate.rows[0].id,
+            targetKind: "rebuttal",
+            attemptedAt: new Date().toISOString(),
+          },
+        }),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO repair_retests (
+         repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+       ) VALUES ($1, $2, $3, 'rebuttal', $4)`,
+      [repair.rows[0].id, userId, sourceDebate.rows[0].id, assigned.rows[0].id],
+    );
+
+    const token = randomUUID();
+    const claim = await pool.query<{ claimed: boolean }>(
+      "SELECT claim_solo_debate_finalization($1, $2, $3, 180) AS claimed",
+      [assigned.rows[0].id, userId, token],
+    );
+    expect(claim.rows[0].claimed).toBe(true);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const completedAt = new Date().toISOString();
+    const finalized = await pool.query<{ finalized: boolean }>(
+      `SELECT finalize_solo_debate(
+        $1, $2, $3, 10, 0, 500, $4::date, $5::timestamptz,
+        '{}'::jsonb, '{}'::jsonb, true, $6::uuid, true, true
+      ) AS finalized`,
+      [assigned.rows[0].id, userId, token, today, completedAt, repair.rows[0].id],
+    );
+    expect(finalized.rows[0].finalized).toBe(true);
+
+    const retest = await pool.query<{ completed_at: Date | null; observable: boolean | null; demonstrated: boolean | null }>(
+      "SELECT completed_at, observable, demonstrated FROM repair_retests WHERE assigned_debate_id = $1",
+      [assigned.rows[0].id],
+    );
+    expect(retest.rows[0].completed_at).not.toBeNull();
+    expect(retest.rows[0].observable).toBe(true);
+    expect(retest.rows[0].demonstrated).toBe(true);
+
+    await pool.query("DELETE FROM solo_debates WHERE id = ANY($1::uuid[])", [
+      [sourceDebate.rows[0].id, assigned.rows[0].id],
     ]);
   });
 

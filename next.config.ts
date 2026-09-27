@@ -1,6 +1,22 @@
 import path from "node:path";
 import type { NextConfig } from "next";
 
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "frame-src 'none'",
+  "form-action 'self'",
+  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  `connect-src 'self' https: wss:${process.env.NODE_ENV === "development" ? " ws:" : ""}`,
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+].join("; ");
+
 const nextConfig: NextConfig = {
   // node-postgres must stay external: the dynamic import in
   // src/lib/backend/sql.ts (TCP transport for non-Neon databases) resolves it
@@ -16,7 +32,7 @@ const nextConfig: NextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           {
             key: "Content-Security-Policy",
-            value: "base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'",
+            value: contentSecurityPolicy,
           },
         ],
       },

@@ -82,7 +82,7 @@ function GuestHome({ onStart }: { onStart: (side: "for" | "against") => void }) 
               <div>
                 <h2 id="guest-motion" className="home-motion-title">{MOTION}</h2>
                 <p className="home-motion-prompt">
-                  You will get a real opposing case, a clear round goal, and feedback that reacts to what you actually write.
+                  You will get a guided sample opposing case, a clear round goal, and feedback that reacts to what you actually write.
                 </p>
               </div>
 

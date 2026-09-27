@@ -15,6 +15,7 @@ import { scoreRebuttalQuality } from "./argumentEvaluation";
 import { isKnownSource } from "./citationVerifier";
 import { rebuttalCoverageFor, unansweredOpportunitiesBy } from "./opportunity";
 import type { AssignedRepairRetest } from "./repairRetest";
+import type { TrainingSummary } from "./types";
 
 export type MetricKey =
   | "unsupportedClaimRate"
@@ -87,6 +88,8 @@ export interface SkillMetricPoint {
   topicId?: string | null;
   /** Explicit repair assignment this debate was intended to transfer-test. */
   repairRetest?: AssignedRepairRetest | null;
+  /** Delivery/timing observations are kept separate from argument-skill metrics. */
+  training?: TrainingSummary | null;
   metrics: Record<MetricKey, number | null>;
   /**
    * Debate-level opportunity counts used to decide whether a later debate

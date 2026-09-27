@@ -41,7 +41,7 @@ export async function buildLedgerForUser(
   const turnResult = debateIds.length
     ? await db
         .from("solo_debate_turns")
-        .select("debate_id, round_number, assessment, scores")
+        .select("debate_id, round_number, assessment, scores, training_meta")
         .in("debate_id", debateIds)
     : { data: [], error: null };
   if (turnResult.error) {
