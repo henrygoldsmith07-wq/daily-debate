@@ -121,6 +121,10 @@ test.describe("solo full-flow", () => {
   });
   test("full debate keeps round 12 playable and never creates round 13", async ({ page }) => {
     test.setTimeout(120_000);
+    // This deliberately sends 12 turn requests in one test. Give it its own
+    // test-only client IP so it cannot exhaust the production-style per-IP
+    // turn budget for unrelated E2E scenarios sharing the same CI browser host.
+    await page.setExtraHTTPHeaders({ "x-forwarded-for": "198.51.100.12" });
     mockAIProviders(page.context());
 
     await page.goto("/login");
