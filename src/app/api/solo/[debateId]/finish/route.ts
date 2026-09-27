@@ -83,15 +83,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   }
 
   async function refreshFinalizationLease() {
-    const { data, error } = await db
-      .from("solo_debates")
-      .update({ finalization_started_at: new Date().toISOString() })
-      .eq("id", debateId)
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .eq("finalization_token", finalizationToken)
-      .select("id");
-    return !error && !!data?.length;
+    const { data, error } = await db.rpc("refresh_solo_debate_finalization", {
+      p_debate_id: debateId,
+      p_user_id: userId,
+      p_token: finalizationToken,
+    });
+    return !error && data === true;
   }
 
   const { data: topic } = await db.from("daily_topics").select("title").eq("id", debate.topic_id).single();
