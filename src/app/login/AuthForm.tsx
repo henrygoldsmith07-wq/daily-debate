@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import Link from "next/link";
 import { signIn, signUp, type AuthState } from "./actions";
 
@@ -8,11 +8,12 @@ const initialState: AuthState = { error: null };
 
 export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
-  const [timeZone, setTimeZone] = useState("UTC");
-  useEffect(() => {
-    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (detected) setTimeZone(detected);
-  }, []);
+  const timeZoneRef = useRef<HTMLInputElement>(null);
+
+  function prepareTimeZone() {
+    if (!timeZoneRef.current) return;
+    timeZoneRef.current.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  }
   const [signInState, signInAction, signInPending] = useActionState(signIn, initialState);
   const [signUpState, signUpAction, signUpPending] = useActionState(signUp, initialState);
 
@@ -45,9 +46,9 @@ export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
         </button>
       </div>
 
-      <form action={action} className="flex flex-col gap-4">
+      <form action={action} onSubmit={prepareTimeZone} className="flex flex-col gap-4">
         <input type="hidden" name="next" value={nextPath} />
-        <input type="hidden" name="timeZone" value={timeZone} />
+        <input ref={timeZoneRef} type="hidden" name="timeZone" defaultValue="UTC" />
         {mode === "sign-up" && (
           <label className="flex flex-col gap-1 text-sm">
             Display name
