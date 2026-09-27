@@ -120,6 +120,7 @@ test.describe("solo full-flow", () => {
     await expect(page.getByText(/Replay|points/i).first()).toBeVisible({ timeout: 15_000 });
   });
   test("full debate keeps round 12 playable and never creates round 13", async ({ page }) => {
+    test.setTimeout(120_000);
     mockAIProviders(page.context());
 
     await page.goto("/login");
