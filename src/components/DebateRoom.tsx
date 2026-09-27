@@ -126,7 +126,18 @@ export default function DebateRoom({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start response timer.");
-      setModeStartedAt(modeId === "text" ? null : Date.now());
+      const limit = DEBATE_MODES[modeId].hardTimeLimitSecs;
+      if (modeId === "text" || limit === null) {
+        setModeStartedAt(null);
+        return true;
+      }
+      const remaining = typeof data.remainingSeconds === "number" ? data.remainingSeconds : limit;
+      if (remaining <= 0) {
+        setModeStartedAt(Date.now() - limit * 1000);
+        setError(`${DEBATE_MODES[modeId].label} time limit has expired. Switch modes to continue this round.`);
+        return false;
+      }
+      setModeStartedAt(Date.now() - (limit - Math.min(limit, remaining)) * 1000);
       return true;
     } catch (err) {
       setModeStartedAt(null);
