@@ -92,9 +92,9 @@ confidence calibration (ECE), latency, fast-vs-smart comparison, and
 shadow-route agreement in `rhetoricalRoleEvaluation.ts`, all covered by
 `rhetoricalRoleEvaluation.test.ts`.
 
-## Data model (migrations 001–025)
+## Data model (migrations 001–028)
 
-Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics`, `solo_debates` (+ `format`, `coaching`), `solo_debate_turns` (with `assessment` jsonb), `pvp_queue`, `pvp_matches`, `pvp_turns`, `rate_limits`, `benchmark_corpus`, `match_appeals`, `reports`, `corpus_items`, `corpus_ratings`, `drill_assignments`, `topic_evidence`, plus 004's `repair_results`, `challenge_invites`, `product_events` and 025's durable `repair_retests`. Hand-written row types live in `src/lib/backend/database.types.ts`. Migration 015 extends `ai_call_log` with bounded structural-routing fields. Migrations 022–024 add product-event reason privacy, atomic friend challenges and human-validation/system-judge integrity respectively; migration 025 makes repair-to-retest assignment and completion durable.
+Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics`, `solo_debates` (+ `format`, `coaching`, durable result/finalization fields), `solo_debate_turns` (with `assessment`, `training_meta`, and response-window timestamps), `pvp_queue`, `pvp_matches`, `pvp_turns`, `rate_limits`, `benchmark_corpus`, `match_appeals`, `reports`, `corpus_items`, `corpus_ratings`, `drill_assignments`, `topic_evidence`, plus 004's `repair_results`, `challenge_invites`, `product_events` and 025's durable `repair_retests`. Hand-written row types live in `src/lib/backend/database.types.ts`. Migration 026 adds per-turn training metadata. Migration 027 adds retry-safe finalization, exact persisted result payloads, and atomic rewards/retest completion. Migration 028 adds server-issued timed-mode windows and atomic solo-turn advancement so saving an answer, creating the next round, and moving `round_count` cannot diverge.
 
 ### Repair retest invariant
 
@@ -105,7 +105,8 @@ A persisted repair does not merely change copy. Every **successful** repair is i
 - **Convergent PvP matchmaking**: migration 020's `join_pvp_queue_and_match()` serializes join/enqueue/claim per topic, so simultaneous first-time joiners converge instead of both waiting forever. A cross-role trigger takes deterministic player advisory locks and rejects any active match sharing either player, including player_a ↔ player_b role swaps; the older partial indexes remain a same-column backstop.
 - **Owned Postgres/auth**: scrypt password hashing, hashed session tokens, server-side session checks; the proxy does no DB/network work.
 - **Rate limiting**: Postgres-backed `increment_rate_limit()`, shared across instances; in-memory fallback for guest mode.
-- **Turn claiming**: solo turns and debate completion claim atomically (`update ... where status = 'active'` / `.is("user_message", null)`); concurrent losers get 409, never double points.
+- **Atomic solo turns**: migration 028 serializes each active debate and commits the answered turn, optional next AI turn, and `round_count` in one transaction. Timed modes use a server-issued response window tied to the pending turn; the browser signals when the window should begin (after TTS), while the server timestamps and validates submission against that window.
+- **Durable finalization**: migration 027 claims completion with a lease, persists the exact result payload, and commits debate completion, profile rewards/streaks, coaching state and repair-retest outcome atomically. The finish route refreshes the lease around expensive summary/history work.
 - **Provider fallback**: `withProviderFallback` retries with backoff then fails over; schema validation on every AI response; `aiTelemetry` logs outcomes.
 - **Moderation & anti-cheat**: high-severity content blocking, repeat-turn rejection, length caps.
 - **Compensating deletes**: a failed opening deletes the empty debate so the dashboard never links a dead end.
@@ -114,6 +115,6 @@ A persisted repair does not merely change copy. Every **successful** repair is i
 ## Testing
 
 - **Unit**: `npm test` — all pure modules including sprint rules, coaching goal, challenge-me, repair targets, result snapshot, confidence differences, progress summary math.
-- **DB integration**: `*.db.test.ts` run when `TEST_DATABASE_URL` is set (CI provisions ephemeral Postgres): matchmaking convergence/cross-role invariants and boolean enqueue results, migration 004–020 schema/constraints (coaching loop, session ids, AI log, enqueue boolean), jsonb array storage shape, repair persistence, invite lifecycle.
+- **DB integration**: `*.db.test.ts` run when `TEST_DATABASE_URL` is set (CI provisions ephemeral Postgres): matchmaking convergence/cross-role invariants, migrations through 028, finalization idempotence, server-timed windows, atomic solo-turn advancement, jsonb storage shape, repair persistence and invite lifecycle.
 - **E2E**: Playwright against a production build with `E2E_MOCK_AI=1` — PvP flows, full-debate flow, and the Sprint → weakness → repair loop.
 - **Benchmarks**: deterministic judge invariance on every test run; live-model weekly with gates.

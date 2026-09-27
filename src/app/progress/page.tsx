@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createServiceClient } from "@/lib/backend/server";
 import { METRIC_KEYS, METRIC_LABELS, HIGHER_IS_BETTER } from "@/lib/skillLedger";
 import { buildProgressSummary } from "@/lib/progressSummary";
-import { buildTrainingProgress } from "@/lib/trainingProgress";
+import { buildTrainingProgress, type ModeTrainingProgress } from "@/lib/trainingProgress";
 import { DEBATE_MODES, type DebateModeId } from "@/lib/debateModes";
 import { buildCoachingGoal } from "@/lib/coachingGoal";
 import AppShell from "@/components/AppShell";
@@ -200,28 +200,53 @@ export default async function ProgressPage() {
           {training.spokenTurns > 0 && (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
-                <p className="text-xs text-ink3">Spoken pace</p>
+                <p className="text-xs text-ink3">All spoken modes · pace</p>
                 <p className="mt-1 tabular text-base font-semibold">
                   {training.avgPaceWpm === null ? "—" : `${training.avgPaceWpm} WPM`}
                 </p>
               </div>
               <div className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
-                <p className="text-xs text-ink3">Delivery composite</p>
+                <p className="text-xs text-ink3">All spoken modes · delivery</p>
                 <p className="mt-1 tabular text-base font-semibold">
                   {training.avgSpeechQuality === null ? "—" : `${training.avgSpeechQuality}/100`}
                 </p>
               </div>
-              <div className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
-                <p className="text-xs text-ink3">Fillers</p>
-                <p className="mt-1 tabular text-base font-semibold">
-                  {training.avgFillerDensity === null ? "—" : `${training.avgFillerDensity} / 100 words`}
-                </p>
-              </div>
-              <div className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
-                <p className="text-xs text-ink3">Timed response length</p>
-                <p className="mt-1 tabular text-base font-semibold">
-                  {training.avgResponseSeconds === null ? "—" : `${training.avgResponseSeconds}s avg`}
-                </p>
+            </div>
+          )}
+
+          {(Object.entries(training.perMode) as Array<[DebateModeId, ModeTrainingProgress]>)
+            .filter(([mode]) => mode !== "text").length > 0 && (
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold">Within-mode signals</h3>
+              <p className="mt-1 text-xs leading-5 text-ink3">
+                Compare each mode with itself. A rapid rebuttal and a prepared speech are different tasks, so their raw values are not treated as interchangeable.
+              </p>
+              <div className="mt-3 grid gap-3">
+                {(Object.entries(training.perMode) as Array<[DebateModeId, ModeTrainingProgress]>)
+                  .filter(([mode]) => mode !== "text")
+                  .map(([mode, stats]) => (
+                    <article key={mode} className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <p className="text-sm font-semibold">{DEBATE_MODES[mode].label}</p>
+                        <p className="text-[11px] text-ink3">{stats.debates} debate{stats.debates === 1 ? "" : "s"} · {stats.turns} turn{stats.turns === 1 ? "" : "s"}</p>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+                        <div><span className="text-ink3">Pace</span><p className="mt-0.5 font-semibold tabular">{stats.avgPaceWpm === null ? "—" : `${stats.avgPaceWpm} WPM`}</p></div>
+                        <div><span className="text-ink3">Delivery</span><p className="mt-0.5 font-semibold tabular">{stats.avgSpeechQuality === null ? "—" : `${stats.avgSpeechQuality}/100`}</p></div>
+                        <div><span className="text-ink3">Fillers</span><p className="mt-0.5 font-semibold tabular">{stats.avgFillerDensity === null ? "—" : `${stats.avgFillerDensity}/100w`}</p></div>
+                        <div><span className="text-ink3">Response</span><p className="mt-0.5 font-semibold tabular">{stats.avgResponseSeconds === null ? "—" : `${stats.avgResponseSeconds}s`}</p></div>
+                      </div>
+                      {(stats.speechQualityChange !== null || stats.responseTimeChangeSeconds !== null) && (
+                        <p className="mt-3 text-[11px] leading-5 text-ink3">
+                          First → latest observed debate in this mode:
+                          {stats.speechQualityChange !== null ? ` delivery ${stats.speechQualityChange > 0 ? "+" : ""}${stats.speechQualityChange}` : ""}
+                          {stats.speechQualityChange !== null && stats.responseTimeChangeSeconds !== null ? " ·" : ""}
+                          {stats.responseTimeChangeSeconds !== null ? ` response time ${stats.responseTimeChangeSeconds > 0 ? "+" : ""}${stats.responseTimeChangeSeconds}s` : ""}.
+                          Observed change only; not a causal claim.
+                        </p>
+                      )}
+                    </article>
+                  ))}
               </div>
             </div>
           )}

@@ -24,6 +24,8 @@ export class BackendClient {
       | "claim_solo_debate_finalization"
       | "release_solo_debate_finalization"
       | "finalize_solo_debate"
+      | "start_solo_turn_window"
+      | "advance_solo_debate_turn"
       | "claim_pvp_opponent_and_create_match"
       | "enqueue_pvp_if_unmatched"
       | "join_pvp_queue_and_match"
@@ -78,6 +80,39 @@ export class BackendClient {
           ],
         );
         return { data: rows[0]?.finalized === true, error: null };
+      }
+      if (name === "start_solo_turn_window") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          "SELECT start_solo_turn_window($1, $2, $3, $4, $5) AS result",
+          [args.p_debate_id, args.p_user_id, args.p_turn_id, args.p_mode, args.p_limit_seconds],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "advance_solo_debate_turn") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          `SELECT advance_solo_debate_turn(
+            $1, $2, $3, $4::timestamptz, $5, $6::boolean, $7, $8, $9::jsonb, $10,
+            $11, $12::jsonb, $13::jsonb, $14, $15
+          ) AS result`,
+          [
+            args.p_debate_id,
+            args.p_user_id,
+            args.p_turn_id,
+            args.p_received_at,
+            args.p_mode,
+            args.p_require_window,
+            args.p_user_message,
+            args.p_input_mode,
+            args.p_scores,
+            args.p_turn_score,
+            args.p_feedback,
+            args.p_assessment,
+            args.p_training_meta,
+            args.p_next_round_number,
+            args.p_next_ai_message,
+          ],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
       }
       if (name === "claim_pvp_opponent_and_create_match") {
         const rows = await queryRows<Record<string, unknown>>(

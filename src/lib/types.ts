@@ -123,6 +123,10 @@ export interface SoloDebateTurn {
   feedback: string | null;
   assessment?: ObservableAssessment | null;
   training_meta?: TurnTrainingMeta | null;
+  /** Server-issued response window for timed training modes (migration 028). */
+  response_mode?: DebateModeId | "text" | null;
+  response_window_started_at?: string | null;
+  response_window_expires_at?: string | null;
   created_at: string;
 }
 
@@ -135,8 +139,21 @@ export interface TurnTrainingMeta {
   speechQuality: SpeechQualityScore | null;
 }
 
+export interface TrainingModeSummary {
+  turns: number;
+  timedTurns: number;
+  speechTurns: number;
+  avgElapsedSeconds: number | null;
+  avgPaceWpm: number | null;
+  avgFillerDensity: number | null;
+  avgStructureDensity: number | null;
+  avgSpeechQuality: number | null;
+}
+
 export interface TrainingSummary {
   modeCounts: Partial<Record<DebateModeId, number>>;
+  /** Per-mode observations keep rapid rebuttal, speech and prepared speech comparable only to themselves. */
+  byMode?: Partial<Record<DebateModeId, TrainingModeSummary>>;
   totalTurns: number;
   timedTurns: number;
   limitBreaches: number;
@@ -154,6 +171,8 @@ export interface PersistedSoloResult {
   bonusXP: number;
   rewardEvents: Array<{ kind: string; xp: number; label: string; detail?: string; dimension?: string }>;
   summary: DebateSummary;
+  /** Whether generated narrative feedback came from an AI provider or deterministic fallback copy. */
+  summarySource?: "ai" | "fallback";
   assessment?: unknown;
   evaluation?: unknown;
   format: "sprint" | "full";

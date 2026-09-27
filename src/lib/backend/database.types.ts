@@ -57,6 +57,9 @@ export type SoloDebateTurnRow = {
   feedback: string | null;
   assessment: unknown;
   training_meta: unknown;
+  response_mode: string | null;
+  response_window_started_at: string | null;
+  response_window_expires_at: string | null;
   created_at: string;
 };
 
