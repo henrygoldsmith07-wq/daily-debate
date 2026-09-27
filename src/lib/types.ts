@@ -175,6 +175,8 @@ export interface TrainingSummary {
 
 export interface PersistedSoloResult {
   totalScore: number;
+  /** Length-normalized deterministic performance index, 0–100. */
+  performanceScore?: number;
   bonusXP: number;
   rewardEvents: Array<{ kind: string; xp: number; label: string; detail?: string; dimension?: string }>;
   summary: DebateSummary;
@@ -197,6 +199,7 @@ export interface Profile {
   current_streak: number;
   longest_streak: number;
   last_activity_date: string | null;
+  timezone?: string;
   created_at: string;
 }
 
