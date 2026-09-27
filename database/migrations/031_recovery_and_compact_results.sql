@@ -623,6 +623,9 @@ begin
   delete from app_sessions where expires_at <= now();
   delete from rate_limits where reset_at <= now();
   delete from password_reset_tokens where expires_at <= now() or used_at is not null;
+  update challenge_invites
+  set status = 'expired'
+  where status = 'open' and expires_at <= now();
 
   update solo_debates
   set finalization_token = null,
