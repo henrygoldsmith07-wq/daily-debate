@@ -187,7 +187,7 @@ test.describe("solo full-flow", () => {
     const staleDraft = "This draft answers the original round-one challenge and must never be attached to round two.";
     await staleComposer.fill(staleDraft);
 
-    let firstSubmissionBody: Record<string, unknown> | null = null;
+    let firstSubmissionBody: Record<string, unknown> = {};
     page.on("request", (request) => {
       if (request.method() === "POST" && /\/api\/solo\/[^/]+\/turn$/.test(new URL(request.url()).pathname)) {
         firstSubmissionBody = request.postDataJSON() as Record<string, unknown>;
@@ -200,7 +200,7 @@ test.describe("solo full-flow", () => {
     );
     await page.getByRole("button", { name: /^send$/i }).click();
     await expect(page.getByTestId("round-status")).toContainText("Round 2", { timeout: 30_000 });
-    expect(firstSubmissionBody?.expectedTurnId).toBeTruthy();
+    expect(firstSubmissionBody["expectedTurnId"]).toBeTruthy();
 
     const replay = await page.evaluate(async ({ body }) => {
       const response = await fetch(window.location.pathname.replace(/^\/debate\//, "/api/solo/") + "/turn", {
