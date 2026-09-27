@@ -9,7 +9,6 @@ import { isValidDebateTurn } from "@/lib/aiSchema";
 import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
 import {
-  type DebateModeId,
   type InputMode,
   type SoloDebateTurn,
   type TurnScores,
@@ -17,7 +16,7 @@ import {
 } from "@/lib/types";
 import { roundCapFor } from "@/lib/sprint";
 import { recordProductEventForUser } from "@/lib/productEvents";
-import { checkModeConstraints, isDebateModeId, resolveMode } from "@/lib/debateModes";
+import { checkModeConstraints, isDebateModeId, resolveMode, type DebateModeId } from "@/lib/debateModes";
 import { analyseSpeechTurn, parseTurnTiming, scoreSpeechQuality } from "@/lib/speechAnalysis";
 import {
   classifyArgumentBatchDetailed,
