@@ -127,6 +127,13 @@ export interface SoloDebateTurn {
   response_mode?: DebateModeId | "text" | null;
   response_window_started_at?: string | null;
   response_window_expires_at?: string | null;
+  /** Durable pre-provider submission state (migration 029). */
+  staged_user_message?: string | null;
+  staged_input_mode?: InputMode | null;
+  staged_training_meta?: TurnTrainingMeta | null;
+  staged_mode?: DebateModeId | null;
+  staged_submitted_at?: string | null;
+  submission_started_at?: string | null;
   created_at: string;
 }
 
