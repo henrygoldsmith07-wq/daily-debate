@@ -15,6 +15,10 @@ import { minRoundsFor } from "@/lib/sprint";
 import { trackEvent } from "@/lib/trackClientEvent";
 import { DEBATE_MODES, isDebateModeId, type DebateModeId } from "@/lib/debateModes";
 
+function localCountdownAnchorMs(limitSeconds: number, remainingSeconds: number): number {
+  return Date.now() - Math.max(0, limitSeconds - remainingSeconds) * 1000;
+}
+
 interface RewardEventView { kind: string; xp: number; label: string; detail?: string; dimension?: string; }
 interface DebateSummaryPayload {
   totalScore: number;
@@ -142,10 +146,9 @@ export default function DebateRoom({
         : limit;
       // Convert the authoritative DB duration into a local monotonic-ish
       // countdown anchor. Never compare the user's wall clock with a DB timestamp.
-      const elapsed = Math.max(0, limit - remaining);
-      const localStartedAt = Date.now() - elapsed * 1000;
+      const localStartedAt = localCountdownAnchorMs(limit, remaining);
       if (remaining <= 0) {
-        setModeStartedAt(Date.now() - limit * 1000);
+        setModeStartedAt(localCountdownAnchorMs(limit, 0));
         setError(`${DEBATE_MODES[modeId].label} time limit has expired. Switch modes to continue this round.`);
         return false;
       }
