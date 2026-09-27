@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     // ascending-limit query quietly became "oldest 20" once a user had >20.
     const { data: historyRows } = await db
       .from("solo_debates")
-      .select("id, side, total_score")
+      .select("id, side, total_score, performance_score")
       .eq("user_id", user.id)
       .eq("status", "completed")
       .order("completed_at", { ascending: false })
@@ -79,10 +79,13 @@ export async function POST(request: Request) {
       .reverse()
       .map((row) => ({
         side: row.side as DebateSide,
-        performanceScore: normaliseSoloPerformance(
-          typeof row.total_score === "number" ? row.total_score : null,
-          answeredByDebate.get(row.id) ?? 0,
-        ),
+        performanceScore:
+          typeof row.performance_score === "number"
+            ? row.performance_score
+            : normaliseSoloPerformance(
+                typeof row.total_score === "number" ? row.total_score : null,
+                answeredByDebate.get(row.id) ?? 0,
+              ),
       }));
     const assignment = assignChallengeSide(history);
     side = assignment.side;
