@@ -38,5 +38,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "This round is no longer available." }, { status: 409 });
   }
 
-  return NextResponse.json(data);
+  const payload = data as { modeId?: string; startedAt?: string | null; expiresAt?: string | null };
+  const remainingSeconds = mode.hardTimeLimitSecs !== null && payload.expiresAt
+    ? Math.max(0, Math.ceil((Date.parse(payload.expiresAt) - Date.now()) / 1000))
+    : null;
+
+  return NextResponse.json({ ...payload, remainingSeconds });
 }
