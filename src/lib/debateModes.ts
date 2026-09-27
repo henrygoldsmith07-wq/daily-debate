@@ -70,6 +70,10 @@ export const DEBATE_MODES: Record<DebateModeId, DebateModeConfig> = {
 
 export const DEBATE_MODE_LIST = Object.values(DEBATE_MODES);
 
+export function isDebateModeId(value: unknown): value is DebateModeId {
+  return typeof value === "string" && value in DEBATE_MODES;
+}
+
 /** Validate a mode id string against known modes; returns default on mismatch. */
 export function resolveMode(id: string | undefined | null): DebateModeConfig {
   if (id && id in DEBATE_MODES) return DEBATE_MODES[id as DebateModeId];
@@ -83,9 +87,13 @@ export function resolveMode(id: string | undefined | null): DebateModeConfig {
 export function checkModeConstraints(
   mode: DebateModeConfig,
   wordCount: number,
-  durationSeconds: number | null
+  durationSeconds: number | null,
+  inputMode?: "text" | "voice",
 ): string[] {
   const warnings: string[] = [];
+  if (mode.hardTimeLimitSecs !== null && durationSeconds === null) {
+    warnings.push(`${mode.label} timing was unavailable for this turn.`);
+  }
   if (mode.hardTimeLimitSecs !== null && durationSeconds !== null && durationSeconds > mode.hardTimeLimitSecs) {
     warnings.push(`Exceeded ${mode.label} time limit (${mode.hardTimeLimitSecs}s).`);
   }
@@ -95,7 +103,7 @@ export function checkModeConstraints(
   if (wordCount > mode.maxWordsHint) {
     warnings.push(`Long for ${mode.label} mode — aim for ≤${mode.maxWordsHint} words.`);
   }
-  if (mode.voiceExpected && durationSeconds === null) {
+  if (mode.voiceExpected && inputMode !== "voice") {
     warnings.push(`${mode.label} mode works best with voice input for pace and filler tracking.`);
   }
   return warnings;

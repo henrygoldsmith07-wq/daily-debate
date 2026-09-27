@@ -3,6 +3,8 @@ import type { AssessmentStatus, ObservableAssessment } from "./observableAssessm
 import type { DebateFormat } from "./sprint";
 import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
 import type { RepairKind } from "./argumentRepair";
+import type { DebateModeId } from "./debateModes";
+import type { SpeechQualityScore, SpeechTurnAnalysis, TurnTiming } from "./speechAnalysis";
 
 export type DebateSide = "for" | "against";
 export type InputMode = "text" | "voice";
@@ -116,7 +118,17 @@ export interface SoloDebateTurn {
   turn_score: number | null;
   feedback: string | null;
   assessment?: ObservableAssessment | null;
+  training_meta?: TurnTrainingMeta | null;
   created_at: string;
+}
+
+export interface TurnTrainingMeta {
+  modeId: DebateModeId;
+  elapsedSeconds: number | null;
+  modeWarnings: string[];
+  speechTiming: TurnTiming | null;
+  speechAnalysis: SpeechTurnAnalysis | null;
+  speechQuality: SpeechQualityScore | null;
 }
 
 export interface Profile {

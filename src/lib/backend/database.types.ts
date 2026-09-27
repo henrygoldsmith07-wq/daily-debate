@@ -53,6 +53,7 @@ export type SoloDebateTurnRow = {
   turn_score: number | null;
   feedback: string | null;
   assessment: unknown;
+  training_meta: unknown;
   created_at: string;
 };
 
