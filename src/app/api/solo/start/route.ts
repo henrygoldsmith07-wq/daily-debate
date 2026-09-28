@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     data: { user },
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const userId = userId;
+  const userId = user.id;
 
   const body = await request.json().catch(() => null);
   const topicId = typeof body?.topicId === "string" ? body.topicId : null;
