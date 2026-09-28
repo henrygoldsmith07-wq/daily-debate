@@ -293,18 +293,28 @@ test.describe("solo full-flow", () => {
       second.waitForURL(/\/debate\//, { timeout: 20_000 }),
     ]);
 
-    const firstWon = /\/debate\//.test(new URL(page.url()).pathname);
-    const winner = firstWon ? page : second;
-    const loser = firstWon ? second : page;
-
-    await expect(loser.locator('p[role="alert"]')).toContainText(/already starting in another tab/i, { timeout: 10_000 });
+    const pageStarted = /\/debate\//.test(new URL(page.url()).pathname);
+    const secondStarted = /\/debate\//.test(new URL(second.url()).pathname);
+    const winner = pageStarted ? page : second;
+    const loser = pageStarted ? second : page;
     const canonicalPath = new URL(winner.url()).pathname;
 
-    // Retrying after the winning request commits must replay the canonical
-    // debate, not create a second active debate.
-    await loser.getByTestId("start-sprint").click();
-    await loser.waitForURL(/\/debate\//, { timeout: 20_000 });
-    expect(new URL(loser.url()).pathname).toBe(canonicalPath);
+    // Both race outcomes are correct:
+    // 1. the loser observes the short-lived start claim and gets a 409, then
+    //    retries after the winner commits; or
+    // 2. the winner commits before the loser's route checks existing state,
+    //    so the loser immediately receives the canonical debate.
+    if (!(pageStarted && secondStarted)) {
+      await expect(loser.locator('p[role="alert"]')).toContainText(/already starting in another tab/i, { timeout: 10_000 });
+      await loser.getByTestId("start-sprint").click();
+      await loser.waitForURL(/\/debate\//, { timeout: 20_000 });
+    } else {
+      await page.waitForURL(/\/debate\//, { timeout: 20_000 });
+      await second.waitForURL(/\/debate\//, { timeout: 20_000 });
+    }
+
+    expect(new URL(page.url()).pathname).toBe(canonicalPath);
+    expect(new URL(second.url()).pathname).toBe(canonicalPath);
 
     const dbUrl = process.env.E2E_DATABASE_URL;
     expect(dbUrl).toBeTruthy();
