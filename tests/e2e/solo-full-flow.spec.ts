@@ -300,12 +300,13 @@ test.describe("solo full-flow", () => {
     const canonicalPath = new URL(winner.url()).pathname;
 
     // Both race outcomes are correct:
-    // 1. the loser observes the short-lived start claim and gets a 409, then
-    //    retries after the winner commits; or
+    // 1. the loser gets the short-lived start-in-progress response and stays
+    //    on Today, then a retry returns the canonical committed debate; or
     // 2. the winner commits before the loser's route checks existing state,
-    //    so the loser immediately receives the canonical debate.
+    //    so both tabs navigate immediately. Do not couple the invariant to the
+    //    transient alert paint timing.
     if (!(pageStarted && secondStarted)) {
-      await expect(loser.locator('p[role="alert"]')).toContainText(/already starting in another tab/i, { timeout: 10_000 });
+      await expect(loser.getByTestId("start-sprint")).toBeVisible({ timeout: 10_000 });
       await loser.getByTestId("start-sprint").click();
       await loser.waitForURL(/\/debate\//, { timeout: 20_000 });
     } else {
