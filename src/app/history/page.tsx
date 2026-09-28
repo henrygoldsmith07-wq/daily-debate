@@ -83,7 +83,7 @@ export default async function HistoryPage() {
           <p className="text-sm text-ink3">No solo debates yet.</p>
         ) : (
           soloDebates.map((d) => {
-            const performance = d.performance_score ?? 0;
+            const performance = d.performance_score;
             const xp = (d.total_score ?? 0) + (d.bonus_xp ?? 0);
             return (
             <Link
@@ -100,7 +100,9 @@ export default async function HistoryPage() {
               <span className="shrink-0 text-right">
                 {d.status === "completed" ? (
                   <>
-                    <span className="block tabular font-medium">{performance}/100 performance</span>
+                    <span className="block tabular font-medium">
+                      {performance === null ? "Performance unavailable" : `${performance}/100 performance`}
+                    </span>
                     <span className="block text-xs text-ink3">+{xp} XP</span>
                   </>
                 ) : (
