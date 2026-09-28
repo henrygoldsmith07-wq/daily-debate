@@ -191,7 +191,10 @@ export default function DebateRoom({
       if (remaining <= 0) {
         setModeStartedAt(localCountdownAnchorMs(limit, 0));
         setError(`${DEBATE_MODES[modeId].label} time limit has expired. Switch modes to continue this round.`);
-        return false;
+        // The server persisted/restored this mode successfully; it is simply
+        // no longer answerable. Let the caller select it so the expired state
+        // is visible without treating persistence as a failure.
+        return true;
       }
       setModeStartedAt(localStartedAt);
       return true;
@@ -206,8 +209,11 @@ export default function DebateRoom({
 
   async function chooseMode(modeId: DebateModeId) {
     if (!pending?.id || opponentSpeaking || modeWindowStarting || submissionSaved) return;
-    setDebateMode(modeId);
-    await startResponseWindow(modeId, pending.id);
+    // Do not expose a mode as selected until the server has durably persisted
+    // (or restored) its authoritative response window. This closes the reload
+    // race where the button could show Rapid before response_mode was saved.
+    const persisted = await startResponseWindow(modeId, pending.id);
+    if (persisted) setDebateMode(modeId);
   }
 
   async function submitTurn(data: ComposerSubmitData) {
