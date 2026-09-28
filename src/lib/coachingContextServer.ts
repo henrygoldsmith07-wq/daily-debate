@@ -35,7 +35,7 @@ export interface CoachingContext {
  */
 export async function loadCoachingContext(
   userId: string,
-  opts: { currentTopicId?: string | null } = {},
+  opts: { currentTopicId?: string | null; reconcileLegacyRetests?: boolean } = {},
 ): Promise<CoachingContext> {
   const degradationReasons: CoachingContextDegradationReason[] = [];
   const [ledgerResult, repairResult] = await Promise.allSettled([
@@ -73,11 +73,11 @@ export async function loadCoachingContext(
     : [];
 
   // Migration 025 backfills historical assignments from debate coaching. Some
-  // older completed retests may lack a reliable telemetry event, leaving their
-  // durable `observable` value unknown. While that debate is still in the
-  // ledger window, reconcile it once into durable state so it can never become
-  // pending again after the bounded ledger advances.
-  if (repairResult.status === "fulfilled") {
+  // older completed retests may lack a durable observable value. Reads remain
+  // side-effect free: only an explicit mutating caller (currently solo Start)
+  // opts into one-time reconciliation while the old debate is still in the
+  // bounded ledger window.
+  if (repairResult.status === "fulfilled" && opts.reconcileLegacyRetests === true) {
     const reconciliationWrites = [];
     for (const anchor of repairAnchors) {
       const observed = observedRepairRetestPoint(ledger.points, anchor);
