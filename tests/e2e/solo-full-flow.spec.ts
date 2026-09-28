@@ -306,9 +306,26 @@ test.describe("solo full-flow", () => {
     //    so both tabs navigate immediately. Do not couple the invariant to the
     //    transient alert paint timing.
     if (!(pageStarted && secondStarted)) {
-      await expect(loser.getByTestId("start-sprint")).toBeVisible({ timeout: 10_000 });
-      await loser.getByTestId("start-sprint").click();
-      await loser.waitForURL(/\/debate\//, { timeout: 20_000 });
+      const loserStart = loser.getByTestId("start-sprint");
+      await expect(loserStart).toBeVisible({ timeout: 10_000 });
+
+      // A transient start-in-progress response leaves the loser on Today while
+      // its first click is still unwinding. Visibility alone is not retry-ready:
+      // the button remains disabled until TopicCard clears its local starting
+      // state. Wait for either canonical navigation or an enabled retry.
+      await expect.poll(
+        async () => {
+          if (/\/debate\//.test(new URL(loser.url()).pathname)) return "navigated";
+          const retryReady = await loserStart.isEnabled().catch(() => false);
+          return retryReady ? "retry-ready" : "waiting";
+        },
+        { timeout: 20_000, message: "losing Start tab should navigate or become retryable" },
+      ).toMatch(/^(navigated|retry-ready)$/);
+
+      if (!/\/debate\//.test(new URL(loser.url()).pathname)) {
+        await loserStart.click();
+        await loser.waitForURL(/\/debate\//, { timeout: 20_000 });
+      }
     } else {
       await page.waitForURL(/\/debate\//, { timeout: 20_000 });
       await second.waitForURL(/\/debate\//, { timeout: 20_000 });
