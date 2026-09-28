@@ -17,11 +17,11 @@ import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 
 export const dynamic = "force-dynamic";
 
-function formatShortDate(value: string | null | undefined): string {
+function formatShortDate(value: string | null | undefined, timeZone: string): string {
   if (!value) return "Date unknown";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Date unknown";
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone }).format(date);
 }
 
 export default async function DashboardPage() {
@@ -227,7 +227,7 @@ export default async function DashboardPage() {
             <h3>{previousDebateTitle ?? "Your first rep is waiting"}</h3>
             {previousDebate ? (
               <p className="home-secondary-meta">
-                {formatShortDate(previousDebate.completed_at ?? previousDebate.created_at)} · arguing{" "}
+                {formatShortDate(previousDebate.completed_at ?? previousDebate.created_at, profile?.timezone ?? "UTC")} · arguing{" "}
                 {previousDebate.side} · {previousDebate.performance_score ?? "—"}/100 performance
                 {improvementKey ? <span className="block text-[var(--accent)]">Improving: {improvementKey.replace(/([A-Z])/g, " $1").toLowerCase()}</span> : null}
               </p>
