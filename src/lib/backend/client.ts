@@ -24,6 +24,7 @@ export class BackendClient {
       | "claim_solo_debate_finalization"
       | "release_solo_debate_finalization"
       | "finalize_solo_debate_v3"
+      | "finalize_solo_debate_v4"
       | "claim_solo_debate_start"
       | "release_solo_debate_start"
       | "complete_solo_debate_start"
@@ -62,6 +63,31 @@ export class BackendClient {
           [args.p_debate_id, args.p_user_id, args.p_token],
         );
         return { data: rows[0]?.released === true, error: null };
+      }
+      if (name === "finalize_solo_debate_v4") {
+        const rows = await queryRows<{ finalized: boolean }>(
+          `SELECT finalize_solo_debate_v4(
+            $1, $2, $3, $4, $5, $6, $7::timestamptz, $8::jsonb, $9::jsonb,
+            $10::boolean, $11::uuid, $12::boolean, $13::boolean, $14
+          ) AS finalized`,
+          [
+            args.p_debate_id,
+            args.p_user_id,
+            args.p_token,
+            args.p_total_score,
+            args.p_bonus_xp,
+            args.p_points_per_level,
+            args.p_completed_at,
+            args.p_coaching,
+            args.p_result_payload,
+            args.p_has_retest,
+            args.p_repair_result_id,
+            args.p_retest_observable,
+            args.p_retest_demonstrated,
+            args.p_current_category,
+          ],
+        );
+        return { data: rows[0]?.finalized === true, error: null };
       }
       if (name === "finalize_solo_debate_v3") {
         const rows = await queryRows<{ finalized: boolean }>(
