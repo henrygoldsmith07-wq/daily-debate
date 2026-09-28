@@ -14,9 +14,8 @@ import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { minRoundsFor, measurementHonestyFor } from "@/lib/sprint";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { snapshotFromAssessment } from "@/lib/coachingGoal";
-import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
-import { MAX_ROUNDS, type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
-import { mergeSoloAssessmentsByDebate } from "@/lib/soloAssessmentHistory";
+import { type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
+import { loadSoloFinalizationContext } from "@/lib/solo/finalizationContext";
 import { extractSkillPoint } from "@/lib/skillLedger";
 import { pointMeasuresDimension, repairKindToDimension } from "@/lib/repairRetest";
 import { buildTrainingSummary } from "@/lib/trainingSummary";
@@ -192,7 +191,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     );
   }
 
-  const { data: topic } = await db.from("daily_topics").select("title, category").eq("id", debate.topic_id).single();
+  const finalizationContext = await loadSoloFinalizationContext({
+    db,
+    userId,
+    debateId,
+    topicId: debate.topic_id,
+  });
+  if (!finalizationContext.ok) {
+    console.error(
+      `Finalization context unavailable at ${finalizationContext.stage}:`,
+      finalizationContext.message,
+    );
+    await releaseFinalizationClaim();
+    return NextResponse.json(
+      {
+        error: "Finalization context is temporarily unavailable. Your debate is safe to retry.",
+        code: "finalization_context_unavailable",
+      },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const { topic, priorAssessments, priorDebateKinds } = finalizationContext;
 
   const transcript = answered
     .map((turn) => `AI: ${turn.ai_message}\nUser: ${turn.user_message}`)
@@ -202,9 +221,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   let summarySource: "ai" | "fallback" = "ai";
   try {
     summary = await withProviderFallback(
-      () => summarizeSoloDebate({ topicTitle: topic?.title ?? "the debate", transcript }),
+      () => summarizeSoloDebate({ topicTitle: topic.title, transcript }),
       isValidSummary,
-      () => anthropicSummarize({ topicTitle: topic?.title ?? "the debate", transcript }),
+      () => anthropicSummarize({ topicTitle: topic.title, transcript }),
     );
   } catch (error) {
     console.error("Failed to summarize debate:", error);
@@ -232,51 +251,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     : null;
   if (finalAssessment) summary = { ...summary, argGraph: finalAssessment.graph, assessment: finalAssessment };
 
-  // Prior completed debates: feeds BOTH coach rewards (per-debate assessments)
-  // and repeated-weakness detection (side-scoped weakness counts). One query.
-  const { data: priorDebates } = await db
-    .from("solo_debates")
-    .select("id, completed_at")
-    .eq("user_id", user.id)
-    .eq("status", "completed")
-    .neq("id", debateId)
-    .order("completed_at", { ascending: false })
-    .limit(5);
-  let priorAssessments: ObservableAssessment[] = [];
-  let priorDebateKinds: Array<{ completedAt: string; kinds: Record<string, number> }> = [];
-  if (priorDebates?.length) {
-    const { data: priorTurns } = await db
-      .from("solo_debate_turns")
-      .select("debate_id, assessment")
-      .in("debate_id", priorDebates.map((d) => d.id))
-      .not("assessment", "is", null)
-      .order("round_number", { ascending: true })
-      // Five full debates can contain up to 5 × MAX_ROUNDS assessed turns.
-      // The old hard limit of 30 silently truncated longer histories.
-      .limit(priorDebates.length * MAX_ROUNDS);
-
-    const mergedByDebate = mergeSoloAssessmentsByDebate(
-      (priorTurns ?? []) as Array<{ debate_id: string; assessment: unknown }>,
-    );
-    // Rewards now compare full prior debates with the full current debate.
-    // Previously this array kept only the final turn assessment per debate.
-    priorAssessments = priorDebates
-      .map((d) => mergedByDebate.get(d.id) ?? null)
-      .filter((assessment): assessment is ObservableAssessment => assessment !== null);
-
-    priorDebateKinds = priorDebates
-      .map((d) => {
-        const merged = mergedByDebate.get(d.id);
-        if (!merged) return null;
-        return {
-          completedAt: d.completed_at ?? new Date().toISOString(),
-          kinds: countWeaknessesForSide(merged.graph, "a"),
-        };
-      })
-      .filter((x): x is { completedAt: string; kinds: Record<string, number> } => x !== null)
-      .reverse(); // chronological: oldest → newest
-  }
-  const currentCategory = topic?.category ?? "";
+  const currentCategory = topic.category ?? "";
   const rewardEvents = finalAssessment
     ? computeCoachRewards({
         assessment: finalAssessment,

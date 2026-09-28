@@ -22,6 +22,17 @@ describe("normaliseSoloPerformance", () => {
 });
 
 describe("assignChallengeSide", () => {
+  it("labels a history-read failure as degraded instead of claiming there is no history", () => {
+    const result = assignChallengeSide(history([["for", 80], ["against", 55]]), {
+      random: () => 0.9,
+      historyUnavailable: true,
+    });
+    expect(result.side).toBe("against");
+    expect(result.rule).toBe("random-history-unavailable");
+    expect(result.reason).toMatch(/history is temporarily unavailable/i);
+    expect(result.reason).not.toMatch(/no history/i);
+  });
+
   it("picks randomly with a reason when there is no history", () => {
     const result = assignChallengeSide([], { random: () => 0.1 });
     expect(result.side).toBe("for");

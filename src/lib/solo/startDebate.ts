@@ -152,13 +152,17 @@ export async function startSoloDebate(params: {
     let sideRule: ChallengeRule | null = null;
 
     if (sideChoice === "challenge") {
-      const { data: historyRows } = await db
+      const { data: historyRows, error: historyError } = await db
         .from("solo_debates")
         .select("id, side, total_score, performance_score")
         .eq("user_id", userId)
         .eq("status", "completed")
         .order("completed_at", { ascending: false })
         .limit(8);
+      let historyUnavailable = historyError !== null;
+      if (historyError) {
+        console.warn("Challenge Me history unavailable; using a random side.");
+      }
 
       const legacyIds = (historyRows ?? [])
         .filter((row) => typeof row.performance_score !== "number")
@@ -166,13 +170,18 @@ export async function startSoloDebate(params: {
       const answeredByDebate = new Map<string, number>();
 
       if (legacyIds.length) {
-        const { data: answeredTurns } = await db
+        const { data: answeredTurns, error: answeredTurnsError } = await db
           .from("solo_debate_turns")
           .select("debate_id, id")
           .in("debate_id", legacyIds)
           .not("user_message", "is", null);
-        for (const row of answeredTurns ?? []) {
-          answeredByDebate.set(row.debate_id, (answeredByDebate.get(row.debate_id) ?? 0) + 1);
+        if (answeredTurnsError) {
+          historyUnavailable = true;
+          console.warn("Challenge Me legacy turn history unavailable; using a random side.");
+        } else {
+          for (const row of answeredTurns ?? []) {
+            answeredByDebate.set(row.debate_id, (answeredByDebate.get(row.debate_id) ?? 0) + 1);
+          }
         }
       }
 
@@ -189,7 +198,7 @@ export async function startSoloDebate(params: {
                 ),
         }));
 
-      const assignment = assignChallengeSide(history);
+      const assignment = assignChallengeSide(history, { historyUnavailable });
       side = assignment.side;
       sideReason = assignment.reason;
       sideRule = assignment.rule;
