@@ -11,7 +11,7 @@ import {
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getTodayTopic } from "@/lib/dailyTopic";
 import { getCurrentUser } from "@/lib/currentViewer";
-import { dateKeyInTimeZone } from "@/lib/timeZone";
+import { dateKeyInTimeZone, normalizeIanaTimeZone } from "@/lib/timeZone";
 
 type DrillAssignmentRow = {
   id: string;
@@ -85,6 +85,10 @@ async function loadCoachTodayState(userId: string): Promise<CoachTodayState> {
   if (profileError || !profileRow?.timezone) {
     throw new CoachTodayError("Your local training day is temporarily unavailable. Try again shortly.", 503);
   }
+  const timeZone = normalizeIanaTimeZone(profileRow.timezone);
+  if (timeZone !== profileRow.timezone) {
+    throw new CoachTodayError("Your local training day is temporarily unavailable. Try again shortly.", 503);
+  }
 
   const ledger = context.ledger;
   const outcomes = context.drillOutcomes;
@@ -108,7 +112,7 @@ async function loadCoachTodayState(userId: string): Promise<CoachTodayState> {
     focusReason = selected.reason;
   }
 
-  const today = dateKeyInTimeZone(profileRow.timezone);
+  const today = dateKeyInTimeZone(timeZone);
   const { data: existingRow, error: existingError } = await service
     .from("drill_assignments")
     .select("*")
