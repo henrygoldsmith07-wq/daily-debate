@@ -15,7 +15,6 @@ import {
   type TurnTrainingMeta,
 } from "@/lib/types";
 import { roundCapFor } from "@/lib/sprint";
-import { recordProductEventForUser } from "@/lib/productEvents";
 import { checkModeConstraints, isDebateModeId, resolveMode, type DebateModeId } from "@/lib/debateModes";
 import { analyseSpeechTurn, parseTurnTiming, scoreSpeechQuality } from "@/lib/speechAnalysis";
 import {
@@ -426,13 +425,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       { status: 409 },
     );
   }
-
-  await recordProductEventForUser(user.id, "round_completed", {
-    format: debateFormat,
-    side: debate.side as "for" | "against",
-    round: pendingTurn.round_number,
-    debateId,
-  });
 
   return NextResponse.json({
     completedTurn: finalized.completedTurn,
