@@ -26,7 +26,8 @@
 // the decision layer treats as alertable-unknown); it never throws.
 //
 // Env: GITHUB_TOKEN (optional; issues:write if set), PROD_HEALTH_URL
-//      (optional; default https://dailydebate.app), OPS_ALERT_LABEL
+//      (optional; preferred production base), PROD_HEALTH_FALLBACK_URL
+//      (optional; canonical deployment fallback), OPS_ALERT_LABEL
 //      (optional, default "ops-alert").
 //
 // Exit codes: 0 always (alerting must never break CI); "1" only on misuse.
@@ -42,7 +43,10 @@ import {
 
 const REPO = "henrygoldsmith07-wq/daily-debate";
 const LABEL = process.env.OPS_ALERT_LABEL?.trim() || "ops-alert";
-const PROD_BASE = (process.env.PROD_HEALTH_URL?.trim() || "https://dailydebate.app").replace(/\/+$/, "");
+const CANONICAL_PROD_BASE = "https://daily-debate-brown.vercel.app";
+const CONFIGURED_PROD_BASE = (process.env.PROD_HEALTH_URL?.trim() || CANONICAL_PROD_BASE).replace(/\/+$/, "");
+const FALLBACK_PROD_BASE = (process.env.PROD_HEALTH_FALLBACK_URL?.trim() || CANONICAL_PROD_BASE).replace(/\/+$/, "");
+const PROD_BASES = [...new Set([CONFIGURED_PROD_BASE, FALLBACK_PROD_BASE])];
 
 function gh(path, token, init) {
   return fetch(`https://api.github.com${path}`, {
@@ -80,27 +84,30 @@ async function fetchRuns(token) {
  * either healthy or broken store state.
  */
 async function fetchProbe(nowIso) {
-  try {
-    const res = await fetch(`${PROD_BASE}/api/health`, {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(15_000),
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const state = await res.json();
-    if (!state || typeof state !== "object") return null;
-    // Local mirror of isUsableProbe's two hard checks (the TS module cannot
-    // be imported from a standalone .mjs without a TS runtime):
-    const maxAgeMs = 90 * 60_000; // probe must describe a report < 90 min old
-    if (state.databaseReachable === false && state.availability === "ready") return null;
-    const generated = Date.parse(String(state.generatedAt ?? ""));
-    const now = Date.parse(nowIso);
-    if (!Number.isFinite(generated) || !Number.isFinite(now)) return null;
-    if (now - generated > maxAgeMs) return null;
-    return state;
-  } catch {
-    return null;
+  for (const base of PROD_BASES) {
+    try {
+      const res = await fetch(`${base}/api/health`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(15_000),
+        cache: "no-store",
+      });
+      if (!res.ok) continue;
+      const state = await res.json();
+      if (!state || typeof state !== "object") continue;
+      // Local mirror of isUsableProbe's two hard checks (the TS module cannot
+      // be imported from a standalone .mjs without a TS runtime):
+      const maxAgeMs = 90 * 60_000; // probe must describe a report < 90 min old
+      if (state.databaseReachable === false && state.availability === "ready") continue;
+      const generated = Date.parse(String(state.generatedAt ?? ""));
+      const now = Date.parse(nowIso);
+      if (!Number.isFinite(generated) || !Number.isFinite(now)) continue;
+      if (now - generated > maxAgeMs) continue;
+      return { state, base };
+    } catch {
+      // Try the next independent production witness.
+    }
   }
+  return null;
 }
 
 /**
@@ -149,7 +156,9 @@ async function main() {
   const nowIso = new Date().toISOString();
 
   const runs = await fetchRuns(token);
-  const probe = await fetchProbe(nowIso);
+  const probeResult = await fetchProbe(nowIso);
+  const probe = probeResult?.state ?? null;
+  const probeBase = probeResult?.base ?? null;
 
   // Map probe evidence onto the decision input. A missing probe leaves
   // availability/proofs as null ("source unavailable" -> alertable warning)
@@ -214,8 +223,8 @@ async function main() {
     ...decision.facts.map((f) => `- ${f}`),
     "",
     probe
-      ? `_Availability and proofs via ${PROD_BASE}/api/health (report generated ${probe.generatedAt}); scheduler facts via GitHub run history._`
-      : `_Health probe (${PROD_BASE}/api/health) unavailable — availability and proofs could not be assessed. Scheduler facts via GitHub run history._`,
+      ? `_Availability and proofs via ${probeBase}/api/health (report generated ${probe.generatedAt}); scheduler facts via GitHub run history._`
+      : `_Health probes unavailable (${PROD_BASES.map((base) => `${base}/api/health`).join(", ")}) — availability and proofs could not be assessed. Scheduler facts via GitHub run history._`,
     "",
     "_This issue is managed by the daily ops-alert digest (`.github/workflows/ops-alert.yml`).",
     "It updates in place while alerting and auto-closes when the pipeline is provably healthy._",
