@@ -371,7 +371,6 @@ begin
 
   activity_date := (clock_timestamp() at time zone profile_timezone)::date;
   compact_performance := nullif(p_result_payload->>'performanceScore', '')::integer;
-  retest_reason := nullif(p_coaching->'repairRetest'->>'targetKind', '');
 
   next_streak := case
     when profile_last_activity = activity_date then profile_streak
@@ -388,6 +387,14 @@ begin
   where id = p_user_id;
 
   if p_has_retest then
+    select target_kind
+    into retest_reason
+    from repair_retests
+    where user_id = p_user_id
+      and assigned_debate_id = p_debate_id
+      and (p_repair_result_id is null or repair_result_id = p_repair_result_id)
+    limit 1;
+
     update repair_retests
     set completed_at = p_completed_at,
         observable = p_retest_observable,
