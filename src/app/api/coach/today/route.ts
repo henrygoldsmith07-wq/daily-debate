@@ -40,7 +40,17 @@ export async function GET(request: Request) {
   const ledger = context.ledger;
   const outcomes = context.drillOutcomes;
   const service = createServiceClient();
-  const { data: profile } = await service.from("profiles").select("timezone").eq("id", user.id).single();
+  const { data: profile, error: profileError } = await service
+    .from("profiles")
+    .select("timezone")
+    .eq("id", user.id)
+    .single();
+  if (profileError || !profile?.timezone) {
+    return NextResponse.json(
+      { error: "Your local training day is temporarily unavailable. Try again shortly." },
+      { status: 503 },
+    );
+  }
   const pendingRetest = context.selectedRetest;
 
   const { dims, slopes } = buildCoachProfile(ledger.points);
@@ -72,7 +82,7 @@ export async function GET(request: Request) {
     });
   }
 
-  const today = dateKeyInTimeZone(profile?.timezone ?? "UTC");
+  const today = dateKeyInTimeZone(profile.timezone);
   const drill = todaysDrill(focus.key, `${today}T12:00:00.000Z`);
 
   // Idempotent per (user, day), with one exception: an OPEN generic drill may
