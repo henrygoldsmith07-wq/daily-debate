@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import pg from "pg";
 import { HAS_BACKEND } from "./helpers";
 
 // ── Full-flow solo debate E2E ────────────────────────────────────────────────
@@ -266,18 +267,13 @@ test.describe("solo full-flow", () => {
     await expect(page.getByText(/\d+s remaining/)).toBeVisible({ timeout: 10_000 });
   });
 
-  test("concurrent Start requests converge on one canonical debate and one opening call", async ({ page, context }) => {
+  test("concurrent Start requests converge on one canonical debate", async ({ page, context }, testInfo) => {
     test.setTimeout(60_000);
-    let providerCalls = 0;
-    mockAIProviders(context, {
-      delayMs: 500,
-      onProviderCall: () => {
-        providerCalls += 1;
-      },
-    });
+    mockAIProviders(context);
 
+    const identity = testInfo.retry === 0 ? "e2e-l@test.local" : "e2e-m@test.local";
     await page.goto("/login");
-    await page.getByLabel(/email/i).fill("e2e-l@test.local");
+    await page.getByLabel(/email/i).fill(identity);
     await page.getByLabel(/password/i).fill("e2e-test-pass-123");
     await page.getByTestId("auth-submit").click();
     await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
@@ -304,18 +300,38 @@ test.describe("solo full-flow", () => {
     await expect(loser.locator('p[role="alert"]')).toContainText(/already starting in another tab/i, { timeout: 10_000 });
     const canonicalPath = new URL(winner.url()).pathname;
 
+    // Retrying after the winning request commits must replay the canonical
+    // debate, not create a second active debate.
     await loser.getByTestId("start-sprint").click();
     await loser.waitForURL(/\/debate\//, { timeout: 20_000 });
     expect(new URL(loser.url()).pathname).toBe(canonicalPath);
-    expect(providerCalls).toBe(1);
+
+    const dbUrl = process.env.E2E_DATABASE_URL;
+    expect(dbUrl).toBeTruthy();
+    const pool = new pg.Pool({ connectionString: dbUrl });
+    try {
+      const state = await pool.query<{ active_count: string; opening_count: string }>(
+        `SELECT
+           count(distinct d.id)::text AS active_count,
+           count(t.id)::text AS opening_count
+         FROM app_users u
+         JOIN solo_debates d ON d.user_id = u.id AND d.status = 'active'
+         LEFT JOIN solo_debate_turns t ON t.debate_id = d.id AND t.round_number = 1
+         WHERE u.email = $1`,
+        [identity],
+      );
+      expect(Number(state.rows[0].active_count)).toBe(1);
+      expect(Number(state.rows[0].opening_count)).toBe(1);
+    } finally {
+      await pool.end();
+    }
 
     await second.close();
   });
 
-  test("provider outage after an accepted response can finish with the saved response", async ({ page, context }) => {
+  test("an accepted response left staged by provider failure can finish without another opponent call", async ({ page, context }) => {
     test.setTimeout(120_000);
-    let failProviders = false;
-    mockAIProviders(context, { shouldFail: () => failProviders });
+    mockAIProviders(context);
 
     await page.goto("/login");
     await page.getByLabel(/email/i).fill("e2e-k@test.local");
@@ -326,8 +342,8 @@ test.describe("solo full-flow", () => {
     await page.getByTestId("start-full").click();
     await page.waitForURL(/\/debate\//, { timeout: 20_000 });
 
-    // Reach the full-debate minimum while providers are healthy. Answering
-    // round five creates the pending round-six opponent prompt.
+    // Reach the full-debate minimum while the deterministic server mock is
+    // healthy. Answering round five creates pending round six.
     for (let round = 1; round <= 5; round++) {
       const composer = page.getByLabel("Your debate response");
       await expect(composer).toBeVisible({ timeout: 30_000 });
@@ -338,14 +354,50 @@ test.describe("solo full-flow", () => {
       await expect(page.getByTestId("round-status")).toContainText(`Round ${round + 1}`, { timeout: 30_000 });
     }
 
-    failProviders = true;
-    const savedAnswer = page.getByLabel("Your debate response");
-    await savedAnswer.fill(
-      "Round six saved answer: this response should remain durable even though every opponent provider is now unavailable.",
-    );
-    await page.getByRole("button", { name: /^send$/i }).click();
+    // Playwright cannot intercept the Next.js server process's outbound
+    // provider traffic. Seed the exact durable state that the turn route leaves
+    // after provider failure: accepted/staged answer, no active submission
+    // lease, no next opponent turn.
+    const debateId = new URL(page.url()).pathname.split("/").pop();
+    expect(debateId).toBeTruthy();
+    const dbUrl = process.env.E2E_DATABASE_URL;
+    expect(dbUrl).toBeTruthy();
+    const pool = new pg.Pool({ connectionString: dbUrl });
+    try {
+      const pending = await pool.query<{ id: string }>(
+        `SELECT id
+         FROM solo_debate_turns
+         WHERE debate_id = $1
+           AND user_message IS NULL
+         ORDER BY round_number DESC
+         LIMIT 1`,
+        [debateId],
+      );
+      expect(pending.rows[0]?.id).toBeTruthy();
+      await pool.query(
+        `UPDATE solo_debate_turns
+         SET staged_user_message = $2,
+             staged_input_mode = 'text',
+             staged_scores = '{}'::jsonb,
+             staged_turn_score = 30,
+             staged_assessment = NULL,
+             staged_training_meta = '{"modeId":"text","elapsedSeconds":12,"modeWarnings":[],"speechTiming":null,"speechAnalysis":null,"speechQuality":null}'::jsonb,
+             staged_mode = 'text',
+             staged_submitted_at = clock_timestamp(),
+             submission_token = NULL,
+             submission_started_at = NULL
+         WHERE id = $1`,
+        [
+          pending.rows[0].id,
+          "Round six saved answer: this response remains durable after opponent generation fails.",
+        ],
+      );
+    } finally {
+      await pool.end();
+    }
 
-    await expect(page.locator('p[role="alert"]')).toContainText(/saved|resume/i, { timeout: 30_000 });
+    await page.reload();
+    await expect(page.getByText(/response is saved/i)).toBeVisible({ timeout: 20_000 });
     const finishSaved = page.getByRole("button", { name: /Finish with saved response/i });
     await expect(finishSaved).toBeVisible({ timeout: 10_000 });
     await finishSaved.click();
@@ -354,8 +406,8 @@ test.describe("solo full-flow", () => {
     await expect(page.getByText("Performance", { exact: true })).toBeVisible();
     const debateUrl = page.url();
 
-    // Reload proves completion/result replay did not depend on the provider
-    // recovering after the staged response was committed.
+    // Reload proves completion/result replay does not require opponent
+    // generation to recover after the accepted response was staged.
     await page.goto(debateUrl);
     await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(/Replay|Debate complete/i).first()).toBeVisible();
