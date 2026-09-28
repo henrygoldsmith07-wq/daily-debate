@@ -497,6 +497,20 @@ d("daily coach loop schema", () => {
     expect(retest.rows[0].observable).toBe(true);
     expect(retest.rows[0].demonstrated).toBe(true);
 
+    const events = await pool.query<{ name: string; reason: string | null }>(
+      `SELECT name, reason
+       FROM product_events
+       WHERE debate_id = $1
+         AND name IN ('debate_completed', 'retest_completed', 'retest_skill_demonstrated')
+       ORDER BY name`,
+      [assigned.rows[0].id],
+    );
+    expect(events.rows).toEqual([
+      { name: "debate_completed", reason: null },
+      { name: "retest_completed", reason: "rebuttal" },
+      { name: "retest_skill_demonstrated", reason: "rebuttal" },
+    ]);
+
     await pool.query("DELETE FROM solo_debates WHERE id = ANY($1::uuid[])", [
       [sourceDebate.rows[0].id, assigned.rows[0].id],
     ]);
