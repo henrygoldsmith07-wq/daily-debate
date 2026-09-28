@@ -16,7 +16,14 @@ test.describe("solo full-flow", () => {
 
   // Intercept AI provider calls so the debate engine gets deterministic
   // responses without spending tokens or needing API keys.
-  function mockAIProviders(context: import("@playwright/test").BrowserContext) {
+  function mockAIProviders(
+    context: import("@playwright/test").BrowserContext,
+    options?: {
+      shouldFail?: () => boolean;
+      delayMs?: number;
+      onProviderCall?: () => void;
+    },
+  ) {
     const aiResponse = {
       choices: [{
         message: {
@@ -50,9 +57,19 @@ test.describe("solo full-flow", () => {
       }],
     };
 
-    context.route("**/integrate.api.nvidia.com/**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(graphResponse) }));
-    context.route("**/openrouter.ai/api/v1/**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(aiResponse) }));
-    context.route("**/api.anthropic.com/**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(aiResponse) }));
+    const respond = async (route: import("@playwright/test").Route, body: unknown) => {
+      options?.onProviderCall?.();
+      if (options?.delayMs) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
+      if (options?.shouldFail?.()) {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "provider unavailable" }) });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    };
+
+    context.route("**/integrate.api.nvidia.com/**", (route) => respond(route, graphResponse));
+    context.route("**/openrouter.ai/api/v1/**", (route) => respond(route, aiResponse));
+    context.route("**/api.anthropic.com/**", (route) => respond(route, aiResponse));
   }
 
   test("signup → topic → debate → 5 rounds → finish → performance → history", async ({ page }) => {
@@ -247,6 +264,101 @@ test.describe("solo full-flow", () => {
     const restoredRapid = page.getByRole("button", { name: /Rapid \(60s\)/ });
     await expect(restoredRapid).toHaveAttribute("aria-pressed", "true", { timeout: 10_000 });
     await expect(page.getByText(/\d+s remaining/)).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("concurrent Start requests converge on one canonical debate and one opening call", async ({ page, context }) => {
+    test.setTimeout(60_000);
+    let providerCalls = 0;
+    mockAIProviders(context, {
+      delayMs: 500,
+      onProviderCall: () => {
+        providerCalls += 1;
+      },
+    });
+
+    await page.goto("/login");
+    await page.getByLabel(/email/i).fill("e2e-l@test.local");
+    await page.getByLabel(/password/i).fill("e2e-test-pass-123");
+    await page.getByTestId("auth-submit").click();
+    await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
+
+    const second = await context.newPage();
+    await second.goto("/");
+    await expect(page.getByTestId("start-sprint")).toBeVisible();
+    await expect(second.getByTestId("start-sprint")).toBeVisible();
+
+    await Promise.all([
+      page.getByTestId("start-sprint").click(),
+      second.getByTestId("start-sprint").click(),
+    ]);
+
+    await Promise.race([
+      page.waitForURL(/\/debate\//, { timeout: 20_000 }),
+      second.waitForURL(/\/debate\//, { timeout: 20_000 }),
+    ]);
+
+    const firstWon = /\/debate\//.test(new URL(page.url()).pathname);
+    const winner = firstWon ? page : second;
+    const loser = firstWon ? second : page;
+
+    await expect(loser.locator('p[role="alert"]')).toContainText(/already starting in another tab/i, { timeout: 10_000 });
+    const canonicalPath = new URL(winner.url()).pathname;
+
+    await loser.getByTestId("start-sprint").click();
+    await loser.waitForURL(/\/debate\//, { timeout: 20_000 });
+    expect(new URL(loser.url()).pathname).toBe(canonicalPath);
+    expect(providerCalls).toBe(1);
+
+    await second.close();
+  });
+
+  test("provider outage after an accepted response can finish with the saved response", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    let failProviders = false;
+    mockAIProviders(context, { shouldFail: () => failProviders });
+
+    await page.goto("/login");
+    await page.getByLabel(/email/i).fill("e2e-k@test.local");
+    await page.getByLabel(/password/i).fill("e2e-test-pass-123");
+    await page.getByTestId("auth-submit").click();
+    await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
+
+    await page.getByTestId("start-full").click();
+    await page.waitForURL(/\/debate\//, { timeout: 20_000 });
+
+    // Reach the full-debate minimum while providers are healthy. Answering
+    // round five creates the pending round-six opponent prompt.
+    for (let round = 1; round <= 5; round++) {
+      const composer = page.getByLabel("Your debate response");
+      await expect(composer).toBeVisible({ timeout: 30_000 });
+      await composer.fill(
+        `Round ${round}: This answer uses evidence, directly answers the clash, and compares the practical impacts before drawing a conclusion.`,
+      );
+      await page.getByRole("button", { name: /^send$/i }).click();
+      await expect(page.getByTestId("round-status")).toContainText(`Round ${round + 1}`, { timeout: 30_000 });
+    }
+
+    failProviders = true;
+    const savedAnswer = page.getByLabel("Your debate response");
+    await savedAnswer.fill(
+      "Round six saved answer: this response should remain durable even though every opponent provider is now unavailable.",
+    );
+    await page.getByRole("button", { name: /^send$/i }).click();
+
+    await expect(page.locator('p[role="alert"]')).toContainText(/saved|resume/i, { timeout: 30_000 });
+    const finishSaved = page.getByRole("button", { name: /Finish with saved response/i });
+    await expect(finishSaved).toBeVisible({ timeout: 10_000 });
+    await finishSaved.click();
+
+    await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Performance", { exact: true })).toBeVisible();
+    const debateUrl = page.url();
+
+    // Reload proves completion/result replay did not depend on the provider
+    // recovering after the staged response was committed.
+    await page.goto(debateUrl);
+    await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Replay|Debate complete/i).first()).toBeVisible();
   });
 
 });
