@@ -38,6 +38,7 @@ export async function POST(request: Request) {
     data: { user },
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = userId;
 
   const body = await request.json().catch(() => null);
   const topicId = typeof body?.topicId === "string" ? body.topicId : null;
@@ -61,7 +62,7 @@ export async function POST(request: Request) {
     const { data: existingDebate } = await db
       .from("solo_debates")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("topic_id", topicId)
       .eq("status", "active")
       .order("created_at", { ascending: false })
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
   // therefore cannot create duplicate active debates OR duplicate provider work.
   const startToken = randomUUID();
   const { data: claimData, error: claimError } = await db.rpc("claim_solo_debate_start", {
-    p_user_id: user.id,
+    p_user_id: userId,
     p_topic_id: topicId,
     p_token: startToken,
     p_stale_after_seconds: 300,
@@ -128,7 +129,7 @@ export async function POST(request: Request) {
 
   async function releaseStartClaim() {
     await db.rpc("release_solo_debate_start", {
-      p_user_id: user.id,
+      p_user_id: userId,
       p_topic_id: topicId,
       p_token: startToken,
     });
@@ -145,7 +146,7 @@ export async function POST(request: Request) {
       const { data: historyRows } = await db
         .from("solo_debates")
         .select("id, side, total_score, performance_score")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("status", "completed")
         .order("completed_at", { ascending: false })
         .limit(8);
@@ -192,7 +193,7 @@ export async function POST(request: Request) {
     let repairRetest:
       | { repairResultId: string; repairDebateId: string; targetKind: RepairKind; attemptedAt: string }
       | null = null;
-    const context = await loadCoachingContext(user.id, { currentTopicId: topicId });
+    const context = await loadCoachingContext(userId, { currentTopicId: topicId });
     degradationReasons.push(...context.degradationReasons);
     if (context.ledger) {
       const pendingRetest = context.selectedRetest;
@@ -245,7 +246,7 @@ export async function POST(request: Request) {
     // Debate + opening turn + optional repair retest + start analytics commit in
     // one database transaction. No partial durable start state is observable.
     const { data: completedData, error: completeError } = await db.rpc("complete_solo_debate_start", {
-      p_user_id: user.id,
+      p_user_id: userId,
       p_topic_id: topicId,
       p_token: startToken,
       p_side: side,
