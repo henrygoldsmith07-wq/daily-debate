@@ -21,7 +21,6 @@ import { mergeSoloAssessmentsByDebate } from "@/lib/soloAssessmentHistory";
 import { extractSkillPoint } from "@/lib/skillLedger";
 import { pointMeasuresDimension, repairKindToDimension } from "@/lib/repairRetest";
 import { buildTrainingSummary } from "@/lib/trainingSummary";
-import { normalizeIanaTimeZone } from "@/lib/timeZone";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   const ipLimited = await checkRateLimit(request, { name: "solo-finish-ip", limit: 60, windowMs: 60_000 });
@@ -47,16 +46,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const finishSavedResponse = body?.finishSavedResponse === true;
   const expectedTurnId = typeof body?.expectedTurnId === "string" ? body.expectedTurnId : "";
 
-  const [{ data: debate, error: debateError }, { data: profile }] = await Promise.all([
-    db
-      .from("solo_debates")
-      .select("*")
-      .eq("id", debateId)
-      .eq("user_id", user.id)
-      .single(),
-    db.from("profiles").select("timezone").eq("id", user.id).single(),
-  ]);
-  const timeZone = normalizeIanaTimeZone(profile?.timezone);
+  const { data: debate, error: debateError } = await db
+    .from("solo_debates")
+    .select("*")
+    .eq("id", debateId)
+    .eq("user_id", user.id)
+    .single();
   if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
 
   if (debate.status === "completed") {
@@ -103,7 +98,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
               : "The saved response could not be used to finish this debate. Refresh and try again.";
       return NextResponse.json({ error: message, code: stagedResult.reason ?? "saved_response_unavailable" }, { status: 409 });
     }
-    if (typeof stagedResult.completedTurn?.round_number === "number") {
+    if (
+      stagedResult.reason === "saved-for-finish" &&
+      typeof stagedResult.completedTurn?.round_number === "number"
+    ) {
       await recordProductEventForUser(user.id, "round_completed", {
         format,
         side: debate.side as "for" | "against",
@@ -176,13 +174,35 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const totalScore = answered.reduce((sum, turn) => sum + (turn.turn_score ?? 0), 0);
   const performanceScore = performanceScoreForTurns(answered.map((turn) => turn.turn_score));
 
-  async function refreshFinalizationLease() {
+  async function refreshFinalizationLease(): Promise<"refreshed" | "lost" | "error"> {
     const { data, error } = await db.rpc("refresh_solo_debate_finalization", {
       p_debate_id: debateId,
       p_user_id: userId,
       p_token: finalizationToken,
     });
-    return !error && data === true;
+    if (error) {
+      // A transient DB/network error does not prove ownership was lost. Release
+      // only our exact token so the user can retry immediately instead of
+      // waiting for the five-minute stale-lease timeout.
+      await releaseFinalizationClaim();
+      return "error";
+    }
+    return data === true ? "refreshed" : "lost";
+  }
+
+  async function requireFreshFinalizationLease() {
+    const state = await refreshFinalizationLease();
+    if (state === "refreshed") return null;
+    if (state === "error") {
+      return NextResponse.json(
+        { error: "Finalization could not refresh its database lease. Your debate is safe to retry." },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json(
+      { error: "Debate finalization was restarted elsewhere. Retry to load the saved result." },
+      { status: 409 },
+    );
   }
 
   const { data: topic } = await db.from("daily_topics").select("title").eq("id", debate.topic_id).single();
@@ -209,8 +229,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     };
   }
 
-  if (!(await refreshFinalizationLease())) {
-    return NextResponse.json({ error: "Debate finalization was restarted elsewhere. Retry to load the saved result." }, { status: 409 });
+  {
+    const leaseError = await requireFreshFinalizationLease();
+    if (leaseError) return leaseError;
   }
 
   const turnAssessments = answered
@@ -365,11 +386,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     trainingSummary,
   };
 
-  if (!(await refreshFinalizationLease())) {
-    return NextResponse.json({ error: "Debate finalization was restarted elsewhere. Retry to load the saved result." }, { status: 409 });
+  {
+    const leaseError = await requireFreshFinalizationLease();
+    if (leaseError) return leaseError;
   }
 
-  const { data: finalized, error: finalizeError } = await db.rpc("finalize_solo_debate_v2", {
+  const { data: finalized, error: finalizeError } = await db.rpc("finalize_solo_debate_v3", {
     p_debate_id: debateId,
     p_user_id: user.id,
     p_token: finalizationToken,
@@ -377,7 +399,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     p_bonus_xp: bonusXP,
     p_points_per_level: POINTS_PER_LEVEL,
     p_completed_at: completedAt,
-    p_timezone: timeZone,
     p_coaching: JSON.stringify(coachingUpdate),
     p_result_payload: JSON.stringify(resultPayload),
     p_has_retest: retestCompletion !== null,
