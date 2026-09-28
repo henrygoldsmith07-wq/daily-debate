@@ -4,6 +4,7 @@ import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
 import type { PvpVerdict } from "@/lib/types";
+import { normalizeIanaTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ export default async function HistoryPage() {
     db.from("profiles").select("timezone").eq("id", user.id).single(),
   ]);
 
-  const timeZone = profileRes.data?.timezone ?? "UTC";
+  const timeZone = normalizeIanaTimeZone(profileRes.data?.timezone);
   const soloDebates = soloRes.data ?? [];
   const pvpMatches = pvpRes.data ?? [];
   const topicIds = [...new Set([...soloDebates, ...pvpMatches].map((row) => row.topic_id))];
