@@ -9,6 +9,7 @@ export type ProfileRow = {
   longest_streak: number;
   last_activity_date: string | null;
   timezone: string;
+  timezone_initialized_at: string | null;
   created_at: string;
 };
 
