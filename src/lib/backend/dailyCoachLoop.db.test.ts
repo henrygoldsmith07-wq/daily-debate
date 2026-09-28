@@ -90,6 +90,10 @@ d("daily coach loop schema", () => {
     );
     expect(insert.rows[0].format).toBe("sprint");
     expect((insert.rows[0].coaching as { dimension?: string }).dimension).toBe("rebuttal");
+    await pool.query(
+      "UPDATE solo_debates SET status = 'completed', completed_at = now() WHERE id = $1",
+      [insert.rows[0].id],
+    );
 
     // Legacy rows keep the full default.
     const legacy = await pool.query<{ format: string }>(
@@ -97,6 +101,10 @@ d("daily coach loop schema", () => {
       [userId, topicId],
     );
     expect(legacy.rows[0].format).toBe("full");
+    await pool.query(
+      "UPDATE solo_debates SET status = 'completed', completed_at = now() WHERE user_id = $1 AND topic_id = $2 AND status = 'active'",
+      [userId, topicId],
+    );
 
     // Invalid formats are rejected by the check constraint.
     await expect(
@@ -277,6 +285,10 @@ d("daily coach loop schema", () => {
        VALUES ($1, $2, 'against', 'sprint') RETURNING id`,
       [userId, topicId],
     );
+    await pool.query(
+      "UPDATE solo_debates SET status = 'completed', completed_at = now() WHERE id = $1",
+      [firstAssigned.rows[0].id],
+    );
     const secondAssigned = await pool.query<{ id: string }>(
       `INSERT INTO solo_debates (user_id, topic_id, side, format)
        VALUES ($1, $2, 'for', 'sprint') RETURNING id`,
@@ -370,16 +382,15 @@ d("daily coach loop schema", () => {
     );
     expect(competingClaim.rows[0].claimed).toBe(false);
 
-    const today = new Date().toISOString().slice(0, 10);
     const completedAt = new Date().toISOString();
-    const payload = { totalScore: 40, bonusXP: 10, format: "sprint", summary: { overallFeedback: "ok", strengths: [], improvements: [] } };
+    const payload = { totalScore: 40, performanceScore: 80, bonusXP: 10, format: "sprint", summary: { overallFeedback: "ok", strengths: [], improvements: [] } };
     const finalized = await pool.query<{ finalized: boolean }>(
-      `SELECT finalize_solo_debate(
-        $1, $2, $3, 40, 10, 500, $4::date, $5::timestamptz,
+      `SELECT finalize_solo_debate_v3(
+        $1, $2, $3, 40, 10, 500, $4::timestamptz,
         '{"dimension":"rebuttal","demonstrated":true}'::jsonb,
-        $6::jsonb, false, null::uuid, false, null::boolean
+        $5::jsonb, false, null::uuid, false, null::boolean
       ) AS finalized`,
-      [debateId, userId, token, today, completedAt, JSON.stringify(payload)],
+      [debateId, userId, token, completedAt, JSON.stringify(payload)],
     );
     expect(finalized.rows[0].finalized).toBe(true);
 
@@ -406,11 +417,11 @@ d("daily coach loop schema", () => {
     expect(profile.rows[0].current_streak).toBe(1);
 
     const finalizeAgain = await pool.query<{ finalized: boolean }>(
-      `SELECT finalize_solo_debate(
-        $1, $2, $3, 40, 10, 500, $4::date, $5::timestamptz,
-        '{}'::jsonb, $6::jsonb, false, null::uuid, false, null::boolean
+      `SELECT finalize_solo_debate_v3(
+        $1, $2, $3, 40, 10, 500, $4::timestamptz,
+        '{}'::jsonb, $5::jsonb, false, null::uuid, false, null::boolean
       ) AS finalized`,
-      [debateId, userId, token, today, completedAt, JSON.stringify(payload)],
+      [debateId, userId, token, completedAt, JSON.stringify(payload)],
     );
     expect(finalizeAgain.rows[0].finalized).toBe(false);
     const profileAfterRetry = await pool.query<{ total_points: number }>(
@@ -468,14 +479,13 @@ d("daily coach loop schema", () => {
     );
     expect(claim.rows[0].claimed).toBe(true);
 
-    const today = new Date().toISOString().slice(0, 10);
     const completedAt = new Date().toISOString();
     const finalized = await pool.query<{ finalized: boolean }>(
-      `SELECT finalize_solo_debate(
-        $1, $2, $3, 10, 0, 500, $4::date, $5::timestamptz,
-        '{}'::jsonb, '{}'::jsonb, true, $6::uuid, true, true
+      `SELECT finalize_solo_debate_v3(
+        $1, $2, $3, 10, 0, 500, $4::timestamptz,
+        '{}'::jsonb, '{"performanceScore":20}'::jsonb, true, $5::uuid, true, true
       ) AS finalized`,
-      [assigned.rows[0].id, userId, token, today, completedAt, repair.rows[0].id],
+      [assigned.rows[0].id, userId, token, completedAt, repair.rows[0].id],
     );
     expect(finalized.rows[0].finalized).toBe(true);
 
