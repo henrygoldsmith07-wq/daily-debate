@@ -253,9 +253,9 @@ d("durable solo-turn submissions", () => {
     expect(finishClaim.rows[0].claimed).toBe(true);
 
     const finalized = await pool.query<{ finalized: boolean }>(
-      `SELECT finalize_solo_debate_v2(
+      `SELECT finalize_solo_debate_v3(
         $1, $2, $3::uuid, 25, 7, 500, clock_timestamp(),
-        'Pacific/Kiritimati', '{}'::jsonb, '{"performanceScore":50,"bonusXP":7}'::jsonb,
+        '{}'::jsonb, '{"performanceScore":50,"bonusXP":7}'::jsonb,
         false, NULL::uuid, false, NULL::boolean
       ) AS finalized`,
       [debateId, userId, finishToken],
