@@ -28,6 +28,7 @@ const users = [
   "e2e-j@test.local",
   "e2e-k@test.local",
   "e2e-l@test.local",
+  "e2e-m@test.local",
 ];
 
 async function passwordHash(value) {
