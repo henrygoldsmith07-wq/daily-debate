@@ -68,7 +68,7 @@ declare
   debate_format text;
   debate_side text;
   retest_reason text;
-  category_key text;
+  v_category_key text;
   exposure_rows integer := 0;
   final_bonus_xp integer := greatest(coalesce(p_bonus_xp, 0), 0);
   durable_result_payload jsonb;
@@ -116,10 +116,10 @@ begin
   -- The unique key serializes concurrent first exposures for the same user and
   -- normalized category. Because this runs inside finalization, a failed
   -- finalization cannot consume the novelty reward.
-  category_key := lower(btrim(coalesce(p_current_category, '')));
-  if category_key <> '' then
+  v_category_key := lower(btrim(coalesce(p_current_category, '')));
+  if v_category_key <> '' then
     insert into user_category_exposure (user_id, category_key, first_debate_id, first_seen_at)
-    values (p_user_id, category_key, p_debate_id, p_completed_at)
+    values (p_user_id, v_category_key, p_debate_id, p_completed_at)
     on conflict (user_id, category_key) do nothing;
     get diagnostics exposure_rows = row_count;
   end if;
