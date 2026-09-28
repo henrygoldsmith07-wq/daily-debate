@@ -192,7 +192,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     );
   }
 
-  const { data: topic } = await db.from("daily_topics").select("title").eq("id", debate.topic_id).single();
+  const { data: topic } = await db.from("daily_topics").select("title, category").eq("id", debate.topic_id).single();
 
   const transcript = answered
     .map((turn) => `AI: ${turn.ai_message}\nUser: ${turn.user_message}`)
@@ -276,20 +276,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       .filter((x): x is { completedAt: string; kinds: Record<string, number> } => x !== null)
       .reverse(); // chronological: oldest → newest
   }
-  const { data: topicCategory } = await db
-    .from("daily_topics").select("category").eq("id", debate.topic_id).single();
-  const { data: pastDebates } = await db
-    .from("solo_debates")
-    .select("topic_id")
-    .eq("user_id", user.id).eq("status", "completed").neq("id", debateId);
-  const priorTopicIds = [...new Set((pastDebates ?? []).map((row) => row.topic_id))];
-  const { data: pastTopics } = priorTopicIds.length
-    ? await db.from("daily_topics").select("category").in("id", priorTopicIds)
-    : { data: [] };
-  const previouslyDebatedCategories = (pastTopics ?? []).map((topic) => topic.category ?? "").filter(Boolean);
-  const currentCategory = topicCategory?.category ?? "";
+  const currentCategory = topic?.category ?? "";
   const rewardEvents = finalAssessment
-    ? computeCoachRewards({ assessment: finalAssessment, priorAssessments, previouslyDebatedCategories, currentCategory })
+    ? computeCoachRewards({
+        assessment: finalAssessment,
+        priorAssessments,
+        previouslyDebatedCategories: [],
+        currentCategory,
+        // Novelty is resolved atomically by finalize_solo_debate_v4 so a
+        // history scan or concurrent Finish cannot double-award this bonus.
+        includeUnfamiliarTopic: false,
+      })
     : [];
   const bonusXP = totalBonusXP(rewardEvents);
 
@@ -378,7 +375,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     if (leaseError) return leaseError;
   }
 
-  const { data: finalized, error: finalizeError } = await db.rpc("finalize_solo_debate_v3", {
+  const { data: finalized, error: finalizeError } = await db.rpc("finalize_solo_debate_v4", {
     p_debate_id: debateId,
     p_user_id: user.id,
     p_token: finalizationToken,
@@ -392,6 +389,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     p_repair_result_id: retestCompletion?.repairResultId ?? null,
     p_retest_observable: retestCompletion?.observable ?? false,
     p_retest_demonstrated: retestCompletion?.demonstrated ?? null,
+    p_current_category: currentCategory,
   });
   if (finalizeError || !finalized) {
     console.error("Failed durable debate finalization:", finalizeError);
@@ -403,5 +401,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Failed to finish debate. Your debate is still available to retry." }, { status: 500 });
   }
 
-  return NextResponse.json(resultPayload);
+  // v4 may atomically add the unfamiliar-topic reward. Return the persisted
+  // payload rather than the pre-transaction draft so the first response and
+  // every replay expose exactly the same XP/reward state.
+  const { data: durableDebate, error: durableResultError } = await db
+    .from("solo_debates")
+    .select("result_payload")
+    .eq("id", debateId)
+    .eq("user_id", user.id)
+    .single();
+  if (durableResultError || !durableDebate?.result_payload || typeof durableDebate.result_payload !== "object") {
+    console.error("Debate finalized but durable result reload failed:", durableResultError);
+    return NextResponse.json(
+      { error: "Debate finished, but the result could not be reloaded. Refresh to view it." },
+      { status: 503 },
+    );
+  }
+
+  return NextResponse.json(durableDebate.result_payload as PersistedSoloResult);
 }

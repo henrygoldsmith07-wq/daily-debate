@@ -348,6 +348,75 @@ d("durable solo-turn submissions", () => {
     await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
   });
 
+  it("awards unfamiliar-topic XP atomically once per normalized category", async () => {
+    await pool.query("DELETE FROM user_category_exposure WHERE user_id = $1", [userId]);
+    await pool.query("UPDATE daily_topics SET category = ' Science ' WHERE id = $1", [topicId]);
+
+    async function finalizeInCategory(category: string) {
+      const { debateId, turnId } = await createDebate();
+      await pool.query(
+        "UPDATE solo_debate_turns SET user_message = 'Completed answer', turn_score = 25 WHERE id = $1",
+        [turnId],
+      );
+      const token = crypto.randomUUID();
+      const claim = await pool.query<{ claimed: boolean }>(
+        "SELECT claim_solo_debate_finalization($1, $2, $3::uuid, 300) AS claimed",
+        [debateId, userId, token],
+      );
+      expect(claim.rows[0].claimed).toBe(true);
+
+      const finalized = await pool.query<{ finalized: boolean }>(
+        `SELECT finalize_solo_debate_v4(
+          $1, $2, $3::uuid, 25, 7, 500, clock_timestamp(),
+          '{}'::jsonb,
+          '{"performanceScore":50,"bonusXP":7,"rewardEvents":[]}'::jsonb,
+          false, NULL::uuid, false, NULL::boolean, $4
+        ) AS finalized`,
+        [debateId, userId, token, category],
+      );
+      expect(finalized.rows[0].finalized).toBe(true);
+
+      const stored = await pool.query<{
+        bonus_xp: number;
+        result_payload: { bonusXP: number; rewardEvents: Array<{ kind: string; xp: number }> };
+      }>(
+        "SELECT bonus_xp, result_payload FROM solo_debates WHERE id = $1",
+        [debateId],
+      );
+      return { debateId, stored: stored.rows[0] };
+    }
+
+    const first = await finalizeInCategory(" Science ");
+    expect(first.stored.bonus_xp).toBe(17);
+    expect(first.stored.result_payload.bonusXP).toBe(17);
+    expect(first.stored.result_payload.rewardEvents).toContainEqual(
+      expect.objectContaining({ kind: "unfamiliar-topic", xp: 10 }),
+    );
+
+    const second = await finalizeInCategory("science");
+    expect(second.stored.bonus_xp).toBe(7);
+    expect(second.stored.result_payload.bonusXP).toBe(7);
+    expect(second.stored.result_payload.rewardEvents).not.toContainEqual(
+      expect.objectContaining({ kind: "unfamiliar-topic" }),
+    );
+
+    const exposure = await pool.query<{ category_key: string; count: string }>(
+      `SELECT min(category_key) AS category_key, count(*)::text AS count
+       FROM user_category_exposure
+       WHERE user_id = $1`,
+      [userId],
+    );
+    expect(exposure.rows[0]).toEqual({ category_key: "science", count: "1" });
+
+    await pool.query("DELETE FROM solo_debates WHERE id = ANY($1::uuid[])", [[first.debateId, second.debateId]]);
+    await pool.query("DELETE FROM user_category_exposure WHERE user_id = $1", [userId]);
+    await pool.query("UPDATE daily_topics SET category = NULL WHERE id = $1", [topicId]);
+    await pool.query(
+      "UPDATE profiles SET total_points = 0, level = 1, current_streak = 0, longest_streak = 0, last_activity_date = NULL WHERE id = $1",
+      [userId],
+    );
+  });
+
   it("recovers a stale finalization lease before accepting new turn work", async () => {
     const { debateId, turnId } = await createDebate();
     const finishToken = crypto.randomUUID();

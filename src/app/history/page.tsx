@@ -8,6 +8,8 @@ import { normalizeIanaTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
 
+const HISTORY_LIMIT = 50;
+
 function formatDate(iso: string | null, timeZone: string): string {
   if (!iso) return "—";
   return new Intl.DateTimeFormat("en-GB", {
@@ -41,13 +43,13 @@ export default async function HistoryPage() {
       .select("id, status, side, round_count, total_score, performance_score, bonus_xp, created_at, completed_at, topic_id")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
-      .limit(50),
+      .limit(HISTORY_LIMIT),
     db
       .from("pvp_matches")
       .select("id, status, player_a, player_b, winner_id, judge_verdict, completed_at, topic_id")
       .or(`player_a.eq.${user.id},player_b.eq.${user.id}`)
       .order("created_at", { ascending: false })
-      .limit(50),
+      .limit(HISTORY_LIMIT),
     db.from("profiles").select("timezone").eq("id", user.id).single(),
   ]);
 
@@ -66,11 +68,11 @@ export default async function HistoryPage() {
       <PageHeader
         eyebrow="Your record"
         title="Your debates"
-        description="Every rep you have finished or left open, newest first."
+        description={`Latest debates, newest first. Up to ${HISTORY_LIMIT} solo and ${HISTORY_LIMIT} PvP records are shown.`}
         actions={
           <>
-            <span className="pill tabular">{soloDebates.length} solo</span>
-            <span className="pill tabular">{pvpMatches.length} PvP</span>
+            <span className="pill tabular">{soloDebates.length} solo shown</span>
+            <span className="pill tabular">{pvpMatches.length} PvP shown</span>
           </>
         }
       />

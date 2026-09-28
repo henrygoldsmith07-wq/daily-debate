@@ -78,6 +78,11 @@ export interface RewardContext {
   previouslyDebatedCategories: string[];
   /** Category of the current topic */
   currentCategory: string;
+  /**
+   * Defaults to true for pure callers/tests. Durable solo finalization sets
+   * this false because PostgreSQL owns the concurrency-safe novelty decision.
+   */
+  includeUnfamiliarTopic?: boolean;
 }
 
 // --- side-scoping ---------------------------------------------------------------
@@ -334,7 +339,7 @@ export function computeCoachRewards(ctx: RewardContext): RewardEvent[] {
   }
 
   // 5. Unfamiliar topic category
-  if (isUnfamiliarCategory(ctx.currentCategory, ctx.previouslyDebatedCategories)) {
+  if (ctx.includeUnfamiliarTopic !== false && isUnfamiliarCategory(ctx.currentCategory, ctx.previouslyDebatedCategories)) {
     add("unfamiliar-topic");
   }
 
