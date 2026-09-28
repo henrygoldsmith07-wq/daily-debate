@@ -55,10 +55,18 @@ export async function signIn(_prevState: AuthState, formData: FormData): Promise
   // Existing accounts created before timezone capture initialize it once.
   // A non-UTC stored preference is never overwritten implicitly on sign-in.
   const timeZone = normalizeIanaTimeZone(formData.get("timeZone"));
-  if (data.user && timeZone !== "UTC") {
-    const { data: profile } = await db.from("profiles").select("timezone").eq("id", data.user.id).single();
-    if (profile?.timezone === "UTC") {
-      await db.from("profiles").update({ timezone: timeZone }).eq("id", data.user.id).eq("timezone", "UTC");
+  if (data.user) {
+    const { data: profile } = await db
+      .from("profiles")
+      .select("timezone, timezone_initialized_at")
+      .eq("id", data.user.id)
+      .single();
+    if (profile && !profile.timezone_initialized_at) {
+      await db
+        .from("profiles")
+        .update({ timezone: timeZone, timezone_initialized_at: new Date().toISOString() })
+        .eq("id", data.user.id)
+        .is("timezone_initialized_at", null);
     }
   }
 

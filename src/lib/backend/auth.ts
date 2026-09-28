@@ -151,8 +151,8 @@ export class AuthApi {
            INSERT INTO app_users (email, password_hash) VALUES ($1, $2)
            RETURNING id, email
          ), new_profile AS (
-           INSERT INTO profiles (id, username, timezone)
-           SELECT id, $3, $4 FROM new_user
+           INSERT INTO profiles (id, username, timezone, timezone_initialized_at)
+           SELECT id, $3, $4, now() FROM new_user
          )
          SELECT id, email FROM new_user`,
         [email, hash, displayName, timeZone],

@@ -23,8 +23,10 @@ export class BackendClient {
       | "increment_total_points"
       | "claim_solo_debate_finalization"
       | "release_solo_debate_finalization"
-      | "finalize_solo_debate"
-      | "finalize_solo_debate_v2"
+      | "finalize_solo_debate_v3"
+      | "claim_solo_debate_start"
+      | "release_solo_debate_start"
+      | "complete_solo_debate_start"
       | "start_solo_turn_window"
       | "claim_solo_turn_submission"
       | "commit_staged_solo_turn_for_finish"
@@ -61,11 +63,11 @@ export class BackendClient {
         );
         return { data: rows[0]?.released === true, error: null };
       }
-      if (name === "finalize_solo_debate") {
+      if (name === "finalize_solo_debate_v3") {
         const rows = await queryRows<{ finalized: boolean }>(
-          `SELECT finalize_solo_debate(
-            $1, $2, $3, $4, $5, $6, $7::date, $8::timestamptz, $9::jsonb, $10::jsonb,
-            $11::boolean, $12::uuid, $13::boolean, $14::boolean
+          `SELECT finalize_solo_debate_v3(
+            $1, $2, $3, $4, $5, $6, $7::timestamptz, $8::jsonb, $9::jsonb,
+            $10::boolean, $11::uuid, $12::boolean, $13::boolean
           ) AS finalized`,
           [
             args.p_debate_id,
@@ -74,7 +76,6 @@ export class BackendClient {
             args.p_total_score,
             args.p_bonus_xp,
             args.p_points_per_level,
-            args.p_activity_date,
             args.p_completed_at,
             args.p_coaching,
             args.p_result_payload,
@@ -86,30 +87,40 @@ export class BackendClient {
         );
         return { data: rows[0]?.finalized === true, error: null };
       }
-      if (name === "finalize_solo_debate_v2") {
-        const rows = await queryRows<{ finalized: boolean }>(
-          `SELECT finalize_solo_debate_v2(
-            $1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9::jsonb, $10::jsonb,
-            $11::boolean, $12::uuid, $13::boolean, $14::boolean
-          ) AS finalized`,
+      if (name === "claim_solo_debate_start") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          "SELECT claim_solo_debate_start($1, $2, $3::uuid, $4) AS result",
+          [args.p_user_id, args.p_topic_id, args.p_token, args.p_stale_after_seconds],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "release_solo_debate_start") {
+        const rows = await queryRows<{ released: boolean }>(
+          "SELECT release_solo_debate_start($1, $2, $3::uuid) AS released",
+          [args.p_user_id, args.p_topic_id, args.p_token],
+        );
+        return { data: rows[0]?.released === true, error: null };
+      }
+      if (name === "complete_solo_debate_start") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          `SELECT complete_solo_debate_start(
+            $1, $2, $3::uuid, $4, $5, $6::jsonb, $7, $8, $9::uuid, $10::uuid, $11
+          ) AS result`,
           [
-            args.p_debate_id,
             args.p_user_id,
+            args.p_topic_id,
             args.p_token,
-            args.p_total_score,
-            args.p_bonus_xp,
-            args.p_points_per_level,
-            args.p_completed_at,
-            args.p_timezone,
+            args.p_side,
+            args.p_format,
             args.p_coaching,
-            args.p_result_payload,
-            args.p_has_retest,
+            args.p_ai_message,
+            args.p_side_rule,
             args.p_repair_result_id,
-            args.p_retest_observable,
-            args.p_retest_demonstrated,
+            args.p_repair_debate_id,
+            args.p_target_kind,
           ],
         );
-        return { data: rows[0]?.finalized === true, error: null };
+        return { data: rows[0]?.result ?? null, error: null };
       }
       if (name === "start_solo_turn_window") {
         const rows = await queryRows<{ result: Record<string, unknown> | null }>(

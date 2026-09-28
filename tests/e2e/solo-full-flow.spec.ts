@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import pg from "pg";
 import { HAS_BACKEND } from "./helpers";
 
 // ── Full-flow solo debate E2E ────────────────────────────────────────────────
@@ -16,7 +17,14 @@ test.describe("solo full-flow", () => {
 
   // Intercept AI provider calls so the debate engine gets deterministic
   // responses without spending tokens or needing API keys.
-  function mockAIProviders(context: import("@playwright/test").BrowserContext) {
+  function mockAIProviders(
+    context: import("@playwright/test").BrowserContext,
+    options?: {
+      shouldFail?: () => boolean;
+      delayMs?: number;
+      onProviderCall?: () => void;
+    },
+  ) {
     const aiResponse = {
       choices: [{
         message: {
@@ -50,9 +58,19 @@ test.describe("solo full-flow", () => {
       }],
     };
 
-    context.route("**/integrate.api.nvidia.com/**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(graphResponse) }));
-    context.route("**/openrouter.ai/api/v1/**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(aiResponse) }));
-    context.route("**/api.anthropic.com/**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(aiResponse) }));
+    const respond = async (route: import("@playwright/test").Route, body: unknown) => {
+      options?.onProviderCall?.();
+      if (options?.delayMs) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
+      if (options?.shouldFail?.()) {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "provider unavailable" }) });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    };
+
+    context.route("**/integrate.api.nvidia.com/**", (route) => respond(route, graphResponse));
+    context.route("**/openrouter.ai/api/v1/**", (route) => respond(route, aiResponse));
+    context.route("**/api.anthropic.com/**", (route) => respond(route, aiResponse));
   }
 
   test("signup → topic → debate → 5 rounds → finish → performance → history", async ({ page }) => {
@@ -247,6 +265,163 @@ test.describe("solo full-flow", () => {
     const restoredRapid = page.getByRole("button", { name: /Rapid \(60s\)/ });
     await expect(restoredRapid).toHaveAttribute("aria-pressed", "true", { timeout: 10_000 });
     await expect(page.getByText(/\d+s remaining/)).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("concurrent Start requests converge on one canonical debate", async ({ page, context }, testInfo) => {
+    test.setTimeout(60_000);
+    mockAIProviders(context);
+
+    const identity = testInfo.retry === 0 ? "e2e-l@test.local" : "e2e-m@test.local";
+    await page.goto("/login");
+    await page.getByLabel(/email/i).fill(identity);
+    await page.getByLabel(/password/i).fill("e2e-test-pass-123");
+    await page.getByTestId("auth-submit").click();
+    await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
+
+    const second = await context.newPage();
+    await second.goto("/");
+    await expect(page.getByTestId("start-sprint")).toBeVisible();
+    await expect(second.getByTestId("start-sprint")).toBeVisible();
+
+    await Promise.all([
+      page.getByTestId("start-sprint").click(),
+      second.getByTestId("start-sprint").click(),
+    ]);
+
+    await Promise.race([
+      page.waitForURL(/\/debate\//, { timeout: 20_000 }),
+      second.waitForURL(/\/debate\//, { timeout: 20_000 }),
+    ]);
+
+    const pageStarted = /\/debate\//.test(new URL(page.url()).pathname);
+    const secondStarted = /\/debate\//.test(new URL(second.url()).pathname);
+    const winner = pageStarted ? page : second;
+    const loser = pageStarted ? second : page;
+    const canonicalPath = new URL(winner.url()).pathname;
+
+    // Both race outcomes are correct:
+    // 1. the loser gets the short-lived start-in-progress response and stays
+    //    on Today, then a retry returns the canonical committed debate; or
+    // 2. the winner commits before the loser's route checks existing state,
+    //    so both tabs navigate immediately. Do not couple the invariant to the
+    //    transient alert paint timing.
+    if (!(pageStarted && secondStarted)) {
+      await expect(loser.getByTestId("start-sprint")).toBeVisible({ timeout: 10_000 });
+      await loser.getByTestId("start-sprint").click();
+      await loser.waitForURL(/\/debate\//, { timeout: 20_000 });
+    } else {
+      await page.waitForURL(/\/debate\//, { timeout: 20_000 });
+      await second.waitForURL(/\/debate\//, { timeout: 20_000 });
+    }
+
+    expect(new URL(page.url()).pathname).toBe(canonicalPath);
+    expect(new URL(second.url()).pathname).toBe(canonicalPath);
+
+    const dbUrl = process.env.E2E_DATABASE_URL;
+    expect(dbUrl).toBeTruthy();
+    const pool = new pg.Pool({ connectionString: dbUrl });
+    try {
+      const state = await pool.query<{ active_count: string; opening_count: string }>(
+        `SELECT
+           count(distinct d.id)::text AS active_count,
+           count(t.id)::text AS opening_count
+         FROM app_users u
+         JOIN solo_debates d ON d.user_id = u.id AND d.status = 'active'
+         LEFT JOIN solo_debate_turns t ON t.debate_id = d.id AND t.round_number = 1
+         WHERE u.email = $1`,
+        [identity],
+      );
+      expect(Number(state.rows[0].active_count)).toBe(1);
+      expect(Number(state.rows[0].opening_count)).toBe(1);
+    } finally {
+      await pool.end();
+    }
+
+    await second.close();
+  });
+
+  test("an accepted response left staged by provider failure can finish without another opponent call", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    mockAIProviders(context);
+
+    await page.goto("/login");
+    await page.getByLabel(/email/i).fill("e2e-k@test.local");
+    await page.getByLabel(/password/i).fill("e2e-test-pass-123");
+    await page.getByTestId("auth-submit").click();
+    await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
+
+    await page.getByTestId("start-full").click();
+    await page.waitForURL(/\/debate\//, { timeout: 20_000 });
+
+    // Reach the full-debate minimum while the deterministic server mock is
+    // healthy. Answering round five creates pending round six.
+    for (let round = 1; round <= 5; round++) {
+      const composer = page.getByLabel("Your debate response");
+      await expect(composer).toBeVisible({ timeout: 30_000 });
+      await composer.fill(
+        `Round ${round}: This answer uses evidence, directly answers the clash, and compares the practical impacts before drawing a conclusion.`,
+      );
+      await page.getByRole("button", { name: /^send$/i }).click();
+      await expect(page.getByTestId("round-status")).toContainText(`Round ${round + 1}`, { timeout: 30_000 });
+    }
+
+    // Playwright cannot intercept the Next.js server process's outbound
+    // provider traffic. Seed the exact durable state that the turn route leaves
+    // after provider failure: accepted/staged answer, no active submission
+    // lease, no next opponent turn.
+    const debateId = new URL(page.url()).pathname.split("/").pop();
+    expect(debateId).toBeTruthy();
+    const dbUrl = process.env.E2E_DATABASE_URL;
+    expect(dbUrl).toBeTruthy();
+    const pool = new pg.Pool({ connectionString: dbUrl });
+    try {
+      const pending = await pool.query<{ id: string }>(
+        `SELECT id
+         FROM solo_debate_turns
+         WHERE debate_id = $1
+           AND user_message IS NULL
+         ORDER BY round_number DESC
+         LIMIT 1`,
+        [debateId],
+      );
+      expect(pending.rows[0]?.id).toBeTruthy();
+      await pool.query(
+        `UPDATE solo_debate_turns
+         SET staged_user_message = $2,
+             staged_input_mode = 'text',
+             staged_scores = '{}'::jsonb,
+             staged_turn_score = 30,
+             staged_assessment = NULL,
+             staged_training_meta = '{"modeId":"text","elapsedSeconds":12,"modeWarnings":[],"speechTiming":null,"speechAnalysis":null,"speechQuality":null}'::jsonb,
+             staged_mode = 'text',
+             staged_submitted_at = clock_timestamp(),
+             submission_token = NULL,
+             submission_started_at = NULL
+         WHERE id = $1`,
+        [
+          pending.rows[0].id,
+          "Round six saved answer: this response remains durable after opponent generation fails.",
+        ],
+      );
+    } finally {
+      await pool.end();
+    }
+
+    await page.reload();
+    await expect(page.getByText(/response is saved/i)).toBeVisible({ timeout: 20_000 });
+    const finishSaved = page.getByRole("button", { name: /Finish with saved response/i });
+    await expect(finishSaved).toBeVisible({ timeout: 10_000 });
+    await finishSaved.click();
+
+    await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Performance", { exact: true })).toBeVisible();
+    const debateUrl = page.url();
+
+    // Reload proves completion/result replay does not require opponent
+    // generation to recover after the accepted response was staged.
+    await page.goto(debateUrl);
+    await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Replay|Debate complete/i).first()).toBeVisible();
   });
 
 });

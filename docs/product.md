@@ -198,9 +198,11 @@ The database also enforces **one active PvP match per player across both roles**
 
 ## Recovery guarantees
 
+- Starting a debate is claim-first: only one request per user/topic may call the opening model, and durable state appears only when the debate row, opening turn, optional repair retest and start analytics can commit together.
+- A lost Start response is idempotent: retrying returns the canonical active debate rather than creating another session.
 - Accepted responses are durable before opponent generation begins.
 - If opponent generation fails after an accepted response, the user can retry generation without re-entering the answer.
 - Once the accepted saved response reaches the minimum debate length, **Finish with saved response** commits that exact response as the final answered round and completes the debate without requiring another AI opponent call.
 - A crashed Finish request cannot permanently lock the debate: stale finalization leases are recoverable by normal turn/timer activity and scheduled maintenance.
 - Rapid Rebuttal and Prepared Speech keep their original server-issued timer across reloads.
-- Per-user streaks and daily drills share the stored profile timezone; the global Daily Topic remains one UTC-keyed motion for everyone.
+- Per-user streaks and daily drills share the stored profile timezone; finalization reads that timezone inside the same database transaction as the streak update. The global Daily Topic remains one UTC-keyed motion for everyone.
