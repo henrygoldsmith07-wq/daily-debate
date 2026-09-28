@@ -8,6 +8,7 @@ export type ProfileSummary = {
   level: number;
   current_streak: number;
   timezone: string;
+  timezone_initialized_at: string | null;
 };
 
 /** Request-scoped viewer lookup shared by pages and AppShell. */
@@ -24,7 +25,7 @@ export const getProfileSummary = cache(async (userId: string): Promise<ProfileSu
   const db = await createClient();
   const { data } = await db
     .from("profiles")
-    .select("total_points, level, current_streak, timezone")
+    .select("total_points, level, current_streak, timezone, timezone_initialized_at")
     .eq("id", userId)
     .single();
   return data;
