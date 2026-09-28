@@ -5,10 +5,9 @@ import type { CoachDimension } from "@/lib/adaptiveCoach";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getCurrentUser } from "@/lib/currentViewer";
 
-// Drill-outcome ledger: fills in `movement` for attempted assignments once
-// subsequent debates exist, and reports which dimensions are actually
-// improving under training. The recommendation engine reads this to stop
-// suggesting drills that don't work for this user.
+// Read-only drill-outcome report. Movement is derived from later debates on
+// demand; GET never writes the derived value back into coaching history. The
+// recommendation engine consumes the same calculation through coaching context.
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -47,8 +46,6 @@ export async function GET() {
     const dim = a.dimension as CoachDimension;
     const m = movementAround(ledgerPack.points, dim, a.created_at);
     if (m && m.delta !== null) {
-      // Persist so the recommendation engine can exclude non-producers.
-      await service.from("drill_assignments").update({ movement: m.delta }).eq("id", a.id);
       measured += 1;
       if (m.delta > 0) improved += 1;
     }

@@ -36,7 +36,7 @@ Honest labels for what is shipped, provisional, or gated:
 - PvP with atomic matchmaking, turn clocks, forfeits, judged verdicts with ensemble + fingerprints. Competitive trust claims stay conservative; the judge-validation gate is intact.
 - Async friend challenges: shareable `/challenge/<code>` link, persistent match state, expiry, turn state. (Foundation; UI marked experimental.)
 - Guest practice without an account: deterministic local checks react to the actual response (claim, reasoning, opponent engagement, impact comparison, named evidence), identify one observable weakness, and offer a mini repair. Guest mode deliberately shows no numeric ability score.
-- Product analytics: allowlisted, bounded, no-free-text funnel events (`src/lib/productEvents.ts`), with an internal admin report at `/analytics` covering the training funnel and observational repair-effectiveness measurement.
+- Product analytics: allowlisted, bounded, no-free-text funnel events (`src/lib/productEvents.ts`), with transactional/idempotent solo round, completion and retest events plus an internal admin report at `/analytics` covering the training funnel and observational repair-effectiveness measurement.
 - Expired sessions, password-reset tokens, rate-limit buckets, stale solo start/finalization/submission leases, legacy zero-turn solo orphans, and stale challenge invites are swept daily by the unattended `backend-cleanup` workflow; `npm run db:cleanup` runs the same maintenance function manually. Database maintenance and manual migrations share one concurrency group so they cannot overlap.
 
 **Provisional (measured, not validated)**

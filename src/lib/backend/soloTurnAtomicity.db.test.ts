@@ -144,6 +144,12 @@ d("durable solo-turn submissions", () => {
     expect(finalized.rows[0].result.completedTurn.user_message).toBe("My accepted answer");
     expect(finalized.rows[0].result.nextTurn.round_number).toBe(2);
 
+    const roundEvent = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM product_events WHERE debate_id = $1 AND name = 'round_completed' AND round = 1",
+      [debateId],
+    );
+    expect(roundEvent.rows[0].count).toBe("1");
+
     const state = await pool.query<{
       round_count: number;
       user_message: string | null;
@@ -230,6 +236,44 @@ d("durable solo-turn submissions", () => {
     await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
   });
 
+  it("serializes timed-window mutation before finalization can claim the debate", async () => {
+    const { debateId, turnId } = await createDebate();
+    const timerClient = await pool.connect();
+    const finishClient = await pool.connect();
+    const finishToken = crypto.randomUUID();
+
+    try {
+      await timerClient.query("BEGIN");
+      const timer = await timerClient.query<{ result: { modeId: string } | null }>(
+        "SELECT start_solo_turn_window($1, $2, $3, 'rapid-rebuttal', 60) AS result",
+        [debateId, userId, turnId],
+      );
+      expect(timer.rows[0].result?.modeId).toBe("rapid-rebuttal");
+
+      await finishClient.query("SET lock_timeout = '100ms'");
+      await expect(
+        finishClient.query(
+          "SELECT claim_solo_debate_finalization($1, $2, $3::uuid, 300) AS claimed",
+          [debateId, userId, finishToken],
+        ),
+      ).rejects.toMatchObject({ code: "55P03" });
+
+      await timerClient.query("COMMIT");
+      await finishClient.query("SET lock_timeout = '0'");
+
+      const finish = await finishClient.query<{ claimed: boolean }>(
+        "SELECT claim_solo_debate_finalization($1, $2, $3::uuid, 300) AS claimed",
+        [debateId, userId, finishToken],
+      );
+      expect(finish.rows[0].claimed).toBe(true);
+    } finally {
+      await timerClient.query("ROLLBACK").catch(() => undefined);
+      timerClient.release();
+      finishClient.release();
+      await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
+    }
+  });
+
   it("uses the stored IANA timezone for streaks and persists compact result metadata without overwriting it", async () => {
     const { debateId, turnId } = await createDebate();
     await pool.query(
@@ -274,6 +318,28 @@ d("durable solo-turn submissions", () => {
       [debateId],
     );
     expect(compact.rows[0]).toEqual({ performance_score: 50, bonus_xp: 7 });
+
+    const completionEvent = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM product_events WHERE debate_id = $1 AND name = 'debate_completed'",
+      [debateId],
+    );
+    expect(completionEvent.rows[0].count).toBe("1");
+
+    const replayedFinalize = await pool.query<{ finalized: boolean }>(
+      `SELECT finalize_solo_debate_v3(
+        $1, $2, $3::uuid, 25, 7, 500, clock_timestamp(),
+        '{}'::jsonb, '{"performanceScore":50,"bonusXP":7}'::jsonb,
+        false, NULL::uuid, false, NULL::boolean
+      ) AS finalized`,
+      [debateId, userId, finishToken],
+    );
+    expect(replayedFinalize.rows[0].finalized).toBe(false);
+
+    const completionEventAfterReplay = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM product_events WHERE debate_id = $1 AND name = 'debate_completed'",
+      [debateId],
+    );
+    expect(completionEventAfterReplay.rows[0].count).toBe("1");
 
     await pool.query(
       "UPDATE profiles SET total_points = 0, level = 1, current_streak = 0, longest_streak = 0, last_activity_date = NULL, timezone = 'UTC' WHERE id = $1",
@@ -393,6 +459,24 @@ d("durable solo-turn submissions", () => {
     );
     expect(Number(state.rows[0].turns)).toBe(5);
     expect(state.rows[0].round_count).toBe(5);
+
+    const savedRoundEvent = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM product_events WHERE debate_id = $1 AND name = 'round_completed' AND round = 5",
+      [debateId],
+    );
+    expect(savedRoundEvent.rows[0].count).toBe("1");
+
+    const replayed = await pool.query<{ result: { saved: boolean; reason: string } }>(
+      "SELECT commit_staged_solo_turn_for_finish($1, $2, $3, 5, 300) AS result",
+      [debateId, userId, pending.rows[0].id],
+    );
+    expect(replayed.rows[0].result).toMatchObject({ saved: true, reason: "already-saved" });
+
+    const savedRoundEventAfterReplay = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM product_events WHERE debate_id = $1 AND name = 'round_completed' AND round = 5",
+      [debateId],
+    );
+    expect(savedRoundEventAfterReplay.rows[0].count).toBe("1");
 
     await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
   });

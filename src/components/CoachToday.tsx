@@ -20,6 +20,14 @@ interface Assignment {
   status: string;
 }
 
+interface Proposal {
+  dimension: string;
+  minutes: number;
+  title: string;
+  prompt: string;
+  beforeScore: number | null;
+}
+
 interface RetestInfo {
   dimension: string;
   label: string;
@@ -55,6 +63,8 @@ function ProfileRead({ label, score, min, max }: { label: string; score: number 
 export default function CoachToday({ showProfile = true }: { showProfile?: boolean }) {
   const [dims, setDims] = useState<Dim[]>([]);
   const [assignment, setAssignment] = useState<Assignment | null>(null);
+  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [activationRequired, setActivationRequired] = useState(false);
   const [focusReason, setFocusReason] = useState<string>("");
   const [debatesAnalysed, setDebatesAnalysed] = useState<number | null>(null);
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([]);
@@ -62,6 +72,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
   const [outcomeSummary, setOutcomeSummary] = useState<string | null>(null);
   const [attemptText, setAttemptText] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [activating, setActivating] = useState(false);
   const [feedback, setFeedback] = useState<{ signals: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [coachingStatus, setCoachingStatus] = useState<"ok" | "partial" | "unavailable" | null>(null);
@@ -79,7 +90,9 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
       const todayData = await todayRes.json();
       if (!todayRes.ok) throw new Error(todayData.error || "Coach unavailable.");
       setDims(todayData.profile ?? []);
-      setAssignment(todayData.assignment);
+      setAssignment(todayData.assignment ?? null);
+      setProposal(todayData.proposal ?? null);
+      setActivationRequired(todayData.activationRequired === true);
       setFocusReason(todayData.focusReason ?? "");
       setRetest(todayData.retest ?? null);
       setDebatesAnalysed(todayData.debatesAnalysed ?? null);
@@ -98,6 +111,28 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
     const t = setTimeout(() => void load(), 0);
     return () => clearTimeout(t);
   }, [load]);
+
+  async function activateAssignment() {
+    if (!proposal || !activationRequired) return;
+    setActivating(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/coach/today", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to start today's drill.");
+      setAssignment(data.assignment ?? null);
+      setProposal(data.proposal ?? null);
+      setActivationRequired(data.activationRequired === true);
+      setFocusReason(data.focusReason ?? focusReason);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start today's drill.");
+    } finally {
+      setActivating(false);
+    }
+  }
 
   async function submitAttempt() {
     if (!assignment) return;
@@ -128,7 +163,6 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
           Some coaching context is temporarily unavailable, so this focus may use fallback evidence.
         </p>
       )}
-      {/* ARGUMENT SKILL PROFILE — hidden on Progress, which renders its own skill list */}
       {showProfile && (
         <section className="surface-card p-5">
           <div className="mb-3 flex items-baseline justify-between">
@@ -157,7 +191,6 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
         </section>
       )}
 
-      {/* Today's training focus */}
       {assignment ? (
         <section className="surface-card flex flex-col gap-4 p-5">
           <div>
@@ -215,6 +248,35 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
             </>
           )}
         </section>
+      ) : proposal ? (
+        <section className="surface-card flex flex-col gap-4 p-5" data-testid="coach-drill-proposal">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-[var(--accent)]">
+              {retest ? "Retest drill ready" : "Today’s training focus"}
+            </p>
+            <h2 className="mt-1 text-lg font-semibold">{proposal.title}</h2>
+            <p className="text-xs text-ink3">{proposal.minutes} min · {focusReason}</p>
+          </div>
+          <p className="rounded-lg border border-[var(--rule)] bg-surface-2 p-4 text-sm leading-relaxed">
+            {proposal.prompt}
+          </p>
+          {error && (
+            <p role="alert" className="text-xs text-[var(--bad)]">
+              {error}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={activateAssignment}
+            disabled={activating}
+            className="btn btn-primary px-4 py-2 text-sm disabled:opacity-40"
+          >
+            {activating ? "Starting…" : retest ? "Use this retest drill" : "Start drill"}
+          </button>
+          <p className="text-[10px] leading-4 text-ink3">
+            Opening Progress only previews the drill. It is added to your training history when you start it.
+          </p>
+        </section>
       ) : (
         !error && (
           <section className="surface-card p-5 text-sm text-ink3" role="status">
@@ -223,7 +285,6 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
         )
       )}
 
-      {/* Outcomes */}
       {(outcomes.length > 0 || outcomeSummary) && (
         <section className="surface-card p-5">
           <h2 className="text-sm font-semibold">Drill outcomes</h2>

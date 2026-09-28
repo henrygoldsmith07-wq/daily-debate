@@ -4,6 +4,7 @@ import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
 import type { PvpVerdict } from "@/lib/types";
+import { normalizeIanaTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ export default async function HistoryPage() {
     db.from("profiles").select("timezone").eq("id", user.id).single(),
   ]);
 
-  const timeZone = profileRes.data?.timezone ?? "UTC";
+  const timeZone = normalizeIanaTimeZone(profileRes.data?.timezone);
   const soloDebates = soloRes.data ?? [];
   const pvpMatches = pvpRes.data ?? [];
   const topicIds = [...new Set([...soloDebates, ...pvpMatches].map((row) => row.topic_id))];
@@ -83,7 +84,7 @@ export default async function HistoryPage() {
           <p className="text-sm text-ink3">No solo debates yet.</p>
         ) : (
           soloDebates.map((d) => {
-            const performance = d.performance_score ?? 0;
+            const performance = d.performance_score;
             const xp = (d.total_score ?? 0) + (d.bonus_xp ?? 0);
             return (
             <Link
@@ -100,7 +101,9 @@ export default async function HistoryPage() {
               <span className="shrink-0 text-right">
                 {d.status === "completed" ? (
                   <>
-                    <span className="block tabular font-medium">{performance}/100 performance</span>
+                    <span className="block tabular font-medium">
+                      {performance === null ? "Performance unavailable" : `${performance}/100 performance`}
+                    </span>
                     <span className="block text-xs text-ink3">+{xp} XP</span>
                   </>
                 ) : (

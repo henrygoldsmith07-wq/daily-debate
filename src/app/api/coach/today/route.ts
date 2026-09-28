@@ -11,51 +11,92 @@ import {
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getTodayTopic } from "@/lib/dailyTopic";
 import { getCurrentUser } from "@/lib/currentViewer";
-import { dateKeyInTimeZone } from "@/lib/timeZone";
+import { dateKeyInTimeZone, normalizeIanaTimeZone } from "@/lib/timeZone";
 
-// Today's training focus: the lowest skill dimension adjusted by movement
-// (improving dimensions are deprioritised; dimensions whose previous drill
-// produced negative movement are skipped). Idempotent per day — the same
-// assignment row is returned on repeat calls so the coach stays deliberate.
+type DrillAssignmentRow = {
+  id: string;
+  user_id: string;
+  dimension: string;
+  minutes: number;
+  title: string;
+  prompt: string;
+  assigned_date: string;
+  before_score: number | null;
+  attempt_text: string | null;
+  attempt_score: number | null;
+  movement: number | null;
+  status: string;
+  created_at: string;
+};
 
-export async function GET(request: Request) {
-  const limited = await checkRateLimit(request, { name: "coach-today", limit: 30, windowMs: 60_000 });
-  if (limited) return limited;
+type DrillProposal = {
+  dimension: string;
+  minutes: number;
+  title: string;
+  prompt: string;
+  beforeScore: number | null;
+};
 
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+type CoachTodayState = {
+  service: ReturnType<typeof createServiceClient>;
+  profile: ReturnType<typeof buildCoachProfile>["dims"];
+  focusReason: string;
+  proposal: DrillProposal | null;
+  existing: DrillAssignmentRow | null;
+  activationRequired: boolean;
+  retest: {
+    dimension: string;
+    label: string;
+    repairDebateId: string;
+    attemptedAt: string;
+  } | null;
+  debatesAnalysed: number;
+  coachingStatus: "ok" | "partial" | "unavailable";
+  degradationReasons: string[];
+  today: string;
+};
 
-  const topic = await getTodayTopic();
-  const context = await loadCoachingContext(user.id, { currentTopicId: topic.id });
-  if (!context.ledger) {
-    return NextResponse.json(
-      {
-        error: "Coaching context is temporarily unavailable.",
-        coachingStatus: context.status,
-        degradationReasons: context.degradationReasons,
-      },
-      { status: 503 },
-    );
+class CoachTodayError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly payload: Record<string, unknown> = {},
+  ) {
+    super(message);
   }
-  const ledger = context.ledger;
-  const outcomes = context.drillOutcomes;
+}
+
+async function loadCoachTodayState(userId: string): Promise<CoachTodayState> {
+  const topic = await getTodayTopic();
+  const context = await loadCoachingContext(userId, { currentTopicId: topic.id });
+  if (!context.ledger) {
+    throw new CoachTodayError("Coaching context is temporarily unavailable.", 503, {
+      coachingStatus: context.status,
+      degradationReasons: context.degradationReasons,
+    });
+  }
+
   const service = createServiceClient();
-  const { data: profile, error: profileError } = await service
+  const { data: profileRow, error: profileError } = await service
     .from("profiles")
     .select("timezone")
-    .eq("id", user.id)
+    .eq("id", userId)
     .single();
-  if (profileError || !profile?.timezone) {
-    return NextResponse.json(
-      { error: "Your local training day is temporarily unavailable. Try again shortly." },
-      { status: 503 },
-    );
+  if (profileError || !profileRow?.timezone) {
+    throw new CoachTodayError("Your local training day is temporarily unavailable. Try again shortly.", 503);
   }
-  const pendingRetest = context.selectedRetest;
+  const timeZone = normalizeIanaTimeZone(profileRow.timezone);
+  if (timeZone !== profileRow.timezone) {
+    throw new CoachTodayError("Your local training day is temporarily unavailable. Try again shortly.", 503);
+  }
 
+  const ledger = context.ledger;
+  const outcomes = context.drillOutcomes;
+  const pendingRetest = context.selectedRetest;
   const { dims, slopes } = buildCoachProfile(ledger.points);
+
   let focus: CoachDim | null;
-  let reason: string;
+  let focusReason: string;
   if (pendingRetest) {
     focus =
       dims.find((d) => d.key === pendingRetest.dimension) ?? {
@@ -64,116 +105,55 @@ export async function GET(request: Request) {
         score: null,
         hasData: false,
       };
-    reason = "deliberate retest after your repair";
+    focusReason = "deliberate retest after your repair";
   } else {
     const selected = selectFocus(dims, slopes, outcomes);
     focus = selected.focus;
-    reason = selected.reason;
+    focusReason = selected.reason;
   }
 
-  if (!focus) {
-    return NextResponse.json({
-      profile: dims,
-      assignment: null,
-      reason,
-      retest: null,
-      coachingStatus: context.status,
-      degradationReasons: context.degradationReasons,
-    });
-  }
-
-  const today = dateKeyInTimeZone(profile.timezone);
-  const drill = todaysDrill(focus.key, `${today}T12:00:00.000Z`);
-
-  // Idempotent per (user, day), with one exception: an OPEN generic drill may
-  // be repurposed when a new repair creates a deliberate retest. An attempted
-  // drill is historical practice and is never rewritten.
-  const beforeScore = focus.score;
-  const { data: existing, error: existingError } = await service
+  const today = dateKeyInTimeZone(timeZone);
+  const { data: existingRow, error: existingError } = await service
     .from("drill_assignments")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("assigned_date", today)
     .maybeSingle();
   if (existingError) {
-    return NextResponse.json(
-      { error: "Training assignment is temporarily unavailable." },
-      { status: 503 },
-    );
+    throw new CoachTodayError("Training assignment is temporarily unavailable.", 503);
   }
 
-  let assignment;
-  if (
+  const existing = (existingRow ?? null) as DrillAssignmentRow | null;
+  const drill = focus ? todaysDrill(focus.key, `${today}T12:00:00.000Z`) : null;
+  const proposal: DrillProposal | null = focus && drill
+    ? {
+        dimension: focus.key,
+        minutes: drill.minutes,
+        title: drill.title,
+        prompt: drill.prompt,
+        beforeScore: focus.score,
+      }
+    : null;
+
+  // GET is deliberately read-only. A missing assignment, or an open generic
+  // drill that a newly-pending repair wants to retarget, is only persisted
+  // after the learner explicitly activates it with POST.
+  const retargetNeeded = !!(
     existing &&
     pendingRetest &&
     existing.status === "open" &&
+    focus &&
     existing.dimension !== focus.key
-  ) {
-    const { data: retargeted, error } = await service
-      .from("drill_assignments")
-      .update({
-        dimension: focus.key,
-        minutes: drill.minutes,
-        title: drill.title,
-        prompt: drill.prompt,
-        before_score: beforeScore,
-      })
-      .eq("id", existing.id)
-      .eq("user_id", user.id)
-      .eq("status", "open")
-      .select("*")
-      .single();
-    if (error || !retargeted) {
-      console.error("Failed to retarget open drill for repair retest:", error);
-      return NextResponse.json(
-        { error: "Failed to update the training assignment." },
-        { status: 503 },
-      );
-    } else {
-      assignment = retargeted;
-    }
-  } else if (existing) {
-    assignment = existing;
-  } else {
-    const { data: created, error } = await service
-      .from("drill_assignments")
-      .insert({
-        user_id: user.id,
-        dimension: focus.key,
-        minutes: drill.minutes,
-        title: drill.title,
-        prompt: drill.prompt,
-        assigned_date: today,
-        before_score: beforeScore,
-      })
-      .select("*")
-      .single();
-    if (error?.code === "23505") {
-      // A concurrent request won the unique (user_id, assigned_date) race.
-      // Re-read the canonical row instead of surfacing a false 500.
-      const { data: winner, error: winnerError } = await service
-        .from("drill_assignments")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("assigned_date", today)
-        .maybeSingle();
-      if (winnerError || !winner) {
-        console.error("Failed to re-read concurrent training assignment:", winnerError ?? error);
-        return NextResponse.json({ error: "Failed to create training assignment." }, { status: 500 });
-      }
-      assignment = winner;
-    } else if (error || !created) {
-      console.error("Failed to create drill assignment:", error);
-      return NextResponse.json({ error: "Failed to create training assignment." }, { status: 500 });
-    } else {
-      assignment = created;
-    }
-  }
+  );
+  const activationRequired = !!proposal && (!existing || retargetNeeded);
 
-  return NextResponse.json({
+  return {
+    service,
     profile: dims,
-    focusReason: reason,
-    assignment,
+    focusReason,
+    proposal: activationRequired ? proposal : null,
+    existing: retargetNeeded ? null : existing,
+    activationRequired,
     retest: pendingRetest
       ? {
           dimension: pendingRetest.dimension,
@@ -185,5 +165,162 @@ export async function GET(request: Request) {
     debatesAnalysed: ledger.debates,
     coachingStatus: context.status,
     degradationReasons: context.degradationReasons,
-  });
+    today,
+  };
+}
+
+function errorResponse(error: unknown) {
+  if (error instanceof CoachTodayError) {
+    return NextResponse.json(
+      { error: error.message, ...error.payload },
+      { status: error.status, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  console.error("Failed to load today's coaching state:", error);
+  return NextResponse.json(
+    { error: "Coach unavailable." },
+    { status: 500, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+// Reading today's coach is safe and repeatable: no assignment creation,
+// retargeting, or derived-outcome persistence happens in GET.
+export async function GET(request: Request) {
+  const limited = await checkRateLimit(request, { name: "coach-today", limit: 30, windowMs: 60_000 });
+  if (limited) return limited;
+
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    const state = await loadCoachTodayState(user.id);
+    return NextResponse.json(
+      {
+        profile: state.profile,
+        focusReason: state.focusReason,
+        assignment: state.existing,
+        proposal: state.proposal,
+        activationRequired: state.activationRequired,
+        retest: state.retest,
+        debatesAnalysed: state.debatesAnalysed,
+        coachingStatus: state.coachingStatus,
+        degradationReasons: state.degradationReasons,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+// Assignment creation/retargeting is an explicit command. The server
+// recomputes the desired focus instead of trusting a client-supplied drill.
+export async function POST(request: Request) {
+  const limited = await checkRateLimit(request, { name: "coach-today-activate", limit: 12, windowMs: 60_000 });
+  if (limited) return limited;
+
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    const state = await loadCoachTodayState(user.id);
+
+    if (!state.activationRequired || !state.proposal) {
+      return NextResponse.json(
+        {
+          assignment: state.existing,
+          proposal: null,
+          activationRequired: false,
+          focusReason: state.focusReason,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    const proposal = state.proposal;
+    const { data: current, error: currentError } = await state.service
+      .from("drill_assignments")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("assigned_date", state.today)
+      .maybeSingle();
+    if (currentError) {
+      throw new CoachTodayError("Training assignment is temporarily unavailable.", 503);
+    }
+
+    let assignment: DrillAssignmentRow | null = null;
+    if (current) {
+      // Preserve attempted work as history. Only an open same-day assignment
+      // may be retargeted, and only to the server's current desired focus.
+      if (current.status !== "open") {
+        assignment = current as DrillAssignmentRow;
+      } else {
+        const { data: retargeted, error } = await state.service
+          .from("drill_assignments")
+          .update({
+            dimension: proposal.dimension,
+            minutes: proposal.minutes,
+            title: proposal.title,
+            prompt: proposal.prompt,
+            before_score: proposal.beforeScore,
+          })
+          .eq("id", current.id)
+          .eq("user_id", user.id)
+          .eq("status", "open")
+          .select("*")
+          .single();
+        if (error || !retargeted) {
+          console.error("Failed to activate retargeted coaching assignment:", error);
+          throw new CoachTodayError("Failed to update the training assignment.", 503);
+        }
+        assignment = retargeted as DrillAssignmentRow;
+      }
+    } else {
+      const { data: created, error } = await state.service
+        .from("drill_assignments")
+        .insert({
+          user_id: user.id,
+          dimension: proposal.dimension,
+          minutes: proposal.minutes,
+          title: proposal.title,
+          prompt: proposal.prompt,
+          assigned_date: state.today,
+          before_score: proposal.beforeScore,
+        })
+        .select("*")
+        .single();
+
+      if (error?.code === "23505") {
+        // Another explicit activation won the unique (user, local-day) race.
+        const { data: winner, error: winnerError } = await state.service
+          .from("drill_assignments")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("assigned_date", state.today)
+          .maybeSingle();
+        if (winnerError || !winner) {
+          console.error("Failed to re-read concurrent training assignment:", winnerError ?? error);
+          throw new CoachTodayError("Failed to create training assignment.", 500);
+        }
+        assignment = winner as DrillAssignmentRow;
+      } else if (error || !created) {
+        console.error("Failed to create training assignment:", error);
+        throw new CoachTodayError("Failed to create training assignment.", 500);
+      } else {
+        assignment = created as DrillAssignmentRow;
+      }
+    }
+
+    return NextResponse.json(
+      {
+        assignment,
+        proposal: null,
+        activationRequired: false,
+        focusReason: state.focusReason,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    return errorResponse(error);
+  }
 }
