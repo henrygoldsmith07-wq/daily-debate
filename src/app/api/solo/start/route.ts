@@ -193,7 +193,10 @@ export async function POST(request: Request) {
     let repairRetest:
       | { repairResultId: string; repairDebateId: string; targetKind: RepairKind; attemptedAt: string }
       | null = null;
-    const context = await loadCoachingContext(userId, { currentTopicId: topicId });
+    const context = await loadCoachingContext(userId, {
+      currentTopicId: topicId,
+      reconcileLegacyRetests: true,
+    });
     degradationReasons.push(...context.degradationReasons);
     if (context.ledger) {
       const pendingRetest = context.selectedRetest;
