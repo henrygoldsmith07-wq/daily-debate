@@ -59,6 +59,7 @@ vi.mock("@/lib/dailyTopic", () => ({
   getTodayTopic: vi.fn(async () => ({ id: "topic-1" })),
 }));
 vi.mock("@/lib/timeZone", () => ({
+  normalizeIanaTimeZone: vi.fn((value: unknown) => typeof value === "string" ? value : "UTC"),
   dateKeyInTimeZone: vi.fn(() => "2026-09-28"),
 }));
 vi.mock("@/lib/coachingContextServer", () => ({
