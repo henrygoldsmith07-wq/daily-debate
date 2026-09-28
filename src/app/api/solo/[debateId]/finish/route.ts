@@ -15,7 +15,6 @@ import { minRoundsFor, measurementHonestyFor } from "@/lib/sprint";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { snapshotFromAssessment } from "@/lib/coachingGoal";
 import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
-import { recordProductEventForUser } from "@/lib/productEvents";
 import { MAX_ROUNDS, type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
 import { mergeSoloAssessmentsByDebate } from "@/lib/soloAssessmentHistory";
 import { extractSkillPoint } from "@/lib/skillLedger";
@@ -97,19 +96,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
               ? `Complete at least ${minRounds} rounds before finishing.`
               : "The saved response could not be used to finish this debate. Refresh and try again.";
       return NextResponse.json({ error: message, code: stagedResult.reason ?? "saved_response_unavailable" }, { status: 409 });
-    }
-    if (
-      stagedResult.reason === "saved-for-finish" &&
-      typeof stagedResult.completedTurn?.round_number === "number"
-    ) {
-      await recordProductEventForUser(user.id, "round_completed", {
-        format,
-        side: debate.side as "for" | "against",
-        round: stagedResult.completedTurn.round_number,
-        debateId,
-      });
-    }
-  }
+    }  }
 
   // Claim the finalization barrier before loading the transcript. A turn that
   // is already committing finishes first because both paths lock the debate;
@@ -414,28 +401,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       p_token: finalizationToken,
     });
     return NextResponse.json({ error: "Failed to finish debate. Your debate is still available to retry." }, { status: 500 });
-  }
-
-  const eventSide = debate.side as "for" | "against";
-  await recordProductEventForUser(user.id, "debate_completed", { format, side: eventSide, debateId });
-
-  if (coaching.repairRetest && retestCompletion) {
-    if (retestCompletion.observable) {
-      await recordProductEventForUser(user.id, "retest_completed", {
-        format,
-        side: eventSide,
-        reason: coaching.repairRetest.targetKind,
-        debateId,
-      });
-      if (retestCompletion.demonstrated === true) {
-        await recordProductEventForUser(user.id, "retest_skill_demonstrated", {
-          format,
-          side: eventSide,
-          reason: coaching.repairRetest.targetKind,
-          debateId,
-        });
-      }
-    }
   }
 
   return NextResponse.json(resultPayload);
