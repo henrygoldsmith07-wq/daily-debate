@@ -331,6 +331,7 @@ declare
   profile_last_activity date;
   debate_format text;
   debate_side text;
+  retest_reason text;
 begin
   select format, side
   into debate_format, debate_side
@@ -370,6 +371,7 @@ begin
 
   activity_date := (clock_timestamp() at time zone profile_timezone)::date;
   compact_performance := nullif(p_result_payload->>'performanceScore', '')::integer;
+  retest_reason := nullif(p_coaching->'repairRetest'->>'targetKind', '');
 
   next_streak := case
     when profile_last_activity = activity_date then profile_streak
@@ -427,13 +429,13 @@ begin
   on conflict do nothing;
 
   if p_has_retest and p_retest_observable then
-    insert into product_events (user_id, name, format, side, debate_id)
-    values (p_user_id, 'retest_completed', debate_format, debate_side, p_debate_id)
+    insert into product_events (user_id, name, format, side, reason, debate_id)
+    values (p_user_id, 'retest_completed', debate_format, debate_side, retest_reason, p_debate_id)
     on conflict do nothing;
 
     if p_retest_demonstrated is true then
-      insert into product_events (user_id, name, format, side, debate_id)
-      values (p_user_id, 'retest_skill_demonstrated', debate_format, debate_side, p_debate_id)
+      insert into product_events (user_id, name, format, side, reason, debate_id)
+      values (p_user_id, 'retest_skill_demonstrated', debate_format, debate_side, retest_reason, p_debate_id)
       on conflict do nothing;
     end if;
   end if;
