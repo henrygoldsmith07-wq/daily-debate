@@ -14,7 +14,7 @@ export interface SideHistoryItem {
   performanceScore: number | null;
 }
 
-export type ChallengeRule = "random-cold-start" | "side-balance" | "performance-gap" | "alternation-fallback";
+export type ChallengeRule = "random-cold-start" | "random-history-unavailable" | "side-balance" | "performance-gap" | "alternation-fallback";
 
 export interface ChallengeAssignment {
   side: DebateSide;
@@ -74,9 +74,18 @@ function pickRandom(options?: { random?: () => number }): DebateSide {
  */
 export function assignChallengeSide(
   history: SideHistoryItem[],
-  options?: { random?: () => number },
+  options?: { random?: () => number; historyUnavailable?: boolean },
 ): ChallengeAssignment {
   const recent = history.slice(-LOOKBACK);
+
+  if (options?.historyUnavailable) {
+    const side = pickRandom(options);
+    return {
+      side,
+      rule: "random-history-unavailable",
+      reason: `Recent debate history is temporarily unavailable — picked ${label(side)} at random so you can keep practising.`,
+    };
+  }
 
   if (recent.length < 2) {
     const side = pickRandom(options);

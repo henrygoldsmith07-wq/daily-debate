@@ -13,9 +13,15 @@ import {
   type CompletedLedgerDebateRow,
   type LedgerTurnRow,
 } from "./skillLedgerAssembly";
+import {
+  SKILL_LEDGER_DEBATE_LIMIT,
+  resolveLedgerSourceWindow,
+  type LedgerSourceWindow,
+} from "./skillLedgerWindow";
 
 export interface LedgerWithSeries extends SkillLedger {
   points: SkillMetricPoint[];
+  sourceWindow: LedgerSourceWindow;
 }
 
 export async function buildLedgerForUser(
@@ -23,13 +29,21 @@ export async function buildLedgerForUser(
   opts: { includeBaseline?: boolean } = {},
 ): Promise<LedgerWithSeries> {
   const db = await createClient();
-  const { data: debates, error: debatesError } = await db
-    .from("solo_debates")
-    .select("id, completed_at, topic_id, coaching")
-    .eq("user_id", userId)
-    .eq("status", "completed")
-    .order("completed_at", { ascending: false })
-    .limit(100);
+  const [debatesResult, countResult] = await Promise.all([
+    db
+      .from("solo_debates")
+      .select("id, completed_at, topic_id, coaching")
+      .eq("user_id", userId)
+      .eq("status", "completed")
+      .order("completed_at", { ascending: false })
+      .limit(SKILL_LEDGER_DEBATE_LIMIT),
+    db
+      .from("solo_debates")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("status", "completed"),
+  ]);
+  const { data: debates, error: debatesError } = debatesResult;
   if (debatesError) {
     throw new Error(`skill-ledger debates unavailable: ${debatesError.message ?? "read failed"}`);
   }
@@ -51,5 +65,7 @@ export async function buildLedgerForUser(
   const points = buildLedgerPointsFromRows(completed, (turnRows ?? []) as LedgerTurnRow[]);
 
   const ledger = buildSkillLedger(points, opts);
-  return { ...ledger, points };
+  const exactTotal = countResult.error ? null : countResult.count ?? 0;
+  const sourceWindow = resolveLedgerSourceWindow(completed.length, exactTotal);
+  return { ...ledger, points, sourceWindow };
 }

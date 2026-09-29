@@ -23,6 +23,11 @@ describe("nav configuration", () => {
     expect(PRIMARY_NAV_ITEMS.some((item) => item.href === "/pvp")).toBe(false);
   });
 
+  it("does not describe bounded History as every debate", () => {
+    const history = NAV_ITEMS.find((item) => item.href === "/history");
+    expect(history?.description.toLowerCase()).not.toContain("every debate");
+  });
+
   it("gives every item a label and a description for the More sheet", () => {
     for (const item of NAV_ITEMS) {
       expect(item.label.length).toBeGreaterThan(0);

@@ -129,6 +129,13 @@ export default async function ProgressPage() {
 
   const summary = buildProgressSummary(ledger.points);
   const training = buildTrainingProgress(ledger.points);
+  const sourceWindow = ledger.sourceWindow;
+  const progressDescription =
+    sourceWindow.truncated === true && sourceWindow.totalCompletedDebates !== null
+      ? `Current signals analyze ${ledger.debates} debate${ledger.debates === 1 ? "" : "s"} with usable assessment data from your latest ${sourceWindow.completedDebatesLoaded} of ${sourceWindow.totalCompletedDebates} completed debates — older debates remain in History but are outside the active coaching window.`
+      : sourceWindow.truncated === null
+        ? `Current signals analyze ${ledger.debates} debate${ledger.debates === 1 ? "" : "s"} with usable assessment data from a bounded latest-${sourceWindow.limit} debate window. Your lifetime completed-debate total is temporarily unavailable.`
+        : `Built from ${ledger.debates} completed debate${ledger.debates === 1 ? "" : "s"} with usable assessment data — headline reads show observed direction and relative focus; raw metrics are available below.`;
   const goal = buildCoachingGoal(
     ledger.points,
     null,
@@ -145,7 +152,7 @@ export default async function ProgressPage() {
       <PageHeader
         eyebrow="Your argument skills"
         title="Progress"
-        description={`Built from ${ledger.debates} completed debate${ledger.debates === 1 ? "" : "s"} — headline reads show observed direction and relative focus; raw metrics are available below.`}
+        description={progressDescription}
       />
       {coachingContext.status === "partial" && (
         <p className="text-xs text-ink3" role="status">
