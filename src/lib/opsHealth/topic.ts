@@ -4,7 +4,6 @@
 // scheduled generation actually run and produce AI-backed content within its
 // SLO? The second is a production scheduler SLO, independent of CI evidence.
 
-import type { CoachingContextDegradationReason } from "../types";
 import { addDaysUtc, dayDiffUtc, todayIsoUtc, type HealthState } from "./core";
 
 // --- Topic pipeline --------------------------------------------------------

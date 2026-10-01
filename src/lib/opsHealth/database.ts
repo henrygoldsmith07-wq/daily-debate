@@ -4,7 +4,7 @@
 // functions each required migration installs are actually present - a
 // successful connect on a half-migrated database is not healthy.
 
-import { todayIsoUtc, type HealthState } from "./core";
+import type { HealthState } from "./core";
 
 /**
  * topic_run_log fidelity for migration 016: "full" when run_created_at,

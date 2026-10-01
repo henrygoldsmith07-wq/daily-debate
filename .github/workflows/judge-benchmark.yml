@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: Check fixture pack stratification (no keys needed)
         run: node scripts/judge-benchmark.mjs --pack-only
       - name: Fail fast when no judge secrets are configured

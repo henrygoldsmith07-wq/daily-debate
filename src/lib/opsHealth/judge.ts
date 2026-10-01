@@ -3,7 +3,7 @@
 // Reads the weekly judge benchmark artifact: is it recent enough to trust, and
 // does it cover enough models/items to say anything?
 
-import { dayDiffUtc, type HealthState } from "./core";
+import type { HealthState } from "./core";
 
 // --- Judge validation -------------------------------------------------------
 

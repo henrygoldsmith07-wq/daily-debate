@@ -26,15 +26,7 @@ import {
   type RepairRow,
 } from "../repairEffectiveness";
 import type { RepairKind } from "../argumentRepair";
-import {
-  FUNNEL_MIN_SAMPLE,
-  addDays,
-  dayOf,
-  median,
-  rate,
-  type FunnelEventRow,
-  type FunnelRate,
-} from "./events";
+import { type FunnelEventRow, type FunnelRate } from "./events";
 import { returnRateAfterAnchor, type ReturnRate } from "./retention";
 
 export const REPAIR_OUTCOME_MIN_SAMPLE = 5;

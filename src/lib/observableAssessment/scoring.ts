@@ -15,7 +15,6 @@ import { unansweredOpportunitiesBy } from "../opportunity";
 import {
   SCORE_WEIGHTS,
   WINNER_TIE_THRESHOLD,
-  type AssessmentOptions,
   type AssessmentStatus,
   type EvidenceRef,
   type ImpactComparisonValue,

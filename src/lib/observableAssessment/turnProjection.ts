@@ -5,7 +5,7 @@
 // the SAME features the score uses so a display bucket can never contradict
 // the score.
 
-import { emptyGraph, type ArgGraph, type ArgNode } from "../argGraph";
+import { emptyGraph, type ArgGraph } from "../argGraph";
 import type { TurnScores } from "../types";
 import type { ObservableAssessment } from "./types";
 import { assessArgumentGraph, swapGraphSides } from "./assess";

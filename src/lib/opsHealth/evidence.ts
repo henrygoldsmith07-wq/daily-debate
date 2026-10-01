@@ -5,7 +5,7 @@
 // measurable yet. `INSUFFICIENT DATA` is an honest output here, not a bug to
 // hide behind a green checkmark.
 
-import { rollupOverall, type HealthState } from "./core";
+import type { HealthState } from "./core";
 import type { CoachingContextDegradationReason } from "../types";
 
 
