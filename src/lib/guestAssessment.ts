@@ -290,3 +290,47 @@ export function assessGuestRepair(
     feedback: `Not there yet. ${cue}`,
   };
 }
+
+export interface GuestRetestAssessment {
+  demonstrated: boolean;
+  headline: string;
+  detail: string;
+  evidence: "single_repair" | "retest_in_debate";
+}
+
+// Did the repaired move show up in a fresh debate, not just in the drill?
+// This closes the guest loop: repair -> retest -> see movement. It reports an
+// OBSERVED move and names the sample size; one retest is never a validated
+// measure of ability, so the wording never says mastered. Reuses
+// inspectGuestResponse/assessGuestRepair so drill and retest can never disagree.
+export function assessGuestRetest(
+  kind: GuestSkill,
+  drillSucceeded: boolean,
+  retestResponse: string,
+  opponent = "",
+): GuestRetestAssessment {
+  const label = WEAKNESS_COPY[kind].label.toLowerCase();
+  if (!drillSucceeded) {
+    return {
+      demonstrated: false,
+      headline: "Not retested yet",
+      detail: "The drill rewrite did not register the missing move, so there is nothing to retest. Finish the repair first.",
+      evidence: "single_repair",
+    };
+  }
+  const demonstrated = assessGuestRepair(kind, retestResponse, opponent).succeeded;
+  if (demonstrated) {
+    return {
+      demonstrated: true,
+      headline: `Observed in a live debate: ${label}`,
+      detail: `You carried the ${label} move into a fresh debate after repairing it. That is ONE observed instance - it shows the move appeared under debate conditions, not that the skill is mastered.`,
+      evidence: "retest_in_debate",
+    };
+  }
+  return {
+    demonstrated: false,
+    headline: "Not seen in this debate yet",
+    detail: `The ${label} move did not appear in that round. One debate is not proof it did not stick - it may simply not have been needed there. Only a pattern across several debates can support that claim.`,
+    evidence: "retest_in_debate",
+  };
+}

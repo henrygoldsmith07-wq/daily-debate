@@ -30,7 +30,7 @@ User-facing explanation (Today, result screen, Progress, DNA)
 |---|---|
 | `argGraph.ts` | Graph types + pure helpers + validation |
 | `argumentTaxonomy.ts`, `argumentRouting.ts` | Versioned rhetorical-role labels, classifier.dev batching/confidence policy, route selection, and routing telemetry |
-| `observableAssessment.ts` | Feature extraction, scoring policy, insufficiency rules |
+| `observableAssessment/` | Contract + types, graph enrichment, feature extraction, scoring policy, insufficiency rules, turn extraction and learner-facing projections. `index.ts` keeps the `@/lib/observableAssessment` import path stable for every consumer. |
 | `argumentEvaluation.ts` | Engine findings: overclaims, fake precision, rebuttal/steelman quality, deterministic structural checks |
 | `evidenceVerification.ts`, `citationVerifier.ts`, `quoteVerification.ts` | Evidence grounding and verification |
 | `skillLedger.ts`, `skillLedgerServer.ts` | Longitudinal metric vectors and trajectories |
@@ -44,6 +44,9 @@ User-facing explanation (Today, result screen, Progress, DNA)
 | `friendChallenge.ts` | Async invite codes/expiry/turn notes |
 | `productEvents.ts` | Allowlisted funnel events (silent on failure) |
 | `productFunnelServer.ts`, `aiOpsServer.ts` | Admin analytics loaders with explicit complete/partial/unavailable semantics; never convert read failure into zero activity |
+| `analytics/` | Funnel events, session funnel, retention/cohorts, repair outcomes and report assembly. `productFunnel.ts` is a barrel so the import path is unchanged. |
+| `opsHealth/` | One file per subsystem (core, topic, judge, database, app, evidence, report). `opsHealth.ts` is a barrel; I/O stays in `opsHealthServer.ts`. |
+| `components/debate/` | The solo debate room: `useDebateSession` (turns, submission, finish, recovery), `useResponseWindow` (server-authoritative timers), `useDebateSpeech`, plus the live and result views. `DebateRoom.tsx` only wires them together. |
 | `backend/*` | Owned Postgres/auth: sessions, query builder, rate limits |
 
 Structural routing is rhetorical only: it never labels a viewpoint as true,

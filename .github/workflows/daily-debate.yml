@@ -27,7 +27,7 @@ jobs:
       - run: npm ci
 
       - name: Lint (eslint — 0 errors required)
-        run: npm run lint -- --max-warnings 100
+        run: npm run lint -- --max-warnings 0
 
       - name: Type-check (tsc --noEmit)
         run: npm run type-check
