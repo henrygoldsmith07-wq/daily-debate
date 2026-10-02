@@ -42,7 +42,22 @@ test.describe("guest practice honesty", () => {
     await page.getByRole("button", { name: /check my repair/i }).click();
 
     await expect(page.getByTestId("guest-repair-feedback")).toContainText("Repair complete");
-    await expect(page.getByRole("link", { name: /create account and retest this skill/i })).toBeVisible();
+
+    // The loop is not finished by the repair alone. Signup is deliberately
+    // withheld until the learner has been offered the retest.
+    await expect(page.getByTestId("guest-retest-cta")).toBeVisible();
+    await page.getByRole("button", { name: /retest this skill/i }).click();
+
+    const retest = page.getByLabel("Your response");
+    await retest.fill(
+      "A UNESCO study of classroom phone bans reported fewer off-task transitions, which supports the claim during lessons.",
+    );
+    await page.getByRole("button", { name: /send it/i }).click();
+
+    // One observed instance is reported as exactly that: never as mastery.
+    await expect(page.getByTestId("guest-retest-outcome")).toBeVisible();
+    await expect(page.getByTestId("guest-retest-outcome")).toContainText("one observed instance");
+    await expect(page.getByRole("link", { name: /create a free account/i })).toBeVisible();
   });
 
   test("a trigger word alone cannot pass the repair", async ({ page }) => {

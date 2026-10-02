@@ -68,7 +68,15 @@ export function DebateResultCard({
     );
   };
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const scrollToRepair = () => repairRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  // Direct route to the repair exercise. The graph stays folded, and the
+  // textarea takes focus so the learner can start typing immediately instead of
+  // having to find the field after the scroll settles.
+  const scrollToRepair = () => {
+    requestAnimationFrame(() => {
+      repairRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      repairRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
+    });
+  };
     const snapshot = view.snapshot;
     const weakness = snapshot?.weakness ?? null;
     const highlight = snapshot?.highlight ?? null;
