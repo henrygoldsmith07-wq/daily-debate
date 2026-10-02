@@ -41,3 +41,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# The working directory can be shared with unrelated checkouts and stray logs.
+# They are not part of this repository and must never be committed with it.
+forq
+emotion-tracker
+draftwise
+pulse
+rapport
+road-ready
+mental-load-tracker
+french-practice
+slimout
+e2e.log
