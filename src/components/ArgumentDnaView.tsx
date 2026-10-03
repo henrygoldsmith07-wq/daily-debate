@@ -4,6 +4,7 @@ import Link from "next/link";
 import PageHeader from "./PageHeader";
 import { useMemo, useState } from "react";
 import SkillProfileBars from "./SkillProfileBars";
+import { buildDnaHeadline } from "@/lib/dnaHeadline";
 import type {
   ArgumentDnaInsight,
   ArgumentDnaModel,
@@ -181,8 +182,10 @@ function periodCountLabel(period: DnaPeriodSummary): string {
   return `${period.debates} debate${period.debates === 1 ? "" : "s"}${period.analysedDebates < period.debates ? ` · ${period.analysedDebates} graphed` : ""}`;
 }
 
-export default function ArgumentDnaView({ model }: { model: ArgumentDnaModel }) {
+export default function ArgumentDnaView({ model, focus }: { model: ArgumentDnaModel; focus?: string | null }) {
   const [range, setRange] = useState<Range>("all");
+  const [showDeeper, setShowDeeper] = useState(false);
+  const headline = buildDnaHeadline(model, focus ?? null);
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(model.comparison.latest?.id ?? null);
   const latest = model.comparison.latest;
   const selected = model.snapshots.find((snapshot) => snapshot.id === selectedSnapshotId) ?? latest;
@@ -216,6 +219,27 @@ export default function ArgumentDnaView({ model }: { model: ArgumentDnaModel }) 
           </>
         }
       />
+
+      <section className="surface-card p-5" aria-labelledby="dna-headline" data-testid="dna-headline">
+        <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">What kind of arguer am I becoming?</p>
+        <h2 id="dna-headline" className="mt-1 text-lg font-semibold">{headline.becoming}</h2>
+        <div className="mt-3 flex flex-col gap-1.5 text-sm text-ink2">
+          {headline.strongest && <p><span className="font-semibold text-ink">Strongest recurring behaviour:</span> {headline.strongest.statement}</p>}
+          {headline.weakness && <p><span className="font-semibold text-ink">Most important current weakness:</span> {headline.weakness.statement}</p>}
+          {headline.mostImproved && <p><span className="font-semibold text-ink">Most improved:</span> {headline.mostImproved.statement}</p>}
+          {headline.focus && <p><span className="font-semibold text-ink">Training focus:</span> {headline.focus}</p>}
+        </div>
+        <p className="mt-3 text-xs text-ink3">
+          {headline.evidenceLine} {headline.limitedEvidence && "Treat early reads as provisional."}
+        </p>
+        <details className="mt-3" open={showDeeper} onToggle={(e) => setShowDeeper((e.target as HTMLDetailsElement).open)}>
+          <summary className="cursor-pointer text-xs font-medium text-ink3">Deeper analysis</summary>
+          <p className="mt-2 text-xs leading-5 text-ink3">
+            Everything below is recomputed from your stored argument graphs: monthly score movement, per-dimension
+            changes, and the graph previews. Technical views for when you want the machinery behind the read.
+          </p>
+        </details>
+      </section>
 
       <section className="dna-stat-grid" aria-label="Argument DNA summary">
         <div className="dna-stat-card"><span>Debates tracked</span><strong>{model.totalDebates}</strong><small>solo + PvP</small></div>

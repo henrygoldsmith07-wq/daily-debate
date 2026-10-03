@@ -3,6 +3,9 @@ import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import ArgumentDnaView from "@/components/ArgumentDnaView";
 import { buildArgumentDnaForUser } from "@/lib/argumentDnaServer";
+import { buildLedgerForUser } from "@/lib/skillLedgerServer";
+import { buildCoachingGoal } from "@/lib/coachingGoal";
+import { DIMENSION_LABELS } from "@/lib/adaptiveCoach";
 
 export const dynamic = "force-dynamic";
 
@@ -29,9 +32,19 @@ export default async function ArgumentDnaPage() {
   }
 
   const model = await buildArgumentDnaForUser(user.id);
+  // The current deliberate-practice focus, from the shared coaching loop —
+  // one source of truth for "what am I training", never a second selector.
+  let focus: string | null = null;
+  try {
+    const ledger = await buildLedgerForUser(user.id);
+    const goal = buildCoachingGoal(ledger.points, null);
+    focus = goal?.dimension ? (DIMENSION_LABELS[goal.dimension] ?? goal.dimension) : null;
+  } catch {
+    focus = null;
+  }
   return (
     <AppShell width="wide">
-      <ArgumentDnaView model={model} />
+      <ArgumentDnaView model={model} focus={focus} />
     </AppShell>
   );
 }
