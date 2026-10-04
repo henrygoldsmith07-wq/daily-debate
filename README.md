@@ -19,9 +19,35 @@ The product is built around one loop:
 5. **Test again** — the next debate carries the same focus; the result assesses whether you demonstrated the target behaviour.
 6. **Measure** — the Progress screen shows seven skill dimensions with simple trends; improvement claims stay observational until enough debates exist.
 
+> ### ⚠️ Validation status: no judge currently passes
+>
+> As of the latest published benchmark run, **no model clears the judge gates**
+> (`docs/latest-judge-benchmark.json`, rendered per surface on `/metrics`):
+>
+> | | best measured | gate |
+> |---|---|---|
+> | Fixture-label agreement | **0.583** (n=24) | ≥ 0.75 |
+> | Calibration error (ECE) | **0.189** | ≤ 0.08 |
+> | Position-swap stability | **0.792** | ≥ 0.97 |
+> | Fake-citation influence | **0.381** | ≤ 0.05 |
+>
+> The default judge returned usable data for **4 of 72** benchmark calls. A
+> fake injected citation moves its verdict roughly a third of the time.
+>
+> **What follows from that, stated plainly:** the software below is real and
+> works, but **every training-loop output it produces — weakness detection,
+> repair targeting, the seven skill dimensions, trend arrows, PvP verdicts — is
+> unvalidated.** There are no externally validated claims in this project yet
+> (`docs/validation.md`, tier 5). Competitive claims stay gated; the training
+> loop does not make competitive claims, but it does present numbers derived
+> from an unvalidated instrument, and that is now stated in the product rather
+> than only in this file.
+
 ## Feature status
 
-Honest labels for what is shipped, provisional, or gated:
+Honest labels for what is shipped, provisional, or gated. "Shipped" below means
+the **software** ships and works — it does not mean the **claims** it produces
+are validated; see the notice above and `/metrics`.
 
 **Shipped**
 
