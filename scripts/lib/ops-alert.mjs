@@ -120,6 +120,16 @@ export function classifyFailureStage(input) {
  *   availability: { state: string; note?: string | null } | null,
  *   dbReadable: boolean,
  *   proofs: Record<string, boolean> | null,
+ *   // Production application-schema readiness, from the health probe.
+ *   // `undefined` = not evaluated (silent); `null` = source unavailable
+ *   // (alertable warning); an object is read on its own booleans. A `false`
+ *   // verdict is critical and names its own remedy, because schema drift is
+ *   // the one root cause that a green scheduled run cannot disprove.
+ *   schema?: {
+ *     requiredTablesOk: boolean | null,
+ *     latestApplicationSchemaReady: boolean | null,
+ *     remediation?: string | null,
+ *   } | null,
  *   latestConfigCheck: { ok: boolean; reason: string | null } | null,
  *   failureStage: { stage: string; reason: string; suspect: boolean } | null,
  *   nowIso: string,
@@ -157,6 +167,46 @@ export function decideOpsAlert(input) {
   if (!scheduled.length && runs.length === 0) {
     // No run history at all: source unavailable or scheduler never fired.
     facts.push("scheduler: no scheduled runs on record — either never fired or run history unavailable");
+    if (severity === null) severity = "warning";
+  }
+
+  // --- schema drift (root cause that survives green runs) ------------------
+  // Production schema is applied by an explicit, human-gated `db-migrate`
+  // dispatch, while the app deploys to Vercel automatically. Those two clocks
+  // are independent, so main can be green and CI green while production runs
+  // against a half-migrated database — the application schema the running
+  // build needs simply is not there yet.
+  //
+  // Before this check the digest had no way to see that: `classifyFailureStage`
+  // only runs when a scheduled run FAILS, so a green run over a broken schema
+  // produced exactly one downstream symptom ("missed-deadline") and no
+  // statement of cause or remedy. The alert then read like a scheduler problem
+  // when it was a migration problem. Schema readiness is therefore assessed
+  // from the health probe's own facts, on every run, green or red.
+  //
+  // `undefined` means "not evaluated" (no probe field supplied) and is
+  // deliberately silent; an explicit `null` means the source was unavailable
+  // and stays alertable, matching every other section here.
+  const schema = input.schema;
+  if (schema === null) {
+    facts.push("schema: application-schema readiness unknown (health probe did not report it)");
+    if (severity === null) severity = "warning";
+  } else if (schema && (schema.requiredTablesOk === false || schema.latestApplicationSchemaReady === false)) {
+    const broken = [];
+    if (schema.requiredTablesOk === false) broken.push("required tables missing");
+    if (schema.latestApplicationSchemaReady === false) broken.push("application migration schema incomplete");
+    facts.push(
+      `schema: PRODUCTION SCHEMA DRIFT (${broken.join("; ")}) — the deployed build requires migrations that production has not applied. This is the root cause of any availability symptom below, not the scheduler.`,
+    );
+    // Naming the remedy is the difference between an alert and a mystery.
+    // Applying migrations stays a human decision (workflow_dispatch only, by
+    // design) — the digest surfaces the command, it never runs DDL.
+    facts.push(
+      `schema: remediation — apply the pending migrations, then confirm: ${schema.remediation ?? "gh workflow run db-migrate.yml -f confirm=migrate"} (migrations are applied by explicit human decision, never unattended)`,
+    );
+    severity = "critical";
+  } else if (schema && (schema.requiredTablesOk === null || schema.latestApplicationSchemaReady === null)) {
+    facts.push("schema: application-schema readiness could not be verified (probe returned no verdict)");
     if (severity === null) severity = "warning";
   }
 

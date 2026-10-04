@@ -245,3 +245,90 @@ test("ops alert reports the classified stage, not a broad guess", () => {
   assert.equal(d.severity, "critical");
   assert.ok(d.facts.some((f) => f.includes("stage = freshness-verification") && f.includes("migration 018")));
 });
+
+// --- production schema drift ----------------------------------------------
+//
+// Regression cover for the blind spot that let production sit on a
+// half-migrated database: every scheduled run was green, so nothing fired,
+// and the only visible symptom was a downstream "missed-deadline" with no
+// stated cause and no remedy. Schema readiness must be judged on its own.
+
+const drift = (over = {}) => ({
+  requiredTablesOk: false,
+  latestApplicationSchemaReady: false,
+  ...over,
+});
+
+test("schema drift is critical even when every scheduled run is green", () => {
+  const d = decideOpsAlert(healthy({ schema: drift() }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "critical");
+  assert.ok(
+    d.facts.some((f) => f.includes("PRODUCTION SCHEMA DRIFT")),
+    `expected a schema-drift fact, got: ${d.facts.join(" | ")}`,
+  );
+});
+
+test("schema drift is critical on its own, with availability still ready", () => {
+  // The decisive case: nothing downstream is wrong yet. Before this check the
+  // alert returned null here — schema drift with no symptom produced silence.
+  const d = decideOpsAlert(healthy({ schema: drift(), availability: { state: "ready", note: null } }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "critical");
+});
+
+test("schema drift names the remedy so the alert is actionable", () => {
+  const d = decideOpsAlert(healthy({ schema: drift() }));
+  assert.ok(
+    d.facts.some((f) => f.includes("db-migrate") && f.includes("explicit human decision")),
+    `expected a remediation fact, got: ${d.facts.join(" | ")}`,
+  );
+});
+
+test("schema drift reads as root cause above the availability symptom", () => {
+  const d = decideOpsAlert(healthy({
+    schema: drift(),
+    availability: { state: "missed-deadline", note: null },
+  }));
+  const schemaAt = d.facts.findIndex((f) => f.includes("PRODUCTION SCHEMA DRIFT"));
+  const availAt = d.facts.findIndex((f) => f.includes("availability:"));
+  assert.ok(schemaAt !== -1 && availAt !== -1);
+  assert.ok(schemaAt < availAt, "schema drift must be stated before the symptom it causes");
+});
+
+test("incomplete application schema alone is critical", () => {
+  // Tables all present, but the running build needs a migration that is not
+  // applied: the subtle case where the obvious check passes.
+  const d = decideOpsAlert(healthy({
+    schema: drift({ requiredTablesOk: true, latestApplicationSchemaReady: false }),
+  }));
+  assert.equal(d.severity, "critical");
+  assert.ok(d.facts.some((f) => f.includes("migration schema incomplete")));
+});
+
+test("a fully ready schema adds no fact of its own", () => {
+  const d = decideOpsAlert(healthy({
+    schema: drift({ requiredTablesOk: true, latestApplicationSchemaReady: true }),
+    availability: { state: "missed-deadline", note: null },
+  }));
+  assert.ok(!d.facts.some((f) => f.startsWith("schema:")), "a healthy schema must not manufacture a fact");
+});
+
+test("unavailable schema source is an alertable unknown, never green", () => {
+  const d = decideOpsAlert(healthy({
+    schema: null,
+    availability: { state: "ready", note: null },
+    proofs: okProofs,
+  }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "warning");
+  assert.ok(d.facts.some((f) => f.includes("schema: application-schema readiness unknown")));
+});
+
+test("a schema verdict that is present but null stays alertable", () => {
+  const d = decideOpsAlert(healthy({
+    schema: drift({ requiredTablesOk: true, latestApplicationSchemaReady: null }),
+  }));
+  assert.equal(d.alert, true);
+  assert.ok(d.facts.some((f) => f.includes("could not be verified")));
+});
