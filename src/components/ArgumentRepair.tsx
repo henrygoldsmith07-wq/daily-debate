@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ArgGraph } from "@/lib/argGraph";
 import type { RepairTarget } from "@/lib/argumentRepair";
 import { pickRepairTarget, scoreRepair, type RepairScore, type RepairState } from "@/lib/argumentRepair";
+import { WEAKNESS_CONSEQUENCE, repairSuccessTransition } from "@/lib/retest";
 import { trackEvent } from "@/lib/trackClientEvent";
 
 interface RepairFeedback {
@@ -97,6 +98,13 @@ export default function ArgumentRepair({
       </div>
 
       <div>
+        <p className="text-xs uppercase tracking-wide text-ink3">Why it weakened the argument</p>
+        <p className="mt-1 text-sm leading-6 text-ink2" data-testid="repair-consequence">
+          {WEAKNESS_CONSEQUENCE[target.kind] ?? "This move left an opening a careful opponent would use."}
+        </p>
+      </div>
+
+      <div>
         <p className="text-sm font-semibold text-ink">{target.title}</p>
         <p className="mt-1 text-sm leading-6 text-ink3">{target.prompt}</p>
       </div>
@@ -138,6 +146,17 @@ export default function ArgumentRepair({
           </div>
           {"feedback" in shown && shown.feedback && (
             <p className="mt-1 text-sm text-ink2">{shown.feedback}</p>
+          )}
+          {shown.succeeded && (
+            (() => {
+              const transition = repairSuccessTransition(target.kind, target.label);
+              return (
+                <div className="mt-2 rounded-lg border border-[var(--success)]/30 bg-[var(--success-soft)] p-3" data-testid="repair-transition">
+                  <p className="text-sm font-semibold text-[var(--success)]">{transition.headline}</p>
+                  <p className="mt-1 text-xs leading-5 text-ink2">{transition.body}</p>
+                </div>
+              );
+            })()
           )}
           <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-ink3">
             {shown.succeeded ? "What worked" : "What to add"}

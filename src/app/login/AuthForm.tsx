@@ -1,10 +1,26 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { signIn, signUp, type AuthState } from "./actions";
+import { GUEST_LOOP_STORAGE_KEY, parseGuestLoopSummary, encodeGuestLoopSummary } from "@/lib/guestLoop";
 
 const initialState: AuthState = { error: null };
+
+function readGuestLoopJson(): string {
+  try {
+    const raw = window.localStorage.getItem(GUEST_LOOP_STORAGE_KEY);
+    const parsed = parseGuestLoopSummary(raw);
+    return parsed ? encodeGuestLoopSummary(parsed) : "";
+  } catch {
+    return "";
+  }
+}
+
+function subscribeGuestLoop(onStoreChange: () => void): () => void {
+  window.addEventListener("storage", onStoreChange);
+  return () => window.removeEventListener("storage", onStoreChange);
+}
 
 export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
@@ -20,6 +36,15 @@ export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
   const action = mode === "sign-in" ? signInAction : signUpAction;
   const state = mode === "sign-in" ? signInState : signUpState;
   const pending = mode === "sign-in" ? signInPending : signUpPending;
+
+  // A completed guest practice loop rides along to signup so the new account
+  // keeps the result instead of starting from zero. useSyncExternalStore keeps
+  // the server render empty (no hydration mismatch) and avoids setState-in-effect.
+  const guestLoopJson = useSyncExternalStore(
+    subscribeGuestLoop,
+    readGuestLoopJson,
+    () => "",
+  );
 
   return (
     <div className="surface-raised flex w-full max-w-sm flex-col gap-6 p-6">
@@ -49,6 +74,7 @@ export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
       <form action={action} onSubmit={prepareTimeZone} className="flex flex-col gap-4">
         <input type="hidden" name="next" value={nextPath} />
         <input ref={timeZoneRef} type="hidden" name="timeZone" defaultValue="UTC" />
+        <input type="hidden" name="guestContext" value={guestLoopJson} />
         {mode === "sign-up" && (
           <label className="flex flex-col gap-1 text-sm">
             Display name

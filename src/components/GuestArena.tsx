@@ -13,6 +13,11 @@ import {
   type GuestSkill,
 } from "@/lib/guestAssessment";
 import { guestMotionForDay, type GuestMotion } from "@/lib/guestMotions";
+import {
+  encodeGuestLoopSummary,
+  GUEST_LOOP_STORAGE_KEY,
+  type GuestLoopSummary,
+} from "@/lib/guestLoop";
 
 // The guest loop mirrors the signed-in product loop:
 //   debate -> one weakness -> fix it now -> retest it -> see what moved.
@@ -547,7 +552,8 @@ function GuestRetest({
   weaknessKind: GuestSkill;
   weaknessLabel: string;
   repairText: string;
-  onFinish: () => void;
+  /** Finish the retest, reporting whether the repaired behaviour was observed. */
+  onFinish: (demonstrated: boolean) => void;
 }) {
   // A fresh round of the same debate, at higher pressure than the drill: this
   // is the deliberate retest of the repaired move.
@@ -631,7 +637,11 @@ function GuestRetest({
           </section>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <button type="button" onClick={onFinish} className="btn btn-secondary px-4 py-3 text-sm">
+            <button
+              type="button"
+              onClick={() => onFinish(outcome?.demonstrated === true)}
+              className="btn btn-secondary px-4 py-3 text-sm"
+            >
               Finish guest practice
             </button>
             <Link href="/login" className="btn btn-primary px-4 py-3 text-center text-sm">
@@ -655,6 +665,27 @@ export default function GuestArena() {
 
   // Rotated by UTC day: deterministic, free, and no server state.
   const motion = guestMotionForDay(new Date().toISOString().slice(0, 10));
+
+  function finishRetest(demonstrated: boolean) {
+    // The completed loop is worth keeping: store a bounded summary for the
+    // signup form so an account picks up where the guest left off. Best
+    // effort — private browsing may deny storage; the flow still finishes.
+    const assessment = assessGuestPractice(responses, motion.rounds.map((round) => round.opponent));
+    const summary: GuestLoopSummary = {
+      motion: motion.motion,
+      weaknessKind: assessment.weakness.kind,
+      weaknessLabel: assessment.weakness.label,
+      repairState: repair ? (demonstrated ? "repair_demonstrated" : "partially_repaired") : "needs_another_pass",
+      repairSucceeded: !!repair,
+      retestOutcome: demonstrated ? "observed" : "not-observed",
+      completedAt: new Date().toISOString(),
+    };
+    try {
+      localStorage.setItem(GUEST_LOOP_STORAGE_KEY, encodeGuestLoopSummary(summary));
+    } catch {
+      // Storage unavailable — nothing to carry through, nothing broken.
+    }
+  }
 
   function restart() {
     setStage("home");
@@ -706,7 +737,10 @@ export default function GuestArena() {
         weaknessKind={repair.kind}
         weaknessLabel={repair.label}
         repairText={repair.text}
-        onFinish={restart}
+        onFinish={(demonstrated) => {
+          finishRetest(demonstrated);
+          restart();
+        }}
       />
     );
   }

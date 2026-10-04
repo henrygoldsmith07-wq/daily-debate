@@ -43,7 +43,6 @@ export default function TopicCard({
   isFirstVisit = false,
   motionReason = null,
   retestMode = false,
-  retestRepairId = null,
 }: {
   topic: DailyTopic;
   activeDebateId: string | null;
@@ -59,8 +58,6 @@ export default function TopicCard({
   motionReason?: string | null;
   /** Deliberate retest: today measures transfer of a repaired skill. */
   retestMode?: boolean;
-  /** Repair this debate deliberately retests; sent to /api/solo/start. */
-  retestRepairId?: string | null;
 }) {
   const router = useRouter();
   const [side, setSide] = useState<SideChoice>("challenge");
@@ -78,7 +75,7 @@ export default function TopicCard({
       const res = await fetch("/api/solo/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicId: topic.id, side, format, retestFor: retestRepairId }),
+        body: JSON.stringify({ topicId: topic.id, side, format }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start debate.");

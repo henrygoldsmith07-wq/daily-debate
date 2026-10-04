@@ -19,9 +19,11 @@
 
 import type { ArgGraph, Owner } from "./argGraph";
 import { countWeaknessesForSide, debateOpportunities, hasOpportunity, weaknessKindsFor, type DebateWeaknessRow } from "./repairEffectiveness";
-import { isRepairKind, type RepairKind } from "./argumentRepair";
+import { isRepairKind, repairStateFromScore, type RepairKind, type RepairState } from "./argumentRepair";
 
-export type RepairFormativeState = "needs-another-pass" | "partially-repaired" | "repair-demonstrated";
+export type { RepairState, RepairKind };
+
+export type RepairFormativeState = RepairState;
 
 export type RetestOutcome =
   | "skill-observed"
@@ -51,22 +53,26 @@ export interface RepairRecord {
   retest_completed_at?: string | null;
 }
 
-/** Three formative repair states. Derived from observable scoring signals. */
-export function formativeStateFor(score: number, succeeded: boolean): RepairFormativeState {
-  if (succeeded) return "repair-demonstrated";
-  return score >= 35 ? "partially-repaired" : "needs-another-pass";
+/**
+ * Formative repair state, delegated to the canonical scorer vocabulary
+ * (argumentRepair) — one definition across the repair flow, Progress and the
+ * skill journey. `succeeded` is an explicit attempt-level outcome, so a
+ * successful rewrite always reads repair_demonstrated regardless of score.
+ */
+export function formativeStateFor(score: number, succeeded: boolean): RepairState {
+  return succeeded ? "repair_demonstrated" : repairStateFromScore(score);
 }
 
-export const FORMATIVE_STATE_LABELS: Record<RepairFormativeState, string> = {
-  "needs-another-pass": "Needs another pass",
-  "partially-repaired": "Partially repaired",
-  "repair-demonstrated": "Repair demonstrated",
+export const FORMATIVE_STATE_LABELS: Record<RepairState, string> = {
+  needs_another_pass: "Needs another pass",
+  partially_repaired: "Partially repaired",
+  repair_demonstrated: "Repair demonstrated",
 };
 
-export const FORMATIVE_STATE_DETAIL: Record<RepairFormativeState, string> = {
-  "needs-another-pass": "The rewrite hasn't added the missing component yet.",
-  "partially-repaired": "One part of the move is fixed; the rest is still missing.",
-  "repair-demonstrated": "The rewrite contains the missing component.",
+export const FORMATIVE_STATE_DETAIL: Record<RepairState, string> = {
+  needs_another_pass: "The rewrite hasn't added the missing component yet.",
+  partially_repaired: "One part of the move is fixed; the rest is still missing.",
+  repair_demonstrated: "The rewrite contains the missing component.",
 };
 
 /**

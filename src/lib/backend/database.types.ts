@@ -10,6 +10,8 @@ export type ProfileRow = {
   last_activity_date: string | null;
   timezone: string;
   timezone_initialized_at: string | null;
+  /** Guest practice loop summary carried through signup (migration 035). */
+  guest_context: unknown;
   created_at: string;
 };
 

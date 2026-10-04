@@ -94,10 +94,6 @@ export interface CoachingRecord {
   weaknessKind?: string | null;
   /** How many recent prior debates showed the same weakness (0 = first). */
   recurrenceCount?: number | null;
-  /** Deliberate retest trace (migration 016): which repair this debate retested. */
-  retestFor?: string | null;
-  retestKind?: string | null;
-  retestOutcome?: string | null;
 }
 
 export const COACHING_CONTEXT_DEGRADATION_REASONS = [

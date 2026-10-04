@@ -8,6 +8,7 @@ import { createClient } from "@/lib/backend/server";
 import { checkRateLimitKey } from "@/lib/rateLimit";
 import { safeReturnPath } from "@/lib/authRedirect";
 import { normalizeIanaTimeZone } from "@/lib/timeZone";
+import { parseGuestLoopSummary } from "@/lib/guestLoop";
 
 export interface AuthState {
   error: string | null;
@@ -80,8 +81,12 @@ export async function signUp(_prevState: AuthState, formData: FormData): Promise
   if (await authActionLimited("auth-sign-up", email, { ip: 8, identity: 3, windowMs: 60 * 60_000 })) {
     return { error: AUTH_LIMIT_MESSAGE };
   }
+  // A completed guest practice loop is carried into the new account so the
+  // first signed-in experience starts from that result. Re-validated and
+  // bounded here — the client value is never trusted as-is.
+  const guestContext = parseGuestLoopSummary(formData.get("guestContext"));
   const db = await createClient();
-  const { error } = await db.auth.signUp({
+  const { data, error } = await db.auth.signUp({
     email,
     password: String(formData.get("password")),
     options: {
@@ -92,6 +97,14 @@ export async function signUp(_prevState: AuthState, formData: FormData): Promise
     },
   });
   if (error) return { error: error.message };
+
+  if (guestContext && data.user) {
+    try {
+      await db.from("profiles").update({ guest_context: guestContext }).eq("id", data.user.id);
+    } catch {
+      // Non-critical: the account exists either way; the loop summary is best-effort.
+    }
+  }
 
   revalidatePath("/", "layout");
   redirect(nextPath);

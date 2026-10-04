@@ -29,10 +29,16 @@ interface RetestRow {
   demonstrated: boolean | null;
 }
 
-/** Map main's assignment-row semantics to the four truthful retest outcomes. */
-function outcomeFromAssignment(row: RetestRow): RetestOutcome | null {
+/**
+ * Map main's assignment-row semantics to the four truthful retest outcomes.
+ * `demonstrated: null` means the debate did not support a judgement — a
+ * 3-round sprint is too small a sample to judge the skill either way — so it
+ * reads "not enough evidence", never a clean failure or success claim.
+ */
+function outcomeFromAssignment(row: RetestRow, format: string | null): RetestOutcome | null {
   if (!row.completed_at || row.observable === null) return null;
   if (!row.observable) return "no-valid-opportunity";
+  if (format === "sprint" || row.demonstrated === null) return "not-enough-evidence";
   return row.demonstrated ? "skill-observed" : "skill-not-observed";
 }
 
@@ -48,7 +54,7 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
       .limit(50),
     db
       .from("solo_debates")
-      .select("id, completed_at")
+      .select("id, completed_at, format")
       .eq("user_id", userId)
       .eq("status", "completed")
       .order("completed_at", { ascending: true })
@@ -70,13 +76,22 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
     }
   }
 
+  // Retest verdicts need the assigned debate's format: a sprint retest is
+  // "not enough evidence", not a clean pass/fail.
+  const debateFormat = new Map<string, string>();
+  for (const debate of debates ?? []) {
+    debateFormat.set(debate.id as string, debate.format as string);
+  }
+
   const repairs: RepairRecord[] = (repairRows ?? []).map((row) => {
     const r = row as unknown as RepairRecord & { id: string };
     const retest = retestByRepair.get(r.id);
     return {
       ...r,
       retest_debate_id: retest?.assigned_debate_id ?? null,
-      retest_outcome: retest ? outcomeFromAssignment(retest) : null,
+      retest_outcome: retest
+        ? outcomeFromAssignment(retest, debateFormat.get(retest.assigned_debate_id) ?? null)
+        : null,
       retest_completed_at: retest?.completed_at ?? null,
     };
   });

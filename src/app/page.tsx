@@ -14,8 +14,24 @@ import { isDatabaseConfigured } from "@/lib/backend/env";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { asRepairAttemptLite, latestUnfinishedRepair } from "@/lib/repairResume";
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
+import { resolvePracticeMotion, type DueRetest } from "@/lib/practiceMotion";
+import { pickPriority } from "@/lib/dailyFocus";
 
 export const dynamic = "force-dynamic";
+
+const RETEST_SKILL_LABEL: Record<string, string> = {
+  evidence: "Evidence",
+  rebuttal: "Rebuttal",
+  logic: "Logic",
+  clarity: "Clarity",
+  impact: "Impact",
+  steelmanning: "Steelmanning",
+  structure: "Structure",
+};
+
+function pendingRetestLabel(dimension: string): string {
+  return RETEST_SKILL_LABEL[dimension] ?? dimension;
+}
 
 function formatShortDate(value: string | null | undefined, timeZone: string): string {
   if (!value) return "Date unknown";
@@ -37,10 +53,33 @@ export default async function DashboardPage() {
   }
 
   // getTodayTopic never throws — it falls back to a curated motion when
-  // nothing is pre-stored, so the dashboard always has content.
-  const topic = await getTodayTopic();
+  // nothing is pre-stored, so the dashboard always has content. Motion
+  // personalisation then picks (and explains) the best motion for this user,
+  // enforcing the retest different-topic rule at the motion layer.
+  const sharedTopic = await getTodayTopic();
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, coachingContext] =
+  const coachingContext = await loadCoachingContext(user.id, { currentTopicId: sharedTopic.id });
+
+  // Motion personalisation: the shared daily motion stays the default; a
+  // different motion is served only when it clearly helps — above all when a
+  // due retest needs a genuinely different topic from the repaired debate.
+  const oldestPending = coachingContext.pendingRetests[0] ?? null;
+  const dueRetest: DueRetest | null = oldestPending
+    ? {
+        topicId: oldestPending.topicId,
+        attemptedAt: oldestPending.attemptedAt,
+        dimension: oldestPending.dimension,
+      }
+    : null;
+  const motion = await resolvePracticeMotion({
+    userId: user.id,
+    shared: sharedTopic,
+    dueRetest,
+    focus: null,
+  });
+  const topic = motion.topic;
+
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -66,7 +105,6 @@ export default async function DashboardPage() {
         .order("completed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      loadCoachingContext(user.id, { currentTopicId: topic.id }),
     ]);
   const ledger = coachingContext.ledger;
   const { data: repairAttempts } = await db
@@ -120,6 +158,20 @@ export default async function DashboardPage() {
   );
   const focusDimension: CoachDimension | null = goal?.dimension ?? null;
 
+  // ── Continue training: one priority action, never competing cards ────────
+  const priority = pickPriority({
+    unfinishedRepair: unfinishedRepair
+      ? {
+          debateId: unfinishedRepair.debateId,
+          label: unfinishedRepair.label,
+          nextCue: unfinishedRepair.nextCue,
+        }
+      : null,
+    dueRetest: motion.servesRetest && pendingRetest ? { label: goal?.dimension ? pendingRetestLabel(goal.dimension) : "the repaired skill" } : null,
+    openDrill: null,
+    debateAvailable: !activeDebate,
+  });
+
   const today = new Intl.DateTimeFormat("en-GB", {
     weekday: "long",
     day: "numeric",
@@ -151,7 +203,9 @@ export default async function DashboardPage() {
         evidenceCards={(evidenceRows ?? []) as unknown as EvidenceCardView[]}
         goalLine={goal?.goalLine ?? "Use evidence for major claims."}
         lastLine={goal?.lastLine ?? null}
-        focusLabel={pendingRetest ? "Retest after repair" : "Today's focus"}
+        focusLabel={motion.servesRetest && pendingRetest ? "Retest after repair" : "Today's focus"}
+        motionReason={motion.reasonLine}
+        retestMode={motion.servesRetest}
         isFirstVisit={!previousDebate}
       />
       {coachingContext.status !== "ok" && (
@@ -160,31 +214,26 @@ export default async function DashboardPage() {
         </p>
       )}
 
-      {unfinishedRepair && (
+      {/* ── Continue training: the single highest-priority unfinished action ── */}
+      {priority && priority.kind !== "debate" && (
         <section
           className="surface-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-          aria-labelledby="unfinished-repair-heading"
-          data-testid="unfinished-repair"
+          aria-labelledby="continue-training-heading"
+          data-testid="continue-training"
         >
           <div className="min-w-0">
-            <p className="home-secondary-kicker">Continue your repair</p>
-            <h2 id="unfinished-repair-heading" className="mt-1 text-base font-semibold">
-              Finish the {unfinishedRepair.label.toLowerCase()} rewrite
+            <p className="home-secondary-kicker">Continue training</p>
+            <h2 id="continue-training-heading" className="mt-1 text-base font-semibold">
+              {priority.title}
             </h2>
-            <p className="mt-1 text-sm leading-6 text-ink3">
-              {unfinishedRepair.state === "partially_repaired"
-                ? "Your last version partially repaired the weak link, but one required move is still missing."
-                : "Your last version still needs another pass before this repair is demonstrated."}
-            </p>
-            {unfinishedRepair.nextCue && (
-              <p className="mt-1 text-xs text-ink2">Next cue: {unfinishedRepair.nextCue}</p>
-            )}
+            <p className="mt-1 text-sm leading-6 text-ink3">{priority.detail}</p>
           </div>
           <Link
-            href={`/debate/${unfinishedRepair.debateId}`}
+            href={priority.href}
             className="btn btn-primary shrink-0 px-4 py-2 text-center text-sm"
+            data-testid={`priority-${priority.kind}`}
           >
-            Retry repair →
+            {priority.action} →
           </Link>
         </section>
       )}

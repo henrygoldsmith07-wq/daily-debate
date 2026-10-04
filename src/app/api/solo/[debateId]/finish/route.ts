@@ -326,7 +326,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     retestCompletion = {
       repairResultId: coaching.repairRetest.repairResultId ?? null,
       observable,
-      demonstrated: observable ? snapshot.goalOutcome.demonstrated === true : null,
+      // A sprint retest observes the skill but cannot judge it — the sample is
+      // too small — so it records no demonstrated verdict rather than a
+      // pass/fail the evidence cannot support.
+      demonstrated: observable && format !== "sprint"
+        ? snapshot.goalOutcome.demonstrated === true
+        : null,
     };
   }
   const resultPayload: PersistedSoloResult = {

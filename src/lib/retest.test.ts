@@ -45,22 +45,22 @@ const evidence = (id: string, owner: "a" | "ai"): ArgNode => ({
 
 describe("formativeStateFor", () => {
   it("maps score bands to the three formative states", () => {
-    expect(formativeStateFor(85, true)).toBe("repair-demonstrated");
-    expect(formativeStateFor(50, false)).toBe("partially-repaired");
-    expect(formativeStateFor(10, false)).toBe("needs-another-pass");
+    expect(formativeStateFor(85, true)).toBe("repair_demonstrated");
+    expect(formativeStateFor(50, false)).toBe("partially_repaired");
+    expect(formativeStateFor(10, false)).toBe("needs_another_pass");
   });
 });
 
 describe("formativeCheck", () => {
   it("names exactly one still-missing component", () => {
     const check = formativeCheck(50, false, ["names evidence or a source"]);
-    expect(check.state).toBe("partially-repaired");
+    expect(check.state).toBe("partially_repaired");
     expect(check.missing).toBe("names evidence or a source");
   });
 
   it("reports no missing component once the repair is demonstrated", () => {
     const check = formativeCheck(85, true, []);
-    expect(check.state).toBe("repair-demonstrated");
+    expect(check.state).toBe("repair_demonstrated");
     expect(check.missing).toBeNull();
   });
 });
