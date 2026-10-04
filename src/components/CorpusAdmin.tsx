@@ -37,6 +37,17 @@ interface ReliabilityReport {
     nextStage: string | null;
     cellsNeedingCoverage: string[];
   };
+  validationStages: Array<{
+    id: 1 | 2 | 3;
+    title: string;
+    minDebates: number;
+    minRatings: number;
+    debatesQualifying: number;
+    ratingsOnQualifying: number;
+    missing: string;
+    achieved: boolean;
+    balancedStrata?: { state: "met" | "not-met" | "not-computable"; detail: string };
+  }>;
   strata: {
     byLength: Record<string, number>;
     byAbility: Record<string, number>;
@@ -163,6 +174,50 @@ export default function CorpusAdmin() {
           {notice}
         </p>
       )}
+
+      {/* ── Validation stages: movement toward human-validity targets ────── */}
+      <section className="surface-card flex flex-col gap-3 p-5" data-testid="validation-stages">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold">Validation stages</h2>
+          <a
+            href="/api/corpus/export"
+            className="btn btn-ghost px-3 py-1.5 text-xs underline underline-offset-2"
+            data-testid="export-csv"
+          >
+            Export CSV
+          </a>
+        </div>
+        <p className="text-xs text-ink3">
+          Counts come from real rating rows only. Stage 3&apos;s strata balance is reported as unknown until stratum
+          metadata supports computing it — never assumed.
+        </p>
+        <ul className="flex flex-col gap-2">
+          {(report.validationStages ?? []).map((stage) => (
+            <li key={stage.id} className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3" data-testid={`validation-stage-${stage.id}`}>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-sm font-medium">{stage.title}</span>
+                <span className="tabular text-xs text-ink3">
+                  {stage.debatesQualifying} / {stage.minDebates} debates × ≥{stage.minRatings} ratings
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface">
+                <div
+                  className="h-full rounded-full bg-[var(--accent)]"
+                  style={{
+                    width: `${Math.min(100, Math.round((stage.debatesQualifying / stage.minDebates) * 100))}%`,
+                  }}
+                />
+              </div>
+              <p className="mt-1.5 text-xs text-ink3">
+                {stage.ratingsOnQualifying} ratings on qualifying debates · {stage.missing}
+                {stage.balancedStrata && stage.balancedStrata.state === "not-computable" && (
+                  <span className="text-amber-600"> ({stage.balancedStrata.detail})</span>
+                )}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <p className="text-xs text-ink3">
         Published view:{" "}

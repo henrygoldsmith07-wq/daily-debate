@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/backend/server";
-import { CALIBRATION_RATERS_PER_ITEM, completeScores, populationProgress } from "@/lib/corpus";
+import { CALIBRATION_RATERS_PER_ITEM, completeScores, populationProgress, STRATUM_MINIMUM } from "@/lib/corpus";
+import { buildValidationStages } from "@/lib/validationStage";
 import { iccTwoWay, EVAL_DIMENSIONS, type SideScores } from "@/lib/debateEvaluation";
 import { computeCorpusMetrics, type MetricItem, type MetricRating } from "@/lib/corpusMetrics";
 import type { WinnerLabel } from "@/lib/humanCorpus";
@@ -122,6 +123,15 @@ export async function GET() {
     bFirst: ratings.filter((r) => r.presented_first === "b").length,
   };
 
+  // Validation-stage progress: real rows only. Strata balance is computed
+  // when the corpus carries stratum metadata; it is reported "not-computable"
+  // otherwise, never assumed to pass.
+  const validationStages = buildValidationStages({
+    ratingCounts,
+    strata: { ...progress.byLength, ...progress.byAbility, ...progress.bySubject },
+    strataMinimum: STRATUM_MINIMUM,
+  });
+
   return NextResponse.json({
     totalItems: progress.totalItems,
     fullyRatedItems: progress.fullyRatedItems,
@@ -139,6 +149,7 @@ export async function GET() {
     humanValidation: metrics.humanValidation,
     judgeVsHuman: metrics.judgeVsHuman,
     perDimensionIcc,
+    validationStages,
     strata: {
       byLength: progress.byLength,
       byAbility: progress.byAbility,

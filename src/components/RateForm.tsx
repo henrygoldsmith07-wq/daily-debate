@@ -66,6 +66,9 @@ export default function RateForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ratedCount, setRatedCount] = useState<number | null>(null);
+  const [sessionRatings, setSessionRatings] = useState(0);
+  const [itemRatingCount, setItemRatingCount] = useState<number | null>(null);
+  const [ratersRequired, setRatersRequired] = useState<number>(2);
   const [scoresA, setScoresA] = useState<ScoreMap>({});
   const [scoresB, setScoresB] = useState<ScoreMap>({});
   const [winner, setWinner] = useState<"a" | "b" | "tie">("tie");
@@ -81,6 +84,8 @@ export default function RateForm() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load an item.");
       if (data.myRatingsCount !== undefined) setRatedCount(data.myRatingsCount);
+      if (typeof data.itemRatingCount === "number") setItemRatingCount(data.itemRatingCount);
+      if (typeof data.ratersRequired === "number") setRatersRequired(data.ratersRequired);
       if (!data.item) {
         setItem(null);
         setEmptyNote(data.note ?? "No unrated items available.");
@@ -117,6 +122,7 @@ export default function RateForm() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to submit your rating.");
+      setSessionRatings((n) => n + 1);
       void loadNext();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit your rating.");
@@ -130,8 +136,17 @@ export default function RateForm() {
       <div className="surface-card p-5">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-sm font-semibold">Rater guidance</h2>
-          {ratedCount !== null && <p className="tabular text-xs text-ink3">{ratedCount} rated by you</p>}
+          <p className="tabular text-xs text-ink3">
+            {ratedCount !== null && `${ratedCount} rated by you`}
+            {ratedCount !== null && sessionRatings > 0 && " · "}
+            {sessionRatings > 0 && `${sessionRatings} this session`}
+          </p>
         </div>
+        {itemRatingCount !== null && (
+          <p className="mt-1 text-xs text-ink3" data-testid="item-coverage">
+            This debate has {itemRatingCount} of {ratersRequired} ratings — your rating moves it toward coverage.
+          </p>
+        )}
         <p className="mt-2 whitespace-pre-line text-xs leading-relaxed text-ink3">{RATER_GUIDANCE}</p>
         <p className="mt-2 text-xs text-ink3">
           Sides are anonymised — you never see who argued or which side was the AI. Score both sides honestly.
