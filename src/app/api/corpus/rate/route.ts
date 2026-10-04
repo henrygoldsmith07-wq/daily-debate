@@ -72,6 +72,9 @@ export async function GET(request: Request) {
   return NextResponse.json({
     item: { id: next.id, transcript, topic: next.topic },
     presentedFirst,
+    // Neutral coverage state: how many ratings this item has (never who
+    // rated it or what they said). The bar shown is the calibration target.
+    itemRatingCount: typeof next.rating_count === "number" ? next.rating_count : 0,
     pilotRatersRequired: MIN_RATERS_PER_ITEM,
     ratersRequired: CALIBRATION_RATERS_PER_ITEM,
     myRatingsCount,

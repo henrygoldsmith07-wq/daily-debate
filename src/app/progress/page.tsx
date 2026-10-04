@@ -19,6 +19,10 @@ import { computeLoopStatuses, type DrillAssignmentLite, type LoopStage } from "@
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getCurrentUser } from "@/lib/currentViewer";
 import { getTodayTopic } from "@/lib/dailyTopic";
+import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
+import { buildSkillJourney, buildRecentlyImproved, journeyObservationsFor } from "@/lib/skillJourney";
+import { buildMilestones } from "@/lib/milestones";
+import { FORMATIVE_STATE_LABELS } from "@/lib/retest";
 
 export const dynamic = "force-dynamic";
 
@@ -129,6 +133,16 @@ export default async function ProgressPage() {
 
   const summary = buildProgressSummary(ledger.points);
   const training = buildTrainingProgress(ledger.points);
+  const journeyInputs = await buildJourneyInputsForUser(user.id);
+  const journey = buildSkillJourney(journeyInputs.repairs, journeyInputs.weaknessRows);
+  const recentlyImproved = buildRecentlyImproved(journey);
+  const milestones = buildMilestones({
+    repairs: journeyInputs.repairs,
+    observationsByKind: Object.fromEntries(
+      journeyInputs.repairs.map((r) => [r.target_kind, journeyObservationsFor(r.target_kind, journeyInputs.weaknessRows)]),
+    ),
+    completedLoops: journeyInputs.repairs.filter((r) => r.retest_completed_at).length,
+  });
   const sourceWindow = ledger.sourceWindow;
   const progressDescription =
     sourceWindow.truncated === true && sourceWindow.totalCompletedDebates !== null
@@ -163,6 +177,75 @@ export default async function ProgressPage() {
         <p className="text-xs text-ink3" role="status">
           Drill history is temporarily unavailable; learning-loop cards are hidden rather than treating missing assignments as zero practice.
         </p>
+      )}
+
+      {/* ── Recently improved: 1–3 real changes, no metric wall ──────────── */}
+      {recentlyImproved.length > 0 && (
+        <section className="surface-card p-5" aria-labelledby="recent-improved" data-testid="recently-improved">
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">Recently improved</p>
+          <ul className="mt-2 flex flex-col gap-2">
+            {recentlyImproved.map((item) => (
+              <li key={item.label} className="text-sm leading-6 text-ink2">
+                <span className="font-semibold text-ink">{item.label}:</span> {item.line}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] leading-4 text-ink3">
+            Observable changes from your own debate history, with their sample size. Not a verdict on ability.
+          </p>
+        </section>
+      )}
+
+      {/* ── Skill Journey: the improvement stories, evidence behind them ─── */}
+      {journey.length > 0 && (
+        <section aria-labelledby="skill-journey">
+          <div className="section-heading">
+            <h2 id="skill-journey">Skill journey</h2>
+            <span className="section-heading-note">weakness → repair → retest → evidence</span>
+          </div>
+          <div className="flex flex-col gap-3">
+            {journey.map((entry) => (
+              <article key={entry.dimension} className="rounded-xl border border-[var(--rule)] bg-surface-2 p-4" data-testid={`journey-${entry.dimension}`}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 className="text-sm font-semibold">{entry.label}</h3>
+                  <span className="text-xs text-ink3">{entry.evidence.note}</span>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-ink2" data-testid="journey-story">
+                  {entry.story ?? entry.currentState}
+                </p>
+                <ol className="mt-3 flex flex-col gap-1.5 text-xs text-ink3">
+                  {entry.trigger && (
+                    <li><span className="font-medium text-ink2">Weakness:</span> {entry.trigger.detail}</li>
+                  )}
+                  {entry.repair && (
+                    <li>
+                      <span className="font-medium text-ink2">Repair:</span>{" "}
+                      {FORMATIVE_STATE_LABELS[entry.repair.state as keyof typeof FORMATIVE_STATE_LABELS] ?? entry.repair.state}
+                      {" — "}one rewrite of the flagged move.
+                    </li>
+                  )}
+                  {entry.retest && (
+                    <li data-testid="journey-retest">
+                      <span className="font-medium text-ink2">Retest:</span> {entry.retest.label}
+                    </li>
+                  )}
+                  {entry.laterObservations.length > 0 && (
+                    <li>
+                      <span className="font-medium text-ink2">Since:</span>{" "}
+                      {entry.evidence.opportunitiesMet} of {entry.evidence.opportunitiesObserved} chances met across{" "}
+                      {entry.evidence.eligibleDebates} eligible {entry.evidence.eligibleDebates === 1 ? "debate" : "debates"}.
+                    </li>
+                  )}
+                </ol>
+                {!entry.evidence.sufficient && (
+                  <p className="mt-2 text-[11px] leading-4 text-ink3">
+                    Evidence is still too limited for a strong claim — this is what has been observed so far, not a verdict.
+                  </p>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* ── The seven skills: evidence-backed direction, no synthetic rating ── */}
@@ -359,6 +442,29 @@ export default async function ProgressPage() {
       <div id="daily-drill">
         <CoachToday showProfile={false} />
       </div>
+
+      {/* ── Milestones: behaviour that actually happened ───────────────────── */}
+      <section className="surface-card p-5" aria-labelledby="milestones-heading" data-testid="milestones">
+        <h2 id="milestones-heading" className="text-sm font-semibold">Practice milestones</h2>
+        <p className="mt-1 text-xs text-ink3">Based on what you actually did — not points.</p>
+        <ul className="mt-3 flex flex-col gap-2">
+          {milestones.map((m) => (
+            <li key={m.id} className="flex items-start gap-2 text-sm" data-testid={`milestone-${m.id}`}>
+              <span className={m.achieved ? "text-[var(--success)]" : "text-ink3"} aria-hidden="true">
+                {m.achieved ? "✓" : "○"}
+              </span>
+              <span>
+                <span className={m.achieved ? "font-medium text-ink" : "text-ink2"}>{m.title}</span>
+                <span className="block text-xs leading-5 text-ink3">
+                  {m.detail}
+                  {m.remaining && !m.achieved && ` ${m.remaining}`}
+                  {m.achievedAt && ` (${m.achievedAt})`}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       {/* ── How this was calculated (progressive disclosure) ──────────────── */}
       <details className="surface-card p-5">

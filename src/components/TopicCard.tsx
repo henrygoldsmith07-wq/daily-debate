@@ -41,6 +41,9 @@ export default function TopicCard({
   lastLine,
   focusLabel = "Today's focus",
   isFirstVisit = false,
+  motionReason = null,
+  retestMode = false,
+  retestRepairId = null,
 }: {
   topic: DailyTopic;
   activeDebateId: string | null;
@@ -52,6 +55,12 @@ export default function TopicCard({
   focusLabel?: string;
   /** First-run onboarding: replaces the goal card with a how-it-works line. */
   isFirstVisit?: boolean;
+  /** Why this motion was picked for this user (null = shared daily motion). */
+  motionReason?: string | null;
+  /** Deliberate retest: today measures transfer of a repaired skill. */
+  retestMode?: boolean;
+  /** Repair this debate deliberately retests; sent to /api/solo/start. */
+  retestRepairId?: string | null;
 }) {
   const router = useRouter();
   const [side, setSide] = useState<SideChoice>("challenge");
@@ -69,7 +78,7 @@ export default function TopicCard({
       const res = await fetch("/api/solo/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicId: topic.id, side, format }),
+        body: JSON.stringify({ topicId: topic.id, side, format, retestFor: retestRepairId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start debate.");
@@ -91,7 +100,7 @@ export default function TopicCard({
     <section className="home-motion-card surface-card" aria-labelledby="today-motion">
       <div className="home-motion-heading">
         <div>
-          <p className="home-motion-kicker">Today&apos;s motion</p>
+          <p className="home-motion-kicker">{retestMode ? "Today's retest motion" : "Today's motion"}</p>
           <p className="home-motion-meta">Three focused rounds · about 4 minutes</p>
         </div>
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">
@@ -103,6 +112,11 @@ export default function TopicCard({
         <div>
           <h2 id="today-motion" className="home-motion-title">{topic.title}</h2>
           <p className="home-motion-prompt">{topic.prompt}</p>
+          {motionReason && (
+            <p className="mt-2 text-xs leading-5 text-ink3" data-testid="motion-reason">
+              <span className="font-medium text-ink2">Why this motion?</span> {motionReason}
+            </p>
+          )}
         </div>
 
         <div className="home-coaching-focus">
