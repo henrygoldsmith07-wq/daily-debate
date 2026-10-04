@@ -2,6 +2,8 @@ import { POPULATION_TARGET_ITEMS, VALIDATION_STAGES, validationStageForCoverage 
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadPublicCorpusMetrics } from "@/lib/publicCorpusMetrics";
+import { loadJudgeValidation } from "@/lib/judgeValidationServer";
+import { allowsCompetitiveClaims, type SurfaceId, type SurfaceValidation } from "@/lib/judgeValidation";
 
 export const dynamic = "force-dynamic";
 
@@ -20,8 +22,27 @@ function ciStr(g: { estimate: number | null; ciLower: number | null; ciUpper: nu
   return `${g.estimate}% CI [${g.ciLower}–${g.ciUpper}] · n=${g.n}`;
 }
 
+const SURFACE_LABELS: Record<SurfaceId, string> = {
+  "solo-training": "Solo training",
+  repair: "Weak-link repair",
+  "pvp-verdict": "PvP verdicts",
+  guest: "Guest practice",
+};
+
+/**
+ * Status colours. `unknown` is deliberately styled like a blocked state, not
+ * a neutral one: an unreadable benchmark is a hole in the evidence, and
+ * rendering it as "fine" is exactly the failure this surface exists to stop.
+ */
+function statusStyle(s: SurfaceValidation): string {
+  if (s.status === "validated") return "bg-emerald-100 text-emerald-900";
+  if (s.status === "provisional") return "bg-amber-100 text-amber-900";
+  return "bg-rose-100 text-rose-900";
+}
+
 export default async function MetricsPage() {
   const m = await loadPublicCorpusMetrics();
+  const judge = loadJudgeValidation();
   const stage = validationStageForCoverage({
     itemsWithTwoPlusRatings: m.corpus.itemsWithTwoPlusRatings,
     itemsWithThreePlusRatings: m.corpus.itemsWithThreePlusRatings,
@@ -79,6 +100,40 @@ export default async function MetricsPage() {
             Judge-vs-human numbers below are provisional until: {m.humanValidation.groundTruth.reasons.join("; ")}.
           </p>
         )}
+      </section>
+
+      <section className="surface-card p-5" aria-labelledby="jv-heading">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 id="jv-heading" className="text-sm font-semibold">What each surface may claim</h2>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${judge.source === "ok" ? "bg-amber-100 text-amber-900" : "bg-rose-100 text-rose-900"}`}>
+            {judge.source === "ok" ? (judge.stale ? "benchmark stale" : "benchmark current") : `benchmark ${judge.source}`}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-ink3">
+          Derived from the published judge benchmark artifact
+          {judge.runAt ? ` (run ${judge.runAt})` : ""}. {judge.note}
+        </p>
+
+        <div className="mt-3">
+          {(Object.keys(SURFACE_LABELS) as SurfaceId[]).map((id) => {
+            const s = judge.surfaces[id];
+            return (
+              <div key={id} className="border-t border-[var(--rule)] py-3 first:border-0">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-sm font-medium">{SURFACE_LABELS[id]}</p>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusStyle(s)}`}>{s.status}</span>
+                </div>
+                <p className="mt-1 text-xs text-ink2">{s.claim}</p>
+                <p className="mt-1 text-xs text-ink3">{s.reason}</p>
+                {!allowsCompetitiveClaims(s) && id === "pvp-verdict" && (
+                  <p className="mt-1 text-xs font-medium text-rose-700">
+                    Competitive claims are withheld: only a model that cleared every gate unlocks result framing.
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <section className="surface-card p-5">
