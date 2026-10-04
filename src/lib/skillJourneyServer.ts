@@ -23,10 +23,18 @@ export interface JourneyInputs {
 interface RetestRow {
   repair_result_id: string;
   assigned_debate_id: string;
-  assigned_at: string;
-  completed_at: string | null;
+  assigned_at: string | Date;
+  completed_at: string | Date | null;
   observable: boolean | null;
   demonstrated: boolean | null;
+}
+
+/**
+ * timestamptz columns come back as Date objects; the public record shape and
+ * every Date.parse consumer expect ISO strings. Normalise once at the read.
+ */
+function isoString(value: unknown): string {
+  return value instanceof Date ? value.toISOString() : typeof value === "string" ? value : new Date().toISOString();
 }
 
 /**
@@ -71,8 +79,10 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
   const retestByRepair = new Map<string, RetestRow>();
   for (const row of (retests ?? []) as unknown as RetestRow[]) {
     const current = retestByRepair.get(row.repair_result_id);
-    if (!current || Date.parse(row.assigned_at) > Date.parse(current.assigned_at)) {
-      retestByRepair.set(row.repair_result_id, row);
+    const assignedAt = isoString(row.assigned_at);
+    const candidate: RetestRow = { ...row, assigned_at: assignedAt, completed_at: row.completed_at ? isoString(row.completed_at) : null };
+    if (!current || Date.parse(assignedAt) > Date.parse(isoString(current.assigned_at))) {
+      retestByRepair.set(row.repair_result_id, candidate);
     }
   }
 
@@ -84,15 +94,17 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
   }
 
   const repairs: RepairRecord[] = (repairRows ?? []).map((row) => {
-    const r = row as unknown as RepairRecord & { id: string };
+    // timestamptz comes back as Date; the public record shape is ISO strings.
+    const r = row as unknown as RepairRecord & { id: string; created_at: string | Date };
     const retest = retestByRepair.get(r.id);
     return {
       ...r,
+      created_at: isoString(r.created_at),
       retest_debate_id: retest?.assigned_debate_id ?? null,
       retest_outcome: retest
         ? outcomeFromAssignment(retest, debateFormat.get(retest.assigned_debate_id) ?? null)
         : null,
-      retest_completed_at: retest?.completed_at ?? null,
+      retest_completed_at: retest?.completed_at ? isoString(retest.completed_at) : null,
     };
   });
 
@@ -118,7 +130,7 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
     rows.push({
       debateId: debate.id as string,
       userId,
-      completedAt: (debate.completed_at ?? new Date().toISOString()) as string,
+      completedAt: debate.completed_at ? isoString(debate.completed_at) : new Date().toISOString(),
       kinds: countWeaknessesForSide(merged.graph, "a"),
       opps: debateOpportunities(merged.graph, "a"),
     });

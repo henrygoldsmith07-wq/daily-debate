@@ -5,6 +5,16 @@ import type { RepairRetestAnchor } from "./repairRetest";
 import { isRepairKind } from "./argumentRepair";
 
 /**
+ * timestamptz columns come back from the Postgres layer as Date objects, but
+ * every consumer in this module's public shape (and repairRetest's
+ * Date.parse calls) expects ISO strings. Normalise once at the boundary.
+ */
+function isoString(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  return typeof value === "string" ? value : new Date().toISOString();
+}
+
+/**
  * Successful repair episodes that may still need transfer testing. Multiple
  * successes for the same debate+kind collapse to the earliest successful
  * attempt so a later retry cannot reset the retest clock.
@@ -44,7 +54,7 @@ export async function successfulRepairRetestAnchors(
       repairResultId: row.id,
       debateId: row.debate_id,
       targetKind: row.target_kind,
-      attemptedAt: row.created_at,
+      attemptedAt: isoString(row.created_at),
       topicId: topics.get(row.debate_id) ?? null,
     };
     const existing = byEpisode.get(key);

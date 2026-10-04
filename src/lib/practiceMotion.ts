@@ -41,8 +41,8 @@ export interface ResolvedMotion {
 export interface DueRetest {
   /** Topic of the REPAIRED debate — the retest must differ from it. */
   topicId: string | null;
-  /** When the repair happened (ISO). A repair made today never retests today. */
-  attemptedAt: string;
+  /** When the repair happened. The Postgres layer returns timestamptz as Date. */
+  attemptedAt: string | Date;
   dimension: CoachDimension;
 }
 
@@ -55,8 +55,13 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function dayOf(iso: string): string {
-  return iso.slice(0, 10);
+/**
+ * Calendar day of a timestamp. The Postgres layer returns timestamptz values
+ * as Date objects, so never assume a string — normalise through Date.
+ */
+function dayOf(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toISOString().slice(0, 10);
 }
 
 /**
