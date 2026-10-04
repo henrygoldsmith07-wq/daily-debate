@@ -33,6 +33,7 @@
 // Exit codes: 0 always (alerting must never break CI); "1" only on misuse.
 
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   classifyFailureStage,
@@ -55,6 +56,35 @@ const PROD_BASES = [...new Set([CONFIGURED_PROD_BASE, FALLBACK_PROD_BASE])];
  * command, never to run DDL. It is surfaced verbatim in the alert body.
  */
 const MIGRATION_REMEDIATION = "gh workflow run db-migrate.yml -f confirm=migrate";
+
+/**
+ * Judge-benchmark staleness horizon. The benchmark is a weekly workflow, so
+ * two missed cycles is where "latest" stops meaning current.
+ */
+const BENCHMARK_STALENESS_DAYS = 14;
+
+/**
+ * Age of the published judge-benchmark artifact, read from this checkout.
+ *
+ * Read locally rather than through the public probe: the digest already has the
+ * repository, and the probe's reduced surface deliberately publishes no
+ * artifact timestamps. Returns `null` when the file cannot be read or parsed —
+ * an unreadable artifact is an alertable unknown, never an implied fresh one.
+ */
+function readBenchmarkStaleness(nowIso) {
+  try {
+    const file = new URL("../docs/latest-judge-benchmark.json", import.meta.url);
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
+    const at = typeof parsed?.at === "string" ? parsed.at : null;
+    // No usable timestamp means we cannot certify the record as current.
+    if (!at) return { at: null, stale: true, thresholdDays: BENCHMARK_STALENESS_DAYS };
+    const ageMs = Date.parse(nowIso) - Date.parse(at);
+    const stale = !Number.isFinite(ageMs) || ageMs > BENCHMARK_STALENESS_DAYS * 86_400_000;
+    return { at, stale, thresholdDays: BENCHMARK_STALENESS_DAYS };
+  } catch {
+    return null;
+  }
+}
 
 function gh(path, token, init) {
   return fetch(`https://api.github.com${path}`, {
@@ -220,6 +250,7 @@ async function main() {
     dbReadable,
     proofs,
     schema,
+    benchmark: readBenchmarkStaleness(nowIso),
     latestConfigCheck: heuristic,
     failureStage,
     nowIso,
