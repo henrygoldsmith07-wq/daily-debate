@@ -130,6 +130,12 @@ export function classifyFailureStage(input) {
  *     latestApplicationSchemaReady: boolean | null,
  *     remediation?: string | null,
  *   } | null,
+ *   // Age of the published judge-benchmark artifact, read from the checkout.
+ *   // `undefined` = not evaluated (silent); `null` = unreadable (alertable
+ *   // warning); an object is judged on `stale`. A stale artifact is critical:
+ *   // the product publishes validation labels derived from it, and an
+ *   // unrefreshed record silently reads as a current verdict.
+ *   benchmark?: { at: string | null; stale: boolean; thresholdDays: number } | null,
  *   latestConfigCheck: { ok: boolean; reason: string | null } | null,
  *   failureStage: { stage: string; reason: string; suspect: boolean } | null,
  *   nowIso: string,
@@ -208,6 +214,30 @@ export function decideOpsAlert(input) {
   } else if (schema && (schema.requiredTablesOk === null || schema.latestApplicationSchemaReady === null)) {
     facts.push("schema: application-schema readiness could not be verified (probe returned no verdict)");
     if (severity === null) severity = "warning";
+  }
+
+  // --- judge benchmark staleness ------------------------------------------
+  // The published benchmark artifact (docs/latest-judge-benchmark.json) IS the
+  // validation truth the product now reads: /metrics publishes what each
+  // surface may claim straight from it. The benchmark publishes through an
+  // artifact PR, and that PR needs a repository permission that can be turned
+  // off silently - leaving every result stranded on an unmerged branch. The
+  // artifact then ages past its cadence while still looking authoritative, and
+  // nothing notices: this digest watched the TOPIC pipeline only.
+  //
+  // Age is measured from the artifact's own `at`, never from when this ran.
+  const benchmark = input.benchmark;
+  if (benchmark === null) {
+    facts.push("judge benchmark: staleness unknown (artifact not readable from the checkout)");
+    if (severity === null) severity = "warning";
+  } else if (benchmark && benchmark.stale) {
+    facts.push(
+      `judge benchmark: STALE - published artifact is from ${benchmark.at}, older than its ${benchmark.thresholdDays}-day cadence. Every "what this surface may claim" label is derived from it, so no validation claim is currently current.`,
+    );
+    facts.push(
+      "judge benchmark: remediation - the weekly workflow must publish its artifact. If runs succeed but pr_created is false, Settings > Actions > General > Workflow permissions is blocking Actions from opening pull requests.",
+    );
+    severity = "critical";
   }
 
   // --- availability (production store) ------------------------------------
