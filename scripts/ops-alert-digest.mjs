@@ -48,6 +48,14 @@ const CONFIGURED_PROD_BASE = (process.env.PROD_HEALTH_URL?.trim() || CANONICAL_P
 const FALLBACK_PROD_BASE = (process.env.PROD_HEALTH_FALLBACK_URL?.trim() || CANONICAL_PROD_BASE).replace(/\/+$/, "");
 const PROD_BASES = [...new Set([CONFIGURED_PROD_BASE, FALLBACK_PROD_BASE])];
 
+/**
+ * The exact operator command for schema drift. `db-migrate` is deliberately
+ * workflow_dispatch-only — "migrations are applied by an explicit human
+ * decision, never unattended" — so the digest's only job is to name the
+ * command, never to run DDL. It is surfaced verbatim in the alert body.
+ */
+const MIGRATION_REMEDIATION = "gh workflow run db-migrate.yml -f confirm=migrate";
+
 function gh(path, token, init) {
   return fetch(`https://api.github.com${path}`, {
     ...init,
@@ -167,6 +175,24 @@ async function main() {
   const dbReadable = probe ? probe.databaseReachable === true : true;
   const proofs = probe?.proofs ?? null;
 
+  // Application-schema readiness, assessed on EVERY run regardless of outcome.
+  // The scheduler can be perfectly healthy while production runs against a
+  // half-migrated database: Vercel deploys from main automatically, but
+  // `db-migrate` is workflow_dispatch-only by design. Those two clocks drift
+  // apart silently, and every visible symptom (missed-deadline, unproven
+  // proofs) arrives long after the cause. Reading these booleans is what lets
+  // the alert name the cause instead of only the symptom.
+  //
+  // Only booleans cross this boundary — the public probe deliberately does not
+  // publish table or column names, and this digest must not undo that posture.
+  const schema = probe
+    ? {
+        requiredTablesOk: probe.databaseRequiredTablesOk ?? null,
+        latestApplicationSchemaReady: probe.latestApplicationSchemaReady ?? null,
+        remediation: MIGRATION_REMEDIATION,
+      }
+    : null;
+
   // Stage-aware failure classification: name the failed STAGE from the
   // jobs API + probe schema facts; fall back to the labelled heuristic
   // suspect only when no step evidence exists.
@@ -193,6 +219,7 @@ async function main() {
     availability,
     dbReadable,
     proofs,
+    schema,
     latestConfigCheck: heuristic,
     failureStage,
     nowIso,
