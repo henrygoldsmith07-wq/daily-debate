@@ -118,7 +118,6 @@ function rowPassesAllGates(row: BenchmarkRow): boolean {
 }
 
 function summarise(rows: BenchmarkRow[], thresholds: Record<string, number> | null | undefined): ValidationEvidence {
-  const agreements = rows.map((r) => num(r.humanAgreement)).filter((v): v is number => v !== null);
   const eces = rows.map((r) => num(r.ece)).filter((v): v is number => v !== null);
 
   // Agreement and its sample size must travel together: the highest agreement
