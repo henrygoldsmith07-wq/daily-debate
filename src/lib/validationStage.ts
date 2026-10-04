@@ -2,13 +2,24 @@
 // human-labelled debate data. Numbers come from real rows only; criteria that
 // cannot yet be computed are reported as unknown, never assumed to pass.
 //
-// Stage 1: >=100 genuine debates x >=2 ratings
-// Stage 2: >=500 debates x >=3 ratings
-// Stage 3: >=1000 debates x >=3 ratings with balanced strata
+// Stage thresholds are main's own (corpus.VALIDATION_STAGES): this module
+// adds the per-stage progress reading — debates qualifying, ratings collected,
+// what is missing — and the Stage 3 strata-balance criterion.
 //
-// "Genuine debates" excludes synthetic/imported items without human
-// provenance where that metadata exists; where it does not, the count is
-// reported with that caveat rather than silently assumed genuine. Pure.
+//   Stage 1 · pilot     ≥100 debates × ≥2 ratings
+//   Stage 2 · calibration ≥500 debates × ≥3 ratings
+//   Stage 3 · mature      ≥1,000 debates × ≥3 ratings with balanced strata
+//
+// "Genuine debates" excludes synthetic items where that metadata exists;
+// where it does not, the count is a raw row count and the panel says so.
+// Pure.
+
+import {
+  CALIBRATION_RATERS_PER_ITEM,
+  MIN_RATERS_PER_ITEM,
+  STRATUM_MINIMUM,
+  VALIDATION_STAGES,
+} from "./corpus";
 
 export interface ValidationStageInput {
   /** Item id → rating count (real rows). */
@@ -37,10 +48,33 @@ export interface ValidationStage {
   balancedStrata?: { state: "met" | "not-met" | "not-computable"; detail: string };
 }
 
-export const VALIDATION_STAGES: Array<{ id: 1 | 2 | 3; minDebates: number; minRatings: number; title: string }> = [
-  { id: 1, minDebates: 100, minRatings: 2, title: "Stage 1 · foundation" },
-  { id: 2, minDebates: 500, minRatings: 3, title: "Stage 2 · reliability" },
-  { id: 3, minDebates: 1000, minRatings: 3, title: "Stage 3 · coverage" },
+interface StageSpec {
+  id: 1 | 2 | 3;
+  title: string;
+  minDebates: number;
+  minRatings: number;
+}
+
+/** Product stage order, sourced from the shared corpus stage definitions. */
+const STAGE_SPECS: StageSpec[] = [
+  {
+    id: 1,
+    title: VALIDATION_STAGES.pilot.label,
+    minDebates: VALIDATION_STAGES.pilot.minItems,
+    minRatings: VALIDATION_STAGES.pilot.minRatersPerItem || MIN_RATERS_PER_ITEM,
+  },
+  {
+    id: 2,
+    title: VALIDATION_STAGES.calibration.label,
+    minDebates: VALIDATION_STAGES.calibration.minItems,
+    minRatings: VALIDATION_STAGES.calibration.minRatersPerItem || CALIBRATION_RATERS_PER_ITEM,
+  },
+  {
+    id: 3,
+    title: VALIDATION_STAGES.mature.label,
+    minDebates: VALIDATION_STAGES.mature.minItems,
+    minRatings: VALIDATION_STAGES.mature.minRatersPerItem || CALIBRATION_RATERS_PER_ITEM,
+  },
 ];
 
 /**
@@ -48,9 +82,9 @@ export const VALIDATION_STAGES: Array<{ id: 1 | 2 | 3; minDebates: number; minRa
  * what exists; nothing is extrapolated.
  */
 export function buildValidationStages(input: ValidationStageInput): ValidationStage[] {
-  const { ratingCounts, syntheticIds = new Set(), strata, strataMinimum = null } = input;
+  const { ratingCounts, syntheticIds = new Set(), strata, strataMinimum = STRATUM_MINIMUM } = input;
 
-  return VALIDATION_STAGES.map((stage) => {
+  return STAGE_SPECS.map((stage) => {
     let debatesQualifying = 0;
     let ratingsOnQualifying = 0;
     for (const [itemId, count] of ratingCounts) {

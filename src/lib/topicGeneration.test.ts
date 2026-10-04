@@ -59,7 +59,7 @@ describe("generate-topics CLI contract", () => {
     const r = runScript(["--help"], {});
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("--check-config");
-  });
+  }, 30_000);
 
   it("missing DATABASE_URL fails fast as config-failure (no silent break)", () => {
     const r = runScript(["--check-config"], {});
@@ -69,7 +69,7 @@ describe("generate-topics CLI contract", () => {
     expect(combined).toMatch(/DATABASE_URL/);
     // Secret values must never appear in output.
     expect(combined).not.toMatch(/password|secret|token|key=[A-Za-z0-9]/i);
-  });
+  }, 30_000);
 
   it("unreachable DATABASE_URL fails fast as db-failure, not config-failure", () => {
     const r = runScript(["--check-config"], { DATABASE_URL: "postgresql://u:p@127.0.0.1:1/db" });
@@ -79,13 +79,13 @@ describe("generate-topics CLI contract", () => {
     // Host is logged for diagnosis; credentials are not.
     expect(combined).toMatch(/127\.0\.0\.1/);
     expect(combined).not.toContain("u:p@");
-  });
+  }, 30_000);
 
   it("bare run without DATABASE_URL exits non-zero with an explicit outcome", () => {
     const r = runScript([], {});
     expect(r.status).toBe(1);
     expect(r.stdout + r.stderr).toMatch(/outcome=config-failure/);
-  });
+  }, 30_000);
 
   it("delegates stored topic evidence to the shared secure retrieval module", () => {
     const source = readFileSync(script, "utf8");

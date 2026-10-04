@@ -19,7 +19,7 @@
 
 import type { ArgGraph, Owner } from "./argGraph";
 import { countWeaknessesForSide, debateOpportunities, hasOpportunity, weaknessKindsFor, type DebateWeaknessRow } from "./repairEffectiveness";
-import type { RepairKind } from "./argumentRepair";
+import { isRepairKind, type RepairKind } from "./argumentRepair";
 
 export type RepairFormativeState = "needs-another-pass" | "partially-repaired" | "repair-demonstrated";
 
@@ -103,6 +103,7 @@ export function weaknessPresentIn(
   owner: Owner,
   repairKind: string,
 ): boolean {
+  if (!isRepairKind(repairKind)) return false;
   const kinds = weaknessKindsFor(repairKind);
   const counts = countWeaknessesForSide(graph, owner);
   return kinds.some((k) => (counts[k] ?? 0) > 0);

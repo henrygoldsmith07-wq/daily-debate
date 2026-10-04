@@ -14,6 +14,7 @@
 
 import type { DebateWeaknessRow } from "./repairEffectiveness";
 import { weaknessKindsFor, hasOpportunity } from "./repairEffectiveness";
+import { isRepairKind } from "./argumentRepair";
 import type { RepairRecord, RetestOutcome } from "./retest";
 import { RETEST_OUTCOME_LABELS, LONGITUDINAL_MIN_OBSERVATIONS } from "./retest";
 import type { CoachDimension } from "./adaptiveCoach";
@@ -92,6 +93,7 @@ export function journeyObservationsFor(
   kind: string,
   debates: DebateWeaknessRow[],
 ): JourneyObservation[] {
+  if (!isRepairKind(kind)) return [];
   const kinds = weaknessKindsFor(kind);
   return debates
     .filter((d) => hasOpportunity(kind, d))
