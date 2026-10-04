@@ -46,8 +46,19 @@ Removals are code-deletions (recoverable from git history), not disabled flags.
 | Finish debate | p95 ≤ 8s wall (summary + assessment) | Result screen streams after atomic completion |
 | Bundle: first load JS | Next.js default budget; no new client libs added in this pass | Tailwind + React only |
 | Ledger build | ≤ 100 debates × per-debate assessment merge | `buildLedgerForUser` caps at 100 |
+| Structure classification | p95 ≤ 3s (batched, inline) | Runs on the submit path; degrades to the local path above this |
+| Opponent opening | p95 ≤ 6s wall | Same target as a turn — opening is not cheaper, and it blocks the first screen |
+| PvP verdict | p95 ≤ 30s wall | An ensemble call; bounded by the ensemble timeout, not by a learner waiting |
+| Daily topic generation | p95 ≤ 20s wall | Scheduled, off every user request path; missed budget degrades to curated fallbacks |
 
-Budgets are aspirational until request-timing instrumentation lands; the `ai_call_log` p95s are the first measured input.
+The model-layer budgets above are now **declared and measured**, not aspirational: `src/lib/latencyBudget.ts` carries them as `LATENCY_BUDGETS` and `assessLatencyBudgets` judges the p95 that `aiOps` already computes out of `ai_call_log`. Each budget states the rationale it can be argued with and the **degraded behaviour the user actually experiences** when it is missed — which is the product decision, and previously existed only as a comment per call site.
+
+Two honesty properties the assessment holds to:
+
+- **A budget is never met by a sample too small to judge.** Below `MIN_BUDGET_SAMPLE` (5) calls, or with a null p95, the state is `insufficient-data` and the measured value is withheld rather than shown as a pass or a fail.
+- **Absence of calls is not evidence of speed.** An operation with no rows in the window is `unmeasured`, not `ok`, so a budget that silently stopped being exercised stays visible instead of disappearing from the report.
+
+**The 6s turn budget is currently NOT met** on the free provider chain (the live judge benchmark records a p50 of ~15.6s for the slowest provider). That is reported as a breach and left visible; the budget was not raised to fit the provider. Meeting it is a provider/product decision, not a documentation one.
 
 ## Backup & recovery (owned Postgres)
 
