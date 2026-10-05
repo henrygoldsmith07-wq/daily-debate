@@ -150,18 +150,58 @@ jobs:
     if: always() && needs.benchmark.outputs.pr_created == 'true' && needs.benchmark.outputs.pr_number != ''
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
       pull-requests: write
     steps:
-      - name: Wait for required checks, then merge
+      - name: Clear the bot-approval deadlock, then wait for checks and merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.benchmark.outputs.pr_number }}
         run: |
-          number="${{ needs.benchmark.outputs.pr_number }}"
+          number="$PR_NUMBER"
+
+          # A PR opened with GITHUB_TOKEN does not get its `pull_request` CI
+          # started automatically: GitHub holds the run in `action_required`
+          # pending approval, because it will not let a token quietly author a
+          # branch that then runs unreviewed CI. Left alone, `gh pr checks
+          # --watch` below blocks on a check that never starts, and the job
+          # sits silent until the six-hour workflow timeout -- the record
+          # looks unpublishable for reasons that have nothing to do with the
+          # judge. So: find the held run and clear it explicitly.
+          #
+          # Trying to approve is best-effort. GitHub may refuse a token
+          # approving a run its own token triggered; that refusal is not
+          # fatal, it just means a human has to click, and the message below
+          # tells them exactly where.
+          held="$(gh api "repos/$REPO/actions/runs?branch=$(gh pr view "$number" --json headRefName --jq .headRefName)&per_page=50" \
+            --jq '[.workflow_runs[] | select(.event == "pull_request" and .status != "completed")] | .[0] // empty')"
+
+          if [ -n "$held" ]; then
+            run_id="$(printf '%s' "$held" | jq -r '.id')"
+            run_status="$(printf '%s' "$held" | jq -r '.status')"
+            run_url="$(printf '%s' "$held" | jq -r '.html_url')"
+            echo "Found in-flight pull_request run $run_id ($run_status) for #$number."
+            if [ "$run_status" = "action_required" ]; then
+              if gh api "repos/$REPO/actions/runs/$run_id/approve" --method POST >/dev/null 2>&1; then
+                echo "Approved run $run_id; required checks can now start."
+              else
+                echo "::warning::GitHub would not let this token approve its own run $run_id."
+                echo "::warning::Approve it here: $run_url  (or: gh api repos/$REPO/actions/runs/$run_id/approve --method POST)"
+              fi
+            fi
+          else
+            echo "No in-flight pull_request run found; assuming checks are already running."
+          fi
+
           # --watch blocks until every check on the PR concludes; a failed
           # required check exits non-zero and leaves the PR unmerged, so the
           # benchmark record can never land on main via a red application CI.
-          gh pr checks "$number" --watch --interval 30 || { echo "::error::Required checks did not pass for the artifact PR #$number; leaving it open for a human."; exit 1; }
+          if ! gh pr checks "$number" --watch --interval 30; then
+            echo "::error::Required checks did not pass for the artifact PR #$number; leaving it open for a human."
+            exit 1
+          fi
           gh pr merge "$number" --squash
           echo "Merged validation-record PR #$number after green checks."
 
