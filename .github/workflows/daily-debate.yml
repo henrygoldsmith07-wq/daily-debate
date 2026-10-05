@@ -33,6 +33,12 @@ jobs:
         run: npm run type-check
 
       - name: Unit + regression tests
+        # CI must not spend tokens, depend on a provider's uptime, or fail
+        # because classifier.dev returned 504. src/lib/aiE2eMock.ts states this
+        # intent; without the flag these tests reach the real provider chain and
+        # CI inherits its latency and its outages.
+        env:
+          E2E_MOCK_AI: "1"
         run: npm test
 
       - name: Script scoring tests (benchmark gates, reliability, diagnostics)
@@ -97,6 +103,11 @@ jobs:
           node scripts/e2e-seed.mjs
 
       - name: Unit + DB invariant tests (migration 003 matchmaking runs for real)
+        # Same reasoning as the verify job's test step: the DB suites exercised
+        # provider code paths for real, so a slow or 504-ing provider failed the
+        # suite and skipped the Playwright step behind it.
+        env:
+          E2E_MOCK_AI: "1"
         run: npm test
 
       - name: Corpus consistency invariants (real Postgres)
