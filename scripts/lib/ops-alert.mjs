@@ -120,6 +120,22 @@ export function classifyFailureStage(input) {
  *   availability: { state: string; note?: string | null } | null,
  *   dbReadable: boolean,
  *   proofs: Record<string, boolean> | null,
+ *   // Production application-schema readiness, from the health probe.
+ *   // `undefined` = not evaluated (silent); `null` = source unavailable
+ *   // (alertable warning); an object is read on its own booleans. A `false`
+ *   // verdict is critical and names its own remedy, because schema drift is
+ *   // the one root cause that a green scheduled run cannot disprove.
+ *   schema?: {
+ *     requiredTablesOk: boolean | null,
+ *     latestApplicationSchemaReady: boolean | null,
+ *     remediation?: string | null,
+ *   } | null,
+ *   // Age of the published judge-benchmark artifact, read from the checkout.
+ *   // `undefined` = not evaluated (silent); `null` = unreadable (alertable
+ *   // warning); an object is judged on `stale`. A stale artifact is critical:
+ *   // the product publishes validation labels derived from it, and an
+ *   // unrefreshed record silently reads as a current verdict.
+ *   benchmark?: { at: string | null; stale: boolean; thresholdDays: number } | null,
  *   latestConfigCheck: { ok: boolean; reason: string | null } | null,
  *   failureStage: { stage: string; reason: string; suspect: boolean } | null,
  *   nowIso: string,
@@ -158,6 +174,70 @@ export function decideOpsAlert(input) {
     // No run history at all: source unavailable or scheduler never fired.
     facts.push("scheduler: no scheduled runs on record — either never fired or run history unavailable");
     if (severity === null) severity = "warning";
+  }
+
+  // --- schema drift (root cause that survives green runs) ------------------
+  // Production schema is applied by an explicit, human-gated `db-migrate`
+  // dispatch, while the app deploys to Vercel automatically. Those two clocks
+  // are independent, so main can be green and CI green while production runs
+  // against a half-migrated database — the application schema the running
+  // build needs simply is not there yet.
+  //
+  // Before this check the digest had no way to see that: `classifyFailureStage`
+  // only runs when a scheduled run FAILS, so a green run over a broken schema
+  // produced exactly one downstream symptom ("missed-deadline") and no
+  // statement of cause or remedy. The alert then read like a scheduler problem
+  // when it was a migration problem. Schema readiness is therefore assessed
+  // from the health probe's own facts, on every run, green or red.
+  //
+  // `undefined` means "not evaluated" (no probe field supplied) and is
+  // deliberately silent; an explicit `null` means the source was unavailable
+  // and stays alertable, matching every other section here.
+  const schema = input.schema;
+  if (schema === null) {
+    facts.push("schema: application-schema readiness unknown (health probe did not report it)");
+    if (severity === null) severity = "warning";
+  } else if (schema && (schema.requiredTablesOk === false || schema.latestApplicationSchemaReady === false)) {
+    const broken = [];
+    if (schema.requiredTablesOk === false) broken.push("required tables missing");
+    if (schema.latestApplicationSchemaReady === false) broken.push("application migration schema incomplete");
+    facts.push(
+      `schema: PRODUCTION SCHEMA DRIFT (${broken.join("; ")}) — the deployed build requires migrations that production has not applied. This is the root cause of any availability symptom below, not the scheduler.`,
+    );
+    // Naming the remedy is the difference between an alert and a mystery.
+    // Applying migrations stays a human decision (workflow_dispatch only, by
+    // design) — the digest surfaces the command, it never runs DDL.
+    facts.push(
+      `schema: remediation — apply the pending migrations, then confirm: ${schema.remediation ?? "gh workflow run db-migrate.yml -f confirm=migrate"} (migrations are applied by explicit human decision, never unattended)`,
+    );
+    severity = "critical";
+  } else if (schema && (schema.requiredTablesOk === null || schema.latestApplicationSchemaReady === null)) {
+    facts.push("schema: application-schema readiness could not be verified (probe returned no verdict)");
+    if (severity === null) severity = "warning";
+  }
+
+  // --- judge benchmark staleness ------------------------------------------
+  // The published benchmark artifact (docs/latest-judge-benchmark.json) IS the
+  // validation truth the product now reads: /metrics publishes what each
+  // surface may claim straight from it. The benchmark publishes through an
+  // artifact PR, and that PR needs a repository permission that can be turned
+  // off silently - leaving every result stranded on an unmerged branch. The
+  // artifact then ages past its cadence while still looking authoritative, and
+  // nothing notices: this digest watched the TOPIC pipeline only.
+  //
+  // Age is measured from the artifact's own `at`, never from when this ran.
+  const benchmark = input.benchmark;
+  if (benchmark === null) {
+    facts.push("judge benchmark: staleness unknown (artifact not readable from the checkout)");
+    if (severity === null) severity = "warning";
+  } else if (benchmark && benchmark.stale) {
+    facts.push(
+      `judge benchmark: STALE - published artifact is from ${benchmark.at}, older than its ${benchmark.thresholdDays}-day cadence. Every "what this surface may claim" label is derived from it, so no validation claim is currently current.`,
+    );
+    facts.push(
+      "judge benchmark: remediation - the weekly workflow must publish its artifact. If runs succeed but pr_created is false, Settings > Actions > General > Workflow permissions is blocking Actions from opening pull requests.",
+    );
+    severity = "critical";
   }
 
   // --- availability (production store) ------------------------------------

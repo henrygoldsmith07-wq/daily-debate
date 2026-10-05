@@ -245,3 +245,157 @@ test("ops alert reports the classified stage, not a broad guess", () => {
   assert.equal(d.severity, "critical");
   assert.ok(d.facts.some((f) => f.includes("stage = freshness-verification") && f.includes("migration 018")));
 });
+
+// --- production schema drift ----------------------------------------------
+//
+// Regression cover for the blind spot that let production sit on a
+// half-migrated database: every scheduled run was green, so nothing fired,
+// and the only visible symptom was a downstream "missed-deadline" with no
+// stated cause and no remedy. Schema readiness must be judged on its own.
+
+const drift = (over = {}) => ({
+  requiredTablesOk: false,
+  latestApplicationSchemaReady: false,
+  ...over,
+});
+
+test("schema drift is critical even when every scheduled run is green", () => {
+  const d = decideOpsAlert(healthy({ schema: drift() }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "critical");
+  assert.ok(
+    d.facts.some((f) => f.includes("PRODUCTION SCHEMA DRIFT")),
+    `expected a schema-drift fact, got: ${d.facts.join(" | ")}`,
+  );
+});
+
+test("schema drift is critical on its own, with availability still ready", () => {
+  // The decisive case: nothing downstream is wrong yet. Before this check the
+  // alert returned null here — schema drift with no symptom produced silence.
+  const d = decideOpsAlert(healthy({ schema: drift(), availability: { state: "ready", note: null } }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "critical");
+});
+
+test("schema drift names the remedy so the alert is actionable", () => {
+  const d = decideOpsAlert(healthy({ schema: drift() }));
+  assert.ok(
+    d.facts.some((f) => f.includes("db-migrate") && f.includes("explicit human decision")),
+    `expected a remediation fact, got: ${d.facts.join(" | ")}`,
+  );
+});
+
+test("schema drift reads as root cause above the availability symptom", () => {
+  const d = decideOpsAlert(healthy({
+    schema: drift(),
+    availability: { state: "missed-deadline", note: null },
+  }));
+  const schemaAt = d.facts.findIndex((f) => f.includes("PRODUCTION SCHEMA DRIFT"));
+  const availAt = d.facts.findIndex((f) => f.includes("availability:"));
+  assert.ok(schemaAt !== -1 && availAt !== -1);
+  assert.ok(schemaAt < availAt, "schema drift must be stated before the symptom it causes");
+});
+
+test("incomplete application schema alone is critical", () => {
+  // Tables all present, but the running build needs a migration that is not
+  // applied: the subtle case where the obvious check passes.
+  const d = decideOpsAlert(healthy({
+    schema: drift({ requiredTablesOk: true, latestApplicationSchemaReady: false }),
+  }));
+  assert.equal(d.severity, "critical");
+  assert.ok(d.facts.some((f) => f.includes("migration schema incomplete")));
+});
+
+test("a fully ready schema adds no fact of its own", () => {
+  const d = decideOpsAlert(healthy({
+    schema: drift({ requiredTablesOk: true, latestApplicationSchemaReady: true }),
+    availability: { state: "missed-deadline", note: null },
+  }));
+  assert.ok(!d.facts.some((f) => f.startsWith("schema:")), "a healthy schema must not manufacture a fact");
+});
+
+test("unavailable schema source is an alertable unknown, never green", () => {
+  const d = decideOpsAlert(healthy({
+    schema: null,
+    availability: { state: "ready", note: null },
+    proofs: okProofs,
+  }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "warning");
+  assert.ok(d.facts.some((f) => f.includes("schema: application-schema readiness unknown")));
+});
+
+test("a schema verdict that is present but null stays alertable", () => {
+  const d = decideOpsAlert(healthy({
+    schema: drift({ requiredTablesOk: true, latestApplicationSchemaReady: null }),
+  }));
+  assert.equal(d.alert, true);
+  assert.ok(d.facts.some((f) => f.includes("could not be verified")));
+});
+
+// --- judge benchmark staleness --------------------------------------------
+//
+// The published benchmark artifact is what the product now labels surfaces
+// from. It reaches `main` through an artifact PR that needs a repository
+// permission which can be switched off without failing any run - so the record
+// can sit unrefreshed for a month while still reading as authoritative.
+
+test("a stale judge benchmark is critical and names its remediation", () => {
+  const d = decideOpsAlert(healthy({
+    benchmark: { at: "2026-09-14T18:46:02Z", stale: true, thresholdDays: 14 },
+  }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "critical");
+  assert.ok(
+    d.facts.some((f) => f.includes("judge benchmark: STALE") && f.includes("2026-09-14")),
+    `expected a staleness fact, got: ${d.facts.join(" | ")}`,
+  );
+  assert.ok(d.facts.some((f) => f.includes("pr_created") && f.includes("Workflow permissions")));
+});
+
+test("a stale judge benchmark is critical even when the topic pipeline is fine", () => {
+  const d = decideOpsAlert(healthy({
+    benchmark: { at: "2026-09-14T18:46:02Z", stale: true, thresholdDays: 14 },
+    availability: { state: "ready", note: null },
+    schema: drift({ requiredTablesOk: true, latestApplicationSchemaReady: true }),
+    proofs: okProofs,
+  }));
+  assert.equal(d.severity, "critical");
+});
+
+test("a current judge benchmark adds no fact of its own", () => {
+  const d = decideOpsAlert(healthy({
+    benchmark: { at: "2026-10-03T00:00:00Z", stale: false, thresholdDays: 14 },
+    availability: { state: "missed-deadline", note: null },
+  }));
+  assert.ok(!d.facts.some((f) => f.startsWith("judge benchmark:")), "a fresh artifact must not manufacture a fact");
+});
+
+test("an unreadable benchmark artifact is an alertable unknown", () => {
+  const d = decideOpsAlert(healthy({
+    benchmark: null,
+    availability: { state: "ready", note: null },
+    proofs: okProofs,
+  }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "warning");
+  assert.ok(d.facts.some((f) => f.includes("judge benchmark: staleness unknown")));
+});
+
+test("the decision layer trusts the computed staleness verdict, not the clock", () => {
+  // Age is computed once, from the artifact's own timestamp, by the digest's
+  // reader. The decision layer must not re-derive it from `nowIso` — that
+  // would give two places to disagree about what "stale" means.
+  const stale = { at: "2026-09-14T18:46:02Z", stale: true, thresholdDays: 14 };
+  assert.equal(decideOpsAlert(healthy({ benchmark: stale })).severity, "critical");
+  assert.equal(
+    decideOpsAlert(healthy({ benchmark: stale, nowIso: "2026-09-16T00:00:00Z" })).severity,
+    "critical",
+    "an early clock must not soften an asserted stale verdict",
+  );
+  assert.equal(
+    decideOpsAlert(healthy({ benchmark: { ...stale, stale: false } })),
+    null,
+    "the same artifact judged fresh by the reader raises no alert at all",
+  );
+});
