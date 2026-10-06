@@ -23,6 +23,12 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** node-postgres returns `date` columns as JS Date objects — normalise like
+ *  the ops-health read boundary does before any string comparison. */
+function asDateString(value: unknown): string {
+  return value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
+}
+
 let pool: pg.Pool;
 
 async function clearToday(): Promise<void> {
@@ -48,7 +54,7 @@ d("request-time fallback write-once (real Postgres)", () => {
 
   it("persists exactly one canonical row, and a second call returns the identical row", async () => {
     const first = await getTodayTopic();
-    expect(first.topic_date.slice(0, 10)).toBe(todayUtc());
+    expect(asDateString(first.topic_date)).toBe(todayUtc());
 
     const stored = await pool.query<{
       id: string;
@@ -75,7 +81,7 @@ d("request-time fallback write-once (real Postgres)", () => {
     const second = await getTodayTopic();
     expect(second.id).toBe(first.id);
     expect(second.title).toBe(first.title);
-    expect(second.topic_date).toBe(first.topic_date);
+    expect(asDateString(second.topic_date)).toBe(asDateString(first.topic_date));
 
     const count = await pool.query<{ n: number }>(
       "SELECT count(*)::int AS n FROM daily_topics WHERE topic_date = $1::date",
