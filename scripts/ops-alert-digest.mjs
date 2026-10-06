@@ -33,6 +33,7 @@
 // Exit codes: 0 always (alerting must never break CI); "1" only on misuse.
 
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   classifyFailureStage,
@@ -47,6 +48,43 @@ const CANONICAL_PROD_BASE = "https://daily-debate-brown.vercel.app";
 const CONFIGURED_PROD_BASE = (process.env.PROD_HEALTH_URL?.trim() || CANONICAL_PROD_BASE).replace(/\/+$/, "");
 const FALLBACK_PROD_BASE = (process.env.PROD_HEALTH_FALLBACK_URL?.trim() || CANONICAL_PROD_BASE).replace(/\/+$/, "");
 const PROD_BASES = [...new Set([CONFIGURED_PROD_BASE, FALLBACK_PROD_BASE])];
+
+/**
+ * The exact operator command for schema drift. `db-migrate` is deliberately
+ * workflow_dispatch-only — "migrations are applied by an explicit human
+ * decision, never unattended" — so the digest's only job is to name the
+ * command, never to run DDL. It is surfaced verbatim in the alert body.
+ */
+const MIGRATION_REMEDIATION = "gh workflow run db-migrate.yml -f confirm=migrate";
+
+/**
+ * Judge-benchmark staleness horizon. The benchmark is a weekly workflow, so
+ * two missed cycles is where "latest" stops meaning current.
+ */
+const BENCHMARK_STALENESS_DAYS = 14;
+
+/**
+ * Age of the published judge-benchmark artifact, read from this checkout.
+ *
+ * Read locally rather than through the public probe: the digest already has the
+ * repository, and the probe's reduced surface deliberately publishes no
+ * artifact timestamps. Returns `null` when the file cannot be read or parsed —
+ * an unreadable artifact is an alertable unknown, never an implied fresh one.
+ */
+function readBenchmarkStaleness(nowIso) {
+  try {
+    const file = new URL("../docs/latest-judge-benchmark.json", import.meta.url);
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
+    const at = typeof parsed?.at === "string" ? parsed.at : null;
+    // No usable timestamp means we cannot certify the record as current.
+    if (!at) return { at: null, stale: true, thresholdDays: BENCHMARK_STALENESS_DAYS };
+    const ageMs = Date.parse(nowIso) - Date.parse(at);
+    const stale = !Number.isFinite(ageMs) || ageMs > BENCHMARK_STALENESS_DAYS * 86_400_000;
+    return { at, stale, thresholdDays: BENCHMARK_STALENESS_DAYS };
+  } catch {
+    return null;
+  }
+}
 
 function gh(path, token, init) {
   return fetch(`https://api.github.com${path}`, {
@@ -167,6 +205,24 @@ async function main() {
   const dbReadable = probe ? probe.databaseReachable === true : true;
   const proofs = probe?.proofs ?? null;
 
+  // Application-schema readiness, assessed on EVERY run regardless of outcome.
+  // The scheduler can be perfectly healthy while production runs against a
+  // half-migrated database: Vercel deploys from main automatically, but
+  // `db-migrate` is workflow_dispatch-only by design. Those two clocks drift
+  // apart silently, and every visible symptom (missed-deadline, unproven
+  // proofs) arrives long after the cause. Reading these booleans is what lets
+  // the alert name the cause instead of only the symptom.
+  //
+  // Only booleans cross this boundary — the public probe deliberately does not
+  // publish table or column names, and this digest must not undo that posture.
+  const schema = probe
+    ? {
+        requiredTablesOk: probe.databaseRequiredTablesOk ?? null,
+        latestApplicationSchemaReady: probe.latestApplicationSchemaReady ?? null,
+        remediation: MIGRATION_REMEDIATION,
+      }
+    : null;
+
   // Stage-aware failure classification: name the failed STAGE from the
   // jobs API + probe schema facts; fall back to the labelled heuristic
   // suspect only when no step evidence exists.
@@ -193,6 +249,8 @@ async function main() {
     availability,
     dbReadable,
     proofs,
+    schema,
+    benchmark: readBenchmarkStaleness(nowIso),
     latestConfigCheck: heuristic,
     failureStage,
     nowIso,

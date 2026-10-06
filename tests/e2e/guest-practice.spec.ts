@@ -1,8 +1,34 @@
 import { test, expect } from "@playwright/test";
 
+// The guest motion rotates by UTC day: `guestMotionForDay` indexes
+// `GUEST_MOTIONS` by `daysSinceEpoch % length`, and `GuestArena` reads the
+// BROWSER clock to pick it.
+//
+// This spec's writing is deliberately tied to the `phone-free-hour` motion:
+// the round-2 concession ("accessibility and family care are real concerns")
+// answers that motion's scripted opposing case ("...students who need a phone
+// for accessibility, family care, or a safe trip home"), which is what drives
+// `addressesOpponent` and the "you engaged the opponent" feedback.
+//
+// Left unpinned, that made the suite pass only on the one day in seven that
+// motion is selected, and fail the other six -- reporting a copy mismatch that
+// reads like a product regression rather than a scheduling accident. Pinning
+// makes it deterministic; it does not relax any assertion.
+//
+// 2026-10-08 indexes to 0 (`phone-free-hour`). Re-derive after changing
+// GUEST_MOTIONS:
+//   Math.floor(Date.parse("2026-10-08T00:00:00Z") / 86_400_000) % 7 === 0
+const PINNED_GUEST_DAY = "2026-10-08T12:00:00.000Z";
+
 test.describe("guest practice honesty", () => {
   test("feedback reacts to the writing and the result leads into one repair", async ({ page }) => {
+    await page.clock.setFixedTime(new Date(PINNED_GUEST_DAY));
     await page.goto("/");
+
+    // Guards the pin itself: if GUEST_MOTIONS is reordered or resized, this
+    // fails here with a legible reason instead of surfacing later as an
+    // unrelated-looking feedback-copy mismatch.
+    await expect(page.locator("#guest-motion")).toContainText(/phone-free hour/i);
 
     await expect(page.getByText("Guest mode", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: /start a free practice/i }).click();
@@ -61,6 +87,7 @@ test.describe("guest practice honesty", () => {
   });
 
   test("a trigger word alone cannot pass the repair", async ({ page }) => {
+    await page.clock.setFixedTime(new Date(PINNED_GUEST_DAY));
     await page.goto("/");
     await page.getByRole("button", { name: /start a free practice/i }).click();
 
