@@ -8,7 +8,7 @@ import { createClient } from "@/lib/backend/server";
 import { checkRateLimitKey } from "@/lib/rateLimit";
 import { safeReturnPath } from "@/lib/authRedirect";
 import { normalizeIanaTimeZone } from "@/lib/timeZone";
-import { parseGuestLoopSummary } from "@/lib/guestLoop";
+import { guestContextWriteFailureLog, parseGuestLoopSummary } from "@/lib/guestLoop";
 
 export interface AuthState {
   error: string | null;
@@ -99,11 +99,14 @@ export async function signUp(_prevState: AuthState, formData: FormData): Promise
   if (error) return { error: error.message };
 
   if (guestContext && data.user) {
-    try {
-      await db.from("profiles").update({ guest_context: guestContext }).eq("id", data.user.id);
-    } catch {
-      // Non-critical: the account exists either way; the loop summary is best-effort.
-    }
+    // Best-effort carry-through: the account already exists either way, and a
+    // database that has not applied migration 036 (profiles.guest_context)
+    // must still get a working account. A schema-lagging write is skipped
+    // with exactly one log line; anything else is logged at error level for
+    // diagnosis. The signup itself is never failed by this write.
+    const result = await db.from("profiles").update({ guest_context: guestContext }).eq("id", data.user.id);
+    const failureLog = guestContextWriteFailureLog(result.error);
+    if (failureLog) console.error(failureLog);
   }
 
   revalidatePath("/", "layout");

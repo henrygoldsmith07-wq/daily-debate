@@ -1,4 +1,4 @@
--- 035: guest practice loop carried through signup.
+-- 036: guest practice loop carried through signup.
 --
 -- A guest who completes the practice loop (debate -> weakness -> repair ->
 -- retest) has produced something worth keeping. The bounded summary is handed

@@ -64,3 +64,50 @@ function boundedString(value: unknown, max: number): string {
 export function encodeGuestLoopSummary(summary: GuestLoopSummary): string {
   return JSON.stringify(summary);
 }
+
+/**
+ * The single log line a failed `profiles.guest_context` write should emit
+ * (console.error), or null when there was no failure. A schema-lagging
+ * database (migration 036 not yet applied) gets exactly one fixed line —
+ * the "log once" contract — so a migration rollout cannot flood the logs;
+ * any other failure gets one bounded diagnostic line. Signup itself is
+ * never failed by this write either way: the account already exists.
+ */
+export function guestContextWriteFailureLog(
+  error: { message?: string | null; code?: string | null } | null | undefined,
+): string | null {
+  const classification = classifyGuestContextWriteError(error);
+  if (classification === "schema-lagging") {
+    return "[signup] profiles.guest_context is missing — migration 036 not applied; guest loop carry-through skipped (signup unaffected)";
+  }
+  if (classification === "other") {
+    const message = typeof error?.message === "string" && error.message ? error.message.slice(0, 200) : "unknown error";
+    const code = typeof error?.code === "string" && error.code ? ` (${error.code})` : "";
+    return `[signup] guest loop carry-through write failed${code}: ${message}`;
+  }
+  return null;
+}
+
+/**
+ * Classify a failed `profiles.guest_context` write.
+ *
+ * - "schema-lagging": the column itself is missing — the target database has
+ *   not applied migration 036 yet. The account already exists either way, so
+ *   callers must degrade gracefully (skip the carry-through, log once), never
+ *   fail the signup.
+ * - "other": any other failure — still non-fatal for signup, but worth an
+ *   error-level log for diagnosis.
+ * - null: no error.
+ *
+ * Detected via the Postgres undefined-column SQLSTATE (42703) with a message
+ * fallback, because the exact error text varies by transport.
+ */
+export function classifyGuestContextWriteError(
+  error: { message?: string | null; code?: string | null } | null | undefined,
+): "schema-lagging" | "other" | null {
+  if (!error) return null;
+  const code = typeof error.code === "string" ? error.code : "";
+  if (code === "42703") return "schema-lagging";
+  const message = typeof error.message === "string" ? error.message : "";
+  return /guest_context/i.test(message) && /does not exist/i.test(message) ? "schema-lagging" : "other";
+}
