@@ -45,4 +45,12 @@ jobs:
           # Base URL of the production deployment serving GET /api/health.
           # Update the repo VARIABLE if the production domain ever changes.
           PROD_HEALTH_URL: ${{ vars.PROD_HEALTH_URL }}
+          # Operator notification (email on alert state change + 24h reminders).
+          # Best-effort: leave any of these unset and the digest still runs,
+          # just without email. RESEND_API_KEY is a secret; the addresses are
+          # repo VARIABLES (OPS_ALERT_EMAIL_TO = the operator inbox, and
+          # OPS_ALERT_FROM = a verified sender on that Resend account).
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          OPS_ALERT_EMAIL_TO: ${{ vars.OPS_ALERT_EMAIL_TO }}
+          OPS_ALERT_FROM: ${{ vars.OPS_ALERT_FROM }}
         run: node scripts/ops-alert-digest.mjs

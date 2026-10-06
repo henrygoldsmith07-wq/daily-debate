@@ -3,8 +3,11 @@ import assert from "node:assert/strict";
 import {
   classifyFailureStage,
   decideOpsAlert,
+  decideOpsNotification,
+  lastNotificationMarker,
   latestFailedScheduledRun,
   normaliseTopicWorkflowRun,
+  withNotificationMarker,
 } from "./ops-alert.mjs";
 
 const NOW = "2026-09-16T12:00:00Z";
@@ -398,4 +401,78 @@ test("the decision layer trusts the computed staleness verdict, not the clock", 
     null,
     "the same artifact judged fresh by the reader raises no alert at all",
   );
+});
+
+// --- P2.5 notification gate -------------------------------------------------
+
+test("notification: new alert notifies immediately; healthy with no issue stays quiet", () => {
+  const fresh = decideOpsNotification({ alerting: true, openIssue: null, issueBody: null, nowIso: NOW });
+  assert.equal(fresh.kind, "new");
+  assert.equal(fresh.notify, true);
+  const quiet = decideOpsNotification({ alerting: false, openIssue: null, issueBody: null, nowIso: NOW });
+  assert.equal(quiet.kind, "none");
+  assert.equal(quiet.notify, false);
+});
+
+test("notification: resolution notifies once when an open alert closes", () => {
+  const resolved = decideOpsNotification({
+    alerting: false,
+    openIssue: { number: 27 },
+    issueBody: "…\n<!-- digest:email-sent:2026-09-16T04:00:00Z -->",
+    nowIso: NOW,
+  });
+  assert.equal(resolved.kind, "resolved");
+  assert.equal(resolved.notify, true);
+});
+
+test("notification: re-notifies only after 24h of continued alerting", () => {
+  const body24hAgo = withNotificationMarker("alert body", "2026-09-15T12:00:00Z"); // exactly 24h before NOW
+  const reminder = decideOpsNotification({
+    alerting: true,
+    openIssue: { number: 27 },
+    issueBody: body24hAgo,
+    nowIso: NOW,
+  });
+  assert.equal(reminder.kind, "reminder");
+  assert.equal(reminder.notify, true);
+
+  const recent = withNotificationMarker("alert body", "2026-09-16T02:00:00Z"); // 10h before NOW
+  const quiet = decideOpsNotification({
+    alerting: true,
+    openIssue: { number: 27 },
+    issueBody: recent,
+    nowIso: NOW,
+  });
+  assert.equal(quiet.kind, "update");
+  assert.equal(quiet.notify, false);
+});
+
+test("notification: an open alert with no prior notice gets the initial email once", () => {
+  const first = decideOpsNotification({
+    alerting: true,
+    openIssue: { number: 27 },
+    issueBody: "legacy body without any marker",
+    nowIso: NOW,
+  });
+  assert.equal(first.kind, "new");
+  assert.equal(first.notify, true);
+});
+
+test("notification markers: newest wins, unreadable timestamps re-notify", () => {
+  const body = [
+    "<!-- digest:email-sent:2026-09-10T04:00:00Z -->",
+    "<!-- digest:email-sent:2026-09-16T02:00:00Z -->",
+  ].join("\n");
+  assert.equal(lastNotificationMarker(body), "2026-09-16T02:00:00Z");
+  assert.equal(lastNotificationMarker("no markers"), null);
+  assert.equal(lastNotificationMarker(null), null);
+
+  const corrupt = decideOpsNotification({
+    alerting: true,
+    openIssue: { number: 27 },
+    issueBody: "<!-- digest:email-sent:not-a-date -->",
+    nowIso: NOW,
+  });
+  assert.equal(corrupt.kind, "reminder");
+  assert.equal(corrupt.notify, true);
 });

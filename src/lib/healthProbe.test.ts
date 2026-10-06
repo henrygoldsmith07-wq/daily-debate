@@ -62,6 +62,7 @@ describe("derivePublicHealthState (non-sensitive reduction)", () => {
       topicFingerprintSchemaReady: true,
       generationReasonSchemaReady: true,
       latestApplicationSchemaReady: true,
+      topicSource: "unknown",
       topicReadSqlstate: null,
       topicReadShapeMatrix: null,
       proofs: { databaseReachable: true, manualSuccess: true, scheduledSuccessAfterManual: true, sameDateContentIdempotence: true, onTimeBeforeDeadline: true, aiGeneratedProductionSuccess: true },
@@ -94,6 +95,21 @@ describe("derivePublicHealthState (non-sensitive reduction)", () => {
     expect(failed.proofs.manualSuccess).toBe(false);
     expect(failed.topicFingerprintSchemaReady).toBe(false);
   });
+
+  it("maps the stored topic's provenance to a public topicSource", () => {
+    const ai = derivePublicHealthState(
+      report({ topic: { origin: "ai" } } as unknown as Partial<OpsHealthReport>),
+      now,
+    );
+    expect(ai.topicSource).toBe("ai");
+    const fallback = derivePublicHealthState(
+      report({ topic: { origin: "fallback" } } as unknown as Partial<OpsHealthReport>),
+      now,
+    );
+    expect(fallback.topicSource).toBe("curated_fallback");
+    const unknown = derivePublicHealthState(report(), now);
+    expect(unknown.topicSource).toBe("unknown");
+  });
 });
 
 describe("isUsableProbe (consumer-side sanity gate)", () => {
@@ -106,6 +122,7 @@ describe("isUsableProbe (consumer-side sanity gate)", () => {
     topicFingerprintSchemaReady: true,
     generationReasonSchemaReady: true,
     latestApplicationSchemaReady: true,
+    topicSource: "ai",
     topicReadSqlstate: null,
     topicReadShapeMatrix: null,
     proofs: { databaseReachable: true, manualSuccess: true, scheduledSuccessAfterManual: true, sameDateContentIdempotence: true, onTimeBeforeDeadline: true, aiGeneratedProductionSuccess: true },
@@ -155,6 +172,7 @@ describe("GET /api/health (route contract)", () => {
         "generationReasonSchemaReady",
         "latestApplicationSchemaReady",
         "generatedAt",
+        "topicSource",
         "proofs",
         "scheduler",
         "topicReadSqlstate",

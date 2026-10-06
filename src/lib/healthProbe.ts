@@ -30,6 +30,13 @@ export interface PublicHealthState {
   generationReasonSchemaReady: boolean | null;
   /** Whether every schema feature required by the running application build is present. */
   latestApplicationSchemaReady: boolean | null;
+  /**
+   * Where the latest stored topic came from: real AI generation, the curated
+   * fallback bank (the product still works; the pipeline did not deliver), or
+   * unknown (no row / unreadable provenance). The DB column keeps its
+   * ai|fallback vocabulary; this is the public-facing name.
+   */
+  topicSource: "ai" | "curated_fallback" | "unknown";
   /** Public-safe diagnostic: SQLSTATE class of the failing topic read
    *  ("42" undefined-object, "28" privilege, "08" connection...), null
    *  when the read succeeded. A standard error class, never a message. */
@@ -61,6 +68,12 @@ export function derivePublicHealthState(report: OpsHealthReport, nowIso: string)
     topicFingerprintSchemaReady: report.database.migrationReadiness.migration018TopicFingerprintReady,
     generationReasonSchemaReady: report.database.migrationReadiness.migration019GenerationReasonReady,
     latestApplicationSchemaReady: report.database.migrationReadiness.latestApplicationSchemaReady,
+    topicSource:
+      report.topic.origin === "ai"
+        ? "ai"
+        : report.topic.origin === "fallback"
+          ? "curated_fallback"
+          : "unknown",
     proofs: { ...report.topicSlo.proofs },
     /** Public-safe diagnostic: SQLSTATE class of the failing topic read
      *  ("42" undefined-object, "28" privilege, "08" connection...), null

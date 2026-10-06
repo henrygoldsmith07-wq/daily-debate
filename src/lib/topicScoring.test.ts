@@ -91,8 +91,8 @@ describe("pickBestCandidate", () => {
 });
 
 describe("topicFallbacks", () => {
-  it("has exactly 30 curated fallbacks", () => {
-    expect(FALLBACK_TOPICS).toHaveLength(30);
+  it("has at least 90 curated fallbacks (a degraded pipeline must not repeat within a quarter)", () => {
+    expect(FALLBACK_TOPICS.length).toBeGreaterThanOrEqual(90);
   });
 
   it("every fallback has non-empty title, prompt, and category", () => {
