@@ -14,7 +14,9 @@ import {
   type TurnScores,
   type TurnTrainingMeta,
 } from "@/lib/types";
-import { roundCapFor } from "@/lib/sprint";
+import { resolveDebateFormat, roundCapFor } from "@/lib/sprint";
+import { resolveDifficulty, resolvePersona, turnDirective } from "@/lib/opponentPersona";
+import { liveCoachingForTurn } from "@/lib/liveCoaching";
 import { checkModeConstraints, isDebateModeId, resolveMode, type DebateModeId } from "@/lib/debateModes";
 import { analyseSpeechTurn, parseTurnTiming, scoreSpeechQuality } from "@/lib/speechAnalysis";
 import {
@@ -140,7 +142,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Debate has no turns." }, { status: 500 });
   }
 
-  const debateFormat = debate.format === "sprint" ? "sprint" : "full";
+  const debateFormat = resolveDebateFormat(debate.format);
   const roundCap = roundCapFor(debateFormat);
   const expectedTurn = turns.find((turn) => turn.id === expectedTurnId) ?? null;
   const pendingTurn = turns[turns.length - 1];
@@ -187,6 +189,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
   const isFinalRound = pendingTurn.round_number >= roundCap;
 
+  // Adversary controls: how the AI attacks (persona) and how hard (difficulty),
+  // composed with the format's turn-style directive. Legacy rows predate these
+  // columns, so resolve* normalises anything missing to the legacy pairing.
+  const directive = turnDirective(
+    resolvePersona(debate.persona),
+    resolveDifficulty(debate.difficulty),
+    debateFormat,
+    isFinalRound,
+  );
+
   const answered = turns.filter((turn) => turn.user_message);
   const prevUserMessage = answered[answered.length - 1]?.user_message ?? null;
   if (prevUserMessage && repeatScore([prevUserMessage, message]) === 1) {
@@ -203,6 +215,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   });
   const scores = observable.scores;
   const turnScore = observable.turnScore;
+
+  // Real-time coaching: the same deterministic evidence that scores the turn
+  // becomes at most two hints for the NEXT round. Advisory only — never
+  // persisted as ground truth, never altering scores.
+  const liveCoaching = liveCoachingForTurn({
+    assessment: observable.assessment,
+    round: pendingTurn.round_number,
+    userMessage: message,
+  });
+
   const wordCount = message.trim().split(/\s+/).filter(Boolean).length;
   // Timed elapsedSeconds is overwritten inside PostgreSQL using the DB clock.
   // Supplying 0 here avoids inventing a "timing unavailable" warning before
@@ -334,6 +356,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
             history,
             latestUserMessage: effectiveMessage,
             argumentRoute,
+            directive,
           }),
         isValidDebateTurn,
         () =>
@@ -344,6 +367,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
             history,
             latestUserMessage: effectiveMessage,
             argumentRoute,
+            directive,
           }),
       );
       feedback = result.feedback;
@@ -431,5 +455,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     nextTurn: finalized.nextTurn ?? null,
     roundCount: nextRoundNumber ?? pendingTurn.round_number,
     debateComplete: isFinalRound,
+    liveCoaching,
   });
 }

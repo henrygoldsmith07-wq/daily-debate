@@ -21,6 +21,7 @@ import { useState } from "react";
 import type { ComposerSubmitData } from "../MessageComposer";
 import { isDebateModeId, type DebateModeId } from "@/lib/debateModes";
 import type { SoloDebate, SoloDebateTurn } from "@/lib/types";
+import type { LiveCoachingHint } from "@/lib/liveCoaching";
 import type { DebateSummaryPayload } from "./types";
 
 export interface DebateErrorState {
@@ -64,6 +65,8 @@ export interface DebateSession {
   sending: boolean;
   finishing: boolean;
   result: DebateSummaryPayload | null;
+  /** Advisory mid-debate hints for the NEXT round, from the last submitted turn. */
+  liveHints: LiveCoachingHint[];
   submitTurn: (data: ComposerSubmitData) => Promise<boolean>;
   finishDebate: (finishSavedResponse?: boolean) => Promise<void>;
 }
@@ -85,12 +88,16 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
   const [sending, setSending] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [result, setResult] = useState<DebateSummaryPayload | null>(null);
+  // Real-time coaching: hints computed server-side from the just-submitted
+  // turn's observable evidence, shown for the NEXT round and cleared on submit.
+  const [liveHints, setLiveHints] = useState<LiveCoachingHint[]>([]);
 
   const pending = turns[turns.length - 1];
 
   const submitTurn = async (data: ComposerSubmitData): Promise<boolean> => {
     setSending(true);
     setError(null);
+    setLiveHints([]);
     try {
       const res = await fetch(`/api/solo/${debate.id}/turn`, {
         method: "POST",
@@ -145,6 +152,7 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
           : [...prev.slice(0, -1), resData.completedTurn],
       );
       setRoundCount(resData.roundCount);
+      if (Array.isArray(resData.liveCoaching)) setLiveHints(resData.liveCoaching);
       if (resData.nextTurn && data.modeId !== "text") {
         clearWindow();
         announceOpponentTurn(resData.nextTurn, data.modeId as DebateModeId);
@@ -186,5 +194,5 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
     }
   };
 
-  return { turns, pending, roundCount, status, sending, finishing, result, submitTurn, finishDebate };
+  return { turns, pending, roundCount, status, sending, finishing, result, liveHints, submitTurn, finishDebate };
 }

@@ -100,16 +100,25 @@ describe("provider registry", () => {
     expect(configuredProviders().map((p) => p.label)).toEqual(["unorouter", "kiraai"]);
   });
 
-  it("prefers NVIDIA, then OpenRouter, then the free alternates", () => {
-    vi.stubEnv("NVIDIA_API_KEY", "n");
+  it("leads with the transport that can actually answer", () => {
+    // Ordering policy: measured provider reliability (judge benchmark
+    // 2026-10-04), not a probe. UnoRouter returned 252/312; OpenRouter Super
+    // 92/312. Both are below or above providerReliabilityMin (0.75) accordingly,
+    // and only one of them clears it — so only one of them may lead.
+    vi.stubEnv("NVIDIA_API_KEY", "");
     vi.stubEnv("OPENROUTER_API_KEY", "o");
     vi.stubEnv("UNOROUTER_API_KEY", "u");
-    expect(activeProvider().label).toBe("nvidia");
-    vi.stubEnv("NVIDIA_API_KEY", "");
-    expect(activeProvider().label).toBe("openrouter");
-    vi.stubEnv("OPENROUTER_API_KEY", "");
     expect(activeProvider().label).toBe("unorouter");
     expect(activeProvider().url).toBe("https://api.unorouter.com/v1/chat/completions");
+
+    // Still falls through the registry in order when a transport has no key.
+    vi.stubEnv("UNOROUTER_API_KEY", "");
+    expect(activeProvider().label).toBe("openrouter");
+
+    // nvidia is last while it remains unmeasured, but still usable alone.
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("NVIDIA_API_KEY", "n");
+    expect(activeProvider().label).toBe("nvidia");
   });
 
   it("falls back to OpenRouter shape (no key) when nothing is configured", () => {

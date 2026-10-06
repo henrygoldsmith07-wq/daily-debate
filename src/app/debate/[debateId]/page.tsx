@@ -5,7 +5,7 @@ import DebateRoom from "@/components/DebateRoom";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
-import { measurementHonestyFor } from "@/lib/sprint";
+import { measurementHonestyFor, resolveDebateFormat } from "@/lib/sprint";
 import type { CoachingRecord, PersistedSoloResult, SoloDebate, SoloDebateTurn } from "@/lib/types";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
 import { performanceScoreForTurns } from "@/lib/gamification";
@@ -102,7 +102,7 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
       argGraph: persistedAssessment?.graph ?? finalAssessment?.graph,
       snapshot: persistedSnapshot ?? rebuiltSnapshot,
       repaired: !!repair,
-      honestyNote: persisted?.honesty?.note ?? measurementHonestyFor(debate.format === "sprint" ? "sprint" : "full").note,
+      honestyNote: persisted?.honesty?.note ?? measurementHonestyFor(resolveDebateFormat(debate.format)).note,
       summary: persisted?.summary,
       bonusXP: persisted?.bonusXP,
       rewardEvents: persisted?.rewardEvents,

@@ -12,6 +12,8 @@ import RoundProgress from "../RoundProgress";
 import ThinkingIndicator from "../ThinkingIndicator";
 import { MAX_ROUNDS, type SoloDebate } from "@/lib/types";
 import type { DebateModeId } from "@/lib/debateModes";
+import { roundCapFor } from "@/lib/sprint";
+import { OPPONENT_PERSONAS } from "@/lib/opponentPersona";
 import type { DebateSession } from "./useDebateSession";
 import type { ResponseWindow } from "./useResponseWindow";
 
@@ -45,19 +47,22 @@ export function DebateLivePanel({
   canFinishWithSaved,
   error,
 }: DebateLivePanelProps) {
-  const { turns, pending, roundCount, status, sending, finishing, submitTurn, finishDebate } = session;
+  const { turns, pending, roundCount, status, sending, finishing, submitTurn, finishDebate, liveHints } = session;
   const { debateMode, modeStartedAt, modeWindowStarting, waitingForModeWindow, chooseMode } = timing;
   const [showAdvancedModes, setShowAdvancedModes] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
   const answeredCount = turns.filter((t) => t.user_message).length;
   const submissionSaved = !!pending?.staged_user_message;
-  // Both formats keep the cap itself playable. Round 12 is the final
-  // answerable full-debate round; the API deliberately creates no round 13.
+  // Adversary controls: show the persona label when a non-default opponent
+  // persona is attached to the debate (difficulty changes pressure, not voice).
+  const personaLabel =
+    debate.persona && debate.persona !== "balanced" ? OPPONENT_PERSONAS[debate.persona]?.label : null;
+  // Fixed-length formats cap at their round count (sprint 3, flash 1,
+  // cross-examination/socratic 4); full debates cap at 12. Both keep the cap
+  // itself playable: the API deliberately creates no round beyond it.
   const composerVisible =
-    status === "active" &&
-    !pending?.user_message &&
-    (debate.format === "sprint" ? roundCount <= 3 : roundCount <= MAX_ROUNDS);
+    status === "active" && !pending?.user_message && roundCount <= roundCapFor(debate.format);
 
   useEffect(() => {
     // Follow new messages only while the reader is already near the bottom;
@@ -75,6 +80,7 @@ export function DebateLivePanel({
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-ink3">
           You&apos;re arguing <span className="text-[var(--foreground)]">{debate.side}</span> · AI argues {aiSide}
+          {personaLabel && <span className="text-[var(--accent)]"> · {personaLabel}</span>}
         </p>
         <RoundProgress answered={answeredCount} />
       </div>
@@ -129,6 +135,23 @@ export function DebateLivePanel({
 
       {composerVisible && (
         <div className="flex flex-col gap-2">
+          {liveHints.length > 0 && (
+            <div className="flex flex-col gap-1.5" data-testid="live-coaching">
+              {liveHints.map((hint) => (
+                <p
+                  key={hint.id}
+                  className={`rounded-lg border px-3 py-2 text-xs leading-5 ${
+                    hint.severity === "warning"
+                      ? "border-amber-500/40 bg-amber-500/10 text-ink2"
+                      : "border-[var(--rule)] bg-surface-2 text-ink3"
+                  }`}
+                >
+                  <span className="mr-1.5 font-semibold uppercase tracking-wide text-[var(--accent)]">Coach</span>
+                  {hint.message}
+                </p>
+              ))}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Debate mode">
             {[
               { id: "text", label: "📝 Text" },

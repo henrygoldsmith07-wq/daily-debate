@@ -11,6 +11,34 @@ depth rather than a new subsystem. The current labelled fixture corpus is not
 provenance-audited human data; it is a regression scaffold until moderated
 annotations are imported. Order within each group is not priority order.
 
+## Progress (2026-10-05)
+
+**Adversary controls & practice formats pass (current).** Closes the three
+product gaps a feature audit surfaced (opponent variety, mid-debate feedback,
+format variety) without touching the deterministic judge:
+
+- Opponent personas + pressure (`opponentPersona.ts`, migration 016): six
+  personas (Skeptic/Lawyer/Philosopher/Economist/Devil's Advocate/Expert) ×
+  three pressure levels, composed into opening/turn prompt directives only —
+  the observable assessment and scoring pipeline are unchanged, so persona
+  selection can never move a score.
+- Practice formats (`sprint.ts` + migration 016): Flash (1 round),
+  Cross-examination (4 probing rounds), Socratic (4 question-only rounds),
+  all reduced-confidence with explicit notes; `product_events` widened so the
+  funnel can tell the new formats apart (`solo_debate_started`).
+- Real-time coaching (`liveCoaching.ts`): ≤2 deterministic hints per turn
+  (unanswered opposition, contradiction, ungrounded claim, absolute language)
+  from the same per-turn observable evidence the score uses — no extra model
+  calls, advisory only, never persisted as ground truth.
+- Topic map on Progress (`topicInsights.ts`): best/weakest categories with a
+  minimum-sample rule and two-category requirement before a weak-topic signal
+  is shown.
+
+Open from this pass: measuring whether persona/difficulty choice improves
+retention (funnel event is in place) and whether live hints change next-round
+behaviour (needs a holdout design — see the judge experiment protocol before
+calling any effect real).
+
 ## Progress (2026-09-08)
 
 **Product-loop pass (current).** The experience was restructured around one

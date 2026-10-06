@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { DEBATE_FORMATS } from "@/lib/sprint";
 import { createClient } from "@/lib/backend/server";
 import { isClientProductEventName } from "@/lib/clientProductEvents";
 import {
@@ -29,7 +30,9 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ ok: true });
 
   const context: ProductEventContext = {};
-  if (body?.format === "sprint" || body?.format === "full") context.format = body.format;
+  if (typeof body?.format === "string" && (DEBATE_FORMATS as readonly string[]).includes(body.format)) {
+    context.format = body.format;
+  }
   if (body?.side === "for" || body?.side === "against") context.side = body.side;
   if (body?.reason !== undefined && body?.reason !== null) {
     if (!isProductEventReason(body.reason)) {

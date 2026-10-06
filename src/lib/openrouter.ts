@@ -66,26 +66,38 @@ export const DEFAULT_FALLBACK_MODELS = [
 export const NVIDIA_DEFAULT_FALLBACK_MODELS = ["nvidia/nemotron-3-super-120b-a12b"];
 
 /**
- * Provider registry — verified 2026-09-11: each transport below answers an
- * OpenAI-style chat/completions request with its listed default model.
- * UnoRouter carries the same free Nemotron chain as OpenRouter; Kirai adds an
- * independent free Qwen/GLM family for failover diversity.
+ * Provider registry, ordered by MEASURED reliability — this array order *is*
+ * the priority order, and `activeProvider` takes the first configured entry.
+ *
+ * Live judge benchmark, 2026-10-04 (docs/latest-judge-benchmark.json),
+ * 312 attempted calls per transport:
+ *
+ *   unorouter nemotron-3.5-lightning:free    252/312 = 0.808   clears providerReliabilityMin (0.75)
+ *   openrouter nvidia/nemotron-3-super:free    92/312 = 0.295   cannot clear it
+ *   kiraai    qwen3.8-flash-free                0/24  = 0.000   no usable calls at all
+ *
+ * This order previously led with OpenRouter Super, justified by a 2026-09-13
+ * probe ("live probes found the free Lightning/Ultra pools frequently stall,
+ * Super answers in ~1s"). Measurement has since contradicted that: Super drops
+ * roughly two calls in three. Leading with it means most PvP judgements have no
+ * judgement to return, and the failure is invisible per-call because the
+ * failover chain rescues some of them.
+ *
+ * Agreement is not the tie-breaker it first appears to be. Super scores higher
+ * (0.667 vs 0.625) but on a third of the traffic, and neither model clears the
+ * 0.75 agreement floor, so neither may back a competitive claim. Between two
+ * judges that are both unusable as judges, the one that answers is strictly
+ * better — especially for a verdict the learner is waiting on.
+ *
+ * nvidia sorts last deliberately: it has no benchmark row at all, so ranking
+ * it above a measured transport would be ranking on nothing. It still leads
+ * when it is the only key configured.
+ *
+ * Re-measure before reordering. A one-off probe is not evidence, and this
+ * comment exists so the next person can check the artifact instead of trusting
+ * the last person's optimism.
  */
 export const PROVIDERS: readonly ProviderSpec[] = [
-  {
-    label: "nvidia",
-    keyEnv: "NVIDIA_API_KEY",
-    url: NVIDIA_API_URL,
-    defaultModel: NVIDIA_DEFAULT_MODEL,
-    defaultFallbacks: NVIDIA_DEFAULT_FALLBACK_MODELS,
-  },
-  {
-    label: "openrouter",
-    keyEnv: "OPENROUTER_API_KEY",
-    url: OPENROUTER_API_URL,
-    defaultModel: DEFAULT_MODEL,
-    defaultFallbacks: DEFAULT_FALLBACK_MODELS,
-  },
   {
     label: "unorouter",
     keyEnv: "UNOROUTER_API_KEY",
@@ -97,11 +109,25 @@ export const PROVIDERS: readonly ProviderSpec[] = [
     defaultFallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free"],
   },
   {
+    label: "openrouter",
+    keyEnv: "OPENROUTER_API_KEY",
+    url: OPENROUTER_API_URL,
+    defaultModel: DEFAULT_MODEL,
+    defaultFallbacks: DEFAULT_FALLBACK_MODELS,
+  },
+  {
     label: "kiraai",
     keyEnv: "KIRAAI_API_KEY",
     url: "https://kiraai.vn/api/v1/chat/completions",
     defaultModel: "qwen3.8-flash-free",
     defaultFallbacks: ["glm-5.3-free", "hy3-free", "mimo-v2.5-free"],
+  },
+  {
+    label: "nvidia",
+    keyEnv: "NVIDIA_API_KEY",
+    url: NVIDIA_API_URL,
+    defaultModel: NVIDIA_DEFAULT_MODEL,
+    defaultFallbacks: NVIDIA_DEFAULT_FALLBACK_MODELS,
   },
 ];
 
@@ -114,8 +140,11 @@ export function activeProvider(env: Record<string, string | undefined> = process
   const [first] = configuredProviders(env);
   if (first) return { ...first, key: (env[first.keyEnv] ?? "").trim() };
   // Default shape when nothing is configured: OpenRouter without a key —
-  // apiKey() surfaces the actionable error on first use.
-  return { ...PROVIDERS[1], key: "" };
+  // apiKey() surfaces the actionable error on first use. Selected by label, not
+  // by index, so reordering PROVIDERS on new measurements cannot silently
+  // change what an unconfigured deployment reports.
+  const shape = PROVIDERS.find((p) => p.label === "openrouter") ?? PROVIDERS[0];
+  return { ...shape, key: "" };
 }
 
 export function activeProviderLabel(): ProviderLabel {
@@ -477,6 +506,8 @@ export async function debateTurn(params: {
   history: { role: "ai" | "user"; text: string }[];
   latestUserMessage: string;
   argumentRoute?: ArgumentRoute;
+  /** Opponent persona/difficulty/format directives (opponentPersona.ts). */
+  directive?: string;
 }): Promise<DebateTurnResult> {
   const aiSide: DebateSide = params.userSide === "for" ? "against" : "for";
 
@@ -492,10 +523,12 @@ export async function debateTurn(params: {
       ? "The submitted move is structurally off-topic or non-substantive: acknowledge briefly, redirect to the motion, and ask for one relevant claim."
       : "";
 
+  const opponentStyle = params.directive ? `\n\n${params.directive}` : "";
+
   return chatJson<DebateTurnResult>({
     schema: TURN_SCHEMA,
     operation: "debate_turn",
-    instruction: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}\n\nTranscript so far:\n${transcript}\n\nUser's latest response: "${params.latestUserMessage}"\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
+    instruction: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}${opponentStyle}\n\nTranscript so far:\n${transcript}\n\nUser's latest response: "${params.latestUserMessage}"\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
   });
 }
 
@@ -511,12 +544,15 @@ export async function debateOpening(params: {
   topicTitle: string;
   topicPrompt: string;
   aiSide: DebateSide;
+  /** Opponent persona/difficulty/format directives (opponentPersona.ts). */
+  directive?: string;
 }): Promise<string> {
   if (e2eMockAiEnabled()) return mockDebateOpening();
+  const opponentStyle = params.directive ? `\n\n${params.directive}` : "";
   const result = await chatJson<{ aiMessage: string }>({
     schema: OPENING_SCHEMA,
     operation: "debate_opening",
-    instruction: `Open a debate on "${params.topicTitle}" — ${params.topicPrompt}\nArgue the "${params.aiSide}" side in 2-4 sentences, stating a clear, specific opening claim (not a vague restatement of the prompt).`,
+    instruction: `Open a debate on "${params.topicTitle}" — ${params.topicPrompt}\nArgue the "${params.aiSide}" side in 2-4 sentences, stating a clear, specific opening claim (not a vague restatement of the prompt).${opponentStyle}`,
   });
   return result.aiMessage;
 }

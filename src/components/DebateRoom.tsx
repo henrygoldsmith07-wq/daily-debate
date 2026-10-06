@@ -18,7 +18,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { isDebateModeId, type DebateModeId } from "@/lib/debateModes";
-import { minRoundsFor } from "@/lib/sprint";
+import { minRoundsFor, resolveDebateFormat } from "@/lib/sprint";
 import { DebateLivePanel } from "./debate/DebateLivePanel";
 import { DebateResultCard } from "./debate/DebateResultCard";
 import { useDebateError, useDebateSession } from "./debate/useDebateSession";
@@ -84,7 +84,7 @@ export default function DebateRoom({
     setDebateMode: timing.setDebateMode,
   });
 
-  const format = debate.format === "sprint" ? "sprint" : "full";
+  const format = resolveDebateFormat(debate.format);
   const minRounds = minRoundsFor(format);
   const aiSide = debate.side === "for" ? "against" : "for";
   const answeredCount = session.turns.filter((t) => t.user_message).length;
