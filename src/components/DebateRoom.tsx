@@ -25,7 +25,6 @@ import { useDebateError, useDebateSession } from "./debate/useDebateSession";
 import { useDebateSpeech } from "./debate/useDebateSpeech";
 import { useResponseWindow } from "./debate/useResponseWindow";
 import type { DebateRoomProps, ReplayView } from "./debate/types";
->>>>>>> origin/main
 
 export default function DebateRoom({
   debate,

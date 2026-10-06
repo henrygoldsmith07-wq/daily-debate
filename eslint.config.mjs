@@ -22,6 +22,8 @@ const eslintConfig = defineConfig([
     "french-practice/**",
     "slimout/**",
     "emotion-tracker/**",
+    "life-essential-skills/**",
+    "revise/**",
     "forq/**",
   ]),
 ]);

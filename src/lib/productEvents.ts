@@ -37,7 +37,6 @@ export const PRODUCT_EVENT_REASONS: readonly ProductEventReason[] = [
   "structure",
   "clarity",
 ] as const;
->>>>>>> origin/main
 
 export type ProductEventName =
   | "daily_viewed"

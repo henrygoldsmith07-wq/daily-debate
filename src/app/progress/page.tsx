@@ -163,7 +163,7 @@ export default async function ProgressPage() {
 
   // Best/worst topic: observational aggregation over scored debates, joined to
   // their topic categories. Conservative by design (see topicInsights.ts).
-  const { data: scoredDebates } = await db
+  const { data: scoredDebates } = await service
     .from("solo_debates")
     .select("total_score, topic_id")
     .eq("user_id", user.id)
@@ -173,7 +173,7 @@ export default async function ProgressPage() {
     .limit(100);
   const topicIds = [...new Set((scoredDebates ?? []).map((d) => d.topic_id))];
   const { data: topicCategories } = topicIds.length
-    ? await db.from("daily_topics").select("id, category").in("id", topicIds)
+    ? await service.from("daily_topics").select("id, category").in("id", topicIds)
     : { data: [] };
   const categoryById = new Map((topicCategories ?? []).map((t) => [t.id, t.category as string | null]));
   const topicInsights = bestWorstTopics(
@@ -406,6 +406,9 @@ export default async function ProgressPage() {
           </div>
           <p className="mt-3 text-[11px] leading-5 text-ink3">
             {topicInsights.note ?? "Observational averages from your own debates — topic mix and difficulty vary, so treat this as a hint about what to practise, not a verdict."}
+          </p>
+        </section>
+      )}
 
       {/* ── Current training focus ─────────────────────────────────────────── */}
       <section className="surface-card p-5" aria-labelledby="focus-heading" data-testid="focus-card">

@@ -196,7 +196,7 @@ export interface PersistedSoloResult {
   summarySource?: "ai" | "fallback";
   assessment?: unknown;
   evaluation?: unknown;
-  format: "sprint" | "full";
+  format: DebateFormat;
   honesty?: { confidence: "standard" | "reduced"; note: string | null };
   snapshot?: unknown;
   coaching?: CoachingRecord;
