@@ -50,6 +50,16 @@ alter table product_events
     'challenge_link_created', 'challenge_link_accepted'
   ));
 
+-- CREATE OR REPLACE cannot redefine a function whose argument list changed:
+-- it would keep the superseded 11-argument signature alongside the new
+-- 13-argument one, and every existing call (resolvable through the trailing
+-- defaults) becomes ambiguous with 42725. Drop the superseded signature
+-- first; the replacement below has defaults for the new parameters, so
+-- 11-argument callers keep working after this migration applies.
+drop function if exists complete_solo_debate_start(
+  uuid, uuid, uuid, text, text, jsonb, text, text, uuid, uuid, text
+);
+
 create or replace function complete_solo_debate_start(
   p_user_id uuid,
   p_topic_id uuid,
