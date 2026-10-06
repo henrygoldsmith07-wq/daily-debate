@@ -16,10 +16,11 @@ import ArgumentRepair, { FixThisNowButton } from "../ArgumentRepair";
 import { ArgGraphInline, TrackingGrid } from "../ArgGraphView";
 import type { DebateSummaryPayload, ReplayView } from "./types";
 import { trackEvent } from "@/lib/trackClientEvent";
+import { formatLabelFor, type DebateFormat } from "@/lib/sprint";
 
 export interface DebateResultCardProps {
   view: ReplayView;
-  format: "sprint" | "full";
+  format: DebateFormat;
   debateId: string;
   /** The deliberate retest assignment this debate is serving, if any. */
   repairRetest: NonNullable<SoloDebate["coaching"]>["repairRetest"] | null;
@@ -88,9 +89,9 @@ export function DebateResultCard({
         <div className="surface-card flex flex-col gap-4 p-6" data-testid="result-card">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
             {view.fresh ? (
-              <>Debate complete{format === "sprint" ? " · Sprint" : ""}</>
+              <>Debate complete · {formatLabelFor(format)}</>
             ) : (
-              <>Replay{format === "sprint" ? " · Sprint" : ""}</>
+              <>Replay · {formatLabelFor(format)}</>
             )}
           </p>
 

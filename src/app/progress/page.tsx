@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createServiceClient } from "@/lib/backend/server";
 import { METRIC_KEYS, METRIC_LABELS, HIGHER_IS_BETTER } from "@/lib/skillLedger";
 import { buildProgressSummary } from "@/lib/progressSummary";
+import { bestWorstTopics } from "@/lib/topicInsights";
 import {
   buildTrainingProgress,
   MIN_MODE_TREND_DEBATES,
@@ -159,6 +160,28 @@ export default async function ProgressPage() {
   const focusLabel = goal?.dimension
     ? (summary.skills.find((s) => s.key === goal.dimension)?.label ?? goal.dimension)
     : null;
+
+  // Best/worst topic: observational aggregation over scored debates, joined to
+  // their topic categories. Conservative by design (see topicInsights.ts).
+  const { data: scoredDebates } = await service
+    .from("solo_debates")
+    .select("total_score, topic_id")
+    .eq("user_id", user.id)
+    .eq("status", "completed")
+    .not("total_score", "is", null)
+    .order("completed_at", { ascending: false })
+    .limit(100);
+  const topicIds = [...new Set((scoredDebates ?? []).map((d) => d.topic_id))];
+  const { data: topicCategories } = topicIds.length
+    ? await service.from("daily_topics").select("id, category").in("id", topicIds)
+    : { data: [] };
+  const categoryById = new Map((topicCategories ?? []).map((t) => [t.id, t.category as string | null]));
+  const topicInsights = bestWorstTopics(
+    (scoredDebates ?? []).map((d) => ({
+      category: categoryById.get(d.topic_id) ?? null,
+      totalScore: d.total_score as number | null,
+    })),
+  );
 
   return (
     <AppShell width="narrow">
@@ -353,6 +376,36 @@ export default async function ProgressPage() {
 
           <p className="mt-3 text-[11px] leading-5 text-ink3">
             Based on {training.debatesWithTrainingData} debate{training.debatesWithTrainingData === 1 ? "" : "s"} with mode metadata{training.spokenTurns > 0 ? ` and ${training.spokenTurns} spoken turn${training.spokenTurns === 1 ? "" : "s"}` : ""}.
+          </p>
+        </section>
+      )}
+
+      {/* ── Topic map: where the user argues strongest / weakest ───────────── */}
+      {(topicInsights.best || topicInsights.worst) && (
+        <section className="surface-card p-5" aria-label="Topic performance" data-testid="topic-insights">
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">Where you argue</p>
+          <div className="mt-2 flex flex-col gap-1.5 text-sm">
+            {topicInsights.best && (
+              <p>
+                <span className="text-ink3">Strongest topic:</span>{" "}
+                <span className="font-semibold">{topicInsights.best.category}</span>{" "}
+                <span className="text-ink3">
+                  · {Math.round(topicInsights.best.averageScore)} avg over {topicInsights.best.debates} debates
+                </span>
+              </p>
+            )}
+            {topicInsights.worst && (
+              <p>
+                <span className="text-ink3">Weakest topic:</span>{" "}
+                <span className="font-semibold">{topicInsights.worst.category}</span>{" "}
+                <span className="text-ink3">
+                  · {Math.round(topicInsights.worst.averageScore)} avg over {topicInsights.worst.debates} debates
+                </span>
+              </p>
+            )}
+          </div>
+          <p className="mt-3 text-[11px] leading-5 text-ink3">
+            {topicInsights.note ?? "Observational averages from your own debates — topic mix and difficulty vary, so treat this as a hint about what to practise, not a verdict."}
           </p>
         </section>
       )}

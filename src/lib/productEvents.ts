@@ -8,6 +8,7 @@
 // never breaks a user flow.
 
 import { createClient, createServiceClient } from "@/lib/backend/server";
+import type { DebateFormat } from "./sprint";
 import type { ChallengeRule } from "./challengeMe";
 import type { RepairState } from "./argumentRepair";
 
@@ -42,6 +43,7 @@ export type ProductEventName =
   | "debate_started"
   | "sprint_started"
   | "full_debate_started"
+  | "solo_debate_started"
   | "round_completed"
   | "debate_completed"
   | "repair_started"
@@ -60,7 +62,7 @@ export type ProductEventName =
   | "challenge_link_accepted";
 
 export interface ProductEventContext {
-  format?: "sprint" | "full";
+  format?: DebateFormat;
   side?: "for" | "against" | null;
   reason?: ProductEventReason | null;
   round?: number | null;
@@ -74,6 +76,7 @@ export const PRODUCT_EVENT_NAMES: readonly ProductEventName[] = [
   "debate_started",
   "sprint_started",
   "full_debate_started",
+  "solo_debate_started",
   "round_completed",
   "debate_completed",
   "repair_started",
@@ -145,6 +148,9 @@ export async function recordProductEvent(
       data: { user },
     } = await db.auth.getUser();
     if (!user) return;
+    // Keep only bounded, non-free-text fields. Persona/difficulty are NOT
+    // recorded here — they are already persisted on the solo_debates row, so
+    // analytics can join rather than widen this table's schema.
     await recordProductEventForUser(user.id, name, context);
   } catch {
     // Never let telemetry break a user flow.

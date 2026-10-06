@@ -11,7 +11,7 @@ import { computeCoachRewards, totalBonusXP } from "@/lib/coachRewards";
 import { buildEvaluationResult } from "@/lib/evaluationEnvelope";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
-import { minRoundsFor, measurementHonestyFor } from "@/lib/sprint";
+import { minRoundsFor, measurementHonestyFor, resolveDebateFormat } from "@/lib/sprint";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { snapshotFromAssessment } from "@/lib/coachingGoal";
 import { type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
@@ -59,7 +59,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
   }
 
-  const format = debate.format === "sprint" ? "sprint" : "full";
+  const format = resolveDebateFormat(debate.format);
   const minRounds = minRoundsFor(format);
 
   // Provider failure after an accepted response must not trap a sufficiently

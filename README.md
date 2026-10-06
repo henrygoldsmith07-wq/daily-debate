@@ -52,6 +52,10 @@ are validated; see the notice above and `/metrics`.
 **Shipped**
 
 - Daily Sprint (3 rounds) and Full Debate (5–12 rounds) through the same argument/evaluation pipeline.
+- Opponent adversary controls: six personas (Skeptic, Lawyer, Philosopher, Economist, Devil's Advocate, Expert) plus three pressure levels (Easy, Challenging, Expert). Personas change how the AI attacks and pressure changes how hard — they are prompt-level controls and never touch the deterministic scoring.
+- Three targeted practice formats beside Sprint/Full: Flash (1 round, ~60 seconds), Cross-examination (4 probing-question rounds), Socratic (4 question-only rounds). All carry reduced measurement confidence with an explicit note.
+- Real-time coaching: deterministic mid-debate hints (unanswered opposition, contradictions, ungrounded claims, absolute language) computed from the same per-turn observable evidence as the score — no extra model calls, advisory only.
+- Best/weakest topic categories on Progress: observational averages over scored debates, shown only once a category has a minimum sample.
 - Recovery-first solo state: Start is claim-first and atomic (one opening call + one canonical active debate per user/topic), stale Finish leases self-heal, timed modes survive reloads, and an accepted response can be used to **Finish with saved response** once the minimum debate length is satisfied.
 - Simplified result screen: one strength, one weakness, one evidence line, **Fix this now**, length-normalized performance + cumulative XP secondary, full analysis behind progressive disclosure.
 - Weak-link repair: server-checked rewrite of the flagged move with formative states and observable signals; the internal numeric rubric stays hidden, persists in `repair_results`, and links to the day's drill assignment for later retest scheduling.
@@ -68,6 +72,7 @@ are validated; see the notice above and `/metrics`.
 **Provisional (measured, not validated)**
 
 - Skill scores and trends: deterministic and reproducible, but not yet validated against external measures of debating ability.
+- Opponent personas, pressure levels, and mid-debate coaching hints: deterministic and inspectable, but not yet validated against learning outcomes.
 - Coach focus selection and drill-outcome movement.
 - Ensemble-judge confidence heuristics.
 

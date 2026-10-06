@@ -41,6 +41,10 @@ export type SoloDebateRow = {
   performance_score: number | null;
   bonus_xp: number;
   format: string;
+  /** Opponent persona (migration 035), default 'balanced'. */
+  persona: string;
+  /** Opponent difficulty (migration 035), default 'challenging'. */
+  difficulty: string;
   coaching: unknown;
   result_payload: unknown;
   finalization_token: string | null;

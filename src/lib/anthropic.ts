@@ -150,6 +150,8 @@ export async function debateTurn(params: {
   history: { role: "ai" | "user"; text: string }[];
   latestUserMessage: string;
   argumentRoute?: ArgumentRoute;
+  /** Opponent persona/difficulty/format directives (opponentPersona.ts). */
+  directive?: string;
 }): Promise<DebateTurnResult> {
   const aiSide: DebateSide = params.userSide === "for" ? "against" : "for";
 
@@ -161,6 +163,8 @@ export async function debateTurn(params: {
       ? "The submitted move is structurally off-topic or non-substantive: acknowledge briefly, redirect to the motion, and ask for one relevant claim."
       : "";
 
+  const opponentStyle = params.directive ? `\n\n${params.directive}` : "";
+
   const message = await createWithTelemetry("debate_turn", {
     model: MODEL,
     max_tokens: 1024,
@@ -169,7 +173,7 @@ export async function debateTurn(params: {
     messages: [
       {
         role: "user",
-        content: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}\n\nTranscript so far:\n${transcript}\n\nUser's latest response: "${params.latestUserMessage}"\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
+        content: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}${opponentStyle}\n\nTranscript so far:\n${transcript}\n\nUser's latest response: "${params.latestUserMessage}"\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
       },
     ],
   });
@@ -189,7 +193,8 @@ const OPENING_TOOL = {
   },
 };
 
-export async function debateOpening(params: { topicTitle: string; topicPrompt: string; aiSide: DebateSide }): Promise<string> {
+export async function debateOpening(params: { topicTitle: string; topicPrompt: string; aiSide: DebateSide; directive?: string }): Promise<string> {
+  const opponentStyle = params.directive ? `\n\n${params.directive}` : "";
   const message = await createWithTelemetry("debate_opening", {
     model: MODEL,
     max_tokens: 512,
@@ -198,7 +203,7 @@ export async function debateOpening(params: { topicTitle: string; topicPrompt: s
     messages: [
       {
         role: "user",
-        content: `Open a debate on "${params.topicTitle}" — ${params.topicPrompt}\nArgue the "${params.aiSide}" side in 2-4 sentences, stating a clear, specific opening claim (not a vague restatement of the prompt).`,
+        content: `Open a debate on "${params.topicTitle}" — ${params.topicPrompt}\nArgue the "${params.aiSide}" side in 2-4 sentences, stating a clear, specific opening claim (not a vague restatement of the prompt).${opponentStyle}`,
       },
     ],
   });

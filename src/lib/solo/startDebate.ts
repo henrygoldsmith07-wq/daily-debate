@@ -14,6 +14,13 @@ import type {
 import type { RepairKind } from "@/lib/argumentRepair";
 import type { DebateFormat } from "@/lib/sprint";
 import {
+  DEFAULT_DIFFICULTY,
+  DEFAULT_PERSONA,
+  openingDirective,
+  type OpponentDifficulty,
+  type OpponentPersonaId,
+} from "@/lib/opponentPersona";
+import {
   assignChallengeSide,
   normaliseSoloPerformance,
   type ChallengeRule,
@@ -30,6 +37,8 @@ export type SoloStartPayload = {
   side: DebateSide;
   sideReason: string | null;
   format: SoloDebate["format"];
+  persona: OpponentPersonaId;
+  difficulty: OpponentDifficulty;
   replayed: boolean;
 };
 
@@ -62,6 +71,14 @@ function existingPayload(existing: ExistingStart): SoloStartPayload {
     side: existing.debate.side,
     sideReason: coaching.sideReason ?? null,
     format: existing.debate.format,
+    persona:
+      existing.debate.persona != null
+        ? (existing.debate.persona as OpponentPersonaId)
+        : DEFAULT_PERSONA,
+    difficulty:
+      existing.debate.difficulty != null
+        ? (existing.debate.difficulty as OpponentDifficulty)
+        : DEFAULT_DIFFICULTY,
     replayed: true,
   };
 }
@@ -72,8 +89,10 @@ export async function startSoloDebate(params: {
   topicId: string;
   sideChoice: SoloStartSideChoice;
   format: DebateFormat;
+  persona: OpponentPersonaId;
+  difficulty: OpponentDifficulty;
 }): Promise<SoloStartServiceResult> {
-  const { db, userId, topicId, sideChoice, format } = params;
+  const { db, userId, topicId, sideChoice, format, persona, difficulty } = params;
 
   const { data: topic, error: topicError } = await db
     .from("daily_topics")
@@ -257,9 +276,21 @@ export async function startSoloDebate(params: {
     let aiMessage: string;
     try {
       aiMessage = await withProviderFallback(
-        () => debateOpening({ topicTitle: topic.title, topicPrompt: topic.prompt, aiSide }),
+        () =>
+          debateOpening({
+            topicTitle: topic.title,
+            topicPrompt: topic.prompt,
+            aiSide,
+            directive: openingDirective(persona, difficulty, format),
+          }),
         isValidOpening,
-        () => anthropicOpening({ topicTitle: topic.title, topicPrompt: topic.prompt, aiSide }),
+        () =>
+          anthropicOpening({
+            topicTitle: topic.title,
+            topicPrompt: topic.prompt,
+            aiSide,
+            directive: openingDirective(persona, difficulty, format),
+          }),
       );
     } catch (error) {
       console.error("Failed to generate opening:", error);
@@ -273,6 +304,8 @@ export async function startSoloDebate(params: {
       p_token: startToken,
       p_side: side,
       p_format: format,
+      p_persona: persona,
+      p_difficulty: difficulty,
       p_coaching: JSON.stringify(coaching),
       p_ai_message: aiMessage,
       p_side_rule: sideRule,
@@ -315,6 +348,14 @@ export async function startSoloDebate(params: {
         side: completed.debate.side,
         sideReason: persistedCoaching.sideReason ?? null,
         format: completed.debate.format,
+        persona:
+          completed.debate.persona != null
+            ? (completed.debate.persona as OpponentPersonaId)
+            : persona,
+        difficulty:
+          completed.debate.difficulty != null
+            ? (completed.debate.difficulty as OpponentDifficulty)
+            : difficulty,
         replayed: completed.reason === "existing-debate",
       },
     };

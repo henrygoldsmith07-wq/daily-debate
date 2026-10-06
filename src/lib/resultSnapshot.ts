@@ -13,7 +13,7 @@ import type { ObservableAssessment } from "./observableAssessment";
 import type { RepairTarget } from "./argumentRepair";
 import { pickRepairTarget } from "./argumentRepair";
 import { buildCoachingGoal, assessGoalOutcome, type CoachingSnapshot, type CoachingGoal } from "./coachingGoal";
-import { measurementHonestyFor, type MeasurementHonesty } from "./sprint";
+import { measurementHonestyFor, type DebateFormat, type MeasurementHonesty } from "./sprint";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { CoachDimension } from "./adaptiveCoach";
 import { rebuttalCoverageFor, unansweredOpportunitiesBy } from "./opportunity";
@@ -99,7 +99,7 @@ const WEAKNESS_WHY: Record<string, string> = {
 export function buildResultSnapshot(
   assessment: ObservableAssessment | null | undefined,
   opts: {
-    format: "sprint" | "full";
+    format: DebateFormat;
     summary?: { overallFeedback: string; strengths: string[]; improvements: string[] } | null;
     ledgerPoints?: SkillMetricPoint[];
     goalDimension?: CoachDimension | null;

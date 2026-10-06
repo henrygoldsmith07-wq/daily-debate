@@ -1,6 +1,7 @@
 import type { ArgGraph } from "./argGraph";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
 import type { DebateFormat } from "./sprint";
+import type { OpponentDifficulty, OpponentPersonaId } from "./opponentPersona";
 import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
 import type { RepairKind } from "./argumentRepair";
 import type { DebateModeId } from "./debateModes";
@@ -51,8 +52,12 @@ export interface SoloDebate {
   /** Compact, length-normalized result metadata (migration 031). */
   performance_score?: number | null;
   bonus_xp?: number;
-  /** "sprint" (3 rounds, reduced measurement confidence) or "full" (5–12). */
+  /** "sprint", "full", "flash", "cross-examination", or "socratic". */
   format: DebateFormat;
+  /** Opponent adversary control: how the AI attacks (default "balanced"). */
+  persona: OpponentPersonaId;
+  /** Opponent adversary control: how hard the AI presses (default "challenging"). */
+  difficulty: OpponentDifficulty;
   /** Coaching snapshot jsonb: goal dimension + observed behaviour from the debate. */
   coaching: CoachingRecord | null;
   /** Exact durable result returned by the finish route (migration 027). */
@@ -191,7 +196,7 @@ export interface PersistedSoloResult {
   summarySource?: "ai" | "fallback";
   assessment?: unknown;
   evaluation?: unknown;
-  format: "sprint" | "full";
+  format: DebateFormat;
   honesty?: { confidence: "standard" | "reduced"; note: string | null };
   snapshot?: unknown;
   coaching?: CoachingRecord;
