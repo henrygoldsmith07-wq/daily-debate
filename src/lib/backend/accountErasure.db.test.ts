@@ -215,17 +215,17 @@ d("delete_app_account (migration 037)", () => {
     // --- Everyone else: intact --------------------------------------------
     const intact = await pool.query<{ n: number }>(
       `SELECT (
-         (SELECT count(*) FROM app_users WHERE id IN ($2, $3)) +
-         (SELECT count(*) FROM profiles WHERE id IN ($2, $3)) +
-         (SELECT count(*) FROM pvp_matches WHERE id = $4) +
-         (SELECT count(*) FROM pvp_turns WHERE match_id = $4) +
-         (SELECT count(*) FROM challenge_invites WHERE id = $5) +
-         (SELECT count(*) FROM corpus_items WHERE id = $6) +
-         (SELECT count(*) FROM corpus_ratings WHERE corpus_id = $6 AND rater_id = $3) +
-         (SELECT count(*) FROM reports WHERE filed_by = $3 AND target_user_id = $2) +
-         (SELECT count(*) FROM product_events WHERE user_id = $2)
+         (SELECT count(*) FROM app_users WHERE id IN ($1, $2)) +
+         (SELECT count(*) FROM profiles WHERE id IN ($1, $2)) +
+         (SELECT count(*) FROM pvp_matches WHERE id = $3) +
+         (SELECT count(*) FROM pvp_turns WHERE match_id = $3) +
+         (SELECT count(*) FROM challenge_invites WHERE id = $4) +
+         (SELECT count(*) FROM corpus_items WHERE id = $5) +
+         (SELECT count(*) FROM corpus_ratings WHERE corpus_id = $5 AND rater_id = $2) +
+         (SELECT count(*) FROM reports WHERE filed_by = $2 AND target_user_id = $1) +
+         (SELECT count(*) FROM product_events WHERE user_id = $1)
        )::int AS n`,
-      [victim, other, rater, unrelatedMatchId, cleanInvite.rows[0].id, otherItemId],
+      [other, rater, unrelatedMatchId, cleanInvite.rows[0].id, otherItemId],
     );
     expect(intact.rows[0].n).toBe(10);
 
