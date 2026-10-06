@@ -56,14 +56,14 @@ create or replace function complete_solo_debate_start(
   p_token uuid,
   p_side text,
   p_format text,
-  p_persona text default 'balanced',
-  p_difficulty text default 'challenging',
   p_coaching jsonb,
   p_ai_message text,
   p_side_rule text default null,
   p_repair_result_id uuid default null,
   p_repair_debate_id uuid default null,
-  p_target_kind text default null
+  p_target_kind text default null,
+  p_persona text default 'balanced',
+  p_difficulty text default 'challenging'
 )
 returns jsonb
 language plpgsql
