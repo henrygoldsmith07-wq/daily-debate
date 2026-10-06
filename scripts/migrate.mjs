@@ -94,6 +94,42 @@ if (process.argv.includes("--check")) {
   }
   process.exit(0);
 }
+if (process.argv.includes("--status")) {
+  // Read-only applied-vs-pending report used by CI and the deploy step.
+  // Exit codes: 0 = ledger current, 1 = pending migrations remain (or the
+  // ledger table is absent, i.e. the database was never migrated),
+  // 2 = DATABASE_URL missing or database unreachable. NEVER migrates.
+  if (!databaseUrl) {
+    console.error("[db:status] DATABASE_URL is required.");
+    process.exit(2);
+  }
+  const statusSql = await createExecutor(databaseUrl);
+  let appliedNames;
+  try {
+    const rows = await statusSql("SELECT name FROM app_migrations ORDER BY name");
+    appliedNames = rows.map((row) => String(row.name));
+  } catch (error) {
+    const message = String(error?.message ?? error);
+    if (/relation .* does not exist|does not exist/i.test(message) && /app_migrations/i.test(message)) {
+      console.log(`[db:status] applied: 0/${files.length} (no app_migrations ledger — never migrated)`);
+      console.log(`[db:status] pending: ${files.length} (${files.join(", ")})`);
+      process.exit(1);
+    }
+    console.error(`[db:status] database unreadable: ${message.slice(0, 160)}`);
+    process.exit(2);
+  }
+  const appliedSet = new Set(appliedNames);
+  const pending = files.filter((name) => !appliedSet.has(name));
+  const ledgerOnly = appliedNames.filter((name) => !files.includes(name));
+  console.log(`[db:status] applied: ${appliedNames.length}/${files.length} (last: ${appliedNames[appliedNames.length - 1] ?? "none"})`);
+  if (ledgerOnly.length) console.log(`[db:status] ledger entries with no migration file: ${ledgerOnly.join(", ")}`);
+  if (pending.length) {
+    console.log(`[db:status] pending: ${pending.length} (${pending.join(", ")})`);
+    process.exit(1);
+  }
+  console.log("[db:status] pending: none");
+  process.exit(0);
+}
 
 if (!databaseUrl) throw new Error("DATABASE_URL is required to run migrations.");
 const sql = await createExecutor(databaseUrl);

@@ -26,6 +26,9 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci
 
+      - name: Migration policy lint (expand/contract; destructive needs a marker)
+        run: npm run db:policy
+
       - name: Lint (eslint — 0 errors required)
         run: npm run lint -- --max-warnings 0
 
@@ -100,6 +103,8 @@ jobs:
       - name: Apply migrations and seed test users
         run: |
           node scripts/migrate.mjs
+          # The ledger gate must hold after migrating: zero pending.
+          node scripts/migrate.mjs --status
           node scripts/e2e-seed.mjs
 
       - name: Unit + DB invariant tests (migration 003 matchmaking runs for real)
@@ -169,7 +174,10 @@ jobs:
       - run: npm ci
 
       - name: Migrate ephemeral database
-        run: node scripts/migrate.mjs
+        run: |
+          node scripts/migrate.mjs
+          # The ledger gate must hold after migrating: zero pending.
+          node scripts/migrate.mjs --status
 
       - name: Config gate passes against a real (ephemeral) database
         run: node scripts/generate-topics.mjs --check-config
