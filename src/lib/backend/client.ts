@@ -39,7 +39,8 @@ export class BackendClient {
       | "join_pvp_queue_and_match"
       | "create_friend_challenge"
       | "create_friend_challenge_v2"
-      | "accept_friend_challenge",
+      | "accept_friend_challenge"
+      | "delete_app_account",
     args: RpcArgs,
   ) {
     try {
@@ -259,6 +260,15 @@ export class BackendClient {
           [args.p_code, args.p_opponent, args.p_round_limit],
         );
         return { data: rows, error: null };
+      }
+      if (name === "delete_app_account") {
+        // Single-statement account erasure (migration 037): atomic — a failure
+        // rolls the whole function back, so "error" never means partial state.
+        const rows = await queryRows<{ delete_app_account: Record<string, unknown> }>(
+          "SELECT delete_app_account($1) AS delete_app_account",
+          [args.p_user_id],
+        );
+        return { data: rows[0]?.delete_app_account ?? null, error: null };
       }
       const rows = await queryRows<{ value: number }>(
         "SELECT increment_total_points($1, $2, $3) AS value",

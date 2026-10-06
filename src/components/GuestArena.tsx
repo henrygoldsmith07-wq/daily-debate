@@ -18,6 +18,7 @@ import {
   GUEST_LOOP_STORAGE_KEY,
   type GuestLoopSummary,
 } from "@/lib/guestLoop";
+import { SPRINT_ESTIMATE_MINUTES } from "@/lib/sprint";
 
 // The guest loop mirrors the signed-in product loop:
 //   debate -> one weakness -> fix it now -> retest it -> see what moved.
@@ -75,7 +76,7 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
               <div>
                 <p className="home-motion-kicker">Today&apos;s motion</p>
                 <p className="home-motion-meta">
-                  {motion.topic} · {motion.rounds.length} rounds · about 6 minutes
+                  {motion.topic} · {motion.rounds.length} rounds · about {SPRINT_ESTIMATE_MINUTES} minutes
                 </p>
               </div>
               <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">Sample</span>
@@ -132,7 +133,7 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
             </div>
             <ol className="home-secondary-grid">
               {[
-                { step: "1", kicker: "Debate", title: "Three rounds against a live case", copy: "Each round answers what the opponent actually said, rather than adding another claim." },
+                { step: "1", kicker: "Debate", title: "Three rounds against a guided case", copy: "Each round answers what the opponent actually said, rather than adding another claim. Guest opponents are scripted, so replies stay on-device." },
                 { step: "2", kicker: "Fix", title: "One weakness, repaired immediately", copy: "You see the missing move, why it matters, and rewrite it yourself." },
                 { step: "3", kicker: "Retest", title: "See whether it moved", copy: "You argue again and we check whether the repair held under debate conditions." },
               ].map((item) => (

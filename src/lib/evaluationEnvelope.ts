@@ -13,8 +13,11 @@ import { SCORING_ENGINE_VERSION } from "./judgeVersioning";
  * Bump when the persisted evaluation envelope shape changes: fields added,
  * renamed, or re-semanticed. Consumers must treat an unfamiliar version as
  * "read fields best-effort, never recompute rewards from it".
+ *
+ * v3 (Phase 3): judgeProvider / judgeModel / judgeEnsemble — the exact model
+ * id behind every verdict, stamped from the verdict's judge fingerprint.
  */
-export const EVALUATION_SCHEMA_VERSION = 2;
+export const EVALUATION_SCHEMA_VERSION = 3;
 
 /**
  * The scoring policy version in force at evaluation time. Mirrors
@@ -46,7 +49,23 @@ export function evaluationStamp(now: Date = new Date()): EvaluationStamp {
  * Returns a new object — never mutates the input.
  */
 export function stampVerdict(verdict: PvpVerdict, now: Date = new Date()): PvpVerdict {
-  return { ...verdict, evaluation: evaluationStamp(now) };
+  // Exact model id attribution: copy the judge fingerprint's provider/model
+  // into the stamp itself so every stored verdict names the model that
+  // produced it, even when readers never look at judge_fingerprint.
+  const fingerprint = verdict.fingerprint;
+  return {
+    ...verdict,
+    evaluation: {
+      ...evaluationStamp(now),
+      ...(fingerprint
+        ? {
+            judgeProvider: fingerprint.provider,
+            judgeModel: fingerprint.model,
+            judgeEnsemble: fingerprint.ensemble,
+          }
+        : {}),
+    },
+  };
 }
 
 /** Wrap any evaluation parts into the canonical envelope. Pure. */

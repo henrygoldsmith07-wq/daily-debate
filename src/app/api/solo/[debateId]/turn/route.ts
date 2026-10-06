@@ -6,6 +6,7 @@ import { debateTurn } from "@/lib/openrouter";
 import { debateTurn as anthropicTurn } from "@/lib/anthropic";
 import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidDebateTurn } from "@/lib/aiSchema";
+import { isSpendCapError, retryAfterSecondsToReset } from "@/lib/spendCap";
 import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
 import {
@@ -380,6 +381,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
         p_turn_id: pendingTurn.id,
         p_token: submissionToken,
       });
+      // Spend-cap exhaustion is an EXPLICIT, retryable state: the response is
+      // saved, the round is not advanced, and the client is told exactly why.
+      if (isSpendCapError(error)) {
+        const retryAfter = retryAfterSecondsToReset();
+        return NextResponse.json(
+          {
+            error: `${error.message} Your response is saved — retry after the daily reset to continue.`,
+            code: "spend_cap_reached",
+            retryAfterSeconds: retryAfter,
+            ...stagedResponsePayload({
+              ...staged,
+              userMessage: effectiveMessage,
+              modeId: effectiveModeId,
+              trainingMeta: effectiveTrainingMeta,
+            }),
+          },
+          { status: 503, headers: { "Retry-After": String(retryAfter), "Cache-Control": "no-store" } },
+        );
+      }
       return NextResponse.json(
         {
           error: "Your response was saved, but the opponent is temporarily unavailable. Retry to continue from the saved response.",

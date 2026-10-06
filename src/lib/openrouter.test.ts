@@ -90,6 +90,7 @@ describe("modelChain", () => {
 });
 
 describe("provider registry", () => {
+  beforeEach(() => vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "1"));
   afterEach(() => vi.unstubAllEnvs());
 
   it("lists configured providers in priority order", () => {
@@ -175,6 +176,9 @@ const TOPIC = JSON.stringify({
 describe("generateDailyTopic transport", () => {
   beforeEach(() => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+    // The transport tests exercise the free chain — which production keeps
+    // behind JUDGE_ALLOW_FREE_PROVIDERS (see the gating tests below).
+    vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "1");
     vi.useFakeTimers();
   });
   afterEach(() => {
@@ -305,7 +309,54 @@ describe("generateDailyTopic transport", () => {
 
     it("fails fast and clearly when the key is absent", async () => {
       vi.stubEnv("OPENROUTER_API_KEY", "");
-      await expect(generateDailyTopic([])).rejects.toThrow(/No judge provider key configured/i);
+      await expect(generateDailyTopic([])).rejects.toThrow(/No judge provider configured/i);
+    });
+  });
+
+  describe("free-chain gating (JUDGE_ALLOW_FREE_PROVIDERS)", () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    function stubKeys() {
+      // The parent transport suite opts into the free chain; start from the
+      // production default (unset) so each case states its own policy.
+      vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "");
+      vi.stubEnv("UNOROUTER_API_KEY", "u");
+      vi.stubEnv("OPENROUTER_API_KEY", "o");
+      vi.stubEnv("NVIDIA_API_KEY", "");
+      vi.stubEnv("KIRAAI_API_KEY", "");
+    }
+
+    it("denies the free chain by default even when every key is present", () => {
+      stubKeys();
+      expect(configuredProviders()).toEqual([]);
+    });
+
+    it("allows the free chain outside production only when opted in", () => {
+      stubKeys();
+      vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "1");
+      vi.stubEnv("NODE_ENV", "development");
+      expect(configuredProviders().map((p) => p.label)).toEqual(["unorouter", "openrouter"]);
+
+      vi.stubEnv("VERCEL_ENV", "production");
+      expect(configuredProviders()).toEqual([]);
+
+      vi.stubEnv("VERCEL_ENV", "preview");
+      expect(configuredProviders().map((p) => p.label)).toEqual(["unorouter", "openrouter"]);
+    });
+
+    it("supports the explicitly-named emergency override in production", () => {
+      stubKeys();
+      vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "emergency");
+      vi.stubEnv("VERCEL_ENV", "production");
+      expect(configuredProviders().map((p) => p.label)).toEqual(["unorouter", "openrouter"]);
+    });
+
+    it("denies the free chain in production even with E2E-style flags unless emergency", () => {
+      stubKeys();
+      vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "1");
+      vi.stubEnv("VERCEL_ENV", "production");
+      vi.stubEnv("E2E_MOCK_AI", "1");
+      expect(configuredProviders()).toEqual([]);
     });
   });
 

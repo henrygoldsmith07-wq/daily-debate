@@ -69,8 +69,17 @@ export async function POST(request: Request) {
   });
   if (!result.ok) {
     return NextResponse.json(
-      { error: result.error, ...(result.code ? { code: result.code } : {}) },
-      { status: result.status },
+      {
+        error: result.error,
+        ...(result.code ? { code: result.code } : {}),
+        ...(result.retryAfterSeconds ? { retryAfterSeconds: result.retryAfterSeconds } : {}),
+      },
+      {
+        status: result.status,
+        ...(result.retryAfterSeconds
+          ? { headers: { "Retry-After": String(result.retryAfterSeconds), "Cache-Control": "no-store" } }
+          : {}),
+      },
     );
   }
 

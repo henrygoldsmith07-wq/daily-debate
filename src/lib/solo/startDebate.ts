@@ -4,6 +4,7 @@ import { debateOpening } from "@/lib/openrouter";
 import { debateOpening as anthropicOpening } from "@/lib/anthropic";
 import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidOpening } from "@/lib/aiSchema";
+import { isSpendCapError, retryAfterSecondsToReset } from "@/lib/spendCap";
 import type {
   CoachingContextDegradationReason,
   CoachingRecord,
@@ -44,7 +45,7 @@ export type SoloStartPayload = {
 
 export type SoloStartServiceResult =
   | { ok: true; data: SoloStartPayload }
-  | { ok: false; status: 404 | 409 | 500 | 502; error: string; code?: string };
+  | { ok: false; status: 404 | 409 | 500 | 502 | 503; error: string; code?: string; retryAfterSeconds?: number };
 
 type ExistingStart = {
   debate: SoloDebate;
@@ -56,11 +57,12 @@ export function isSoloStartSideChoice(value: unknown): value is SoloStartSideCho
 }
 
 function failure(
-  status: 404 | 409 | 500 | 502,
+  status: 404 | 409 | 500 | 502 | 503,
   error: string,
   code?: string,
+  retryAfterSeconds?: number,
 ): SoloStartServiceResult {
-  return { ok: false, status, error, ...(code ? { code } : {}) };
+  return { ok: false, status, error, ...(code ? { code } : {}), ...(retryAfterSeconds ? { retryAfterSeconds } : {}) };
 }
 
 function existingPayload(existing: ExistingStart): SoloStartPayload {
@@ -295,6 +297,10 @@ export async function startSoloDebate(params: {
     } catch (error) {
       console.error("Failed to generate opening:", error);
       await releaseStartClaim();
+      // Daily spend cap: explicit and retryable — no debate was created.
+      if (isSpendCapError(error)) {
+        return failure(503, `${error.message} Try again after the daily reset.`, "spend_cap_reached", retryAfterSecondsToReset());
+      }
       return failure(502, "Failed to generate AI opening.");
     }
 

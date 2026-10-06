@@ -29,6 +29,7 @@ import {
   JUDGE_AVOIDANCE_ROUTES,
   type RouteShadowRecord,
 } from "./routeShadowValidation";
+import { isSpendCapError } from "./spendCap";
 
 export type JudgeId = ProviderLabel | "anthropic";
 export interface JudgedVerdict extends PvpJudgeResult {
@@ -212,11 +213,14 @@ export function ensembleVerdicts(judges: JudgedVerdict[]): EnsembleResult {
 
 const JUDGE_TIMEOUT_MS = 25_000;
 
-function expectedExpensiveJudgeLegs(): number {
-  // The current harness runs one configured OpenAI-style transport and adds
-  // Anthropic only when its key is present. This is the baseline used by the
-  // savings telemetry; it does not influence the verdict.
-  return 1 + (process.env.ANTHROPIC_API_KEY ? 1 : 0);
+async function expectedExpensiveJudgeLegs(): Promise<number> {
+  // Legs the harness will ACTUALLY run: the free-chain transport only when
+  // the free chain is allowed and keyed, plus Anthropic when keyed. This is
+  // the baseline used by the savings telemetry; it does not influence the
+  // verdict.
+  const { configuredProviders } = await import("./openrouter");
+  const freeLeg = configuredProviders().length > 0 ? 1 : 0;
+  return freeLeg + (process.env.ANTHROPIC_API_KEY ? 1 : 0);
 }
 
 function effectiveEnsemblePlan(plan: ArgumentRoutingPlan, reason?: string): ArgumentRoutingPlan {
@@ -304,7 +308,7 @@ export async function liveEnsembleJudge(params: {
     topicPrompt: params.topicPrompt,
     ...(params.debateKey ? { shadow: { key: params.debateKey } } : {}),
   });
-  const baselineJudgeLegs = expectedExpensiveJudgeLegs();
+  const baselineJudgeLegs = await expectedExpensiveJudgeLegs();
 
   // SHADOW MODE. The structural classifier may shape responses, but it must
   // not decide a PvP winner: no route has passed its preregistered adoption
@@ -334,27 +338,31 @@ export async function liveEnsembleJudge(params: {
   );
   const ensembleRouting = routingSummary(ensemblePlan, 0);
   const primary = await import("./openrouter");
-  if (primary.configuredProviders().length === 0) {
-    recordRoutingTelemetry(ensembleRouting);
-    throw new Error("No judge configured (set at least one provider key, e.g. UNOROUTER_API_KEY).");
+  const freeChainKeyed = primary.configuredProviders().length > 0;
+  const anthropicKeyed = Boolean(process.env.ANTHROPIC_API_KEY);
+  const legs: Promise<JudgedVerdict>[] = [];
+  if (freeChainKeyed) {
+    // Free-chain chat transport (dev/e2e opt-in only): the first configured
+    // OpenAI-style provider in the registry (UnoRouter → OpenRouter → Kirai →
+    // NVIDIA).
+    legs.push(
+      (async (): Promise<JudgedVerdict> => {
+        const { makeFingerprint } = await import("./judgeVersioning");
+        const label = primary.activeProviderLabel();
+        const t0 = Date.now();
+        const r = await withTimeout(primary.judgePvpMatch(params), JUDGE_TIMEOUT_MS, label);
+        return {
+          ...r,
+          judgeId: label,
+          latencyMs: Date.now() - t0,
+          fingerprint: makeFingerprint(label, primary.currentModel()),
+        };
+      })(),
+    );
   }
-  const legs: Promise<JudgedVerdict>[] = [
-    (async (): Promise<JudgedVerdict> => {
-      // Primary chat transport: the first configured OpenAI-style provider in
-      // the registry (NVIDIA → OpenRouter → UnoRouter → Kirai).
-      const { makeFingerprint } = await import("./judgeVersioning");
-      const label = primary.activeProviderLabel();
-      const t0 = Date.now();
-      const r = await withTimeout(primary.judgePvpMatch(params), JUDGE_TIMEOUT_MS, label);
-      return {
-        ...r,
-        judgeId: label,
-        latencyMs: Date.now() - t0,
-        fingerprint: makeFingerprint(label, primary.currentModel()),
-      };
-    })(),
-  ];
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (anthropicKeyed) {
+    // Pinned paid judge: ONE model id, recorded in every verdict fingerprint
+    // and evaluation stamp (claude-sonnet-5 unless ANTHROPIC_MODEL overrides).
     legs.push(
       (async (): Promise<JudgedVerdict> => {
         const anthropic = await import("./anthropic");
@@ -365,9 +373,15 @@ export async function liveEnsembleJudge(params: {
           ...r,
           judgeId: "anthropic" as const,
           latencyMs: Date.now() - t0,
-        fingerprint: makeFingerprint("anthropic", process.env.ANTHROPIC_MODEL || "claude-sonnet-5"),
-      };
+          fingerprint: makeFingerprint("anthropic", anthropic.anthropicModel()),
+        };
       })(),
+    );
+  }
+  if (!legs.length) {
+    recordRoutingTelemetry(ensembleRouting);
+    throw new Error(
+      "No judge configured — set ANTHROPIC_API_KEY (the pinned paid default), or opt into the free chain with JUDGE_ALLOW_FREE_PROVIDERS=1 (dev/e2e only).",
     );
   }
   const settled = await Promise.allSettled(legs);
@@ -375,6 +389,12 @@ export async function liveEnsembleJudge(params: {
   if (!ok.length) {
     const reasons = settled.filter((r) => r.status === "rejected").map((r) => String((r as PromiseRejectedResult).reason?.message ?? r));
     recordRoutingTelemetry(ensembleRouting);
+    // Keep the spend-cap error TYPED so the route can return an explicit,
+    // retryable judge-unavailable state instead of a permanent tie verdict.
+    const capFailure = settled.find(
+      (r): r is PromiseRejectedResult => r.status === "rejected" && isSpendCapError((r as PromiseRejectedResult).reason),
+    );
+    if (capFailure) throw capFailure.reason;
     throw new Error(`All judges failed: ${reasons.join(" | ")}`);
   }
   const ensemble = ensembleVerdicts(ok);

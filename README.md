@@ -6,7 +6,7 @@ Daily Debate is a daily reasoning trainer: argue today's motion against an AI op
 
 ## Stack
 
-Next.js (App Router) + a repository-owned Postgres/auth backend + OpenRouter (primary judge, default model `nvidia/nemotron-3-super-120b-a12b:free` with automatic failover through the free Nemotron chain). The app talks to standard Postgres through the Neon serverless driver.
+Next.js (App Router) + a repository-owned Postgres/auth backend + Anthropic as the default judge and opponent (one pinned paid model, `claude-sonnet-5`, over `@anthropic-ai/sdk`; `ANTHROPIC_MODEL` overrides). The free OpenAI-style chain (NVIDIA → OpenRouter → UnoRouter → Kirai) is opt-in for dev/e2e only via `JUDGE_ALLOW_FREE_PROVIDERS=1` and is never used in production by default. The app talks to standard Postgres through the Neon serverless driver.
 
 ## The daily loop
 
@@ -111,8 +111,13 @@ Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only chec
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | Server-only pooled Postgres connection string. Never expose it with a `NEXT_PUBLIC_` prefix. |
-| `OPENROUTER_API_KEY` | at least one of these | Primary judge when set; solo debates, PvP judging, and daily topics fail without any provider key. |
-| `UNOROUTER_API_KEY` / `KIRAAI_API_KEY` | alternative judges | Free-model OpenAI-compatible transports tried in priority order (NVIDIA → OpenRouter → UnoRouter → Kirai). |
+| `ANTHROPIC_API_KEY` | yes (production) | The pinned paid judge/opponent. Solo debates, PvP judging, and daily topics fail with an explicit "judge unavailable" state without it (daily topics fall back to the curated bank). |
+| `ANTHROPIC_MODEL` | optional | Defaults to `claude-sonnet-5`. The exact id is stamped into every verdict's evaluation stamp. |
+| `JUDGE_ALLOW_FREE_PROVIDERS` | optional | `1` enables the free chain outside production (dev/e2e); `emergency` enables it in production too — incident response only, never a default. |
+| `AI_DAILY_SPEND_CAP_USD` | optional | Daily AI spend cap, default `10`; `off` disables. When hit: opponent/judge degrade to an explicit retryable unavailable state (never silent). |
+| `AI_SPEND_UNCOSTED_CALL_USD` | optional | Declared charge for each call whose provider reports no cost, default `0.02`. |
+| `CLASSIFIER_DEV_ENABLED` | optional | `1` sends argument texts to classifier.dev. Default off everywhere until the service is disclosed in the privacy policy. |
+| `OPENROUTER_API_KEY` / `UNOROUTER_API_KEY` / `KIRAAI_API_KEY` / `NVIDIA_API_KEY` | optional | Free-chain transports; only used when `JUDGE_ALLOW_FREE_PROVIDERS` allows them. |
 | `OPENROUTER_MODEL` | optional | Defaults to `nvidia/nemotron-3-super-120b-a12b:free`. |
 | `OPENROUTER_FALLBACK_MODELS` | optional | Comma-separated failover chain. Defaults to free Nemotron 3 Super then Ultra. Empty string pins to one model. |
 | `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |

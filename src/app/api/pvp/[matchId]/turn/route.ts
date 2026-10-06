@@ -4,6 +4,7 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { isSuspiciousLength, repeatScore } from "@/lib/moderation";
 import { stampVerdict } from "@/lib/evaluationEnvelope";
+import { ensureSpendWithinCap, isSpendCapError, retryAfterSecondsToReset } from "@/lib/spendCap";
 import { TURN_ABANDON_MINUTES, type InputMode, type PvpVerdict } from "@/lib/types";
 
 async function awardPoints(userId: string, points: number) {
@@ -123,13 +124,37 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     if (!isNaN(deadline) && Date.now() > deadline) {
       return NextResponse.json({ error: "Turn deadline exceeded (late submission)." }, { status: 400 });
     }
+  }  const isPlayerA = user.id === match.player_a;
+  const roundJustCompleted = !isPlayerA;
+  const nextRound = roundJustCompleted ? match.current_round + 1 : match.current_round;
+  const nextTurnPlayer = isPlayerA ? match.player_b : match.player_a;
+  const matchComplete = roundJustCompleted && nextRound > match.round_limit;
+
+  if (matchComplete) {
+    // Explicit, retryable judge-unavailable state BEFORE any mutation: when
+    // the daily spend cap is exhausted the turn is NOT saved and the match
+    // stays exactly as it was, so the client can retry after the UTC reset
+    // without tripping the duplicate/anti-repeat guards. Never silent.
+    try {
+      await ensureSpendWithinCap();
+    } catch (error) {
+      if (isSpendCapError(error)) {
+        const retryAfter = retryAfterSecondsToReset();
+        return NextResponse.json(
+          {
+            error: error.message,
+            code: "judge_unavailable",
+            reason: "spend_cap_reached",
+            retryAfterSeconds: retryAfter,
+          },
+          { status: 503, headers: { "Retry-After": String(retryAfter), "Cache-Control": "no-store" } },
+        );
+      }
+      throw error;
+    }
   }
 
-  const { data: turn, error: turnError } = await db
-    .from("pvp_turns")
-    .insert({ match_id: matchId, player_id: user.id, round_number: match.current_round, message, input_mode: inputMode })
-    .select("*")
-    .single();
+  const { data: turn, error: turnError } = await db.from("pvp_turns").insert({ match_id: matchId, player_id: user.id, round_number: match.current_round, message, input_mode: inputMode }).select("*").single();
   if (turnError || !turn) {
     // Race: simultaneous submission — the loser gets a turn conflict due to DB ordering
     const msg = String(turnError?.message ?? "");
@@ -140,11 +165,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     return NextResponse.json({ error: "Failed to save your response." }, { status: 500 });
   }
 
-  const isPlayerA = user.id === match.player_a;
-  const roundJustCompleted = !isPlayerA;
-  const nextRound = roundJustCompleted ? match.current_round + 1 : match.current_round;
-  const nextTurnPlayer = isPlayerA ? match.player_b : match.player_a;
-  const matchComplete = roundJustCompleted && nextRound > match.round_limit;
 
   if (!matchComplete) {
     // Use optimistic concurrency: only advance if still on expected round (prevents simultaneous submission race)

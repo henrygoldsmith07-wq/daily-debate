@@ -21,6 +21,7 @@ import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types
 import { finalizePvpAssessment } from "./observableAssessment";
 import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
+import { ensureSpendWithinCap } from "./spendCap";
 import type { ArgumentRoute } from "./argumentTaxonomy";
 
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -131,8 +132,32 @@ export const PROVIDERS: readonly ProviderSpec[] = [
   },
 ];
 
-/** All providers that currently have an API key configured, in priority order. */
+/**
+ * Whether the FREE provider chain (UnoRouter, free OpenRouter pools, Kirai,
+ * NVIDIA free tier) may serve calls at all.
+ *
+ * Phase 3 judge reliability: the default judge is ONE pinned paid model via
+ * a single provider (Anthropic claude-sonnet-5; `ANTHROPIC_MODEL` override).
+ * The free chain is opt-in for dev/e2e only:
+ *
+ *  * unset            -> free chain off everywhere (production default)
+ *  * "1"              -> free chain on outside production (local dev, CI)
+ *  * "emergency"      -> free chain on even in production. Incident-response
+ *                        escape hatch only (e.g. the pinned provider is down,
+ *                        or the pre-registered study rejects the switch);
+ *                        never a default, always a deliberate operator action.
+ */
+export function freeProvidersAllowed(env: Record<string, string | undefined> = process.env): boolean {
+  const flag = (env.JUDGE_ALLOW_FREE_PROVIDERS ?? "").trim().toLowerCase();
+  if (!flag) return false;
+  if (flag === "emergency") return true;
+  const isProduction = (env.VERCEL_ENV ?? env.NODE_ENV) === "production";
+  return flag === "1" && !isProduction;
+}
+
+/** All providers that currently have an API key configured AND are allowed to serve calls, in priority order. */
 export function configuredProviders(env: Record<string, string | undefined> = process.env): ProviderSpec[] {
+  if (!freeProvidersAllowed(env)) return [];
   return PROVIDERS.filter((p) => (env[p.keyEnv] ?? "").trim().length > 0);
 }
 
@@ -156,9 +181,9 @@ const RETRY_BUDGET_MS = Number(process.env.OPENROUTER_RETRY_BUDGET_MS ?? 45_000)
 
 function apiKey(): string {
   const provider = activeProvider();
-  if (!provider.key) {
+  if (!provider.key || !configuredProviders().length) {
     throw new Error(
-      "No judge provider key configured — set one of NVIDIA_API_KEY, OPENROUTER_API_KEY, UNOROUTER_API_KEY, KIRAAI_API_KEY, BAI_API_KEY.",
+      "No judge provider configured — set ANTHROPIC_API_KEY (the pinned paid default), or opt into the free chain with JUDGE_ALLOW_FREE_PROVIDERS=1 (dev/e2e only).",
     );
   }
   return provider.key;
@@ -406,6 +431,9 @@ async function tryModel<T>(
 }
 
 async function chatJson<T>({ instruction, schema, maxTokens = 2_000, operation = "unknown" }: ChatOptions): Promise<T> {
+  // Durable daily spend cap: explicit SpendCapReachedError when today's
+  // metered spend is exhausted (callers degrade visibly, never silently).
+  await ensureSpendWithinCap();
   const key = apiKey();
   const deadline = Date.now() + RETRY_BUDGET_MS;
   const chain = modelChain();

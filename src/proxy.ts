@@ -9,7 +9,9 @@ export function proxy(request: NextRequest) {
     pathname.startsWith("/challenge/") ||
     pathname === "/research" ||
     pathname === "/metrics" ||
-    pathname === "/benchmark";
+    pathname === "/benchmark" ||
+    pathname === "/privacy" ||
+    pathname === "/terms";
   const isApiRoute = pathname.startsWith("/api");
   if (isPublicRoute || isApiRoute || request.cookies.has(SESSION_COOKIE)) {
     return NextResponse.next();

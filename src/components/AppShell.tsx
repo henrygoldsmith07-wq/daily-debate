@@ -3,6 +3,7 @@ import { signOut } from "@/app/login/actions";
 import { pointsIntoLevel, POINTS_PER_LEVEL } from "@/lib/gamification";
 import SideNav from "./SideNav";
 import MobileNav from "./MobileNav";
+import LegalLinks from "./LegalLinks";
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 
 type ContentWidth = "narrow" | "default" | "wide";
@@ -130,6 +131,7 @@ export default async function AppShell({
             />
           )}
           {signOutButton}
+          <LegalLinks className="px-3 pb-1 text-[10px] text-ink3" />
         </div>
       </aside>
 
@@ -161,6 +163,7 @@ export default async function AppShell({
                 />
               )}
               {signOutButton}
+              <LegalLinks />
             </>
           }
         />

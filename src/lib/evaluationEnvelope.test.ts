@@ -54,4 +54,36 @@ describe("evaluationEnvelope", () => {
     expect(result.verdict).toBe(baseVerdict);
     expect(result.summary).toBeUndefined();
   });
+
+  it("schema version 3 carries the exact judge model id on stamped verdicts", () => {
+    expect(EVALUATION_SCHEMA_VERSION).toBe(3);
+    const at = new Date("2026-10-06T09:00:00Z");
+    const fingerprint = {
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      promptVersion: 4,
+      scoringEngineVersion: 1,
+      graphSchemaVersion: 1,
+      temperature: 0,
+      ensemble: ["anthropic:claude-sonnet-5"],
+    };
+    const stamped = stampVerdict({ ...baseVerdict, fingerprint }, at);
+    expect(stamped.evaluation).toEqual({
+      ...evaluationStamp(at),
+      judgeProvider: "anthropic",
+      judgeModel: "claude-sonnet-5",
+      judgeEnsemble: ["anthropic:claude-sonnet-5"],
+    });
+    // Additive: the fingerprint itself survives untouched.
+    expect(stamped.fingerprint).toEqual(fingerprint);
+  });
+
+  it("stamps without judge fields when no live judge produced the result", () => {
+    const stamp = evaluationStamp();
+    expect(stamp.judgeProvider).toBeUndefined();
+    expect(stamp.judgeModel).toBeUndefined();
+    expect(stamp.judgeEnsemble).toBeUndefined();
+    const failure = stampVerdict({ ...baseVerdict, winner: "tie", scoreStatus: "insufficient_evidence" });
+    expect(failure.evaluation?.judgeModel).toBeUndefined();
+  });
 });
