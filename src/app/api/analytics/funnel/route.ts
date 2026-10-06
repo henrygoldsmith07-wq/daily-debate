@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { isCorpusAdmin } from "@/lib/corpus";
 import { loadFunnelData } from "@/lib/productFunnelServer";
 import { buildFunnelReport, buildRepairOutcomeFunnel, FUNNEL_DEFAULT_WINDOW_DAYS } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
+import { getRequestAuthContext } from "@/lib/requestAuth";
 
 /**
  * Internal admin report: product funnel + repair effectiveness, computed from
@@ -15,11 +14,8 @@ export async function GET(request: Request) {
   const limited = await checkRateLimit(request, { name: "funnel-report", limit: 10, windowMs: 60_000 });
   if (limited) return limited;
 
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
-  if (!user || !isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  const auth = await getRequestAuthContext();
+  if (!auth.isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -28,10 +24,28 @@ export async function GET(request: Request) {
     ? Math.floor(windowDaysParam)
     : FUNNEL_DEFAULT_WINDOW_DAYS;
 
-  const { events, repairs, debateWeaknesses, completeness } = await loadFunnelData();
+  const funnelData = await loadFunnelData();
+  if (funnelData.status === "unavailable") {
+    return NextResponse.json(
+      {
+        status: "unavailable",
+        errorCategory: funnelData.errorCategory,
+        completeness: funnelData.completeness,
+      },
+      { status: 503 },
+    );
+  }
+  const { events, repairs, retests, debateWeaknesses, completeness } = funnelData;
   const funnel = buildFunnelReport(events, { windowDays });
-  const repairEffectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { windowDays });
-  const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, {});
+  const repairEffectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { windowDays, retests });
+  const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { retests });
 
-  return NextResponse.json({ funnel, repairEffectiveness, trainingLoop, completeness });
+  return NextResponse.json({
+    status: funnelData.status,
+    errorCategory: funnelData.errorCategory,
+    funnel,
+    repairEffectiveness,
+    trainingLoop,
+    completeness,
+  });
 }

@@ -2,6 +2,9 @@
   "name": "daily-debate",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,6 +14,7 @@
     "test": "vitest run",
     "test:scripts": "node --test \"scripts/lib/*.test.mjs\"",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
+    "db:cleanup": "node --env-file-if-exists=.env.local scripts/cleanup-backend-state.mjs",
     "db:seed:e2e": "node --env-file-if-exists=.env.local scripts/e2e-seed.mjs",
     "check:corpus": "node --env-file-if-exists=.env.local scripts/check-corpus-invariants.mjs",
     "repair:corpus": "node --env-file-if-exists=.env.local scripts/repair-corpus-closure.mjs",
@@ -25,7 +29,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
     "@neondatabase/serverless": "^1.1.0",
-    "next": "^16.3.4",
+    "next": "16.3.8",
     "pg": "^8.16.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -39,7 +43,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.3.8",
+    "jiti": "^2.7.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"

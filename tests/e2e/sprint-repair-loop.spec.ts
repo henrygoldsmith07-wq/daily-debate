@@ -1,6 +1,25 @@
 import { test, expect } from "@playwright/test";
 import { HAS_BACKEND, signIn } from "./helpers";
 
+function demonstratedRepair(kind: string, sourceText: string): string {
+  switch (kind) {
+    case "evidence":
+      return "NREL reported in 2025 that utility-scale solar costs fell by 18 percent, which supports the affordability claim because lower generation costs reduce the cost pressure passed through to households.";
+    case "rebuttal":
+      return `The opposing move is that ${sourceText} However, that conclusion is too broad because the effect depends on who bears the cost; therefore the objection narrows the policy rather than defeating it.`;
+    case "logic":
+      return "The conclusion needs a narrower causal step because lower costs can increase access only when the savings reach households. Therefore the claim follows under that condition rather than automatically.";
+    case "impact":
+      return "Lower household energy bills are more important than short-term storage costs because recurring savings affect families for years, whereas the infrastructure cost is concentrated during deployment.";
+    case "structure":
+      return "The two claims can both hold under one condition: costs fall for households when storage investment is spread over time. That distinction resolves the tension because the timing of the cost changes who bears it.";
+    case "clarity":
+      return "Lower generation costs can reduce household bills. This matters because families face less recurring cost when those savings are passed through by suppliers.";
+    default:
+      throw new Error(`Unexpected repair kind: ${kind}`);
+  }
+}
+
 // ── Daily Sprint + repair loop E2E ───────────────────────────────────────────
 //
 // Requires ephemeral Postgres (migrations applied) and E2E_MOCK_AI=1 on the
@@ -59,25 +78,65 @@ test.describe("daily sprint repair loop", () => {
     await expect(page.getByTestId("repair-panel")).toBeVisible();
     await expect(page.getByTestId("full-analysis")).toBeHidden();
 
-    // 7. Submit a repair; feedback arrives with recorded persistence. The
-    // rewrite covers every repair rubric (source, contrast, reasoning, weighing)
-    // so it scores high regardless of which weakness got flagged.
+    // 7. Submit a deliberately weak first draft, then retry. Retry is a core
+    // product behaviour: both attempts remain practice history, but analytics
+    // must treat them as one repair episode and coaching must reflect the
+    // latest submitted draft rather than getting stuck on attempt one.
     const repairBox = page.getByLabel("Improved argument move");
     await expect(repairBox).toBeVisible();
     await expect(repairBox).toBeFocused();
-    await repairBox.fill(
-      "However, according to NREL data, utility-scale solar LCOE fell below gas because deployment scaled; this matters more than the reliability objection because storage costs are falling too."
-    );
+
+    await repairBox.fill("I disagree with this point.");
     await page.getByTestId("submit-repair").click();
     await expect(page.getByTestId("repair-feedback")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/needs another pass/i).first()).toBeVisible();
+    await expect(page.getByTestId("repair-feedback")).not.toContainText("/100");
+
+    // A failed attempt is practice history, NOT a completed repair. Leaving
+    // the page must not schedule a retest or strand the user without a retry.
+    await page.goto("/");
+    await expect(page.getByTestId("start-sprint")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Retest after repair", { exact: true })).toHaveCount(0);
+
+    await page.goto(debateUrl);
+    await expect(page.getByText(/Replay/i).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("repair-status")).toHaveCount(0);
+    await expect(page.getByTestId("fix-this-now")).toBeVisible();
+    await page.getByTestId("fix-this-now").click();
+    await expect(page.getByTestId("repair-panel")).toBeVisible();
+
+    // The repair target comes from the live observable graph. Demonstrate the
+    // requested move rather than assuming a particular weakness kind.
+    const retryBox = page.getByLabel("Improved argument move");
+    const repairPanel = page.getByTestId("repair-panel");
+    const repairKind = await repairPanel.getAttribute("data-repair-kind");
+    const sourceText = (await page.getByTestId("repair-source").innerText()).replace(/^From your debate\s*/i, "").trim();
+    expect(repairKind).toBeTruthy();
+    await retryBox.fill(demonstratedRepair(repairKind!, sourceText));
+    await page.getByTestId("submit-repair").click();
+    await expect(page.getByTestId("repair-feedback")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/repair demonstrated/i).first()).toBeVisible();
+    await expect(page.getByTestId("repair-feedback")).not.toContainText("/100");
+    await expect(page.getByTestId("repair-status")).toBeVisible();
 
     // 8. Advanced analysis opens only on explicit request.
     await page.getByTestId("toggle-full-analysis").click();
     await expect(page.getByTestId("full-analysis")).toBeVisible();
 
-    // 9. Back to Today — the loop restarts with updated coaching focus.
+    // 9. Back to Today — this is still the SAME daily topic as the repaired
+    // debate, so replaying it may be useful practice but must NOT be labelled
+    // as transfer. The pending repair remains queued for a future different
+    // topic instead of being cleared or falsely surfaced here.
     await page.goto("/");
     await expect(page.getByTestId("start-sprint")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Retest after repair", { exact: true })).toHaveCount(0);
+
+    // Progress and the drill coach must agree with Today for the current
+    // motion — no parallel selector may relabel this same-topic replay as a
+    // transfer retest.
+    await page.goto("/progress");
+    await expect(page.getByText("Retest after repair", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("repair-retest-card")).toHaveCount(0);
 
     // 10. Replay uses the same hierarchy: repair already done → status shown,
     // no Fix-this-now CTA, and the graph stays collapsed until asked for.
@@ -105,4 +164,39 @@ test.describe("daily sprint repair loop", () => {
     // Finishing is possible at exactly 3 rounds (the sprint minimum).
     await expect(page.getByTestId("finish-debate")).toBeVisible({ timeout: 15_000 });
   });
+
+  test("advanced modes stay secondary and a failed submit preserves the draft", async ({ page }) => {
+    // e2e-e is reserved for this failure/retry test so an active debate from
+    // another spec can never hide Today's start CTA.
+    await signIn(page, "e");
+
+    await page.getByTestId("start-sprint").click();
+    await page.waitForURL(/\/debate\//, { timeout: 20_000 });
+
+    // Normal daily use stays focused: specialist modes are opt-in.
+    await expect(page.getByRole("button", { name: /rapid/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /prepared/i })).toHaveCount(0);
+    await page.getByRole("button", { name: /more modes/i }).click();
+    await expect(page.getByRole("button", { name: /rapid/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /prepared/i })).toBeVisible();
+
+    const composer = page.getByLabel("Your debate response");
+    const draft =
+      "Schools should protect focused lesson time because constant interruptions make it harder for students to follow the argument.";
+
+    // Simulate the network disappearing after the user presses Send.
+    await page.route("**/api/solo/**/turn", (route) => route.abort("failed"));
+    await composer.fill(draft);
+    await page.getByRole("button", { name: /^send$/i }).click();
+
+    await expect(page.getByRole("alert")).toBeVisible({ timeout: 10_000 });
+    await expect(composer).toHaveValue(draft);
+    await expect(page.getByRole("button", { name: /^send$/i })).toBeEnabled();
+
+    // Once connectivity is back, the exact preserved draft can be retried.
+    await page.unroute("**/api/solo/**/turn");
+    await page.getByRole("button", { name: /^send$/i }).click();
+    await expect(composer).toHaveValue("", { timeout: 30_000 });
+  });
+
 });

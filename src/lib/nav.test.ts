@@ -18,6 +18,16 @@ describe("nav configuration", () => {
     expect(PRIMARY_NAV_ITEMS.length).toBeLessThanOrEqual(4);
   });
 
+  it("keeps the daily training loop ahead of competitive modes on mobile", () => {
+    expect(PRIMARY_NAV_ITEMS.map((item) => item.href)).toEqual(["/", "/progress", "/history"]);
+    expect(PRIMARY_NAV_ITEMS.some((item) => item.href === "/pvp")).toBe(false);
+  });
+
+  it("does not describe bounded History as every debate", () => {
+    const history = NAV_ITEMS.find((item) => item.href === "/history");
+    expect(history?.description.toLowerCase()).not.toContain("every debate");
+  });
+
   it("gives every item a label and a description for the More sheet", () => {
     for (const item of NAV_ITEMS) {
       expect(item.label.length).toBeGreaterThan(0);

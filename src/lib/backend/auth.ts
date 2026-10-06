@@ -3,6 +3,7 @@ import "server-only";
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { queryRows } from "./sql";
+import { normalizeIanaTimeZone } from "../timeZone";
 import { SESSION_COOKIE, SESSION_TTL_SECONDS } from "./session";
 
 const scrypt = promisify(scryptCallback);
@@ -134,7 +135,7 @@ export class AuthApi {
   async signUp(input: {
     email: string;
     password: string;
-    options?: { data?: { display_name?: string } };
+    options?: { data?: { display_name?: string; time_zone?: string } };
   }): Promise<{ data: { user: AppUser | null }; error: AuthError | null }> {
     if (!this.cookieStore) return { data: { user: null }, error: { message: "Cookies are unavailable." } };
     const email = normalizeEmail(input.email);
@@ -142,6 +143,7 @@ export class AuthApi {
     if (validationError) return { data: { user: null }, error: { message: validationError } };
     const requestedName = input.options?.data?.display_name?.trim();
     const displayName = (requestedName || email.split("@")[0]).slice(0, 40);
+    const timeZone = normalizeIanaTimeZone(input.options?.data?.time_zone);
     try {
       const hash = await passwordHash(input.password);
       const rows = await queryRows<AppUser>(
@@ -149,11 +151,11 @@ export class AuthApi {
            INSERT INTO app_users (email, password_hash) VALUES ($1, $2)
            RETURNING id, email
          ), new_profile AS (
-           INSERT INTO profiles (id, username)
-           SELECT id, $3 FROM new_user
+           INSERT INTO profiles (id, username, timezone, timezone_initialized_at)
+           SELECT id, $3, $4, now() FROM new_user
          )
          SELECT id, email FROM new_user`,
-        [email, hash, displayName],
+        [email, hash, displayName, timeZone],
       );
       const user = rows[0];
       if (!user) return { data: { user: null }, error: { message: "Could not create account." } };
@@ -173,6 +175,11 @@ export class AuthApi {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
       return { error: { message: "Enter a valid email address." } };
     }
+    // Fail consistently for every valid address when delivery is not
+    // configured. This is both honest to the user and non-enumerating.
+    if (!this.resetTokenSender) {
+      return { error: { message: "Password reset email is temporarily unavailable." } };
+    }
     try {
       const rows = await queryRows<{ id: string }>(
         "SELECT id FROM app_users WHERE email = $1 LIMIT 1",
@@ -189,8 +196,17 @@ export class AuthApi {
            VALUES ($1, $2, now() + ($3 * interval '1 second'))`,
           [user.id, tokenHash(token), PASSWORD_RESET_TTL_SECONDS],
         );
-        if (this.resetTokenSender) {
+        try {
           await this.resetTokenSender(normalized, token);
+        } catch (deliveryError) {
+          // Do not reveal whether the account exists by changing the public
+          // response. Revoke the undelivered token and record only a bounded
+          // infrastructure error (never the recipient or raw token).
+          await queryRows("DELETE FROM password_reset_tokens WHERE user_id = $1", [user.id]).catch(() => []);
+          const candidate = deliveryError as { message?: string };
+          console.error("[auth] password reset email delivery failed", {
+            error: candidate?.message ?? "unknown delivery error",
+          });
         }
       }
       return { error: null };

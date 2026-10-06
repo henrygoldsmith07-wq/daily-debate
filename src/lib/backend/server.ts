@@ -3,14 +3,10 @@ import "server-only";
 import { cookies } from "next/headers";
 import { BackendClient } from "./client";
 import type { CookieStore, ResetTokenSender } from "./auth";
+import { createResetTokenSender } from "./resetEmail";
 
-/**
- * Password-reset token delivery. Wire a real email transport here — while
- * this returns undefined, reset tokens are generated and stored but never
- * delivered, so password reset cannot complete.
- */
 function resolveResetTokenSender(): ResetTokenSender | undefined {
-  return undefined;
+  return createResetTokenSender();
 }
 
 export async function createClient(): Promise<BackendClient> {

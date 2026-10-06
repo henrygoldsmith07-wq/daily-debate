@@ -9,7 +9,11 @@ import {
 } from "./adaptiveCoach";
 import type { SkillMetricPoint } from "./skillLedger";
 
-function point(i: number, m: Partial<Record<string, number>>): SkillMetricPoint {
+function point(
+  i: number,
+  m: Partial<Record<string, number | null>>,
+  opportunities?: { majorClaims: number; opponentMoves: number },
+): SkillMetricPoint {
   const metrics = {
     unsupportedClaimRate: null,
     rebuttalCoverage: null,
@@ -26,12 +30,17 @@ function point(i: number, m: Partial<Record<string, number>>): SkillMetricPoint 
     clarity: null,
     ...m,
   } as SkillMetricPoint["metrics"];
-  return { debateId: `d${i}`, completedAt: `2026-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`, metrics };
+  return {
+    debateId: `d${i}`,
+    completedAt: `2026-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+    metrics,
+    opportunities,
+  };
 }
 
 describe("buildCoachProfile", () => {
   it("maps ledger metrics to the seven dimensions", () => {
-    const points = [point(0, { evidenceGrounding: 0.82, rebuttalCoverage: 0.64, fallacyRate: 0.09, clarity: 0.73, impactHandling: 0.51, steelmanQuality: 0.44, droppedArguments: 0.25 })];
+    const points = [point(0, { unsupportedClaimRate: 0.18, evidenceGrounding: 0.82, rebuttalCoverage: 0.64, fallacyRate: 0.09, clarity: 0.73, impactHandling: 0.51, steelmanQuality: 0.44, droppedArguments: 0.25 })];
     const { dims } = buildCoachProfile(points);
     const by = Object.fromEntries(dims.map((d) => [d.key, d.score]));
     expect(by.evidence).toBe(82);
@@ -42,6 +51,54 @@ describe("buildCoachProfile", () => {
     expect(by.steelmanning).toBe(44);
     expect(by.structure).toBeGreaterThan(0);
     expect(dims.every((d) => d.hasData)).toBe(true);
+  });
+
+  it("treats making claims with no support as measurable weak evidence, not no data", () => {
+    const { dims } = buildCoachProfile([
+      point(0, { unsupportedClaimRate: 1, evidenceGrounding: null }),
+      point(1, { unsupportedClaimRate: 1, evidenceGrounding: null }),
+    ]);
+    const evidence = dims.find((d) => d.key === "evidence")!;
+    expect(evidence.hasData).toBe(true);
+    expect(evidence.score).toBe(0);
+  });
+
+  it("normalises lower-is-better slopes into positive improvement movement", () => {
+    const { slopes } = buildCoachProfile([
+      point(0, { fallacyRate: 0.4, droppedArguments: 2 }),
+      point(1, { fallacyRate: 0.25, droppedArguments: 1 }),
+      point(2, { fallacyRate: 0.1, droppedArguments: 0 }),
+    ]);
+    expect(slopes.logic).not.toBeNull();
+    expect(slopes.logic!).toBeGreaterThan(0);
+    expect(slopes.structure).not.toBeNull();
+    expect(slopes.structure!).toBeGreaterThan(0);
+  });
+
+  it("does not treat an untestable impact zero as real skill data", () => {
+    const { dims } = buildCoachProfile([
+      point(
+        0,
+        { impactHandling: 0 },
+        { majorClaims: 1, opponentMoves: 0 },
+      ),
+    ]);
+    const impact = dims.find((d) => d.key === "impact")!;
+    expect(impact.hasData).toBe(false);
+    expect(impact.score).toBeNull();
+  });
+
+  it("does not award perfect structure from a debate with no structural opportunity", () => {
+    const { dims } = buildCoachProfile([
+      point(
+        0,
+        { droppedArguments: 0, contradictions: 0 },
+        { majorClaims: 1, opponentMoves: 0 },
+      ),
+    ]);
+    const structure = dims.find((d) => d.key === "structure")!;
+    expect(structure.hasData).toBe(false);
+    expect(structure.score).toBeNull();
   });
 
   it("marks dimensions without data", () => {
@@ -67,6 +124,20 @@ describe("focus selection", () => {
     const slopes = { clarity: 0.08, impact: null } as Record<string, number | null>;
     const { focus } = selectFocus(dims, slopes as never);
     expect(focus?.key).toBe("impact");
+  });
+
+  it("deprioritises a lower-is-better dimension when its raw failures are falling", () => {
+    const points = [
+      point(0, { fallacyRate: 0.4, clarity: 0.45 }),
+      point(1, { fallacyRate: 0.25, clarity: 0.45 }),
+      point(2, { fallacyRate: 0.1, clarity: 0.45 }),
+    ];
+    const { dims, slopes } = buildCoachProfile(points);
+    // Logic's score is still weak, but its failures are falling quickly. The
+    // normalized positive slope should lift it away from immediate focus.
+    const { focus } = selectFocus(dims, slopes);
+    expect(slopes.logic!).toBeGreaterThan(0);
+    expect(focus?.key).not.toBe("logic");
   });
 
   it("skips a dimension whose previous drill produced negative movement", () => {
@@ -116,6 +187,67 @@ describe("movementAround", () => {
     expect(m.before).toBeCloseTo(0.55, 2);
     expect(m.after).toBeCloseTo(0.965, 2);
     expect(m.delta!).toBeGreaterThan(0);
+  });
+
+  it("includes the first debate after a drill assigned between debates", () => {
+    const points = [
+      point(0, { impactHandling: 0.2 }),
+      point(1, { impactHandling: 0.3 }),
+      point(2, { impactHandling: 0.8 }),
+    ];
+    const m = movementAround(points, "impact", "2026-01-02T12:00:00Z", 2);
+    expect(m).not.toBeNull();
+    expect(m?.before).toBeCloseTo(0.25, 3);
+    expect(m?.after).toBeCloseTo(0.8, 3);
+    expect(m?.delta).toBeCloseTo(0.55, 3);
+  });
+
+  it("ignores no-opportunity impact readings when measuring drill movement", () => {
+    const points = [
+      point(
+        0,
+        { impactHandling: 0.3 },
+        { majorClaims: 1, opponentMoves: 1 },
+      ),
+      point(
+        1,
+        { impactHandling: 0 },
+        { majorClaims: 1, opponentMoves: 0 },
+      ),
+    ];
+    expect(
+      movementAround(points, "impact", "2026-01-01T12:00:00Z", 2),
+    ).toBeNull();
+  });
+
+  it("skips structural zeroes from debates with no opponent move", () => {
+    const points = [
+      point(
+        0,
+        { droppedArguments: 1 },
+        { majorClaims: 1, opponentMoves: 1 },
+      ),
+      point(
+        1,
+        { droppedArguments: 0 },
+        { majorClaims: 1, opponentMoves: 0 },
+      ),
+      point(
+        2,
+        { droppedArguments: 0 },
+        { majorClaims: 1, opponentMoves: 1 },
+      ),
+    ];
+    const movement = movementAround(
+      points,
+      "structure",
+      "2026-01-01T12:00:00Z",
+      2,
+    );
+    expect(movement).not.toBeNull();
+    expect(movement?.before).toBe(0);
+    expect(movement?.after).toBe(1);
+    expect(movement?.delta).toBe(1);
   });
 
   it("returns null when there is no after window yet", () => {

@@ -5,15 +5,23 @@
 import { createClient } from "@/lib/backend/server";
 import {
   buildSkillLedger,
-  extractSkillPoint,
   type SkillLedger,
   type SkillMetricPoint,
 } from "./skillLedger";
-import { mergeAssessmentGraphs, assessArgumentGraph } from "./observableAssessment";
-import type { ObservableAssessment } from "./observableAssessment";
+import {
+  buildLedgerPointsFromRows,
+  type CompletedLedgerDebateRow,
+  type LedgerTurnRow,
+} from "./skillLedgerAssembly";
+import {
+  SKILL_LEDGER_DEBATE_LIMIT,
+  resolveLedgerSourceWindow,
+  type LedgerSourceWindow,
+} from "./skillLedgerWindow";
 
 export interface LedgerWithSeries extends SkillLedger {
   points: SkillMetricPoint[];
+  sourceWindow: LedgerSourceWindow;
 }
 
 export async function buildLedgerForUser(
@@ -21,50 +29,43 @@ export async function buildLedgerForUser(
   opts: { includeBaseline?: boolean } = {},
 ): Promise<LedgerWithSeries> {
   const db = await createClient();
-  const { data: debates } = await db
-    .from("solo_debates")
-    .select("id, completed_at")
-    .eq("user_id", userId)
-    .eq("status", "completed")
-    .order("completed_at", { ascending: true })
-    .limit(100);
-
-  const completed = debates ?? [];
-  const points: SkillMetricPoint[] = [];
-
-  for (const d of completed) {
-    const [{ data: turns }, { data: scoreRows }] = await Promise.all([
-      db
-        .from("solo_debate_turns")
-        .select("assessment")
-        .eq("debate_id", d.id)
-        .not("assessment", "is", null)
-        .order("round_number"),
-      db.from("solo_debate_turns").select("scores").eq("debate_id", d.id).not("scores", "is", null),
-    ]);
-    const assessments = ((turns ?? []) as Array<{ assessment: unknown }>)
-      .map((t) => t.assessment as ObservableAssessment)
-      .filter((a) => !!a?.graph);
-    if (!assessments.length) continue;
-
-    const merged = assessArgumentGraph(mergeAssessmentGraphs(assessments.map((a) => a.graph)), {
-      sideA: "a",
-      sideB: "ai",
-      extractionSource: "deterministic",
-      labelA: "You",
-      labelB: "AI opponent",
-    });
-
-    const clarityValues = ((scoreRows ?? []) as Array<{ scores: { clarity?: number } | null }>)
-      .map((r) => r.scores?.clarity)
-      .filter((c): c is number => typeof c === "number");
-    const avgClarity = clarityValues.length
-      ? clarityValues.reduce((s, c) => s + c, 0) / clarityValues.length
-      : null;
-
-    points.push(extractSkillPoint(d.id, d.completed_at ?? new Date().toISOString(), merged, "a", avgClarity));
+  const [debatesResult, countResult] = await Promise.all([
+    db
+      .from("solo_debates")
+      .select("id, completed_at, topic_id, coaching")
+      .eq("user_id", userId)
+      .eq("status", "completed")
+      .order("completed_at", { ascending: false })
+      .limit(SKILL_LEDGER_DEBATE_LIMIT),
+    db
+      .from("solo_debates")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("status", "completed"),
+  ]);
+  const { data: debates, error: debatesError } = debatesResult;
+  if (debatesError) {
+    throw new Error(`skill-ledger debates unavailable: ${debatesError.message ?? "read failed"}`);
   }
 
+  // Query newest-first so the bounded window never drops recent coaching and
+  // retest evidence, then restore chronological order for trajectory math.
+  const completed = [...((debates ?? []) as CompletedLedgerDebateRow[])].reverse();
+  const debateIds = completed.map((debate) => debate.id);
+  const turnResult = debateIds.length
+    ? await db
+        .from("solo_debate_turns")
+        .select("debate_id, round_number, assessment, scores, training_meta")
+        .in("debate_id", debateIds)
+    : { data: [], error: null };
+  if (turnResult.error) {
+    throw new Error(`skill-ledger turns unavailable: ${turnResult.error.message ?? "read failed"}`);
+  }
+  const turnRows = turnResult.data;
+  const points = buildLedgerPointsFromRows(completed, (turnRows ?? []) as LedgerTurnRow[]);
+
   const ledger = buildSkillLedger(points, opts);
-  return { ...ledger, points };
+  const exactTotal = countResult.error ? null : countResult.count ?? 0;
+  const sourceWindow = resolveLedgerSourceWindow(completed.length, exactTotal);
+  return { ...ledger, points, sourceWindow };
 }

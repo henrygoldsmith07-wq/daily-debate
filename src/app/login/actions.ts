@@ -1,36 +1,100 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/backend/server";
+import { checkRateLimitKey } from "@/lib/rateLimit";
+import { safeReturnPath } from "@/lib/authRedirect";
+import { normalizeIanaTimeZone } from "@/lib/timeZone";
 
 export interface AuthState {
   error: string | null;
 }
 
+const AUTH_LIMIT_MESSAGE = "Too many attempts. Please wait a little before trying again.";
+
+function privateIdentity(value: string): string {
+  return createHash("sha256").update(value.trim().toLowerCase()).digest("hex").slice(0, 24);
+}
+
+async function authActionLimited(
+  name: string,
+  identity: string,
+  limits: { ip: number; identity: number; windowMs: number },
+): Promise<boolean> {
+  const requestHeaders = await headers();
+  const forwarded = requestHeaders.get("x-forwarded-for");
+  const ip = forwarded?.split(",")[0]?.trim() || requestHeaders.get("x-real-ip")?.trim() || "unknown";
+  const [ipResult, identityResult] = await Promise.all([
+    checkRateLimitKey(`ip:${ip}`, { name, limit: limits.ip, windowMs: limits.windowMs, failClosed: true }),
+    checkRateLimitKey(`identity:${privateIdentity(identity)}`, {
+      name,
+      limit: limits.identity,
+      windowMs: limits.windowMs,
+      failClosed: true,
+    }),
+  ]);
+  return !ipResult.ok || !identityResult.ok;
+}
+
 export async function signIn(_prevState: AuthState, formData: FormData): Promise<AuthState> {
+  const email = String(formData.get("email"));
+  const nextPath = safeReturnPath(formData.get("next"));
+  if (await authActionLimited("auth-sign-in", email, { ip: 20, identity: 8, windowMs: 15 * 60_000 })) {
+    return { error: AUTH_LIMIT_MESSAGE };
+  }
   const db = await createClient();
-  const { error } = await db.auth.signInWithPassword({
-    email: String(formData.get("email")),
+  const { data, error } = await db.auth.signInWithPassword({
+    email,
     password: String(formData.get("password")),
   });
   if (error) return { error: error.message };
 
+  // Existing accounts created before timezone capture initialize it once.
+  // A non-UTC stored preference is never overwritten implicitly on sign-in.
+  const timeZone = normalizeIanaTimeZone(formData.get("timeZone"));
+  if (data.user) {
+    const { data: profile } = await db
+      .from("profiles")
+      .select("timezone, timezone_initialized_at")
+      .eq("id", data.user.id)
+      .single();
+    if (profile && !profile.timezone_initialized_at) {
+      await db
+        .from("profiles")
+        .update({ timezone: timeZone, timezone_initialized_at: new Date().toISOString() })
+        .eq("id", data.user.id)
+        .is("timezone_initialized_at", null);
+    }
+  }
+
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect(nextPath);
 }
 
 export async function signUp(_prevState: AuthState, formData: FormData): Promise<AuthState> {
+  const email = String(formData.get("email"));
+  const nextPath = safeReturnPath(formData.get("next"));
+  if (await authActionLimited("auth-sign-up", email, { ip: 8, identity: 3, windowMs: 60 * 60_000 })) {
+    return { error: AUTH_LIMIT_MESSAGE };
+  }
   const db = await createClient();
   const { error } = await db.auth.signUp({
-    email: String(formData.get("email")),
+    email,
     password: String(formData.get("password")),
-    options: { data: { display_name: String(formData.get("displayName") || "") } },
+    options: {
+      data: {
+        display_name: String(formData.get("displayName") || ""),
+        time_zone: normalizeIanaTimeZone(formData.get("timeZone")),
+      },
+    },
   });
   if (error) return { error: error.message };
 
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect(nextPath);
 }
 
 export async function signOut() {
@@ -41,16 +105,24 @@ export async function signOut() {
 }
 
 export async function requestPasswordReset(_prevState: AuthState, formData: FormData): Promise<AuthState> {
+  const email = String(formData.get("email"));
+  if (await authActionLimited("auth-reset-request", email, { ip: 8, identity: 4, windowMs: 15 * 60_000 })) {
+    return { error: AUTH_LIMIT_MESSAGE };
+  }
   const db = await createClient();
-  const { error } = await db.auth.requestPasswordReset(String(formData.get("email")));
+  const { error } = await db.auth.requestPasswordReset(email);
   if (error) return { error: error.message };
   return { error: null };
 }
 
 export async function resetPassword(_prevState: AuthState, formData: FormData): Promise<AuthState> {
+  const token = String(formData.get("token"));
+  if (await authActionLimited("auth-reset-consume", token, { ip: 20, identity: 8, windowMs: 15 * 60_000 })) {
+    return { error: AUTH_LIMIT_MESSAGE };
+  }
   const db = await createClient();
   const { error } = await db.auth.resetPassword({
-    token: String(formData.get("token")),
+    token,
     newPassword: String(formData.get("newPassword")),
   });
   if (error) return { error: error.message };

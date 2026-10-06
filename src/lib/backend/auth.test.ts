@@ -41,15 +41,23 @@ describe("requestPasswordReset validation", () => {
     mockQueryRows.mockReset();
     // Unknown email: no user row found.
     mockQueryRows.mockResolvedValue([]);
-    const api = new AuthApi(null);
+    const api = new AuthApi(null, () => {});
     const { error } = await api.requestPasswordReset("ghost@example.com");
     expect(error).toBeNull();
+  });
+
+  it("fails consistently before account lookup when reset email is not configured", async () => {
+    mockQueryRows.mockReset();
+    const api = new AuthApi(null);
+    const { error } = await api.requestPasswordReset("user@example.com");
+    expect(error?.message).toMatch(/temporarily unavailable/i);
+    expect(mockQueryRows).not.toHaveBeenCalled();
   });
 
   it("invalidates outstanding tokens before issuing a new one", async () => {
     mockQueryRows.mockReset();
     mockQueryRows.mockResolvedValue([{ id: "u-1" }]);
-    const api = new AuthApi(null);
+    const api = new AuthApi(null, () => {});
     await api.requestPasswordReset("user@example.com");
     const calls = mockQueryRows.mock.calls;
     // Call order: look up the user, invalidate outstanding tokens, insert the new token.
@@ -76,14 +84,23 @@ describe("requestPasswordReset validation", () => {
     expect(String(mockQueryRows.mock.calls[2]?.[1]?.[1])).toBe(sha256(sent[0]?.token));
   });
 
-  it("never logs reset tokens when no sender is configured", async () => {
+  it("revokes an undelivered token without exposing delivery failure", async () => {
     mockQueryRows.mockReset();
     mockQueryRows.mockResolvedValue([{ id: "u-1" }]);
-    const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    const api = new AuthApi(null);
-    await api.requestPasswordReset("user@example.com");
-    expect(info).not.toHaveBeenCalled();
-    info.mockRestore();
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const api = new AuthApi(null, async () => {
+      throw new Error("provider unavailable");
+    });
+    const result = await api.requestPasswordReset("user@example.com");
+    expect(result.error).toBeNull();
+    expect(mockQueryRows.mock.calls[3]?.[0]).toContain("DELETE FROM password_reset_tokens");
+    expect(errorLog).toHaveBeenCalledWith(
+      "[auth] password reset email delivery failed",
+      expect.objectContaining({ error: "provider unavailable" }),
+    );
+    const serializedLogs = JSON.stringify(errorLog.mock.calls);
+    expect(serializedLogs).not.toContain("user@example.com");
+    errorLog.mockRestore();
   });
 });
 

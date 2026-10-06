@@ -1,20 +1,17 @@
 "use client";
 
+import type { ClientProductEventName } from "@/lib/clientProductEvents";
+import type { DebateFormat } from "@/lib/sprint";
+
 // Client-side product analytics helper. Fire-and-forget: never awaits, never
 // blocks a user action, and silently ignores failures. Sends only allowlisted
 // event names with bounded context — no free text leaves the component.
 
-export type ClientEventName =
-  | "daily_viewed"
-  | "full_analysis_opened"
-  | "progress_viewed"
-  | "pvp_started"
-  | "repair_started"
-  | "debate_completed";
+export type ClientEventName = ClientProductEventName;
 
 export function trackEvent(
   name: ClientEventName,
-  context: { format?: string; side?: string; reason?: string; debateId?: string } = {},
+  context: { format?: DebateFormat; side?: "for" | "against"; debateId?: string } = {},
 ): void {
   try {
     void fetch("/api/events", {

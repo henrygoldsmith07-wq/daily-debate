@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/backend/server";
-import { isCorpusAdmin } from "@/lib/corpus";
+import { createServiceClient } from "@/lib/backend/server";
+import { getRequestAuthContext } from "@/lib/requestAuth";
 
 // Admin-only review of one corpus item for adjudication: full transcript plus
 // its ratings. Rater identities are anonymised to Rater 1..N so the moderator
@@ -8,12 +8,10 @@ import { isCorpusAdmin } from "@/lib/corpus";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const auth = await getRequestAuthContext();
+  const user = auth.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  if (!auth.isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

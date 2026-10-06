@@ -3,6 +3,9 @@ import type { AssessmentStatus, ObservableAssessment } from "./observableAssessm
 import type { DebateFormat } from "./sprint";
 import type { OpponentDifficulty, OpponentPersonaId } from "./opponentPersona";
 import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
+import type { RepairKind } from "./argumentRepair";
+import type { DebateModeId } from "./debateModes";
+import type { SpeechQualityScore, SpeechTurnAnalysis, TurnTiming } from "./speechAnalysis";
 
 export type DebateSide = "for" | "against";
 export type InputMode = "text" | "voice";
@@ -21,6 +24,11 @@ export interface DailyTopic {
   category: string | null;
   sources: TopicSource[];
   created_at: string;
+  /** Canonical provenance (migrations 009/018/019). Absent on legacy rows
+   *  written before those migrations; canonical writers always set them. */
+  generation_source?: "ai" | "fallback" | null;
+  generation_reason?: string | null;
+  topic_fingerprint?: string | null;
 }
 
 export interface TurnScores {
@@ -41,6 +49,9 @@ export interface SoloDebate {
   status: "active" | "completed";
   round_count: number;
   total_score: number | null;
+  /** Compact, length-normalized result metadata (migration 031). */
+  performance_score?: number | null;
+  bonus_xp?: number;
   /** "sprint", "full", "flash", "cross-examination", or "socratic". */
   format: DebateFormat;
   /** Opponent adversary control: how the AI attacks (default "balanced"). */
@@ -49,6 +60,10 @@ export interface SoloDebate {
   difficulty: OpponentDifficulty;
   /** Coaching snapshot jsonb: goal dimension + observed behaviour from the debate. */
   coaching: CoachingRecord | null;
+  /** Exact durable result returned by the finish route (migration 027). */
+  result_payload?: PersistedSoloResult | null;
+  finalization_token?: string | null;
+  finalization_started_at?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -59,6 +74,16 @@ export interface CoachingRecord {
   dimension?: string | null;
   /** Explainable side assignment, when the user picked "Challenge me". */
   sideReason?: string | null;
+  /** If present, this debate deliberately retests a recently repaired weakness. */
+  repairRetest?: {
+    /** Stable successful repair row. Optional only for pre-upgrade debates. */
+    repairResultId?: string | null;
+    repairDebateId: string;
+    targetKind: RepairKind;
+    attemptedAt: string;
+  } | null;
+  /** Best-effort coaching context can degrade without blocking the debate. */
+  degradationReasons?: CoachingContextDegradationReason[] | null;
   /** Observed behaviour from the finished debate (set at finish). */
   snapshot?: {
     responsesAnswered?: number;
@@ -74,6 +99,28 @@ export interface CoachingRecord {
   weaknessKind?: string | null;
   /** How many recent prior debates showed the same weakness (0 = first). */
   recurrenceCount?: number | null;
+  /** Deliberate retest trace (migration 016): which repair this debate retested. */
+  retestFor?: string | null;
+  retestKind?: string | null;
+  retestOutcome?: string | null;
+}
+
+export const COACHING_CONTEXT_DEGRADATION_REASONS = [
+  "skill-ledger-unavailable",
+  "repair-retest-unavailable",
+  "drill-outcomes-unavailable",
+] as const;
+
+export type CoachingContextDegradationReason =
+  (typeof COACHING_CONTEXT_DEGRADATION_REASONS)[number];
+
+export function isCoachingContextDegradationReason(
+  value: unknown,
+): value is CoachingContextDegradationReason {
+  return (
+    typeof value === "string" &&
+    (COACHING_CONTEXT_DEGRADATION_REASONS as readonly string[]).includes(value)
+  );
 }
 
 export interface SoloDebateTurn {
@@ -87,7 +134,73 @@ export interface SoloDebateTurn {
   turn_score: number | null;
   feedback: string | null;
   assessment?: ObservableAssessment | null;
+  training_meta?: TurnTrainingMeta | null;
+  /** Server-issued response window for timed training modes (migration 028). */
+  response_mode?: DebateModeId | "text" | null;
+  response_window_started_at?: string | null;
+  response_window_expires_at?: string | null;
+  /** Durable pre-provider submission state (migration 029). */
+  staged_user_message?: string | null;
+  staged_input_mode?: InputMode | null;
+  staged_training_meta?: TurnTrainingMeta | null;
+  staged_mode?: DebateModeId | null;
+  staged_submitted_at?: string | null;
+  submission_started_at?: string | null;
   created_at: string;
+}
+
+export interface TurnTrainingMeta {
+  modeId: DebateModeId;
+  elapsedSeconds: number | null;
+  modeWarnings: string[];
+  speechTiming: TurnTiming | null;
+  speechAnalysis: SpeechTurnAnalysis | null;
+  speechQuality: SpeechQualityScore | null;
+}
+
+export interface TrainingModeSummary {
+  turns: number;
+  timedTurns: number;
+  speechTurns: number;
+  avgElapsedSeconds: number | null;
+  avgPaceWpm: number | null;
+  avgFillerDensity: number | null;
+  avgStructureDensity: number | null;
+  avgSpeechQuality: number | null;
+}
+
+export interface TrainingSummary {
+  modeCounts: Partial<Record<DebateModeId, number>>;
+  /** Per-mode observations keep rapid rebuttal, speech and prepared speech comparable only to themselves. */
+  byMode?: Partial<Record<DebateModeId, TrainingModeSummary>>;
+  totalTurns: number;
+  timedTurns: number;
+  limitBreaches: number;
+  speechTurns: number;
+  avgElapsedSeconds: number | null;
+  avgPaceWpm: number | null;
+  avgFillerDensity: number | null;
+  avgStructureDensity: number | null;
+  avgSpeechQuality: number | null;
+  paceChangeWpm: number | null;
+}
+
+export interface PersistedSoloResult {
+  totalScore: number;
+  /** Length-normalized deterministic performance index, 0–100. */
+  performanceScore?: number;
+  bonusXP: number;
+  rewardEvents: Array<{ kind: string; xp: number; label: string; detail?: string; dimension?: string }>;
+  summary: DebateSummary;
+  /** Whether generated narrative feedback came from an AI provider or deterministic fallback copy. */
+  summarySource?: "ai" | "fallback";
+  assessment?: unknown;
+  evaluation?: unknown;
+  format: "sprint" | "full";
+  honesty?: { confidence: "standard" | "reduced"; note: string | null };
+  snapshot?: unknown;
+  coaching?: CoachingRecord;
+  trainingSummary?: TrainingSummary;
 }
 
 export interface Profile {
@@ -98,6 +211,8 @@ export interface Profile {
   current_streak: number;
   longest_streak: number;
   last_activity_date: string | null;
+  timezone?: string;
+  timezone_initialized_at?: string | null;
   created_at: string;
 }
 
@@ -163,6 +278,13 @@ export interface PvpVerdict {
   judges?: VerdictJudgeDetail[]; // per-judge verdicts (empty for single-judge fallback-less runs)
   /** Structural classifier metadata; no viewpoint correctness or winner signal. */
   routing?: ArgumentRoutingSummary;
+  /**
+   * SHADOW judge-avoidance record (telemetry only). The ensemble fields above
+   * are AUTHORITATIVE: winner, scores, XP, and progression must never be read
+   * from shadowRouting. Null when no shadow route produced a record; absent
+   * on pre-shadow rows.
+   */
+  shadowRouting?: import("./routeShadowValidation").RouteShadowRecord | null;
   /** Version fingerprint: provider/model/prompt/engine/schema/temp/ensemble */
   fingerprint?: {
     provider: string;
@@ -205,4 +327,3 @@ export const PVP_ROUNDS = 5;
 // A PvP turn older than this can be claimed as a forfeit by the waiting
 // opponent, and new submissions past it are rejected as late.
 export const TURN_ABANDON_MINUTES = 30;
-

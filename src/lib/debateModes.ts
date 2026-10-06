@@ -70,22 +70,41 @@ export const DEBATE_MODES: Record<DebateModeId, DebateModeConfig> = {
 
 export const DEBATE_MODE_LIST = Object.values(DEBATE_MODES);
 
+export function isDebateModeId(value: unknown): value is DebateModeId {
+  return typeof value === "string" && value in DEBATE_MODES;
+}
+
 /** Validate a mode id string against known modes; returns default on mismatch. */
 export function resolveMode(id: string | undefined | null): DebateModeConfig {
   if (id && id in DEBATE_MODES) return DEBATE_MODES[id as DebateModeId];
   return DEBATE_MODES.text;
 }
 
+/** Blocking timing validation used by the turn API for genuinely timed modes. */
+export function hardTimeLimitError(mode: DebateModeConfig, elapsedSeconds: number | null): string | null {
+  if (mode.hardTimeLimitSecs === null) return null;
+  if (elapsedSeconds === null) return `${mode.label} requires an active response timer.`;
+  if (elapsedSeconds > mode.hardTimeLimitSecs) {
+    return `${mode.label} time limit expired. Switch modes to continue this round.`;
+  }
+  return null;
+}
+
 /**
- * Check whether a turn meets the mode's constraints.
- * Returns warnings (not errors) — the debate isn't blocked, just flagged.
+ * Check non-blocking coaching constraints. Hard timing limits are enforced by
+ * the turn API before this helper runs; this function still records timing
+ * anomalies for legacy/imported rows and analysis.
  */
 export function checkModeConstraints(
   mode: DebateModeConfig,
   wordCount: number,
-  durationSeconds: number | null
+  durationSeconds: number | null,
+  inputMode?: "text" | "voice",
 ): string[] {
   const warnings: string[] = [];
+  if (mode.hardTimeLimitSecs !== null && durationSeconds === null) {
+    warnings.push(`${mode.label} timing was unavailable for this turn.`);
+  }
   if (mode.hardTimeLimitSecs !== null && durationSeconds !== null && durationSeconds > mode.hardTimeLimitSecs) {
     warnings.push(`Exceeded ${mode.label} time limit (${mode.hardTimeLimitSecs}s).`);
   }
@@ -95,7 +114,7 @@ export function checkModeConstraints(
   if (wordCount > mode.maxWordsHint) {
     warnings.push(`Long for ${mode.label} mode — aim for ≤${mode.maxWordsHint} words.`);
   }
-  if (mode.voiceExpected && durationSeconds === null) {
+  if (mode.voiceExpected && inputMode !== "voice") {
     warnings.push(`${mode.label} mode works best with voice input for pace and filler tracking.`);
   }
   return warnings;

@@ -110,10 +110,11 @@ describe("arg heuristics: repetition / rebuttal / fallacy", () => {
 
 describe("competitive: Elo gating + matchmaking", () => {
   it("gates Elo until invariance proven", () => {
-    expect(eloGate({ invarianceOk:false, humanAgreement:0.9 }).reliable).toBe(false);
-    expect(eloGate({ invarianceOk:true, humanAgreement:0.6 }).reliable).toBe(false);
-    expect(eloGate({ invarianceOk:true, humanAgreement:0.72 }).reliable).toBe(false);
-    expect(eloGate({ invarianceOk:true, humanAgreement:0.85 }).reliable).toBe(true);
+    expect(eloGate({ invarianceOk:true, humanAgreement:0.9 }).reliable).toBe(false);
+    expect(eloGate({ matureCorpusReady:true, invarianceOk:false, humanAgreement:0.9 }).reliable).toBe(false);
+    expect(eloGate({ matureCorpusReady:true, invarianceOk:true, humanAgreement:0.6 }).reliable).toBe(false);
+    expect(eloGate({ matureCorpusReady:true, invarianceOk:true, humanAgreement:0.72 }).reliable).toBe(false);
+    expect(eloGate({ matureCorpusReady:true, invarianceOk:true, humanAgreement:0.85 }).reliable).toBe(true);
   });
   it("elo math", () => {
     expect(expectedScore(1200,1200)).toBeCloseTo(0.5);

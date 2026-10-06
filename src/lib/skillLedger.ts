@@ -14,6 +14,8 @@ import { fitLinear } from "./debateEvaluation";
 import { scoreRebuttalQuality } from "./argumentEvaluation";
 import { isKnownSource } from "./citationVerifier";
 import { rebuttalCoverageFor, unansweredOpportunitiesBy } from "./opportunity";
+import type { AssignedRepairRetest } from "./repairRetest";
+import type { TrainingSummary } from "./types";
 
 export type MetricKey =
   | "unsupportedClaimRate"
@@ -82,7 +84,18 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
 export interface SkillMetricPoint {
   debateId: string;
   completedAt: string;
+  /** Topic identity is carried so transfer/retest logic can require new context. */
+  topicId?: string | null;
+  /** Explicit repair assignment this debate was intended to transfer-test. */
+  repairRetest?: AssignedRepairRetest | null;
+  /** Delivery/timing observations are kept separate from argument-skill metrics. */
+  training?: TrainingSummary | null;
   metrics: Record<MetricKey, number | null>;
+  /**
+   * Debate-level opportunity counts used to decide whether a later debate
+   * genuinely tested a repaired skill. Optional for legacy/fixture points.
+   */
+  opportunities?: { majorClaims: number; opponentMoves: number };
   /** Node IDs that contributed to each metric (evidence trail for explainability) */
   evidence?: Partial<Record<MetricKey, string[]>>;
   /**
@@ -226,7 +239,17 @@ export function extractSkillPoint(
     clarity: clarity10 != null ? ["turn-display-scores"] : [],
   };
 
-  return { debateId, completedAt, metrics, evidence, unmatched: { rebuttalCoverageUnmatched: coverage.unmatchedIds } };
+  return {
+    debateId,
+    completedAt,
+    metrics,
+    opportunities: {
+      majorClaims: myClaimsCount,
+      opponentMoves: coverage.opportunities,
+    },
+    evidence,
+    unmatched: { rebuttalCoverageUnmatched: coverage.unmatchedIds },
+  };
 }
 
 export interface MetricTrajectory {

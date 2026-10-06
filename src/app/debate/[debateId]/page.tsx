@@ -6,7 +6,9 @@ import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAsse
 import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { measurementHonestyFor, resolveDebateFormat } from "@/lib/sprint";
-import type { SoloDebate, SoloDebateTurn } from "@/lib/types";
+import type { CoachingRecord, PersistedSoloResult, SoloDebate, SoloDebateTurn } from "@/lib/types";
+import type { CoachDimension } from "@/lib/adaptiveCoach";
+import { performanceScoreForTurns } from "@/lib/gamification";
 
 export default async function DebatePage({ params }: { params: Promise<{ debateId: string }> }) {
   const { debateId } = await params;
@@ -39,40 +41,73 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
   let completedResult:
     | {
         totalScore: number;
+        performanceScore: number;
         argGraph?: ObservableAssessment["graph"];
         snapshot: ReturnType<typeof buildResultSnapshot> | null;
         repaired: boolean;
         honestyNote: string | null;
+        summary?: PersistedSoloResult["summary"];
+        bonusXP?: number;
+        rewardEvents?: PersistedSoloResult["rewardEvents"];
+        trainingSummary?: PersistedSoloResult["trainingSummary"];
+        summarySource?: PersistedSoloResult["summarySource"];
       }
     | null = null;
   if (debate.status === "completed") {
+    const persisted = debate.result_payload && typeof debate.result_payload === "object"
+      ? (debate.result_payload as PersistedSoloResult)
+      : null;
+    const persistedAssessment = persisted?.assessment && typeof persisted.assessment === "object" && "graph" in persisted.assessment
+      ? (persisted.assessment as ObservableAssessment)
+      : null;
     const assessments = (turns ?? [])
       .map((t) => t.assessment as ObservableAssessment | null)
       .filter((a): a is ObservableAssessment => !!a);
-    const finalAssessment = assessments.length
-      ? assessArgumentGraph(mergeAssessmentGraphs(assessments.map((a) => a.graph)), {
-          sideA: "a",
-          sideB: "ai",
-          extractionSource: "deterministic",
-          labelA: "You",
-          labelB: "AI opponent",
+    const finalAssessment = persistedAssessment ?? (
+      assessments.length
+        ? assessArgumentGraph(mergeAssessmentGraphs(assessments.map((a) => a.graph)), {
+            sideA: "a",
+            sideB: "ai",
+            extractionSource: "deterministic",
+            labelA: "You",
+            labelB: "AI opponent",
+          })
+        : null
+    );
+    const coaching = (debate.coaching ?? null) as CoachingRecord | null;
+    const goalDimension = (coaching?.dimension ?? null) as CoachDimension | null;
+    const rebuiltSnapshot = finalAssessment
+      ? buildResultSnapshot(finalAssessment, {
+          format: debate.format === "sprint" ? "sprint" : "full",
+          goalDimension,
         })
       : null;
-    const snapshot = finalAssessment
-      ? buildResultSnapshot(finalAssessment, { format: resolveDebateFormat(debate.format) })
-      : null;    const { data: repair } = await db
+    const persistedSnapshot = persisted?.snapshot && typeof persisted.snapshot === "object"
+      ? (persisted.snapshot as ReturnType<typeof buildResultSnapshot>)
+      : null;
+
+    const { data: repair } = await db
       .from("repair_results")
       .select("id, created_at")
       .eq("debate_id", debateId)
+      .eq("succeeded", true)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     completedResult = {
       totalScore: debate.total_score ?? 0,
-      argGraph: finalAssessment?.graph,
-      snapshot,
+      performanceScore:
+        persisted?.performanceScore ??
+        performanceScoreForTurns((turns ?? []).map((turn) => turn.turn_score)),
+      argGraph: persistedAssessment?.graph ?? finalAssessment?.graph,
+      snapshot: persistedSnapshot ?? rebuiltSnapshot,
       repaired: !!repair,
-      honestyNote: measurementHonestyFor(resolveDebateFormat(debate.format)).note,
+      honestyNote: persisted?.honesty?.note ?? measurementHonestyFor(resolveDebateFormat(debate.format)).note,
+      summary: persisted?.summary,
+      bonusXP: persisted?.bonusXP,
+      rewardEvents: persisted?.rewardEvents,
+      trainingSummary: persisted?.trainingSummary,
+      summarySource: persisted?.summarySource,
     };
   }
 

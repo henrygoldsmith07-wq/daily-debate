@@ -71,8 +71,8 @@ describe("computeCorpusMetrics with sample gates", () => {
       rating("i1", "r1", "a"), rating("i1", "r2", "a"), rating("i1", "r3", "a"),
       // i2: 2-1 majority a → consensus (strict majority, decisive)
       rating("i2", "r1", "a"), rating("i2", "r2", "a"), rating("i2", "r3", "b"),
-      // i3: 1-1 split → unresolved
-      rating("i3", "r1", "a"), rating("i3", "r2", "b"),
+      // i3: completed 1-1-1 split → unresolved and ready for moderator review
+      rating("i3", "r1", "a"), rating("i3", "r2", "b"), rating("i3", "r3", "tie"),
       // i4: single rater → not counted at all
       rating("i4", "r1", "a"),
     ];
@@ -103,8 +103,8 @@ describe("computeCorpusMetrics with sample gates", () => {
   });
 
   it("withholds ground-truth eligibility until rater count, consensus volume and κ clear the bars", () => {
-    // 30 unanimous two-rater items → κ = 1, consensus-ready = 30, but only
-    // 2 distinct raters → the rater-count bar keeps it NOT ready.
+    // 30 unanimous two-rater items → κ = 1, but the Stage-1 volume is not
+    // reached and only 2 distinct raters contributed.
     const small = Array.from({ length: 30 }, (_, i) => item(`i${i}`));
     const smallRatings = small.flatMap((it) => [rating(it.id, "r1", "a"), rating(it.id, "r2", "a")]);
     const m1 = computeCorpusMetrics(small, smallRatings);
@@ -112,19 +112,20 @@ describe("computeCorpusMetrics with sample gates", () => {
     expect(m1.humanValidation.groundTruth.ready).toBe(false);
     expect(m1.humanValidation.groundTruth.reasons.join(" ")).toMatch(/independent raters/);
 
-    // Same volume spread over 6 adjacent-pair raters: consensus ≥30, raters
-    // ≥5, unanimous pairs → κ clears the bar too. This one IS ready.
-    const sixRaters = Array.from({ length: 30 }, (_, i) => item(`j${i}`));
+    // Stage-1 volume spread over 6 adjacent-pair raters: consensus ≥100,
+    // raters ≥5, unanimous pairs → κ clears the pilot gate too.
+    const sixRaters = Array.from({ length: 100 }, (_, i) => item(`j${i}`));
     const sixRatings = sixRaters.flatMap((it, idx) => {
       const ra = `r${idx % 6}`;
       const rb = `r${(idx + 1) % 6}`;
       return [rating(it.id, ra, "a"), rating(it.id, rb, "a")];
     });
     const m2 = computeCorpusMetrics(sixRaters, sixRatings);
-    expect(m2.humanValidation.consensusReadyItems).toBeGreaterThanOrEqual(30);
+    expect(m2.humanValidation.consensusReadyItems).toBeGreaterThanOrEqual(100);
     expect(m2.humanValidation.groundTruth.ready).toBe(true);
 
-    // 30 consensus items, 5 raters, pairs with ≥5 shared unanimous items → κ=1.
+    // 30 consensus items remain below the staged pilot volume even before the
+    // distinct-rater gate is considered.
     const many = Array.from({ length: 30 }, (_, i) => item(`k${i}`));
     const manyRatings = many.flatMap((it, idx) => [
       rating(it.id, `pairA`, "a"),
@@ -141,7 +142,7 @@ describe("corpus lifecycle facts", () => {
   it("counts adjudicated items, corrected ratings and presentation balance", () => {
     const items: MetricItem[] = [
       { id: "i1", side_mapping: {}, status: "rated" },
-      { id: "i2", side_mapping: {}, status: "adjudicated" },
+      { id: "i2", side_mapping: { consensus_winner: "a", basis: "moderator override" }, status: "adjudicated" },
       { id: "i3", side_mapping: {}, status: "open" },
     ];
     const r = (corpus_id: string, rater_id: string, extra: Partial<MetricRating>): MetricRating => ({
@@ -152,12 +153,13 @@ describe("corpus lifecycle facts", () => {
       r("i1", "x2", { presented_first: "a", corrections: [{ at: "t", actor: "adm", reason: "x", before: {}, after: {} }] }),
       r("i2", "x3", { presented_first: "a" }),
       r("i2", "x4", { presented_first: "b", corrections: [] }),
+      r("i2", "x6", { presented_first: "b" }),
       r("i3", "x5", {}), // pre-migration row without presented_first
     ];
     const m = computeCorpusMetrics(items, ratings);
     expect(m.corpus.adjudicatedItems).toBe(1);
     expect(m.corpus.correctedRatings).toBe(1); // empty corrections does not count
-    expect(m.corpus.presentation).toEqual({ firstA: 3, firstB: 1, unknown: 1, balance: 0.333 });
+    expect(m.corpus.presentation).toEqual({ firstA: 3, firstB: 2, unknown: 1, balance: 0.667 });
   });
 
   it("stays backward compatible when callers omit the new fields", () => {
@@ -223,12 +225,48 @@ describe("judge-vs-human slices (item 13)", () => {
     expect(m.judgeVsHuman.slices.byDifficulty.close).toBeUndefined();
     expect(m.judgeVsHuman.errorCategories.judgeTieVsHumanWinner + m.judgeVsHuman.errorCategories.sideFlip).toBe(0);
   });
+
+  it("uses an explicit adjudicated winner instead of recomputing the rater majority", () => {
+    const items: MetricItem[] = [
+      {
+        id: "adj-1",
+        status: "adjudicated",
+        side_mapping: {
+          consensus_winner: "b",
+          basis: "moderator override",
+          system_verdict: { winner: "b", confidence: 0.8 },
+        },
+        dynamics_tier: "close",
+      },
+    ];
+    const ratings: MetricRating[] = [
+      rating("adj-1", "r1", "a"),
+      rating("adj-1", "r2", "a"),
+      rating("adj-1", "r3", "b"),
+    ];
+    const m = computeCorpusMetrics(items, ratings);
+    expect(m.corpus.adjudicatedItems).toBe(1);
+    expect(m.judgeVsConsensus.n).toBe(1);
+    expect(m.judgeVsConsensus.agree).toBe(1);
+    expect(m.judgeVsHuman.slices.byDifficulty.close).toEqual({ n: 1, agree: 1, rate: 1 });
+  });
+
+  it("includes three-rater items in pairwise winner kappa", () => {
+    const items = Array.from({ length: 6 }, (_, i) => item(`kappa-${i}`));
+    const ratings = items.flatMap((it) => [
+      rating(it.id, "r1", "a"),
+      rating(it.id, "r2", "a"),
+      rating(it.id, "r3", "a"),
+    ]);
+    const m = computeCorpusMetrics(items, ratings);
+    expect(m.humanValidation.meanWinnerKappa).toBe(1);
+  });
 });
 
 describe("humanGroundTruthReady thresholds", () => {
   it("flags each unmet bar explicitly (never a silent false)", async () => {
     const { humanGroundTruthReady } = await import("./corpus");
-    const ready = humanGroundTruthReady({ consensusReadyItems: 30, raters: 5, meanWinnerKappa: 0.62 });
+    const ready = humanGroundTruthReady({ consensusReadyItems: 100, raters: 5, meanWinnerKappa: 0.62 });
     expect(ready.ready).toBe(true);
     expect(ready.reasons).toEqual([]);
     const notReady = humanGroundTruthReady({ consensusReadyItems: 5, raters: 2, meanWinnerKappa: null });

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 interface ReliabilityReport {
   totalItems: number;
   fullyRatedItems: number;
+  calibrationRatedItems: number;
   ratedItems: number;
   agreementReady: number;
   needsAdjudication: number;
@@ -31,8 +32,22 @@ interface ReliabilityReport {
   population: {
     targetItems: number;
     remainingToTarget: number;
+    stage: string;
+    stageLabel: string;
+    nextStage: string | null;
     cellsNeedingCoverage: string[];
   };
+  validationStages: Array<{
+    id: 1 | 2 | 3;
+    title: string;
+    minDebates: number;
+    minRatings: number;
+    debatesQualifying: number;
+    ratingsOnQualifying: number;
+    missing: string;
+    achieved: boolean;
+    balancedStrata?: { state: "met" | "not-met" | "not-computable"; detail: string };
+  }>;
   strata: {
     byLength: Record<string, number>;
     byAbility: Record<string, number>;
@@ -160,6 +175,50 @@ export default function CorpusAdmin() {
         </p>
       )}
 
+      {/* ── Validation stages: movement toward human-validity targets ────── */}
+      <section className="surface-card flex flex-col gap-3 p-5" data-testid="validation-stages">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold">Validation stages</h2>
+          <a
+            href="/api/corpus/export"
+            className="btn btn-ghost px-3 py-1.5 text-xs underline underline-offset-2"
+            data-testid="export-csv"
+          >
+            Export CSV
+          </a>
+        </div>
+        <p className="text-xs text-ink3">
+          Counts come from real rating rows only. Stage 3&apos;s strata balance is reported as unknown until stratum
+          metadata supports computing it — never assumed.
+        </p>
+        <ul className="flex flex-col gap-2">
+          {(report.validationStages ?? []).map((stage) => (
+            <li key={stage.id} className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3" data-testid={`validation-stage-${stage.id}`}>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-sm font-medium">{stage.title}</span>
+                <span className="tabular text-xs text-ink3">
+                  {stage.debatesQualifying} / {stage.minDebates} debates × ≥{stage.minRatings} ratings
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface">
+                <div
+                  className="h-full rounded-full bg-[var(--accent)]"
+                  style={{
+                    width: `${Math.min(100, Math.round((stage.debatesQualifying / stage.minDebates) * 100))}%`,
+                  }}
+                />
+              </div>
+              <p className="mt-1.5 text-xs text-ink3">
+                {stage.ratingsOnQualifying} ratings on qualifying debates · {stage.missing}
+                {stage.balancedStrata && stage.balancedStrata.state === "not-computable" && (
+                  <span className="text-amber-600"> ({stage.balancedStrata.detail})</span>
+                )}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </section>
+
       <p className="text-xs text-ink3">
         Published view:{" "}
         <a href="/metrics" className="text-[var(--accent)] hover:underline">
@@ -169,13 +228,17 @@ export default function CorpusAdmin() {
       </p>
 
       <section className="surface-card flex flex-col gap-3 p-5">
-        <h2 className="text-sm font-semibold">Population progress</h2>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold">Population progress</h2>
+          <span className="text-xs font-medium text-[var(--accent)]">{report.population.stageLabel}</span>
+        </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
           <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${pct}%` }} />
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Imported / target" value={`${report.totalItems} / ${report.population.targetItems}`} />
-          <Stat label="Fully rated (≥2)" value={report.fullyRatedItems} />
+          <Stat label="Pilot-ready (≥2 ratings)" value={report.fullyRatedItems} />
+          <Stat label="Calibration-ready (≥3)" value={report.calibrationRatedItems} />
           <Stat label="Agreement-ready" value={report.agreementReady} />
           <Stat label="Needs adjudication" value={report.needsAdjudication} />
         </div>
@@ -312,9 +375,9 @@ export default function CorpusAdmin() {
       </section>
 
       <section className="surface-card flex flex-col gap-3 p-5">
-        <h2 className="text-sm font-semibold">Adjudication queue</h2>
+        <h2 className="text-sm font-semibold">Moderator resolution queue</h2>
         {report.adjudicationQueue.length === 0 ? (
-          <p className="text-xs text-ink3">No disputed items. Raters agree so far.</p>
+          <p className="text-xs text-ink3">No completed items currently need moderator resolution.</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {report.adjudicationQueue.map(({ id, verdicts }) => {
@@ -328,20 +391,9 @@ export default function CorpusAdmin() {
                     <span className="tabular text-ink3">
                       {id.slice(0, 8)}… · raters split: {split}
                     </span>
-                    <span className="flex gap-2">
-                      <button type="button" onClick={() => openReview(id)} className="btn btn-ghost px-2 py-1 text-xs">
-                        {expandedId === id ? "Hide" : "Review"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => adjudicate(id)}
-                        disabled={busy}
-                        className="btn btn-ghost px-2 py-1 text-xs disabled:opacity-40"
-                        title="Settle by rater majority"
-                      >
-                        Accept majority
-                      </button>
-                    </span>
+                    <button type="button" onClick={() => openReview(id)} className="btn btn-ghost px-2 py-1 text-xs">
+                      {expandedId === id ? "Hide" : "Review"}
+                    </button>
                   </div>
                   {expandedId === id && (
                     <div className="flex flex-col gap-3 border-t border-[var(--rule)] pt-3">

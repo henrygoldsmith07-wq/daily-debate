@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { createClient } from "@/lib/backend/server";
-import { isCorpusAdmin } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadOpsHealth } from "@/lib/opsHealthServer";
-import type { EvidenceSection, HealthState, TrainingEvidence } from "@/lib/opsHealth";
+import type { EvidenceSection, HealthState, MigrationReadiness, TrainingEvidence } from "@/lib/opsHealth";
+import { getRequestAuthContext } from "@/lib/requestAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -40,13 +39,20 @@ function fmtDate(iso: string | null): string {
   return iso ? new Date(iso).toISOString().slice(0, 10) : "—";
 }
 
-export default async function OpsHealthPage() {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+function fmtMigrationReadiness(r: MigrationReadiness): string {
+  // null = unknown (probe could not read the schema), never silently ready.
+  const bit = (v: boolean | null) => (v === null ? "unknown" : v ? "ready" : "PENDING");
+  return (
+    `016=${bit(r.migration016TelemetryReady)} · 017=${bit(r.migration017RouteLifecycleReady)} · ` +
+    `018=${bit(r.migration018TopicFingerprintReady)} · 019=${bit(r.migration019GenerationReasonReady)} · ` +
+    `022=${bit(r.migration022ProductEventReasonReady)} · 023=${bit(r.migration023FriendChallengeReady)} · ` +
+    `024=${bit(r.migration024HumanValidationReady)} · 025=${bit(r.migration025RepairRetestReady)}`
+  );
+}
 
-  if (!user || !isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+export default async function OpsHealthPage() {
+  const auth = await getRequestAuthContext();
+  if (!auth.isAdmin) {
     return (
       <AppShell width="narrow">
         <PageHeader
@@ -145,12 +151,26 @@ export default async function OpsHealthPage() {
             }
           />
           <Fact
-            label="Production proofs (manual / later-scheduled / idempotence / on-time)"
-            value={`${report.topicSlo.proofs.manualSuccess ? "manual ✓" : "manual ✗"} · ${
-              report.topicSlo.proofs.scheduledSuccessAfterManual ? "scheduled ✓" : "scheduled ✗"
-            } · ${report.topicSlo.proofs.idempotenceRerun ? "idempotent ✓" : "idempotent ✗"} · ${
-              report.topicSlo.proofs.onTimeBeforeDeadline ? "on-time ✓" : "on-time ✗"
+            label="Production proofs (db / manual / scheduled / idempotent / on-time / AI)"
+            value={`${report.topicSlo.proofs.databaseReachable ? "db ✓" : "db ✗"} · ${
+              report.topicSlo.proofs.manualSuccess ? "manual ✓" : "manual ✗"
+            } · ${report.topicSlo.proofs.scheduledSuccessAfterManual ? "scheduled ✓" : "scheduled ✗"} · ${
+              report.topicSlo.proofs.sameDateContentIdempotence ? "idempotent ✓" : "idempotent ✗"
+            } · ${report.topicSlo.proofs.onTimeBeforeDeadline ? "on-time ✓" : "on-time ✗"} · ${
+              report.topicSlo.proofs.aiGeneratedProductionSuccess ? "AI ✓" : "AI ✗"
             }`}
+          />
+          <Fact
+            label="Provider attempts (window runs / fallback-trigger rate)"
+            value={
+              report.topicSlo.providerSummary === null || report.topicSlo.providerSummary.windowRuns === 0
+                ? "no attempt telemetry"
+                : `${report.topicSlo.providerSummary.windowRuns} runs · fallback ${
+                    report.topicSlo.providerSummary.fallbackTriggerRate === null
+                      ? "—"
+                      : `${Math.round(report.topicSlo.providerSummary.fallbackTriggerRate * 100)}%`
+                  }${report.topicSlo.providerSummary.byModel.length ? ` · ${report.topicSlo.providerSummary.byModel.map((m) => `${m.provider ?? "?"}/${m.model} ×${m.attempts}${m.successRate === null ? "" : ` ${Math.round(m.successRate * 100)}%`}`).join(" · ")}` : ""}`
+            }
           />
         </div>
         {report.topicSlo.note && <p className="mt-2 text-xs text-ink3">{report.topicSlo.note}</p>}
@@ -181,6 +201,18 @@ export default async function OpsHealthPage() {
           <Fact label="Latency" value={report.database.latencyMs === null ? "—" : `${report.database.latencyMs}ms`} />
           <Fact label="Migrations applied" value={report.database.migrationsApplied === null ? "—" : String(report.database.migrationsApplied)} />
           <Fact label="Required tables" value={report.database.requiredTablesOk === null ? "—" : report.database.requiredTablesOk ? "all present" : `missing: ${report.database.missingTables.join(", ")}`} />
+          <Fact label="topic_run_log fidelity (016)" value={report.database.topicRunLogFidelity} />
+          <Fact label="migration readiness" value={fmtMigrationReadiness(report.database.migrationReadiness)} />
+          <Fact
+            label="latest application schema"
+            value={
+              report.database.migrationReadiness.latestApplicationSchemaReady === null
+                ? "unknown"
+                : report.database.migrationReadiness.latestApplicationSchemaReady
+                  ? "ready"
+                  : "PENDING"
+            }
+          />
         </div>
         {report.database.note && <p className="mt-2 text-xs text-ink3">{report.database.note}</p>}
       </section>
@@ -202,6 +234,13 @@ export default async function OpsHealthPage() {
         </p>
       </section>
 
+      {report.coach && (
+        <EvidenceSectionCard
+          id="coach-runtime-heading"
+          title="Coach runtime"
+          section={report.coach}
+        />
+      )}
       {report.human && <EvidenceSectionCard id="human-heading" title="Human validation" section={report.human} />}
       {report.training && <TrainingSectionCard section={report.training} />}
     </AppShell>

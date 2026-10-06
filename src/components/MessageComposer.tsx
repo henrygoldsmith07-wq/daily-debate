@@ -11,6 +11,7 @@ export interface ComposerSubmitData {
   inputMode: InputMode;
   modeId: string;
   timing: TurnTiming | null;
+  elapsedSeconds: number | null;
 }
 
 export default function MessageComposer({
@@ -18,18 +19,33 @@ export default function MessageComposer({
   disabled,
   placeholder,
   modeId = "text",
+  startedAtMs = null,
+  initialText = "",
+  resumeSavedSubmission = false,
 }: {
-  onSubmit: (data: ComposerSubmitData) => void;
+  onSubmit: (data: ComposerSubmitData) => void | boolean | Promise<void | boolean>;
   disabled: boolean;
   placeholder?: string;
   modeId?: string;
+  startedAtMs?: number | null;
+  initialText?: string;
+  resumeSavedSubmission?: boolean;
 }) {
   const mode = resolveMode(modeId);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const [usedVoice, setUsedVoice] = useState(false);
-  const { supported, listening, transcript, interim, error: speechError, start, stop } = useSpeechRecognition();
+  const [submitting, setSubmitting] = useState(false);
+  const busy = disabled || submitting;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const voiceStartedAt = useRef<number | null>(null);
+  const voiceEndedAt = useRef<number | null>(null);
+  const { supported, listening, transcript, interim, error: speechError, start, stop } = useSpeechRecognition({
+    onEnd: () => {
+      if (voiceStartedAt.current !== null && voiceEndedAt.current === null) voiceEndedAt.current = Date.now();
+    },
+  });
+  const [responseStartedAt, setResponseStartedAt] = useState<number | null>(null);
+  const effectiveResponseStartedAt = startedAtMs ?? responseStartedAt;
 
   // While listening, the textarea mirrors the live transcript (final + interim)
   const displayValue = listening ? (transcript + (interim ? ` ${interim}` : "")).trimStart() : text;
@@ -43,60 +59,80 @@ export default function MessageComposer({
   function toggleListening() {
     if (listening) {
       setText(transcript);
+      voiceEndedAt.current = Date.now();
       stop();
     } else {
       setUsedVoice(true);
-      voiceStartedAt.current = Date.now();
+      const wallNow = Date.now();
+      voiceStartedAt.current = wallNow;
+      voiceEndedAt.current = null;
+      if (startedAtMs === null) setResponseStartedAt((current) => current ?? performance.now());
       start();
     }
   }
 
   function buildTiming(): TurnTiming | null {
     if (!usedVoice || !voiceStartedAt.current) return null;
+    const endedAtMs = voiceEndedAt.current ?? Date.now();
     return {
       startedAt: new Date(voiceStartedAt.current).toISOString(),
-      endedAt: new Date().toISOString(),
-      durationSeconds: Math.round((Date.now() - voiceStartedAt.current) / 1000),
+      endedAt: new Date(endedAtMs).toISOString(),
+      durationSeconds: Math.round((endedAtMs - voiceStartedAt.current) / 1000),
     };
   }
 
-  function submit() {
+  async function submit() {
     const trimmed = displayValue.trim();
-    if (!trimmed || disabled) return;
-    onSubmit({
-      message: trimmed,
-      inputMode: usedVoice ? "voice" : "text",
-      modeId,
-      timing: usedVoice ? buildTiming() : null,
-    });
-    setText("");
-    setUsedVoice(false);
-    voiceStartedAt.current = null;
+    if (!trimmed || busy) return;
+    setSubmitting(true);
+    try {
+      const accepted = await onSubmit({
+        message: trimmed,
+        inputMode: usedVoice ? "voice" : "text",
+        modeId,
+        timing: usedVoice ? buildTiming() : null,
+        elapsedSeconds: effectiveResponseStartedAt === null
+          ? null
+          : Math.max(0, Math.round((performance.now() - effectiveResponseStartedAt) / 1000)),
+      });
+      // Preserve the user's draft when the parent reports a failed request.
+      // Losing a response because Wi-Fi dropped is much worse than making the
+      // user explicitly retry it.
+      if (accepted === false) return;
+      setText("");
+      setUsedVoice(false);
+      voiceStartedAt.current = null;
+      voiceEndedAt.current = null;
+      setResponseStartedAt(null);
+      setElapsedSecs(0);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      submit();
+      void submit();
     }
   }
 
-  // Timer for rapid-rebuttal / prepared-speech modes
+  // Timed modes measure the whole response window, not only microphone time.
   const [elapsedSecs, setElapsedSecs] = useState(0);
   useEffect(() => {
-    if (!listening) return;
-    const start = Date.now();
-    const tick = () => setElapsedSecs(Math.floor((Date.now() - start) / 1000));
+    if (effectiveResponseStartedAt === null || (mode.hardTimeLimitSecs === null && !listening)) return;
+    const tick = () => setElapsedSecs(Math.floor((performance.now() - effectiveResponseStartedAt) / 1000));
     const initial = setTimeout(tick, 0);
     const t = setInterval(tick, 1000);
     return () => { clearTimeout(initial); clearInterval(t); };
-  }, [listening]);
+  }, [effectiveResponseStartedAt, mode.hardTimeLimitSecs, listening]);
 
   const isTimed = mode.hardTimeLimitSecs !== null;
-  const timeRemaining = (isTimed && listening && mode.hardTimeLimitSecs !== null)
+  const timeRemaining = (isTimed && mode.hardTimeLimitSecs !== null)
     ? Math.max(0, mode.hardTimeLimitSecs - elapsedSecs)
     : null;
   const timeUrgent = timeRemaining !== null && timeRemaining < 15;
+  const timeExpired = !resumeSavedSubmission && timeRemaining === 0;
 
   return (
     <div className="flex flex-col gap-2 border-t border-[var(--rule)] pt-4">
@@ -108,11 +144,13 @@ export default function MessageComposer({
         >
           {mode.label}
         </span>
-        {isTimed && listening && (
+        {isTimed && resumeSavedSubmission ? (
+          <span className="text-xs font-medium text-[var(--success)]">✓ response saved</span>
+        ) : isTimed ? (
           <span className={`tabular text-xs font-medium ${timeUrgent ? "text-[var(--bad)]" : "text-ink3"}`}>
             ⏱ {timeRemaining}s remaining
           </span>
-        )}
+        ) : null}
         {!isTimed && listening && (
           <span className="tabular text-xs text-ink3">{elapsedSecs}s</span>
         )}
@@ -122,13 +160,14 @@ export default function MessageComposer({
         ref={textareaRef}
         value={displayValue}
         onChange={(e) => {
+          if (startedAtMs === null) setResponseStartedAt((current) => current ?? performance.now());
           setText(e.target.value);
           setUsedVoice(false);
         }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder ?? "Make your case… (Ctrl/⌘+Enter to send)"}
         rows={3}
-        disabled={disabled || listening}
+        disabled={busy || listening || timeExpired || resumeSavedSubmission}
         aria-label="Your debate response"
         className="w-full resize-none rounded-lg border border-[var(--rule)] bg-transparent px-3 py-2 text-sm disabled:opacity-50"
       />
@@ -138,7 +177,7 @@ export default function MessageComposer({
             <button
               type="button"
               onClick={toggleListening}
-              disabled={disabled}
+              disabled={busy || timeExpired || resumeSavedSubmission}
               aria-pressed={listening}
               aria-label={listening ? "Stop listening" : "Start voice input"}
               className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${listening ? "border border-[var(--bad)] text-[var(--bad)]" : "btn-ghost"}`}
@@ -158,13 +197,18 @@ export default function MessageComposer({
           <button
             type="button"
             onClick={submit}
-            disabled={disabled || !displayValue.trim()}
+            disabled={busy || !displayValue.trim() || timeExpired}
             className="btn btn-primary px-4 py-1.5 text-sm disabled:opacity-40"
           >
             Send
           </button>
         </div>
       </div>
+      {timeExpired ? (
+        <p className="text-xs text-[var(--bad)]" role="status">
+          Time expired for {mode.label}. Switch to another mode to continue this round.
+        </p>
+      ) : null}
     </div>
   );
 }

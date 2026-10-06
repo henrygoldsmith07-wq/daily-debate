@@ -30,16 +30,18 @@ Honest labels for what is shipped, provisional, or gated:
 - Three targeted practice formats beside Sprint/Full: Flash (1 round, ~60 seconds), Cross-examination (4 probing-question rounds), Socratic (4 question-only rounds). All carry reduced measurement confidence with an explicit note.
 - Real-time coaching: deterministic mid-debate hints (unanswered opposition, contradictions, ungrounded claims, absolute language) computed from the same per-turn observable evidence as the score — no extra model calls, advisory only.
 - Best/weakest topic categories on Progress: observational averages over scored debates, shown only once a category has a minimum sample.
-- Simplified result screen: one strength, one weakness, one evidence line, **Fix this now**, score/XP secondary, full analysis behind progressive disclosure.
-- Weak-link repair: server-scored rewrite of the flagged move, persisted in `repair_results`, linked to the day's drill assignment.
+- Recovery-first solo state: Start is claim-first and atomic (one opening call + one canonical active debate per user/topic), stale Finish leases self-heal, timed modes survive reloads, and an accepted response can be used to **Finish with saved response** once the minimum debate length is satisfied.
+- Simplified result screen: one strength, one weakness, one evidence line, **Fix this now**, length-normalized performance + cumulative XP secondary, full analysis behind progressive disclosure.
+- Weak-link repair: server-checked rewrite of the flagged move with formative states and observable signals; the internal numeric rubric stays hidden, persists in `repair_results`, and links to the day's drill assignment for later retest scheduling.
 - "Challenge me" side assignment: explainable, history-based side choice (side balance → performance gap → alternation → random when no data). Lightweight by design — not presented as optimised.
 - Daily coaching goal: shown before the debate, assessed after it, numeric only when the data supports the precision.
-- Progress screen: seven skills (Evidence, Rebuttal, Logic, Clarity, Impact, Steelmanning, Structure) with score + trend, strongest/weakest, current focus; raw metrics behind "How this was calculated".
+- Progress screen: seven skills (Evidence, Rebuttal, Logic, Clarity, Impact, Steelmanning, Structure) with score + trend, strongest/weakest, current focus; raw metrics behind "How this was calculated". The live coaching ledger is explicitly bounded to the latest 100 completed debates and discloses when older history falls outside that window.
 - Measurement honesty: Sprint results carry an explicit reduced-confidence note; `insufficient_evidence`, uncertainty lists, and evaluation stamps are preserved everywhere.
 - PvP with atomic matchmaking, turn clocks, forfeits, judged verdicts with ensemble + fingerprints. Competitive trust claims stay conservative; the judge-validation gate is intact.
 - Async friend challenges: shareable `/challenge/<code>` link, persistent match state, expiry, turn state. (Foundation; UI marked experimental.)
-- Guest practice loop without an account.
-- Product analytics: allowlisted, bounded, no-free-text funnel events (`src/lib/productEvents.ts`), with an internal admin report at `/analytics` covering the training funnel and observational repair-effectiveness measurement.
+- Guest practice without an account: deterministic local checks react to the actual response (claim, reasoning, opponent engagement, impact comparison, named evidence), identify one observable weakness, and offer a mini repair. The motion rotates from a curated set by UTC day (`src/lib/guestMotions.ts`), so guest mode costs nothing and stays deterministic. The loop completes the full cycle — debate → one weakness → repair → **retest under debate conditions** → an honest read of whether the move reappeared — before the signup prompt appears. Guest mode deliberately shows no numeric ability score: the retest reports one observed instance and names its sample size, never a claim of mastery.
+- Product analytics: allowlisted, bounded, no-free-text funnel events (`src/lib/productEvents.ts`), with transactional/idempotent solo round, completion and retest events plus an internal admin report at `/analytics` covering the training funnel and observational repair-effectiveness measurement.
+- Expired sessions, password-reset tokens, rate-limit buckets, stale solo start/finalization/submission leases, legacy zero-turn solo orphans, and stale challenge invites are swept daily by the unattended `backend-cleanup` workflow; `npm run db:cleanup` runs the same maintenance function manually. Database maintenance and manual migrations share one concurrency group so they cannot overlap.
 
 **Provisional (measured, not validated)**
 
@@ -67,7 +69,7 @@ Honest labels for what is shipped, provisional, or gated:
 ## Setup
 
 1. Create a standard Postgres database (a pooled Neon/Vercel Postgres URL is recommended for serverless deployments).
-2. Run `npm install`, copy `.env.example` to `.env.local`, and set `DATABASE_URL` plus at least one AI provider key.
+2. Run `npm install`, copy `.env.example` to `.env.local`, and set `DATABASE_URL` plus at least one AI provider key. Configure the password-reset email variables before relying on account recovery.
 3. Run `npm run db:migrate && npm run dev`.
 
 Authenticated users get the full daily-topic experience. Signed-out users get a local guest practice loop first, so the product can be evaluated before starting a debate account.
@@ -86,6 +88,9 @@ Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only chec
 | `OPENROUTER_MODEL` | optional | Defaults to `nvidia/nemotron-3-super-120b-a12b:free`. |
 | `OPENROUTER_FALLBACK_MODELS` | optional | Comma-separated failover chain. Defaults to free Nemotron 3 Super then Ultra. Empty string pins to one model. |
 | `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |
+| `RESEND_API_KEY` | required for password reset | Server-only Resend API key. Reset requests report the service unavailable when email delivery is not configured. |
+| `PASSWORD_RESET_FROM` | required for password reset | Verified sender, for example `Daily Debate <accounts@yourdomain.com>`. |
+| `APP_BASE_URL` | recommended | Canonical public origin used in reset links, for example `https://debate.example.com`. Vercel production URL is used as a fallback. |
 
 After setting `DATABASE_URL`, run `npm run db:migrate` locally against the same database before deploying authenticated features.
 

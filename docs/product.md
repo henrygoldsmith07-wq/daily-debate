@@ -32,6 +32,12 @@ Start-screen copy is explicit about the format: *"Three focused rounds with dire
 
 Sprint results say so plainly: *"Sprint read: a 3-round session is a small sample. Treat this as practice signal, not a measurement of your ability."* Implementation: `src/lib/sprint.ts`.
 
+## Live debate
+
+The default room keeps the normal daily rep focused: Text and Speech are immediately available, while Rapid Rebuttal and Prepared Speech sit behind **More modes**. Specialist formats remain accessible without making every capability compete for attention during a Sprint.
+
+Turn submission is lossless under ordinary network failure. The composer keeps the exact draft until the server confirms the turn, disables itself locally while the request is in flight to reduce accidental double submission, and leaves a failed draft in place for one-click retry after connectivity returns.
+
 ## Result screen
 
 Default view shows only:
@@ -40,10 +46,10 @@ Default view shows only:
 2. **You did well** — one strength, grounded in the debate ("You directly responded to 3 of 3 opposing arguments.").
 3. **Main weakness** — one highest-priority miss ("2 important claims had no supporting evidence") plus why it matters in plain language.
 4. **FIX THIS NOW** — the primary action. It scrolls **directly to the repair exercise**; Full Analysis is not expanded automatically.
-5. Score + XP, secondary.
+5. Length-normalized performance + cumulative XP, secondary.
 6. **View full analysis** — collapsed: model feedback lists, argument graph, tracking grid.
 
-Replays of finished debates render the same hierarchy server-side (strength, weakness, repair status, score, collapsed analysis), so a revisit never dumps the graph back on the user.
+Replays of finished debates render the same hierarchy server-side (strength, weakness, repair status, normalized performance, collapsed analysis), so a revisit never dumps the graph back on the user.
 
 ## Weak-link repair
 
@@ -55,9 +61,29 @@ Replays of finished debates render the same hierarchy server-side (strength, wea
 - is scored server-side against observable moves (deterministic rubric — practice feedback, not a verdict);
 - explains what worked / what to add;
 - is **persisted** in `repair_results` with success flag and signals;
-- **links into coaching**: a repair on the day's drill dimension marks that drill attempted, feeding the next coaching decision.
+- **links into coaching**: a repair on the day's drill dimension marks that drill attempted, feeding the next coaching decision;
+- retries remain raw practice history, but the latest retry refreshes the linked formative drill attempt so coaching never stays stuck on an abandoned first draft;
+- if the user leaves after an unsuccessful rewrite, Today surfaces the newest unresolved repair with its formative state and an actionable cue so the core loop does not silently die between sessions.
 
-The debate's own score never changes.
+Learner-facing repair checks use three formative states: **Needs another pass**, **Partially repaired**, and **Repair demonstrated**. The deterministic numeric rubric remains internal for compatibility and thresholds; it is not shown as a validated reasoning score. Rebuttal, evidence, logic and impact repairs require relationships between ideas rather than cue words alone, and every repair reminds the learner that the real test is later unprompted performance.
+
+For longitudinal measurement, multiple rewrite submissions for the same user + debate + weakness kind are one **repair episode**. The first attempt anchors retry/conversion history, while the **first successful submission** anchors effectiveness and retest timing. Retries are preserved but cannot inflate repair denominators or create fake intervention cutoffs. A failed submission is practice history only: it stays retryable, does **not** count as repair completion, and does **not** unlock a deliberate next-debate retest.
+
+The debate's stored performance read never changes; cumulative XP remains a separate reward quantity.
+
+## Guest practice
+
+Signed-out users get the same product philosophy in a deliberately lighter form:
+
+1. three short responses to a fixed sample motion;
+2. deterministic local checks of observable wording only: explicit claim, reasoning link, engagement with the opponent, impact comparison, and named evidence;
+3. one concrete strength and one highest-priority missing move;
+4. **Fix this now** with a rewrite of that move;
+5. an account CTA only after the product has demonstrated the repair loop.
+
+Guest analysis lives in `src/lib/guestAssessment.ts`. It does **not** assign a numeric debate/ability score, infer hidden reasoning quality, or claim validation. Trigger words alone are insufficient: a one-word “however” is not rebuttal, “matters more” is not impact comparison, and naming a source without explaining its relevance does not complete an evidence repair.
+
+The guest result labels these checks as local observations, not measurement of debating ability. Responses stay client-side in this flow; they are not written to the authenticated product-event pipeline.
 
 ## "Challenge me"
 
@@ -65,7 +91,7 @@ A third side option that picks for the user, with the reasoning shown:
 
 - No/minimal history → random.
 - Heavy side dominance (≥75% of last 8) → the other side (variety + steelmanning).
-- Clear performance gap (≥8 points, ≥2 debates each side) → the weaker side.
+- Clear performance gap (≥8 points, ≥2 debates each side) → the weaker side. Performance is normalized from cumulative turn points to a per-turn 0–100 scale first, so Sprint vs Full length cannot create the gap.
 - Otherwise → alternate from the last debate.
 
 Every outcome carries a plain-language reason ("You've argued FOR in 7 of your last 8 debates — switching to AGAINST for variety and steelmanning practice."). Deliberately lightweight; never described as optimised. Implementation: `src/lib/challengeMe.ts`.
@@ -76,20 +102,49 @@ Default view: the seven skill dimensions (Evidence, Rebuttal, Logic, Clarity, Im
 
 Behind **How this was calculated**: metric trajectories, per-debate slopes, the fixed benchmark comparison, and honest caveats (direction per metric, sprint noise, observational-only claims).
 
+## Drill feedback
+
+Daily drills use a deterministic rubric internally so coaching can compare attempts consistently and diagnose whether the requested move appeared. That internal `attempt_score` is **not** shown as a learner ability score.
+
+The learner sees:
+
+- **Practice checked**;
+- the bounded observable signals detected in the draft;
+- an explicit note that the check is formative;
+- later-debate movement as the only evidence that the skill changed.
+
+This prevents a short drill from looking like a validated 0–100 measurement while preserving the existing diagnostic data used by coaching.
+
 ## Coaching loop
 
-1. The ledger's weakest dimension (movement-adjusted, shared with the drill system — one selection policy, not two) becomes today's goal on the Today screen.
-2. The goal travels with the debate (`solo_debates.coaching.dimension`).
-3. At finish, the goal behaviour is assessed against the graph and persisted (`snapshot`, `demonstrated`).
-4. The result screen reports it; the next day's goal accounts for it.
+1. Normally, the ledger's weakest dimension (movement-adjusted, shared with the drill system — one selection policy, not two) becomes today's goal.
+2. **Pending repair retests override that generic selector only after successful repairs.** Failed attempts remain retryable practice. Every successful repair keeps the identity of its `repair_results` row in a durable queue: a newer success never replaces an older unresolved transfer test. For the current motion, the app chooses the oldest **eligible** repair; a repair created on the same topic is skipped rather than falsely labelled as transfer, allowing the next eligible repair to surface. Today, Progress, the drill coach and solo-debate start all derive their state from the same coaching-context loader.
+3. A retest closes only when a distinct later debate was **explicitly assigned to that repair** and the durable `repair_retests` row completes with `observable=true`. `solo_debates.coaching.repairRetest` remains the per-debate provenance copy. A coincidental evidence/rebuttal/etc. reading from an unassigned debate cannot clear one or several repairs. A poor assigned reading still counts as a real retest; an assigned debate with no opportunity is recorded as completed/unobservable and leaves that repair eligible for another deliberate test. Starting a newer deliberate test rolls an abandoned older open assignment to completed/unobservable so an old topic cannot block the queue forever.
+4. Same-day drill handling is conservative: reading Today/Progress is side-effect free. A proposed drill is only created or retargeted after the learner explicitly starts it with the coaching command endpoint. An unattempted drill may then be retargeted to a new repair focus, but an already-attempted drill is preserved as history rather than rewritten.
+5. The goal travels with the debate (`solo_debates.coaching.dimension`). At finish, the result snapshot receives that dimension, assesses the observable goal behaviour where a deterministic proxy exists, and the exact same outcome is persisted as `demonstrated`.
+6. The result screen labels deliberate retests explicitly. Dimensions without a valid one-debate pass/fail rule are reported as practised under debate conditions and left to longitudinal Progress measurement rather than receiving a guessed verdict.
+7. Longitudinal coaching only consumes **observable opportunities**. Default zeroes do not become fake success: Impact needs something to weigh; Structure needs an opposing move or enough own claims to expose a contradiction; Steelmanning needs an opposing move. The same opportunity filtering applies to profile scores, trend slopes and post-drill movement.
+8. Improvement rewards compare **whole prior debates with the whole current debate**. Turn-level assessments are merged per debate before the weakest-skill baseline is calculated. The longitudinal ledger fetches the newest bounded debate window and restores chronological order before trend math, so recent repairs/retests never disappear because a long-time user exceeded the cap.
 
 Goals are numeric only where previous behaviour justifies precision ("Answer at least 4 of 5" needs ≥3 opportunities last debate; otherwise the goal stays qualitative).
 
+## Evidence-support honesty
+
+Argument-graph citations distinguish **source identity** from **claim support**. A recognised institution is not enough to mark a claim supported.
+
+- no attached source text → `unverified`;
+- weak or mismatched claim/source overlap → `tangential`;
+- only substantive source-text overlap can produce `supports`;
+- grounded-evidence coverage counts only `supports`.
+- a recognised source name must also use its registered root domain; name/domain mismatches remain `unverified` even when the attached excerpt appears to match the claim.
+
+This prevents a plausible source name, missing excerpt, or decorative citation from silently increasing evidence coverage.
+
 ## Analytics
 
-Privacy-conscious funnel events (`src/lib/productEvents.ts`, migration 004): allowlisted names only, bounded context, no free text, no device identifiers, silent no-op for guests. Captured: `daily_viewed`, `debate_started`, `sprint_started`, `full_debate_started`, `round_completed`, `debate_completed`, `repair_started`, `repair_completed`, `full_analysis_opened`, `progress_viewed`, `pvp_started`, `challenge_me_selected`, `challenge_link_created`, `challenge_link_accepted`.
+Privacy-conscious funnel events (`src/lib/productEvents.ts`, migrations 004/021/033): allowlisted names only, bounded context, no transcript text, no device identifiers, silent no-op for guests. State-defining solo events (round, debate and observable retest completion) are committed transactionally with their durable state and protected by idempotency indexes. The learning loop now distinguishes `repair_started` → `repair_attempted` → `repair_demonstrated` → `repair_episode_closed` → `retest_started` → `retest_completed` → `retest_skill_demonstrated`; legacy `repair_completed` rows remain readable but new code no longer emits that ambiguous name.
 
-Funnel semantics: `repair_started` is the click on **Fix this now** (client-side); `repair_completed` is a server-confirmed submission — so start/completion can be compared honestly.
+Funnel semantics: `repair_started` is the click on **Fix this now**; `repair_attempted` means a rewrite was persisted; `repair_demonstrated` means the prompted deterministic structure gate passed; `repair_episode_closed` is emitted only for the first successful attempt in that episode. `retest_completed` requires an observable later-debate reading for the repaired dimension, and `retest_skill_demonstrated` is emitted only where the existing deterministic goal rule can make that narrower pass/fail claim. No event by itself claims causal improvement.
 
 ### Admin funnel report (`/analytics`, admin-gated)
 
@@ -108,7 +163,7 @@ Rates below a 5-user sample render as "not yet measurable" instead of small-n no
 
 **User vs session conversion.** User conversion counts each user once (a user who completes ≥1 sprint reads as 100%). Session conversion counts each debate separately via a bounded `debate_id` on the funnel events (migration 005 — a random UUID, no free text), so the same user reads as 10% if they completed 1 of 10 sprints. The report shows both, and states what share of funnel events carry a session id — legacy events without one are counted in user conversion only.
 
-**Truthful truncation.** Every source table is fetched with a limit+1 probe (`takeBounded`): when a cap is hit, the report says so — records loaded, configured limit, and which metrics are affected (event caps distort every funnel rate; repair/debate caps bound the effectiveness measurement). Debates additionally use bounded-window loading: only debates inside some repair's ±30-day window are fetched, so graph work stays proportional to what is actually measured.
+**Truthful truncation.** Every source table is fetched with a limit+1 probe (`takeBounded`): when a cap is hit, the report says so — records loaded, configured limit, and which metrics are affected (event caps distort funnel rates; repair, durable-retest and debate caps bound the effectiveness measurement). Debates additionally use bounded-window loading: only debates inside some repair's ±30-day window are fetched, so graph work stays proportional to what is actually measured.
 
 ### Does repair work? (`src/lib/repairEffectiveness.ts`)
 
@@ -121,14 +176,33 @@ weakness detected → repair completed → next relevant debates → improved / 
 - Excludes the repaired debate itself; only debates that could actually express the weakness count, and weakness counts are **side-scoped** (an opponent's fallacies or contradictions never register as the user's weakness).
 - **Dropped-argument direction is explicit**: `DroppedArgument.owner` is the side whose argument went unanswered, so a user's rebuttal/structure failure is opponent-owned entries — arguments the user left unanswered. Weakness counts and drop detection read the canonical unanswered-opportunity set from `src/lib/opportunity.ts`; scoring (`groundedDroppedArguments`) and weakness measurement read the same canonical set from opposite sides, deliberately.
 - **Opportunity gate**: debates that could not express the weakness are invisible to the measurement — evidence/structure/logic/impact repairs need user claims, rebuttal repairs need eligible canonical opponent opportunities. A clean debate with no opportunity is never counted as improvement.
-- **No double-counting**: after-windows stop at the next same-user same-kind repair, so repeated repairs never measure the same debates twice.
-- **Chronological first retest**: debates are sorted explicitly by completion time; "first retest" means the chronologically earliest eligible debate after the repair, never query order.
+- **No retry inflation**: raw rewrite attempts are collapsed to one repair episode per user + repaired debate + weakness kind. The first attempt remains the retry/conversion anchor, while the **first successful rewrite** anchors effectiveness and retest timing. Failed-only episodes remain attempt history and never enter repair-effectiveness or retest-outcome denominators. The best formative score and retry count remain visible for diagnostics.
+- **No double-counting across distinct repair episodes**: after-windows stop at the next same-user same-kind repair episode, so later repairs never measure the same debates twice.
+- **Explicit first retest**: the deliberate retest is the earliest completed, observable `repair_retests` assignment for that successful repair result. Ordinary later opportunity-bearing debates are longitudinal follow-up exposure only; they are never re-labelled as the deliberate retest.
 - Repair kinds without a genuine deterministic detector — `clarity` today — are hard-classified **not currently measurable** and can never enter the comparison, not even by comparing 0% vs 0%.
 - No later debates → "not yet measurable"; no earlier debates → "insufficient baseline". Nothing is silently dropped.
 - A per-kind rate is only claimed with ≥5 repairs and ≥3 measurable — otherwise the report says "not yet claimable".
-- **Retest linkage**: the first later debate that could express the weakness is the deliberate retest; the report tracks how often the weakness recurred in that first retest (rate claimed only at ≥3 measurable retests).
+- **Retest linkage**: only a debate explicitly assigned through durable `repair_retests` state is the deliberate retest. The report tracks whether the weakness recurred in that assigned observable retest; ordinary later opportunity-bearing debates are follow-up exposure, never silently promoted into the primary retest (rate claimed only at ≥3 measurable explicit retests).
 - The output is labelled observational: an association with the repair, not proof of causation.
+
+## Live PvP matchmaking
+
+`POST /api/pvp/queue` delegates the entire join lifecycle to `join_pvp_queue_and_match()`: recover an existing active match, enqueue the caller, claim the oldest waiting opponent, create the match, and clear both queue rows inside one serialized database transaction per topic. This closes the simultaneous-first-join gap where two users could both enqueue and then wait forever.
+
+The database also enforces **one active PvP match per player across both roles**. A trigger checks `player_a` and `player_b` together under deterministic per-player transaction locks, so a user cannot be `player_b` in one active match and `player_a` in another. Friend challenges use the same `pvp_matches` table and therefore inherit the invariant.
 
 ## Async friend challenges
 
 `POST /api/challenges` creates a shareable invite code on today's motion; the friend opens `/challenge/<code>`, accepts (sign-in required), and the pre-created PvP match routes them in. No simultaneity: the challenger opens, the opponent responds whenever. Match state persists in the normal PvP tables; invites expire after 7 days and claim atomically. The transcript replays through the existing PvP room. This is a foundation — the flow is functional but marked experimental.
+
+
+## Recovery guarantees
+
+- Starting a debate is claim-first: only one request per user/topic may call the opening model, and durable state appears only when the debate row, opening turn, optional repair retest and start analytics can commit together.
+- A lost Start response is idempotent: retrying returns the canonical active debate rather than creating another session.
+- Accepted responses are durable before opponent generation begins.
+- If opponent generation fails after an accepted response, the user can retry generation without re-entering the answer.
+- Once the accepted saved response reaches the minimum debate length, **Finish with saved response** commits that exact response as the final answered round and completes the debate without requiring another AI opponent call.
+- A crashed Finish request cannot permanently lock the debate: stale finalization leases are recoverable by normal turn/timer activity and scheduled maintenance.
+- Rapid Rebuttal and Prepared Speech keep their original server-issued timer across reloads.
+- Per-user streaks and daily drills share the stored profile timezone; finalization reads that timezone inside the same database transaction as the streak update. The global Daily Topic remains one UTC-keyed motion for everyone.

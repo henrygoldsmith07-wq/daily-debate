@@ -7,7 +7,7 @@ import AcceptChallengeButton from "@/components/AcceptChallengeButton";
 
 export const dynamic = "force-dynamic";
 
-interface InviteWithJoins {
+interface InviteRow {
   id: string;
   code: string;
   status: string;
@@ -16,13 +16,12 @@ interface InviteWithJoins {
   expires_at: string;
   opponent_id: string | null;
   match_id: string | null;
-  daily_topics: { title: string } | null;
-  profiles: { username: string | null } | null;
+  topic_id: string;
 }
 
 type ChallengeStatus = "open" | "accepted" | "expired" | "cancelled";
 
-function challengeStatusFor(invite: InviteWithJoins): ChallengeStatus {
+function challengeStatusFor(invite: InviteRow): ChallengeStatus {
   const expired = new Date(invite.expires_at).getTime() < Date.now();
   return expired && invite.status === "open" ? "expired" : (invite.status as ChallengeStatus);
 }
@@ -34,11 +33,19 @@ export default async function ChallengePage({ params }: { params: Promise<{ code
   const service = createServiceClient();
   const { data: inviteRow } = await service
     .from("challenge_invites")
-    .select("id, code, status, challenger_id, challenger_side, expires_at, opponent_id, match_id, topic_id, daily_topics(title), profiles!challenge_invites_challenger_id_fkey(username)")
+    .select("id, code, status, challenger_id, challenger_side, expires_at, opponent_id, match_id, topic_id")
     .eq("code", code)
     .maybeSingle();
   if (!inviteRow) notFound();
-  const invite = inviteRow as unknown as InviteWithJoins;
+  const invite = inviteRow as unknown as InviteRow;
+
+  // The owned SQL query builder intentionally supports only flat projections,
+  // not Supabase/PostgREST relation syntax. Fetch these two display-only
+  // relations explicitly so public challenge pages work on the owned backend.
+  const [{ data: topic }, { data: challengerProfile }] = await Promise.all([
+    service.from("daily_topics").select("title").eq("id", invite.topic_id).maybeSingle(),
+    service.from("profiles").select("username").eq("id", invite.challenger_id).maybeSingle(),
+  ]);
 
   const db = await createClient();
   const {
@@ -46,8 +53,8 @@ export default async function ChallengePage({ params }: { params: Promise<{ code
   } = await db.auth.getUser();
 
   const effectiveStatus = challengeStatusFor(invite);
-  const motion = invite.daily_topics?.title ?? "Today's motion";
-  const challengerName = invite.profiles?.username ?? "A debater";
+  const motion = topic?.title ?? "Today's motion";
+  const challengerName = challengerProfile?.username ?? "A debater";
   const isOwn = user?.id === invite.challenger_id;
 
   // Accepted challenges route straight into the match.

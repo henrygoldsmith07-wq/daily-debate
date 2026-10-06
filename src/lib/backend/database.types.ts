@@ -8,6 +8,8 @@ export type ProfileRow = {
   current_streak: number;
   longest_streak: number;
   last_activity_date: string | null;
+  timezone: string;
+  timezone_initialized_at: string | null;
   created_at: string;
 };
 
@@ -20,6 +22,11 @@ export type DailyTopicRow = {
   sources: unknown;
   /** ai | fallback | unknown — recorded by the generator (migration 009). */
   generation_source: string | null;
+  /** How the immutable topic was originally created (ai, fallback-provider-failure,
+   *  fallback-policy, request-time-fallback); null on pre-019 rows. */
+  generation_reason: string | null;
+  /** SHA-256 content identity for idempotence (migration 018; null on legacy rows). */
+  topic_fingerprint: string | null;
   created_at: string;
 };
 
@@ -31,12 +38,17 @@ export type SoloDebateRow = {
   status: string;
   round_count: number;
   total_score: number | null;
+  performance_score: number | null;
+  bonus_xp: number;
   format: string;
-  /** Opponent persona (migration 016), default 'balanced'. */
+  /** Opponent persona (migration 035), default 'balanced'. */
   persona: string;
-  /** Opponent difficulty (migration 016), default 'challenging'. */
+  /** Opponent difficulty (migration 035), default 'challenging'. */
   difficulty: string;
   coaching: unknown;
+  result_payload: unknown;
+  finalization_token: string | null;
+  finalization_started_at: string | null;
   created_at: string;
   completed_at: string | null;
 };
@@ -52,6 +64,21 @@ export type SoloDebateTurnRow = {
   turn_score: number | null;
   feedback: string | null;
   assessment: unknown;
+  training_meta: unknown;
+  response_mode: string | null;
+  response_window_started_at: string | null;
+  response_window_expires_at: string | null;
+  response_windows: unknown;
+  submission_token: string | null;
+  submission_started_at: string | null;
+  staged_user_message: string | null;
+  staged_input_mode: string | null;
+  staged_scores: unknown;
+  staged_turn_score: number | null;
+  staged_assessment: unknown;
+  staged_training_meta: unknown;
+  staged_mode: string | null;
+  staged_submitted_at: string | null;
   created_at: string;
 };
 
@@ -196,7 +223,25 @@ export type TopicEvidenceRow = {
   passage: string;
   published_date: string | null;
   checks: unknown;
+  /** Fingerprint of the exact topic revision this card was generated for (migration 018). */
+  topic_fingerprint: string | null;
   created_at: string;
+};
+
+/** Deliberate, durable judge-avoidance route lifecycle (migration 017). Absence of a row means `shadow`. */
+export type RouteLifecycleRow = {
+  route: string;
+  registration_version: string;
+  state: string;
+  evaluated_at: string | null;
+  sample_window: string | null;
+  sample_n: number | null;
+  gate_result: unknown;
+  human_result: unknown;
+  adopted_at: string | null;
+  suspended_at: string | null;
+  reason: string | null;
+  updated_at: string;
 };
 
 export type RepairResultRow = {
@@ -211,6 +256,21 @@ export type RepairResultRow = {
   succeeded: boolean;
   signals: unknown;
   created_at: string;
+};
+
+export type RepairRetestRow = {
+  id: string;
+  repair_result_id: string;
+  user_id: string;
+  repair_debate_id: string;
+  target_kind: string;
+  assigned_debate_id: string;
+  assigned_at: string;
+  completed_at: string | null;
+  observable: boolean | null;
+  demonstrated: boolean | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ChallengeInviteRow = {
@@ -284,7 +344,9 @@ export type Database = {
     corpus_ratings: TableDef<CorpusRatingRow>;
     drill_assignments: TableDef<DrillAssignmentRow>;
     topic_evidence: TableDef<TopicEvidenceRow>;
+    route_lifecycle: TableDef<RouteLifecycleRow>;
     repair_results: TableDef<RepairResultRow>;
+    repair_retests: TableDef<RepairRetestRow>;
     challenge_invites: TableDef<ChallengeInviteRow>;
     product_events: TableDef<ProductEventRow>;
     ai_call_log: TableDef<AiCallLogRow>;

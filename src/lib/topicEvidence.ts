@@ -120,10 +120,14 @@ function dedupeCandidates(cands: CandidateUrl[], cap: number): CandidateUrl[] {
   return out;
 }
 
-async function discoverGdelt(query: string): Promise<CandidateUrl[]> {
+const DISCOVERY_TIMEOUT_MS = 8_000;
+const RETRIEVAL_TIMEOUT_MS = 9_000;
+const MIN_USEFUL_RETRIEVAL_MS = 3_000;
+
+async function discoverGdelt(query: string, timeoutMs: number): Promise<CandidateUrl[]> {
   const res = await fetch(
     `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&maxrecords=6&sort=hybridrel&format=json`,
-    { signal: AbortSignal.timeout(8_000) },
+    { signal: AbortSignal.timeout(Math.max(1, timeoutMs)) },
   );
   if (!res.ok) throw new Error(`gdelt ${res.status}`);
   const data = (await res.json()) as { articles?: Array<{ url?: string; title?: string }> };
@@ -132,10 +136,10 @@ async function discoverGdelt(query: string): Promise<CandidateUrl[]> {
     .map((a) => ({ url: a.url as string, title: a.title, origin: "gdelt" as const }));
 }
 
-async function discoverWikipedia(query: string): Promise<CandidateUrl[]> {
+async function discoverWikipedia(query: string, timeoutMs: number): Promise<CandidateUrl[]> {
   const res = await fetch(
     `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=2&format=json&origin=*`,
-    { signal: AbortSignal.timeout(8_000) },
+    { signal: AbortSignal.timeout(Math.max(1, timeoutMs)) },
   );
   if (!res.ok) throw new Error(`wikipedia ${res.status}`);
   const data = (await res.json()) as { query?: { search?: Array<{ title?: string }> } };
@@ -150,10 +154,14 @@ async function discoverWikipedia(query: string): Promise<CandidateUrl[]> {
 
 /** Discover candidate evidence URLs for a topic. Best-effort — failures here
  * simply mean fewer candidates; callers must tolerate an empty list. */
-export async function discoverCandidateUrls(topicTitle: string): Promise<CandidateUrl[]> {
+export async function discoverCandidateUrls(
+  topicTitle: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<CandidateUrl[]> {
+  const timeoutMs = Math.max(1, opts.timeoutMs ?? DISCOVERY_TIMEOUT_MS);
   const results = await Promise.allSettled([
-    discoverGdelt(`"${topicTitle.slice(0, 80)}"`),
-    discoverWikipedia(topicTitle),
+    discoverGdelt(`"${topicTitle.slice(0, 80)}"`, timeoutMs),
+    discoverWikipedia(topicTitle, timeoutMs),
   ]);
   const cands = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
   return dedupeCandidates(cands, 6);
@@ -203,6 +211,33 @@ function inferName(url: string): string {
   }
 }
 
+export interface EvidenceBudgetPlan {
+  remainingMs: number;
+  exhausted: boolean;
+  retrievalReady: boolean;
+  discoveryTimeoutMs: number;
+  retrievalTimeoutMs: number;
+}
+
+/**
+ * Convert the end-to-end evidence budget into phase-local timeouts. Discovery
+ * and retrieval are sequential; retrieval only gets the time discovery left
+ * behind instead of silently opening a fresh 9-second window.
+ */
+export function evidenceBudgetPlan(budgetMs: number, elapsedMs = 0): EvidenceBudgetPlan {
+  const budget = Math.max(1, Math.floor(budgetMs));
+  const elapsed = Math.max(0, Math.floor(elapsedMs));
+  const remainingMs = Math.max(0, budget - elapsed);
+  const phaseBudget = Math.max(1, remainingMs);
+  return {
+    remainingMs,
+    exhausted: remainingMs <= 0,
+    retrievalReady: remainingMs >= MIN_USEFUL_RETRIEVAL_MS,
+    discoveryTimeoutMs: Math.min(DISCOVERY_TIMEOUT_MS, phaseBudget),
+    retrievalTimeoutMs: Math.min(RETRIEVAL_TIMEOUT_MS, phaseBudget),
+  };
+}
+
 /**
  * Full retrieval pass for one topic. Bounded: at most maxCards fetched in
  * parallel under an overall budget; any failure shrinks the result instead of
@@ -213,37 +248,52 @@ export async function buildTopicEvidenceCards(
   opts: { maxCards?: number; budgetMs?: number } = {},
 ): Promise<{ cards: TopicEvidenceCard[]; attempted: number; failureNotes: string[] }> {
   const maxCards = opts.maxCards ?? 3;
-  const budgetMs = opts.budgetMs ?? 14_000;
+  const budgetMs = Math.max(1, opts.budgetMs ?? 14_000);
   const failureNotes: string[] = [];
+  const startedAt = Date.now();
 
-  const candidates = await discoverCandidateUrls(topic.title);
+  const initialBudget = evidenceBudgetPlan(budgetMs);
+  const candidates = await discoverCandidateUrls(topic.title, {
+    timeoutMs: initialBudget.discoveryTimeoutMs,
+  });
   if (!candidates.length) return { cards: [], attempted: 0, failureNotes: ["No candidate sources discovered."] };
 
-  const budget = setTimeout(() => {}, budgetMs);
-  try {
-    const retrieved = await Promise.allSettled(
-      candidates.map(async (c) => ({ cand: c, src: await retrieveSource(c.url, { timeoutMs: 9_000 }) })),
-    );
-
-    const cards: TopicEvidenceCard[] = [];
-    for (const r of retrieved) {
-      if (r.status !== "fulfilled") continue;
-      const { cand, src } = r.value;
-      if (src.sourceStatus !== "retrieved") {
-        failureNotes.push(`${cand.origin}:${cand.url} -> ${src.sourceStatus}`);
-        continue;
-      }
-      const card = assembleCard(topic, src);
-      if (!card) {
-        failureNotes.push(`${cand.origin}:${cand.url} -> too little content`);
-        continue;
-      }
-      cards.push(card);
-    }
-
-    cards.sort((a, b) => b.checks.matchScore - a.checks.matchScore);
-    return { cards: cards.slice(0, maxCards), attempted: candidates.length, failureNotes };
-  } finally {
-    clearTimeout(budget);
+  const afterDiscovery = evidenceBudgetPlan(budgetMs, Date.now() - startedAt);
+  if (afterDiscovery.exhausted || !afterDiscovery.retrievalReady) {
+    return {
+      cards: [],
+      attempted: candidates.length,
+      failureNotes: [
+        afterDiscovery.exhausted
+          ? "Evidence retrieval budget exhausted during source discovery."
+          : "Too little evidence retrieval budget remained after source discovery.",
+      ],
+    };
   }
+
+  const retrieved = await Promise.allSettled(
+    candidates.map(async (c) => ({
+      cand: c,
+      src: await retrieveSource(c.url, { timeoutMs: afterDiscovery.retrievalTimeoutMs }),
+    })),
+  );
+
+  const cards: TopicEvidenceCard[] = [];
+  for (const r of retrieved) {
+    if (r.status !== "fulfilled") continue;
+    const { cand, src } = r.value;
+    if (src.sourceStatus !== "retrieved") {
+      failureNotes.push(`${cand.origin}:${cand.url} -> ${src.sourceStatus}`);
+      continue;
+    }
+    const card = assembleCard(topic, src);
+    if (!card) {
+      failureNotes.push(`${cand.origin}:${cand.url} -> too little content`);
+      continue;
+    }
+    cards.push(card);
+  }
+
+  cards.sort((a, b) => b.checks.matchScore - a.checks.matchScore);
+  return { cards: cards.slice(0, maxCards), attempted: candidates.length, failureNotes };
 }

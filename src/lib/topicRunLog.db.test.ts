@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import pg from "pg";
+import { applyTestMigrations } from "../../tests/helpers/applyTestMigrations";
 
 /**
  * REAL-POSTGRES test for the topic_run_log telemetry recorder: runs the
@@ -16,18 +16,13 @@ import pg from "pg";
 const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const d = databaseUrl && process.env.DATABASE_URL?.trim() ? describe : describe.skip;
 
-const MIGRATIONS_DIR = fileURLToPath(new URL("../../database/migrations", import.meta.url));
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 let pool: pg.Pool;
 
 beforeAll(async () => {
   pool = new pg.Pool({ connectionString: process.env.DATABASE_URL?.trim(), max: 4 });
-  await pool.query("SELECT pg_advisory_lock(727291)");
-  for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort()) {
-    await pool.query(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
-  }
-  await pool.query("SELECT pg_advisory_unlock(727291)");
+  await applyTestMigrations(pool);
   await pool.query("DELETE FROM topic_run_log WHERE run_id = 999001");
 });
 
@@ -68,12 +63,29 @@ d("topic run telemetry recorder (real Postgres)", () => {
     const r = rows[0];
     expect(r.event).toBe("schedule");
     expect(new Date(r.scheduled_for).toISOString()).toBe("2026-09-15T21:30:00.000Z");
-    expect(Number(r.delay_ms)).toBe(Date.parse("2026-09-16T02:00:00Z") - Date.parse("2026-09-15T21:30:00Z"));
+    // schedulerDelay = runStartedAt - scheduledFor (NOT createdAt: created and
+    // started are distinct instants, so measuring from the wrong one would
+    // silently absorb the platform's queue time into the scheduler delay).
+    expect(Number(r.delay_ms)).toBe(Date.parse("2026-09-16T02:00:30Z") - Date.parse("2026-09-15T21:30:00Z"));
     expect(Number(r.duration_ms)).toBe(330_000);
     expect(String(r.target_date).slice(0, 10)).toBe("2026-09-17");
     expect(r.generator_outcome).toBe("curated-fallback");
     expect(r.result).toBe("pass");
     expect(r.freshness_ok).toBe(true);
+  });
+
+  it("keeps created, started and completed as distinct instants", async () => {
+    runRecorder({});
+    const { rows } = await pool.query(
+      `SELECT run_created_at, started_at, queue_delay_ms, delay_ms
+         FROM topic_run_log WHERE run_id = 999001`,
+    );
+    const r = rows[0];
+    expect(new Date(r.run_created_at).toISOString()).toBe("2026-09-16T02:00:00.000Z");
+    expect(new Date(r.started_at).toISOString()).toBe("2026-09-16T02:00:30.000Z");
+    // queueDelay = runStartedAt - runCreatedAt; never the same column twice.
+    expect(Number(r.queue_delay_ms)).toBe(30_000);
+    expect(Number(r.delay_ms)).not.toBe(Number(r.queue_delay_ms));
   });
 
   it("rerunning the same run/attempt updates in place (idempotent telemetry)", async () => {
@@ -89,5 +101,32 @@ d("topic run telemetry recorder (real Postgres)", () => {
     const { rows } = await pool.query("SELECT scheduled_for, delay_ms FROM topic_run_log WHERE run_id = 999001");
     expect(rows[0].scheduled_for).toBeNull();
     expect(rows[0].delay_ms).toBeNull();
+  });
+
+  it("persists the content fingerprint and bounded provider attempts", async () => {
+    runRecorder({
+      OUTCOME: "already-present",
+      STORED_SOURCE: "ai",
+      TOPIC_FINGERPRINT: "b".repeat(64),
+      PROVIDER_ATTEMPTS: JSON.stringify([
+        { provider: "openrouter", model: "m1", outcome: "timeout", latencyMs: 60000, httpStatus: null, errorCategory: "timeout", error: "dropped before storage" },
+        { provider: "unorouter", model: "m2", outcome: "success", latencyMs: 800, httpStatus: null, errorCategory: null },
+      ]),
+    });
+    const { rows } = await pool.query(
+      `SELECT generator_result, topic_fingerprint, provider_attempts
+         FROM topic_run_log WHERE run_id = 999001`,
+    );
+    expect(rows).toHaveLength(1);
+    // An already-present run verified ai content: the stored source decides.
+    expect(rows[0].generator_result).toBe("ai");
+    expect(rows[0].topic_fingerprint).toBe("b".repeat(64));
+    const attempts = typeof rows[0].provider_attempts === "string"
+      ? JSON.parse(rows[0].provider_attempts)
+      : rows[0].provider_attempts;
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0].provider).toBe("openrouter");
+    expect(attempts[0].outcome).toBe("timeout");
+    expect(attempts[0]).not.toHaveProperty("error");
   });
 });

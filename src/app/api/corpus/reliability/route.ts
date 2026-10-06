@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/backend/server";
-import { isCorpusAdmin, completeScores, populationProgress } from "@/lib/corpus";
+import { createServiceClient } from "@/lib/backend/server";
+import { CALIBRATION_RATERS_PER_ITEM, completeScores, populationProgress, STRATUM_MINIMUM } from "@/lib/corpus";
+import { buildValidationStages } from "@/lib/validationStage";
 import { iccTwoWay, EVAL_DIMENSIONS, type SideScores } from "@/lib/debateEvaluation";
 import { computeCorpusMetrics, type MetricItem, type MetricRating } from "@/lib/corpusMetrics";
 import type { WinnerLabel } from "@/lib/humanCorpus";
+import { getRequestAuthContext } from "@/lib/requestAuth";
+import { hasUsableHumanGroundTruth, resolveHumanGroundTruth } from "@/lib/humanGroundTruth";
 
 // Admin-only: human-human reliability FIRST. Per-dimension ICC and shared
 // human-validation stats (consensus readiness, pairwise winner κ, score-gap
@@ -24,18 +27,16 @@ interface RatingRow {
 }
 
 export async function GET() {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const auth = await getRequestAuthContext();
+  const user = auth.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  if (!auth.isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const service = createServiceClient();
   const [{ data: items }, { data: ratingRows }] = await Promise.all([
-    service.from("corpus_items").select("id, status, length_bucket, subject_category, ability_band, dynamics_tier"),
+    service.from("corpus_items").select("id, status, side_mapping, length_bucket, subject_category, ability_band, dynamics_tier"),
     service.from("corpus_ratings").select("corpus_id, rater_id, scores_a, scores_b, winner, confidence, presented_first, corrections"),
   ]);
 
@@ -63,17 +64,22 @@ export async function GET() {
     }
   }
 
-  // Winner agreement per item; disagreement → flagged for adjudication.
+  // Completed items use the same canonical human-truth resolver as public
+  // metrics and live system comparison. Two-rating pilot rows remain useful
+  // for reliability math above, but cannot enter the adjudication queue yet.
   let agreementReady = 0;
   let needsAdjudication = 0;
   const adjudicationQueue: Array<{ id: string; verdicts: WinnerLabel[] }> = [];
-  for (const [itemId, itemRatings] of byItem) {
-    if (itemRatings.length < 2) continue;
+  for (const item of items ?? []) {
+    const itemRatings = byItem.get(item.id) ?? [];
+    if (itemRatings.length < CALIBRATION_RATERS_PER_ITEM) continue;
     const winners = itemRatings.map((r) => r.winner as WinnerLabel);
-    if (winners.every((w) => w === winners[0])) agreementReady += 1;
-    else {
+    const truth = resolveHumanGroundTruth(item, itemRatings);
+    if (hasUsableHumanGroundTruth(truth)) {
+      agreementReady += 1;
+    } else if (truth.state === "unresolved" || truth.state === "stale_adjudication") {
       needsAdjudication += 1;
-      if (adjudicationQueue.length < 50) adjudicationQueue.push({ id: itemId, verdicts: winners });
+      if (adjudicationQueue.length < 50) adjudicationQueue.push({ id: item.id, verdicts: winners });
     }
   }
 
@@ -117,9 +123,19 @@ export async function GET() {
     bFirst: ratings.filter((r) => r.presented_first === "b").length,
   };
 
+  // Validation-stage progress: real rows only. Strata balance is computed
+  // when the corpus carries stratum metadata; it is reported "not-computable"
+  // otherwise, never assumed to pass.
+  const validationStages = buildValidationStages({
+    ratingCounts,
+    strata: { ...progress.byLength, ...progress.byAbility, ...progress.bySubject },
+    strataMinimum: STRATUM_MINIMUM,
+  });
+
   return NextResponse.json({
     totalItems: progress.totalItems,
     fullyRatedItems: progress.fullyRatedItems,
+    calibrationRatedItems: progress.calibrationRatedItems,
     ratedItems: byItem.size,
     agreementReady,
     needsAdjudication,
@@ -133,6 +149,7 @@ export async function GET() {
     humanValidation: metrics.humanValidation,
     judgeVsHuman: metrics.judgeVsHuman,
     perDimensionIcc,
+    validationStages,
     strata: {
       byLength: progress.byLength,
       byAbility: progress.byAbility,
@@ -141,8 +158,11 @@ export async function GET() {
     population: {
       targetItems: progress.targetItems,
       remainingToTarget: progress.remainingToTarget,
+      stage: progress.stage,
+      stageLabel: progress.stageLabel,
+      nextStage: progress.nextStage,
       cellsNeedingCoverage: progress.cellsNeedingCoverage,
     },
-    note: "System-vs-human accuracy must only be computed over agreementReady items.",
+    note: "System-vs-human accuracy uses only completed items with canonical human ground truth: strict consensus or non-stale adjudication.",
   });
 }

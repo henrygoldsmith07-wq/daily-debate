@@ -29,8 +29,11 @@ const TABLES = new Set<TableName>([
   "corpus_ratings",
   "drill_assignments",
   "topic_evidence",
+  // migration 017 (deliberate route lifecycle registry)
+  "route_lifecycle",
   // migration 004/005/006/007
   "repair_results",
+  "repair_retests",
   "challenge_invites",
   "product_events",
   "ai_call_log",
@@ -74,6 +77,7 @@ export class QueryBuilder<Row extends object, Result = Row[]>
   private countRequested = false;
   private headOnly = false;
   private conflictColumns: string[] = [];
+  private ignoreDuplicates = false;
   private returning = false;
 
   constructor(private readonly table: TableName) {
@@ -107,6 +111,31 @@ export class QueryBuilder<Row extends object, Result = Row[]>
       .split(",")
       .map((column) => column.trim())
       .filter(Boolean);
+    return this;
+  }
+
+  /**
+   * Write-once insert: `INSERT ... ON CONFLICT (<cols>) DO NOTHING` — the
+   * query-builder form supabase-js spells `ignoreDuplicates: true`.
+   *
+   * A unique conflict is a NORMAL outcome, not an error: the statement
+   * returns zero rows (with `.select(...)`) and the caller re-reads the
+   * winning row. That is what makes concurrent same-date topic writers
+   * converge on one canonical row instead of the loser erroring out (or
+   * worse, overwriting). Plain `.insert()` has no conflict clause at all —
+   * it fails with 23505 — and `upsert()` defaults to DO UPDATE, which would
+   * overwrite immutable content. Both are wrong for daily_topics.
+   */
+  insertIgnore(values: Partial<Row> | Partial<Row>[], options: { onConflict?: string }) {
+    const columns = (options?.onConflict ?? "")
+      .split(",")
+      .map((column) => column.trim())
+      .filter(Boolean);
+    if (columns.length === 0) throw new Error("insertIgnore requires explicit conflict columns.");
+    this.operation = "upsert";
+    this.values = values;
+    this.conflictColumns = columns;
+    this.ignoreDuplicates = true;
     return this;
   }
 
@@ -276,9 +305,9 @@ export class QueryBuilder<Row extends object, Result = Row[]>
           if (this.conflictColumns.length === 0) throw new Error("Upsert requires conflict columns.");
           const updates = columns.filter((column) => !this.conflictColumns.includes(column));
           statement += ` ON CONFLICT (${this.conflictColumns.map(identifier).join(", ")}) `;
-          statement += updates.length
-            ? `DO UPDATE SET ${updates.map((column) => `${identifier(column)} = EXCLUDED.${identifier(column)}`).join(", ")}`
-            : "DO NOTHING";
+          statement += this.ignoreDuplicates || updates.length === 0
+            ? "DO NOTHING"
+            : `DO UPDATE SET ${updates.map((column) => `${identifier(column)} = EXCLUDED.${identifier(column)}`).join(", ")}`;
         }
         if (this.returning) statement += ` RETURNING ${selectedColumns(this.columns)}`;
       } else if (this.operation === "update") {

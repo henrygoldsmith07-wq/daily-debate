@@ -129,3 +129,27 @@ test("the freshness verifier consumes the exact generated target with a YYYY-MM-
   assert.ok(exitIdx !== -1, "the guard must exit on a malformed target");
   assert.ok(exitIdx < wf.text.slice(guardIdx).indexOf("verify-topic-stored.mjs"), "the guard must reject before the verifier is invoked");
 });
+
+test("operational timeouts are explicit, bounded values on the generation step", () => {
+  const wf = WORKFLOWS.find((w) => w.name === "topic-generation.yml");
+  const genIdx = wf.text.indexOf("Pre-generate tomorrow");
+  assert.ok(genIdx !== -1);
+  const recordIdx = wf.text.indexOf("Record durable run telemetry");
+  const genSection = wf.text.slice(genIdx, recordIdx);
+  for (const key of ["TOPIC_PRIMARY_TIMEOUT_MS", "TOPIC_FALLBACK_TIMEOUT_MS"]) {
+    const m = genSection.match(new RegExp(key + String.raw`\s*:\s*"(\d+)"`));
+    assert.ok(m, `${key} must be set explicitly on the generation step`);
+    const ms = Number(m[1]);
+    assert.ok(ms >= 5000 && ms <= 120000, `${key}=${ms} must stay within the 5s-120s code bounds`);
+  }
+});
+
+test("run telemetry receives the content fingerprint and stored source for idempotence proofs", () => {
+  const wf = WORKFLOWS.find((w) => w.name === "topic-generation.yml");
+  const recordIdx = wf.text.indexOf("Record durable run telemetry");
+  assert.ok(recordIdx !== -1);
+  const recordSection = wf.text.slice(recordIdx);
+  assert.ok(recordSection.includes("TOPIC_FINGERPRINT"), "telemetry must receive the generator fingerprint");
+  assert.ok(recordSection.includes("STORED_SOURCE"), "telemetry must receive the stored source for already-present runs");
+  assert.ok(recordSection.includes(".fingerprint"), "fingerprint must be read from the flat generator result");
+});

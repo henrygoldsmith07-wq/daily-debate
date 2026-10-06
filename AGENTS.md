@@ -19,7 +19,7 @@ commits (chore branch → PR → merges only on green checks).
 ## Verification commands (the CI contract, run before pushing)
 
 ```text
-npm run lint -- --max-warnings 100
+npm run lint -- --max-warnings 0
 npm run type-check
 npm test
 npm run test:scripts

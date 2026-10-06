@@ -1,14 +1,14 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 // Corpus consistency invariants — fails (exit 1) when the human-corpus data
 // reaches a state the application claims is impossible. CI runs this against
 // the ephemeral Postgres after migrations + E2E seed, so a closure bug, a
 // dropped constraint or a malformed audit trail breaks the build instead of
 // quietly poisoning judge-vs-human evaluation later.
 //
-//   DATABASE_URL=... node scripts/check-corpus-invariants.mjs [--min-raters N]
+//   DATABASE_URL=... node scripts/check-corpus-invariants.mjs [--target-raters N]
 //
-// The required-rating threshold is parsed from src/lib/corpus.ts
-// (MIN_RATERS_PER_ITEM) so the check can never drift from the app; --min-raters
+// The rating collection target is parsed from src/lib/corpus.ts
+// (RATING_COLLECTION_TARGET) so the check can never drift from the app; --target-raters
 // overrides for ad-hoc probes.
 
 import fs from "node:fs";
@@ -26,17 +26,17 @@ if (!databaseUrl) {
 function thresholdFromSource() {
   try {
     const src = fs.readFileSync(path.join(projectRoot, "src", "lib", "corpus.ts"), "utf8");
-    const m = src.match(/export const MIN_RATERS_PER_ITEM\s*=\s*(\d+)/);
+    const m = src.match(/export const RATING_COLLECTION_TARGET\s*=\s*(\d+)/);
     if (m) return Number(m[1]);
   } catch {
     /* fall through to flag */
   }
   return null;
 }
-const idx = process.argv.indexOf("--min-raters");
-const minRaters = idx !== -1 ? Number(process.argv[idx + 1]) : thresholdFromSource();
-if (!Number.isInteger(minRaters) || minRaters < 1) {
-  process.stderr.write("Could not resolve the rating threshold; pass --min-raters N.\n");
+const idx = process.argv.indexOf("--target-raters");
+const targetRaters = idx !== -1 ? Number(process.argv[idx + 1]) : thresholdFromSource();
+if (!Number.isInteger(targetRaters) || targetRaters < 1) {
+  process.stderr.write("Could not resolve the rating collection target; pass --target-raters N.\n");
   process.exit(2);
 }
 
@@ -58,16 +58,16 @@ await check(
   `SELECT ci.id, count(cr.id)::int AS ratings
      FROM corpus_items ci LEFT JOIN corpus_ratings cr ON cr.corpus_id = ci.id
     WHERE ci.status = 'open' GROUP BY ci.id HAVING count(cr.id) >= $1`,
-  [minRaters],
+  [targetRaters],
 );
 
-// 2. closed items below the threshold — closed without enough evidence.
+// 2. rated/adjudicated items below the target — closed without enough evidence.
 await check(
   "rated-below-threshold",
   `SELECT ci.id, count(cr.id)::int AS ratings
      FROM corpus_items ci LEFT JOIN corpus_ratings cr ON cr.corpus_id = ci.id
-    WHERE ci.status = 'rated' GROUP BY ci.id HAVING count(cr.id) < $1`,
-  [minRaters],
+    WHERE ci.status IN ('rated', 'adjudicated') GROUP BY ci.id HAVING count(cr.id) < $1`,
+  [targetRaters],
 );
 
 // 3. persisted counter out of sync with actual rows (closure arithmetic).
@@ -135,7 +135,7 @@ for (const row of withCorrections) {
 }
 
 if (violations.length) {
-  process.stderr.write(`[corpus-invariants] FAILED (min raters = ${minRaters}):\n  - ${violations.join("\n  - ")}\n`);
+  process.stderr.write(`[corpus-invariants] FAILED (collection target = ${targetRaters}):\n  - ${violations.join("\n  - ")}\n`);
   process.exit(1);
 }
-process.stdout.write(`[corpus-invariants] OK (min raters = ${minRaters}, 9 checks)\n`);
+process.stdout.write(`[corpus-invariants] OK (collection target = ${targetRaters}, 9 checks)\n`);

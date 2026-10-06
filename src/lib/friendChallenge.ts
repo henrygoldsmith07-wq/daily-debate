@@ -6,16 +6,17 @@
 // play through the normal PvP turn system. Pure helpers here; routes persist.
 
 import type { DebateSide } from "./types";
+import { randomInt } from "node:crypto";
 
 export const CHALLENGE_EXPIRY_DAYS = 7;
 
 /** URL-safe, unambiguous invite code (no 0/O, 1/I/l). */
 const CODE_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz";
 
-export function generateChallengeCode(random: () => number = Math.random): string {
+export function generateChallengeCode(randomIndex: (maxExclusive: number) => number = randomInt): string {
   let code = "";
-  for (let i = 0; i < 8; i++) {
-    code += CODE_ALPHABET[Math.floor(random() * CODE_ALPHABET.length)];
+  for (let i = 0; i < 12; i++) {
+    code += CODE_ALPHABET[randomIndex(CODE_ALPHABET.length)];
   }
   return code;
 }

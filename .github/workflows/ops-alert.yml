@@ -1,0 +1,48 @@
+name: ops-alert
+
+# Daily ops-alert digest: turns topic-pipeline health into a GitHub issue so
+# a broken production pipeline is a notification, not something someone has
+# to notice on a dashboard. Runs at 04:00 UTC - just AFTER the 03:00 UTC
+# availability deadline, so it judges the completed daily cycle:
+#
+#   alerting state -> open or update ONE issue labeled `ops-alert`
+#   healthy state  -> auto-close any open `ops-alert` issue
+#
+# Evidence: GitHub run history (public REST) plus the deployed app's PUBLIC
+# health probe (/api/health - non-sensitive states and booleans only, see
+# src/lib/healthProbe.ts). Deliberately NO database secret here: the app is
+# the witness that can read the production store, and keeping DATABASE_URL
+# out of this workflow removes the exact single point of failure that caused
+# the 2026-09 outage.
+#
+# Judgement lives in scripts/lib/ops-alert.mjs (pure, unit-tested); this
+# workflow is I/O only. Alerting is best-effort and never fails CI.
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # just after the 03:00 UTC availability deadline
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ops-alert
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run the ops-alert digest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Base URL of the production deployment serving GET /api/health.
+          # Update the repo VARIABLE if the production domain ever changes.
+          PROD_HEALTH_URL: ${{ vars.PROD_HEALTH_URL }}
+        run: node scripts/ops-alert-digest.mjs

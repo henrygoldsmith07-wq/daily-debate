@@ -72,12 +72,27 @@ describe("computeSkillProfile", () => {
     expect(reasoning?.score).toBe(90);
   });
 
-  it("averages multiple source metrics within a dimension", () => {
-    // claim-clarity sources: clarity (higher-better) + unsupportedClaimRate (lower-better)
-    // clarity = 0.8 → goodness 0.8; unsupportedRate = 0.2 → goodness 0.8; mean = 80
-    const p = computeSkillProfile([point({ clarity: 0.8, unsupportedClaimRate: 0.2 })]);
-    const cc = p.dimensions.find((d) => d.key === "claim-clarity");
-    expect(cc?.score).toBe(80);
+  it("keeps unsupported claims in Evidence rather than Claim clarity", () => {
+    const p = computeSkillProfile([
+      point({ clarity: 0.8, unsupportedClaimRate: 1, evidenceGrounding: null }),
+    ]);
+    const clarity = p.dimensions.find((d) => d.key === "claim-clarity");
+    const evidence = p.dimensions.find((d) => d.key === "evidence");
+    expect(clarity?.score).toBe(80);
+    expect(evidence?.score).toBe(0);
+  });
+
+  it("averages evidence support, grounding and citation-discipline signals", () => {
+    // unsupported rate .2 => .8 goodness; grounding .9; uncited rate .1 => .9.
+    const p = computeSkillProfile([
+      point({
+        unsupportedClaimRate: 0.2,
+        evidenceGrounding: 0.9,
+        uncitedEvidenceRate: 0.1,
+      }),
+    ]);
+    const evidence = p.dimensions.find((d) => d.key === "evidence");
+    expect(evidence?.score).toBe(87);
   });
 
   it("skips dimensions with no data points without crashing", () => {

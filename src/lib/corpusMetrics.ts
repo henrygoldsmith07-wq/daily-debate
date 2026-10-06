@@ -4,10 +4,12 @@
 import { gateBinomial, SAMPLE_GATES, type GatedMetric } from "./evidenceState";
 import { cohenKappa } from "./humanCorpus";
 import {
+  CALIBRATION_RATERS_PER_ITEM,
   MIN_RATERS_PER_ITEM,
   humanGroundTruthReady,
   type GroundTruthDecision,
 } from "./corpus";
+import { hasUsableHumanGroundTruth, resolveHumanGroundTruth } from "./humanGroundTruth";
 
 export interface MetricRating {
   corpus_id: string;
@@ -46,13 +48,6 @@ interface StoredSystemVerdict {
 // --- gated metric result ---------------------------------------------------
 
 type WinnerLabel = "a" | "b" | "tie";
-
-function majorityWinner(winners: string[]): WinnerLabel {
-  const votes: Record<WinnerLabel, number> = { a: 0, b: 0, tie: 0 };
-  for (const w of winners) if (w === "a" || w === "b" || w === "tie") votes[w] += 1;
-  const sorted = Object.entries(votes).sort((x, y) => y[1] - x[1]);
-  return votes[sorted[0][0] as WinnerLabel] === votes[sorted[1][0] as WinnerLabel] ? "tie" : sorted[0][0] as WinnerLabel;
-}
 
 function meanOverall(scores: unknown): number {
   const dims = ["evidenceQuality", "reasoning", "relevance", "rebuttalQuality", "logicalValidity", "sourceQuality"] as const;
@@ -160,37 +155,30 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
   for (const item of items) {
     const list = ratingsByItem.get(item.id);
     if (!list || list.length < 2) continue;
-    const consensus = majorityWinner(list.map((r) => r.winner));
-
-    // Consensus-ready for slicing: strict majority and not a split/tie,
-    // mirroring the humanValidation definition exactly.
-    const hVotes: Record<WinnerLabel, number> = { a: 0, b: 0, tie: 0 };
-    for (const w of list.map((r) => r.winner)) if (w === "a" || w === "b" || w === "tie") hVotes[w as WinnerLabel] += 1;
-    const hRanked = Object.values(hVotes).sort((x, y) => y - x);
-    const sliceReady = hRanked[0] > hRanked[1] && consensus !== "tie";
+    const humanTruth = resolveHumanGroundTruth(item, list);
+    const usableHumanTruth = hasUsableHumanGroundTruth(humanTruth);
 
     const sv = readSV(item.side_mapping);
-    if (sv?.winner === "a" || sv?.winner === "b" || sv?.winner === "tie") {
+    if (usableHumanTruth && (sv?.winner === "a" || sv?.winner === "b" || sv?.winner === "tie")) {
+      const consensus = humanTruth.winner;
       judged++;
       if (sv.winner === consensus) judgeAgree++;
-      if (sliceReady) {
-        const agree = sv.winner === consensus;
-        for (const [dim, key] of [
-          ["difficulty", item.dynamics_tier ?? "unknown"],
-          ["ability", item.ability_band ?? "unknown"],
-          ["length", item.length_bucket ?? "unknown"],
-          ["subject", item.subject_category ?? "unknown"],
-        ] as const) {
-          const by = sliceAcc.get(dim)!;
-          const cell = by.get(key) ?? { n: 0, agree: 0 };
-          cell.n += 1;
-          if (agree) cell.agree += 1;
-          by.set(key, cell);
-        }
-        if (!agree) {
-          if (sv.winner === "tie") errorCategories.judgeTieVsHumanWinner += 1;
-          else errorCategories.sideFlip += 1;
-        }
+      const agree = sv.winner === consensus;
+      for (const [dim, key] of [
+        ["difficulty", item.dynamics_tier ?? "unknown"],
+        ["ability", item.ability_band ?? "unknown"],
+        ["length", item.length_bucket ?? "unknown"],
+        ["subject", item.subject_category ?? "unknown"],
+      ] as const) {
+        const by = sliceAcc.get(dim)!;
+        const cell = by.get(key) ?? { n: 0, agree: 0 };
+        cell.n += 1;
+        if (agree) cell.agree += 1;
+        by.set(key, cell);
+      }
+      if (!agree) {
+        if (sv.winner === "tie") errorCategories.judgeTieVsHumanWinner += 1;
+        else errorCategories.sideFlip += 1;
       }
 
       const gapCheck = Math.abs(
@@ -227,15 +215,17 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
   let consensusReadyItems = 0;
   let unresolvedDisagreements = 0;
   const dispersions: number[] = [];
-  for (const [, list] of ratingsByItem) {
+  for (const item of items) {
+    const list = ratingsByItem.get(item.id) ?? [];
     if (list.length < MIN_RATERS_PER_ITEM) continue;
-    const winners = list.map((r) => r.winner);
-    const votes: Record<WinnerLabel, number> = { a: 0, b: 0, tie: 0 };
-    for (const w of winners) if (w === "a" || w === "b" || w === "tie") votes[w] += 1;
-    const ranked = Object.values(votes).sort((x, y) => y - x);
-    const hasConsensus = ranked[0] > ranked[1] && majorityWinner(winners) !== "tie";
-    if (hasConsensus) consensusReadyItems++;
-    else unresolvedDisagreements++;
+    const truth = resolveHumanGroundTruth(item, list);
+    if (hasUsableHumanGroundTruth(truth)) consensusReadyItems++;
+    else if (
+      truth.state === "stale_adjudication" ||
+      (truth.state === "unresolved" && list.length >= CALIBRATION_RATERS_PER_ITEM)
+    ) {
+      unresolvedDisagreements++;
+    }
     const d = stdev(list.map(raterGap));
     if (d !== null) dispersions.push(d);
   }
@@ -243,12 +233,19 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
   // discipline as the admin reliability endpoint, reused from humanCorpus).
   const pairVotes = new Map<string, Array<[WinnerLabel, WinnerLabel]>>();
   for (const [, list] of ratingsByItem) {
-    if (list.length !== 2) continue;
-    const [x, y] = [...list].sort((m, n) => m.rater_id.localeCompare(n.rater_id));
-    const key = `${x.rater_id}|${y.rater_id}`;
-    const seq = pairVotes.get(key) ?? [];
-    seq.push([x.winner as WinnerLabel, y.winner as WinnerLabel]);
-    pairVotes.set(key, seq);
+    const valid = [...list]
+      .filter((r) => r.winner === "a" || r.winner === "b" || r.winner === "tie")
+      .sort((m, n) => m.rater_id.localeCompare(n.rater_id));
+    for (let i = 0; i < valid.length; i++) {
+      for (let j = i + 1; j < valid.length; j++) {
+        const x = valid[i];
+        const y = valid[j];
+        const key = `${x.rater_id}|${y.rater_id}`;
+        const seq = pairVotes.get(key) ?? [];
+        seq.push([x.winner as WinnerLabel, y.winner as WinnerLabel]);
+        pairVotes.set(key, seq);
+      }
+    }
   }
   const kappas: number[] = [];
   for (const seq of pairVotes.values()) {
@@ -268,7 +265,10 @@ export function computeCorpusMetrics(items: MetricItem[], ratings: MetricRating[
 
   // --- Corpus lifecycle facts (item 11 surfaces) ------------------------------
   let adjudicatedItems = 0;
-  for (const item of items) if (item.status === "adjudicated") adjudicatedItems++;
+  for (const item of items) {
+    const truth = resolveHumanGroundTruth(item, ratingsByItem.get(item.id) ?? []);
+    if (truth.state === "adjudicated") adjudicatedItems++;
+  }
   let correctedRatings = 0;
   let firstA = 0;
   let firstB = 0;

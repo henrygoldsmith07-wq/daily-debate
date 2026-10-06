@@ -130,6 +130,7 @@ vi.mock("@/lib/backend/server", () => ({
 vi.mock("@/lib/backend/sql", () => ({
   queryRows: async (text: string, params: unknown[]) => h.query(text, params),
 }));
+vi.mock("@/lib/publicCorpusMetrics", () => ({ invalidatePublicCorpusMetrics: vi.fn() }));
 
 import { GET, POST } from "./route";
 import { assignPresentationSide, swapTranscriptSides } from "@/lib/corpus";
@@ -256,9 +257,10 @@ describe("POST immutability and closure (append-once ratings)", () => {
     expect(rows[0].rationale).toBe("Side A grounded every claim; Side B asserted.");
   });
 
-  it("closure races: two simultaneous final raters produce exactly one closure, no overwrites", async () => {
-    // One rating already stored (min raters = 2): the next TWO submissions
-    // race for the final slot.
+  it("two more independent ratings after the first both land; the third total rating closes the item", async () => {
+    // The in-memory auth mock is process-global, so true per-request concurrent
+    // identities are covered by the real-Postgres store tests instead. Here we
+    // prove the route-level lifecycle with two distinct submissions.
     const firstUser = userWithAssignment("a");
     h.reset({
       corpus_items: [{ ...ITEM_A }],
@@ -281,18 +283,15 @@ describe("POST immutability and closure (append-once ratings)", () => {
       return "rater-x";
     })();
     h.state.user = { id: raterB };
-    const p1 = post(ratingBody());
+    const res1 = await post(ratingBody());
     h.state.user = { id: raterA2 };
-    const p2 = post(ratingBody({ winner: "b" }));
-    const [res1, res2] = await Promise.all([p1, p2]);
+    const res2 = await post(ratingBody({ winner: "b" }));
 
     const statuses = [res1.status, res2.status].sort();
     const rows = h.state.tables.corpus_ratings ?? [];
-    // Exactly one of the two racing submissions lands; the item closes at
-    // the required rating count (2), never above it.
-    expect(statuses).toEqual([200, 409]);
-    expect(rows).toHaveLength(2);
-    expect(rows.filter((r) => r.corpus_id === "item-1").length).toBe(2);
+    expect(statuses).toEqual([200, 200]);
+    expect(rows).toHaveLength(3);
+    expect(rows.filter((r) => r.corpus_id === "item-1").length).toBe(3);
     expect((h.state.tables.corpus_items ?? [])[0].status).toBe("rated");
   });
 
@@ -314,8 +313,12 @@ describe("POST immutability and closure (append-once ratings)", () => {
     await post(ratingBody());
     expect((h.state.tables.corpus_items ?? [])[0].status).toBe("open");
     h.state.user = { id: userWithAssignment("b") };
-    const res = await post(ratingBody({ winner: "a" }));
-    expect(res.status).toBe(200);
+    const second = await post(ratingBody({ winner: "a" }));
+    expect(second.status).toBe(200);
+    expect((h.state.tables.corpus_items ?? [])[0].status).toBe("open");
+    h.state.user = { id: `third-${userWithAssignment("a")}` };
+    const third = await post(ratingBody({ winner: "b" }));
+    expect(third.status).toBe(200);
     expect((h.state.tables.corpus_items ?? [])[0].status).toBe("rated");
     // Late arrival after closure: rejected, not silently appended.
     h.state.user = { id: userWithAssignment("a") === userWithAssignment("b") ? "x" : "late-rater" };

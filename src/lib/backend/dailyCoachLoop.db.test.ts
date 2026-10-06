@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import pg from "pg";
+import { applyTestMigrations } from "../../../tests/helpers/applyTestMigrations";
 import { normalizeNumerics } from "@/lib/backend/sql";
 
 /**
@@ -17,28 +16,16 @@ import { normalizeNumerics } from "@/lib/backend/sql";
 const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const d = databaseUrl ? describe : describe.skip;
 
-const MIGRATIONS_DIR = fileURLToPath(new URL("../../../database/migrations", import.meta.url));
-
 let pool: pg.Pool;
 
 const userEmails = ["coach-a@test.local", "coach-b@test.local"];
 const userIds = new Map<string, string>();
 
-async function applyMigrations() {
-  await pool.query("SELECT pg_advisory_lock(727291)");
-  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
-  for (const file of files) {
-    const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-    try {
-      await pool.query(sql);
-    } catch (err) {
-      // Migrations are not idempotent across whole-file replays (CREATE TABLE
-      // without IF NOT EXISTS in 001); tolerate "already exists" noise.
-      const message = String(err);
-      if (!/already exists|duplicate/i.test(message)) throw err;
-    }
-  }
-  await pool.query("SELECT pg_advisory_unlock(727291)");
+function applyMigrations(): Promise<void> {
+  // Shared helper: single session-scoped advisory lock, DDL on the SAME client,
+  // one shared key across all *.db.test.ts suites (prevents the concurrent
+  // catalog-replay race — XX000 tuple concurrently updated — seen in e2e).
+  return applyTestMigrations(pool);
 }
 
 async function ensureUser(email: string): Promise<string> {
@@ -103,6 +90,10 @@ d("daily coach loop schema", () => {
     );
     expect(insert.rows[0].format).toBe("sprint");
     expect((insert.rows[0].coaching as { dimension?: string }).dimension).toBe("rebuttal");
+    await pool.query(
+      "UPDATE solo_debates SET status = 'completed', completed_at = now() WHERE id = $1",
+      [insert.rows[0].id],
+    );
 
     // Legacy rows keep the full default.
     const legacy = await pool.query<{ format: string }>(
@@ -110,6 +101,10 @@ d("daily coach loop schema", () => {
       [userId, topicId],
     );
     expect(legacy.rows[0].format).toBe("full");
+    await pool.query(
+      "UPDATE solo_debates SET status = 'completed', completed_at = now() WHERE user_id = $1 AND topic_id = $2 AND status = 'active'",
+      [userId, topicId],
+    );
 
     // Invalid formats are rejected by the check constraint.
     await expect(
@@ -249,7 +244,276 @@ d("daily coach loop schema", () => {
       pool.query(`INSERT INTO product_events (user_id, name, format) VALUES ($1, 'sprint_started', 'best-of-99')`, [userId]),
     ).rejects.toThrow(/product_events_format_check|check constraint/i);
 
+    await pool.query(
+      `INSERT INTO product_events (user_id, name, reason) VALUES ($1, 'challenge_me_selected', 'side-balance')`,
+      [userId],
+    );
+    await expect(
+      pool.query(
+        `INSERT INTO product_events (user_id, name, reason) VALUES ($1, 'challenge_me_selected', 'free text about the user')`,
+        [userId],
+      ),
+    ).rejects.toThrow(/product_events_reason_check|check constraint/i);
+
     await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
+  });
+
+  it("persists durable repair-retest assignments and enforces assignment integrity", async () => {
+    const userId = userIds.get("coach-a@test.local")!;
+    const topicId = await todayTopicId();
+    const repairedDebate = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, status, format)
+       VALUES ($1, $2, 'for', 'completed', 'sprint') RETURNING id`,
+      [userId, topicId],
+    );
+    const repair = await pool.query<{ id: string }>(
+      `INSERT INTO repair_results (
+         user_id, debate_id, target_kind, source_text, rewrite_text, score, succeeded
+       ) VALUES ($1, $2, 'evidence', 'unsupported claim', 'According to ONS data...', 90, true)
+       RETURNING id`,
+      [userId, repairedDebate.rows[0].id],
+    );
+    const otherRepair = await pool.query<{ id: string }>(
+      `INSERT INTO repair_results (
+         user_id, debate_id, target_kind, source_text, rewrite_text, score, succeeded
+       ) VALUES ($1, $2, 'logic', 'weak inference', 'Because the mechanism is...', 90, true)
+       RETURNING id`,
+      [userId, repairedDebate.rows[0].id],
+    );
+    const firstAssigned = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format)
+       VALUES ($1, $2, 'against', 'sprint') RETURNING id`,
+      [userId, topicId],
+    );
+    await pool.query(
+      "UPDATE solo_debates SET status = 'completed', completed_at = now() WHERE id = $1",
+      [firstAssigned.rows[0].id],
+    );
+    const secondAssigned = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format)
+       VALUES ($1, $2, 'for', 'sprint') RETURNING id`,
+      [userId, topicId],
+    );
+
+    await pool.query(
+      `INSERT INTO repair_retests (
+         repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+       ) VALUES ($1, $2, $3, 'evidence', $4)`,
+      [repair.rows[0].id, userId, repairedDebate.rows[0].id, firstAssigned.rows[0].id],
+    );
+
+    await expect(
+      pool.query(
+        `INSERT INTO repair_retests (
+           repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+         ) VALUES ($1, $2, $3, 'evidence', $4)`,
+        [repair.rows[0].id, userId, repairedDebate.rows[0].id, secondAssigned.rows[0].id],
+      ),
+    ).rejects.toThrow(/repair_retests_one_open_per_repair|unique constraint/i);
+
+    // A completed but unobservable assignment does not prove transfer and must
+    // release the repair for a later deliberate test.
+    await pool.query(
+      `UPDATE repair_retests
+       SET completed_at = now(), observable = false, demonstrated = null
+       WHERE repair_result_id = $1 AND assigned_debate_id = $2`,
+      [repair.rows[0].id, firstAssigned.rows[0].id],
+    );
+    const secondRetest = await pool.query<{ id: string }>(
+      `INSERT INTO repair_retests (
+         repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+       ) VALUES ($1, $2, $3, 'evidence', $4) RETURNING id`,
+      [repair.rows[0].id, userId, repairedDebate.rows[0].id, secondAssigned.rows[0].id],
+    );
+    expect(secondRetest.rows).toHaveLength(1);
+
+    await expect(
+      pool.query(
+        `INSERT INTO repair_retests (
+           repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+         ) VALUES ($1, $2, $3, 'logic', $4)`,
+        [otherRepair.rows[0].id, userId, repairedDebate.rows[0].id, secondAssigned.rows[0].id],
+      ),
+    ).rejects.toThrow(/repair_retests_assigned_debate_unique|unique constraint/i);
+
+    await expect(
+      pool.query(
+        `UPDATE repair_retests
+         SET completed_at = now(), observable = false, demonstrated = true
+         WHERE id = $1`,
+        [secondRetest.rows[0].id],
+      ),
+    ).rejects.toThrow(/check constraint/i);
+
+    await pool.query("DELETE FROM solo_debates WHERE id = ANY($1::uuid[])", [
+      [repairedDebate.rows[0].id, firstAssigned.rows[0].id, secondAssigned.rows[0].id],
+    ]);
+  });
+
+  it("finalizes a solo debate atomically and only awards profile progress once", async () => {
+    const userId = userIds.get("coach-a@test.local")!;
+    const topicId = await todayTopicId();
+    await pool.query(
+      `UPDATE profiles
+       SET total_points = 0, level = 1, current_streak = 0, longest_streak = 0, last_activity_date = null
+       WHERE id = $1`,
+      [userId],
+    );
+
+    const debate = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format, coaching)
+       VALUES ($1, $2, 'for', 'sprint', '{"dimension":"rebuttal"}'::jsonb)
+       RETURNING id`,
+      [userId, topicId],
+    );
+    const debateId = debate.rows[0].id;
+    const token = randomUUID();
+    const secondToken = randomUUID();
+
+    const firstClaim = await pool.query<{ claimed: boolean }>(
+      "SELECT claim_solo_debate_finalization($1, $2, $3, 180) AS claimed",
+      [debateId, userId, token],
+    );
+    expect(firstClaim.rows[0].claimed).toBe(true);
+
+    const competingClaim = await pool.query<{ claimed: boolean }>(
+      "SELECT claim_solo_debate_finalization($1, $2, $3, 180) AS claimed",
+      [debateId, userId, secondToken],
+    );
+    expect(competingClaim.rows[0].claimed).toBe(false);
+
+    const completedAt = new Date().toISOString();
+    const payload = { totalScore: 40, performanceScore: 80, bonusXP: 10, format: "sprint", summary: { overallFeedback: "ok", strengths: [], improvements: [] } };
+    const finalized = await pool.query<{ finalized: boolean }>(
+      `SELECT finalize_solo_debate_v3(
+        $1, $2, $3, 40, 10, 500, $4::timestamptz,
+        '{"dimension":"rebuttal","demonstrated":true}'::jsonb,
+        $5::jsonb, false, null::uuid, false, null::boolean
+      ) AS finalized`,
+      [debateId, userId, token, completedAt, JSON.stringify(payload)],
+    );
+    expect(finalized.rows[0].finalized).toBe(true);
+
+    const stored = await pool.query<{
+      status: string;
+      total_score: number;
+      result_payload: { totalScore?: number } | null;
+      finalization_token: string | null;
+    }>(
+      "SELECT status, total_score, result_payload, finalization_token FROM solo_debates WHERE id = $1",
+      [debateId],
+    );
+    expect(stored.rows[0].status).toBe("completed");
+    expect(stored.rows[0].total_score).toBe(40);
+    expect(stored.rows[0].result_payload?.totalScore).toBe(40);
+    expect(stored.rows[0].finalization_token).toBeNull();
+
+    const profile = await pool.query<{ total_points: number; level: number; current_streak: number }>(
+      "SELECT total_points, level, current_streak FROM profiles WHERE id = $1",
+      [userId],
+    );
+    expect(profile.rows[0].total_points).toBe(50);
+    expect(profile.rows[0].level).toBe(1);
+    expect(profile.rows[0].current_streak).toBe(1);
+
+    const finalizeAgain = await pool.query<{ finalized: boolean }>(
+      `SELECT finalize_solo_debate_v3(
+        $1, $2, $3, 40, 10, 500, $4::timestamptz,
+        '{}'::jsonb, $5::jsonb, false, null::uuid, false, null::boolean
+      ) AS finalized`,
+      [debateId, userId, token, completedAt, JSON.stringify(payload)],
+    );
+    expect(finalizeAgain.rows[0].finalized).toBe(false);
+    const profileAfterRetry = await pool.query<{ total_points: number }>(
+      "SELECT total_points FROM profiles WHERE id = $1",
+      [userId],
+    );
+    expect(profileAfterRetry.rows[0].total_points).toBe(50);
+
+    await pool.query("DELETE FROM solo_debates WHERE id = $1", [debateId]);
+  });
+
+  it("commits a repair-retest outcome in the same finalization transaction", async () => {
+    const userId = userIds.get("coach-b@test.local")!;
+    const topicId = await todayTopicId();
+    const sourceDebate = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, status, format, completed_at)
+       VALUES ($1, $2, 'against', 'completed', 'sprint', now()) RETURNING id`,
+      [userId, topicId],
+    );
+    const repair = await pool.query<{ id: string }>(
+      `INSERT INTO repair_results (
+         user_id, debate_id, target_kind, source_text, rewrite_text, score, succeeded
+       ) VALUES ($1, $2, 'rebuttal', 'old response', 'better response', 90, true)
+       RETURNING id`,
+      [userId, sourceDebate.rows[0].id],
+    );
+    const assigned = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format, coaching)
+       VALUES ($1, $2, 'for', 'sprint', $3::jsonb) RETURNING id`,
+      [
+        userId,
+        topicId,
+        JSON.stringify({
+          dimension: "rebuttal",
+          repairRetest: {
+            repairResultId: repair.rows[0].id,
+            repairDebateId: sourceDebate.rows[0].id,
+            targetKind: "rebuttal",
+            attemptedAt: new Date().toISOString(),
+          },
+        }),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO repair_retests (
+         repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+       ) VALUES ($1, $2, $3, 'rebuttal', $4)`,
+      [repair.rows[0].id, userId, sourceDebate.rows[0].id, assigned.rows[0].id],
+    );
+
+    const token = randomUUID();
+    const claim = await pool.query<{ claimed: boolean }>(
+      "SELECT claim_solo_debate_finalization($1, $2, $3, 180) AS claimed",
+      [assigned.rows[0].id, userId, token],
+    );
+    expect(claim.rows[0].claimed).toBe(true);
+
+    const completedAt = new Date().toISOString();
+    const finalized = await pool.query<{ finalized: boolean }>(
+      `SELECT finalize_solo_debate_v3(
+        $1, $2, $3, 10, 0, 500, $4::timestamptz,
+        '{}'::jsonb, '{"performanceScore":20}'::jsonb, true, $5::uuid, true, true
+      ) AS finalized`,
+      [assigned.rows[0].id, userId, token, completedAt, repair.rows[0].id],
+    );
+    expect(finalized.rows[0].finalized).toBe(true);
+
+    const retest = await pool.query<{ completed_at: Date | null; observable: boolean | null; demonstrated: boolean | null }>(
+      "SELECT completed_at, observable, demonstrated FROM repair_retests WHERE assigned_debate_id = $1",
+      [assigned.rows[0].id],
+    );
+    expect(retest.rows[0].completed_at).not.toBeNull();
+    expect(retest.rows[0].observable).toBe(true);
+    expect(retest.rows[0].demonstrated).toBe(true);
+
+    const events = await pool.query<{ name: string; reason: string | null }>(
+      `SELECT name, reason
+       FROM product_events
+       WHERE debate_id = $1
+         AND name IN ('debate_completed', 'retest_completed', 'retest_skill_demonstrated')
+       ORDER BY name`,
+      [assigned.rows[0].id],
+    );
+    expect(events.rows).toEqual([
+      { name: "debate_completed", reason: null },
+      { name: "retest_completed", reason: "rebuttal" },
+      { name: "retest_skill_demonstrated", reason: "rebuttal" },
+    ]);
+
+    await pool.query("DELETE FROM solo_debates WHERE id = ANY($1::uuid[])", [
+      [sourceDebate.rows[0].id, assigned.rows[0].id],
+    ]);
   });
 
   it("keeps challenge invites unique by code and lifecycle-honest", async () => {

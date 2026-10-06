@@ -33,6 +33,16 @@ const h = vi.hoisted(() => {
       row.winner = winner;
       row.scores_a = after.scoresA;
       row.scores_b = after.scoresB;
+      const item = (state.tables.corpus_items ?? []).find((i) => i.id === corpusId);
+      if (item?.status === "adjudicated") {
+        item.status = "rated";
+        item.side_mapping = {
+          ...((item.side_mapping as Row) ?? {}),
+          adjudication_stale: true,
+          adjudication_stale_at: at,
+          adjudication_stale_actor: actor,
+        };
+      }
       return [{ id: row.id, corrections: row.corrections }];
     }
     throw new Error(`unmocked SQL: ${text.slice(0, 80)}`);
@@ -81,6 +91,34 @@ vi.mock("@/lib/backend/server", () => ({
 }));
 vi.mock("@/lib/backend/sql", () => ({
   queryRows: async (text: string, params: unknown[]) => h.query(text, params),
+}));
+vi.mock("@/lib/publicCorpusMetrics", () => ({ invalidatePublicCorpusMetrics: vi.fn() }));
+vi.mock("@/lib/corpusVerdictStore", () => ({
+  writeCorpusAdjudication: async (input: {
+    corpusId: string;
+    winner: string;
+    basis: string;
+    actor: string;
+    at: string;
+    minimumRatings: number;
+  }) => {
+    const ratings = (h.state.tables.corpus_ratings ?? []).filter((r) => r.corpus_id === input.corpusId);
+    const item = (h.state.tables.corpus_items ?? []).find((i) => i.id === input.corpusId);
+    if (!item || ratings.length < input.minimumRatings) return false;
+    item.status = "adjudicated";
+    const mapping = { ...((item.side_mapping as Record<string, unknown>) ?? {}) };
+    delete mapping.adjudication_stale;
+    delete mapping.adjudication_stale_at;
+    delete mapping.adjudication_stale_actor;
+    item.side_mapping = {
+      ...mapping,
+      consensus_winner: input.winner,
+      basis: input.basis,
+      adjudicated_by: input.actor,
+      adjudicated_at: input.at,
+    };
+    return true;
+  },
 }));
 
 import { POST as correctRating } from "../correct/route";
@@ -251,6 +289,7 @@ describe("adjudication route", () => {
     h.state.tables.corpus_ratings = [
       { ...RATING, rater_id: "rater-1", winner: "a" },
       { ...RATING, id: "rating-2", rater_id: "rater-2", winner: "b" },
+      { ...RATING, id: "rating-3", rater_id: "rater-3", winner: "a" },
     ];
   });
 
@@ -263,17 +302,20 @@ describe("adjudication route", () => {
     expect(mapping).toEqual({
       system_verdict: "a", // preserved — not wiped by the consensus write
       source: "import",
-      consensus_winner: "tie",
+      consensus_winner: "a",
       basis: "rater majority",
+      adjudicated_by: "admin@example.com",
+      adjudicated_at: expect.any(String),
     });
   });
 
-  it("requires two ratings and admin rights", async () => {
-    h.state.tables.corpus_ratings = [h.state.tables.corpus_ratings![0]];
+  it("requires three ratings and admin rights", async () => {
+    h.state.tables.corpus_ratings = h.state.tables.corpus_ratings!.slice(0, 2);
     expect((await postAdjudicate({ corpusId: "item-1" })).status).toBe(409);
     h.state.tables.corpus_ratings = [
       { ...RATING, rater_id: "rater-1", winner: "a" },
       { ...RATING, id: "rating-2", rater_id: "rater-2", winner: "b" },
+      { ...RATING, id: "rating-3", rater_id: "rater-3", winner: "a" },
     ];
     h.state.user = { id: "u", email: "not-admin@example.com" };
     expect((await postAdjudicate({ corpusId: "item-1" })).status).toBe(403);

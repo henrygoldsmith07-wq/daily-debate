@@ -1,20 +1,15 @@
 import Link from "next/link";
-import { createClient, createServiceClient } from "@/lib/backend/server";
-import { isCorpusAdmin } from "@/lib/corpus";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadFunnelData } from "@/lib/productFunnelServer";
 import { buildFunnelReport, buildRepairOutcomeFunnel } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
-import { summariseAiOps, type AiOpsRow } from "@/lib/aiOps";
+import { loadAiOpsData } from "@/lib/aiOpsServer";
+import { getRequestAuthContext } from "@/lib/requestAuth";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Product funnel (admin)" };
-
-function aiOpsCutoffIso(): string {
-  return new Date(Date.now() - 7 * 86_400_000).toISOString();
-}
 
 function pct(n: number | null): string {
   return n === null ? "—" : `${Math.round(n * 100)}%`;
@@ -35,12 +30,8 @@ function RateRow({ label, numerator, denominator, rate, note }: { label: string;
 }
 
 export default async function AnalyticsPage() {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
-
-  if (!user || !isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  const auth = await getRequestAuthContext();
+  if (!auth.isAdmin) {
     return (
       <AppShell width="narrow">
         <PageHeader
@@ -52,42 +43,31 @@ export default async function AnalyticsPage() {
     );
   }
 
-  const { events, repairs, debateWeaknesses, completeness } = await loadFunnelData();
-  const funnel = buildFunnelReport(events, {});
-  const effectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, {});
-  const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, {});
-
-  // AI ops: last 7 days of model calls, aggregate only (no user ids, no content).
-  let aiOps: ReturnType<typeof summariseAiOps> | null = null;
-  try {
-    const service = createServiceClient();
-    const { data: aiRows } = await service
-      .from("ai_call_log")
-      .select("operation, provider, model, latency_ms, outcome, total_tokens, error_category, event_type, input_count, batch_count, routing_decision, expensive_judge_calls_avoided, classification_fallbacks, classification_ambiguous, created_at")
-      .gte("created_at", aiOpsCutoffIso())
-      .order("created_at", { ascending: false })
-      .limit(5000);
-    const mapped: AiOpsRow[] = (aiRows ?? []).map((r) => ({
-      operation: r.operation,
-      provider: r.provider,
-      model: r.model,
-      latencyMs: r.latency_ms,
-      ok: r.outcome === "ok",
-      totalTokens: r.total_tokens,
-      errorCategory: r.error_category,
-      eventType: r.event_type,
-      inputCount: r.input_count,
-      batchCount: r.batch_count,
-      routingDecision: r.routing_decision,
-      expensiveJudgeCallsAvoided: r.expensive_judge_calls_avoided,
-      classificationFallbacks: r.classification_fallbacks,
-      classificationAmbiguous: r.classification_ambiguous,
-      createdAt: r.created_at,
-    }));
-    aiOps = summariseAiOps(mapped, {});
-  } catch {
-    aiOps = null;
+  const funnelData = await loadFunnelData();
+  if (funnelData.status === "unavailable") {
+    return (
+      <AppShell width="narrow">
+        <PageHeader
+          eyebrow="Internal · product analytics"
+          title="Product funnel unavailable"
+          description="The analytics backend could not be read. This is an availability failure, not evidence of zero activity."
+        />
+        <section className="surface-card p-5">
+          <p className="text-sm font-medium">No funnel rates are being reported from incomplete data.</p>
+          <p className="mt-1 text-xs text-ink3">
+            Category: {funnelData.errorCategory ?? "unknown"}. Check Operations health and the database connection before interpreting product usage.
+          </p>
+        </section>
+      </AppShell>
+    );
   }
+  const { events, repairs, retests, debateWeaknesses, completeness } = funnelData;
+  const funnel = buildFunnelReport(events, {});
+  const effectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { retests });
+  const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { retests });
+
+  const aiOpsData = await loadAiOpsData();
+  const aiOps = aiOpsData.status === "unavailable" ? null : aiOpsData.report;
 
   return (
     <AppShell width="narrow">
@@ -101,8 +81,13 @@ export default async function AnalyticsPage() {
         <h2 id="funnel-heading" className="text-sm font-semibold">Training funnel</h2>
         <p className="mt-1 text-xs text-ink3">
           User conversion counts each user once; session conversion counts each debate separately (migration 005 events).
-          Data: {completeness.events.loaded} events · {completeness.repairs.loaded} repairs · {completeness.debates.loaded} debate graphs.
+          Data: {completeness.events.loaded} events · {completeness.repairs.loaded} repair attempts · {completeness.retests.loaded} deliberate retest assignments · {completeness.debates.loaded} debate graphs.
         </p>
+        {funnelData.status === "partial" && (
+          <p className="mt-1 text-xs text-amber-600" role="note">
+            Partial analytics data{funnelData.errorCategory ? ` (${funnelData.errorCategory})` : ""}; outcome metrics may be incomplete.
+          </p>
+        )}
         {completeness.note && (
           <p className="mt-1 text-xs text-amber-600" role="note">
             Data truncated: {completeness.note}
@@ -114,7 +99,11 @@ export default async function AnalyticsPage() {
           <RateRow label="Sprint completion (user)" {...funnel.sprintCompletion} />
           <RateRow label="Full debate completion (user)" {...funnel.fullCompletion} />
           <RateRow label="Repair started (completed debate → CTA, user)" {...funnel.repairStart} />
-          <RateRow label="Repair completed (CTA → submitted, user)" {...funnel.repairCompletion} />
+          <RateRow label="Repair attempted (CTA → saved attempt, user)" {...funnel.repairAttempt} />
+          <RateRow label="Repair demonstrated with prompt (attempt → structural pass, user)" {...funnel.repairDemonstration} />
+          <RateRow label="Retest started (prompted repair → later debate, user)" {...funnel.retestStart} />
+          <RateRow label="Retest completed (later debate produced target evidence, user)" {...funnel.retestCompletion} />
+          <RateRow label="Skill demonstrated in retest (observable retest → pass, user)" {...funnel.retestSkillDemonstrated} />
           <RateRow label="Full analysis opened (user)" {...funnel.fullAnalysisOpen} />
           <RateRow label="Challenge me usage (of debate starts, user)" {...funnel.challengeMe} />
           <RateRow label="Friend challenge acceptance" {...funnel.friendChallenges.acceptRate} />
@@ -126,7 +115,11 @@ export default async function AnalyticsPage() {
           <RateRow label="Sprint completion (per session)" {...funnel.sessions.sprintCompletion} />
           <RateRow label="Full debate completion (per session)" {...funnel.sessions.fullCompletion} />
           <RateRow label="Repair started (per session)" {...funnel.sessions.repairStart} />
-          <RateRow label="Repair completed (per session)" {...funnel.sessions.repairCompletion} />
+          <RateRow label="Repair attempted (per session)" {...funnel.sessions.repairAttempt} />
+          <RateRow label="Repair demonstrated with prompt (per session)" {...funnel.sessions.repairDemonstration} />
+          <RateRow label="Retest started (per session)" {...funnel.sessions.retestStart} />
+          <RateRow label="Retest completed with observable target (per session)" {...funnel.sessions.retestCompletion} />
+          <RateRow label="Skill demonstrated in retest (per session)" {...funnel.sessions.retestSkillDemonstrated} />
           <RateRow label="Full analysis opened (per session)" {...funnel.sessions.fullAnalysisOpen} />
         </div>
         {funnel.sessions.note && <p className="mt-2 text-xs text-ink3">{funnel.sessions.note}</p>}
@@ -191,6 +184,11 @@ export default async function AnalyticsPage() {
             Aggregate model-call health: {aiOps.totalCalls} calls · {aiOps.overall.errorRate === null ? `${aiOps.overall.errors} errors` : `${Math.round(aiOps.overall.errorRate * 100)}% errors`}
             {aiOps.overall.p95LatencyMs !== null && ` · p95 ${aiOps.overall.p95LatencyMs}ms`}. Rates appear at ≥5 calls per operation.
           </p>
+          {aiOpsData.status === "partial" && (
+            <p className="mt-1 text-xs text-amber-600" role="note">
+              AI reliability data is partial ({aiOpsData.errorCategory}); rates cover only the loaded window.
+            </p>
+          )}
           <div className="mt-3 flex flex-col gap-2 text-xs">
             {aiOps.byOperation.map((op) => (
               <div key={op.operation} className="flex items-baseline justify-between gap-3 border-b border-[var(--rule)] pb-2 last:border-0">
@@ -220,10 +218,23 @@ export default async function AnalyticsPage() {
           {aiOps.note && <p className="mt-2 text-xs text-ink3">{aiOps.note}</p>}
         </section>
       )}
+      {!aiOps && aiOpsData.status === "unavailable" && (
+        <section className="surface-card p-5" aria-labelledby="aiops-heading">
+          <h2 id="aiops-heading" className="text-sm font-semibold">AI reliability unavailable</h2>
+          <p className="mt-1 text-xs text-ink3">
+            The model-call log could not be read ({aiOpsData.errorCategory ?? "unknown"}); zero calls are not being inferred.
+          </p>
+        </section>
+      )}
 
       <section className="surface-card p-5" aria-labelledby="repair-heading">
         <h2 id="repair-heading" className="text-sm font-semibold">Does repair work?</h2>
         <p className="mt-1 text-xs text-ink3">{effectiveness.honestyNote}</p>
+        <p className="mt-1 text-xs text-ink3">
+          {effectiveness.totalRepairs} successful repair episodes from {effectiveness.totalAttempts} stored attempt{effectiveness.totalAttempts === 1 ? "" : "s"}
+          {effectiveness.failedOnlyEpisodes > 0 && ` · ${effectiveness.failedOnlyEpisodes} failed-only episode${effectiveness.failedOnlyEpisodes === 1 ? "" : "s"} excluded from effectiveness`}
+          {effectiveness.retryAttemptsCollapsed > 0 && ` · ${effectiveness.retryAttemptsCollapsed} retry attempt${effectiveness.retryAttemptsCollapsed === 1 ? "" : "s"} collapsed`}.
+        </p>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
@@ -270,8 +281,7 @@ export default async function AnalyticsPage() {
         </div>
         <p className="mt-2 text-xs text-ink3">
           Dashes mean the kind summary needs at least 5 repairs with 3 measurable inside the window — the data exists
-          but no claim is made yet. “Retest recurred” reads the first later debate after each repair (≥3 retests
-          to report).
+          but no claim is made yet. “Retest recurred” uses the first explicit durable repair-retest assignment with observable evidence (≥3 measured retests to report).
         </p>
       </section>
 
@@ -281,21 +291,23 @@ export default async function AnalyticsPage() {
         <div className="mt-2">
           <RateRow label="Repair acceptance (started → submitted)" {...trainingLoop.acceptance} />
           <RateRow label="First-retest recurrence (primary outcome)" {...trainingLoop.firstRetestRecurrence} />
-          <RateRow label="Recurrence per eligible retest after the first (opportunity-adjusted)" {...trainingLoop.recurrencePerEligibleRetest} />
-          <RateRow label="Recurrence within first 3 eligible retests (equal exposure)" {...trainingLoop.firstThreeExposure} />
+          <RateRow label="Recurrence per eligible follow-up after the explicit retest" {...trainingLoop.recurrencePerEligibleRetest} />
+          <RateRow label="Recurrence across explicit retest + first 2 eligible follow-ups" {...trainingLoop.firstThreeExposure} />
           <RateRow label="Return next day after first repair" numerator={trainingLoop.postRepairReturn.d1.returnedUsers} denominator={trainingLoop.postRepairReturn.d1.eligibleUsers} rate={trainingLoop.postRepairReturn.d1.rate} note={trainingLoop.postRepairReturn.d1.note} />
           <RateRow label="Return after 7 days" numerator={trainingLoop.postRepairReturn.d7.returnedUsers} denominator={trainingLoop.postRepairReturn.d7.eligibleUsers} rate={trainingLoop.postRepairReturn.d7.rate} note={trainingLoop.postRepairReturn.d7.note} />
           <RateRow label="Return after 30 days" numerator={trainingLoop.postRepairReturn.d30.returnedUsers} denominator={trainingLoop.postRepairReturn.d30.eligibleUsers} rate={trainingLoop.postRepairReturn.d30.rate} note={trainingLoop.postRepairReturn.d30.note} />
         </div>
         <p className="mt-2 text-xs text-ink3">
-          {trainingLoop.repairs} repairs · {trainingLoop.retestsObserved} with an eligible retest
+          {trainingLoop.repairs} successful repair episodes from {trainingLoop.attempts} attempt{trainingLoop.attempts === 1 ? "" : "s"}
+          {trainingLoop.failedOnlyRepairs > 0 && ` · ${trainingLoop.failedOnlyRepairs} failed-only episode${trainingLoop.failedOnlyRepairs === 1 ? "" : "s"} excluded from retest outcomes`}
+          {trainingLoop.retryAttemptsCollapsed > 0 && ` (${trainingLoop.retryAttemptsCollapsed} retries collapsed)`} · {trainingLoop.retestsObserved} with an explicit observable retest
           ({trainingLoop.retestsPending} pending, never counted as clean) · median {trainingLoop.medianDaysToRetest ?? "—"} days to retest
           {trainingLoop.unmatchedStarts > 0 && ` · ${trainingLoop.unmatchedStarts} start events without a debate id cannot be matched`}
           . Time to first recurrence: median {trainingLoop.timeToFirstRecurrence.medianDays ?? "—"} days across
           {trainingLoop.timeToFirstRecurrence.observedRepairs} repairs that recurred ({trainingLoop.timeToFirstRecurrence.censoredRepairs} observed
           retests recurred on none — censored, not clean); median{" "}
-          {trainingLoop.opportunitiesBeforeRecurrence.median ?? "—"} eligible retests before the first recurrence.
-          The per-retest and first-three measures add to the denominator with exposure, so more follow-up debates never imply a worse outcome.
+          {trainingLoop.opportunitiesBeforeRecurrence.median ?? "—"} measured opportunities before the first recurrence.
+          The follow-up and fixed-exposure measures add to the denominator with exposure, so more later debates never imply a worse outcome.
         </p>
       </section>
 

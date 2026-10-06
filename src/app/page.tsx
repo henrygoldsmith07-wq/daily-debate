@@ -4,22 +4,24 @@ import { getTodayTopic } from "@/lib/dailyTopic";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import GuestArena from "@/components/GuestArena";
+import PageViewEvent from "@/components/PageViewEvent";
 import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import SkillProfileBars from "@/components/SkillProfileBars";
-import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, type CoachingSnapshot } from "@/lib/coachingGoal";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
-import { recordProductEvent } from "@/lib/productEvents";
 import { isDatabaseConfigured } from "@/lib/backend/env";
+import { loadCoachingContext } from "@/lib/coachingContextServer";
+import { asRepairAttemptLite, latestUnfinishedRepair } from "@/lib/repairResume";
+import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 
 export const dynamic = "force-dynamic";
 
-function formatShortDate(value: string | null | undefined): string {
+function formatShortDate(value: string | null | undefined, timeZone: string): string {
   if (!value) return "Date unknown";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Date unknown";
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone }).format(date);
 }
 
 export default async function DashboardPage() {
@@ -28,9 +30,7 @@ export default async function DashboardPage() {
   }
 
   const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return <GuestArena />;
@@ -39,9 +39,8 @@ export default async function DashboardPage() {
   // getTodayTopic never throws — it falls back to a curated motion when
   // nothing is pre-stored, so the dashboard always has content.
   const topic = await getTodayTopic();
-  void recordProductEvent("daily_viewed");
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, ledger] =
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, coachingContext] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -52,7 +51,7 @@ export default async function DashboardPage() {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      db.from("profiles").select("total_points, level, current_streak").eq("id", user.id).single(),
+      getProfileSummary(user.id).then((data) => ({ data })),
       db
         .from("topic_evidence")
         .select("*")
@@ -61,14 +60,37 @@ export default async function DashboardPage() {
         .limit(4),
       db
         .from("solo_debates")
-        .select("id, topic_id, side, total_score, round_count, created_at, completed_at, format, coaching")
+        .select("id, topic_id, side, total_score, performance_score, bonus_xp, round_count, created_at, completed_at, format, coaching")
         .eq("user_id", user.id)
         .eq("status", "completed")
         .order("completed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      buildLedgerForUser(user.id),
+      loadCoachingContext(user.id, { currentTopicId: topic.id }),
     ]);
+  const ledger = coachingContext.ledger;
+  const { data: repairAttempts } = await db
+    .from("repair_results")
+    .select("debate_id, target_kind, score, succeeded, signals, created_at")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  const unfinishedRepair = latestUnfinishedRepair(
+    (repairAttempts ?? [])
+      .map((attempt) =>
+        asRepairAttemptLite({
+          debateId: attempt.debate_id,
+          targetKind: attempt.target_kind,
+          score: attempt.score,
+          succeeded: attempt.succeeded,
+          createdAt: attempt.created_at,
+          signals: attempt.signals,
+        }),
+      )
+      .filter((attempt): attempt is NonNullable<typeof attempt> => attempt !== null),
+  );
+
+  const drillOutcomes = coachingContext.drillOutcomes;
 
   let previousDebateTitle: string | null = null;
   if (previousDebate?.topic_id) {
@@ -89,17 +111,25 @@ export default async function DashboardPage() {
   // Daily coaching goal: one focus, grounded in the previous debate's
   // observed behaviour (not a wall of metrics — one line of evidence).
   const lastCoaching = (previousDebate?.coaching ?? null) as { snapshot?: CoachingSnapshot | null } | null;
-  const goal = buildCoachingGoal(ledger?.points ?? [], lastCoaching?.snapshot ?? null);
+  const pendingRetest = coachingContext.selectedRetest;
+  const goal = buildCoachingGoal(
+    ledger?.points ?? [],
+    lastCoaching?.snapshot ?? null,
+    drillOutcomes,
+    pendingRetest?.dimension ?? null,
+  );
   const focusDimension: CoachDimension | null = goal?.dimension ?? null;
 
   const today = new Intl.DateTimeFormat("en-GB", {
     weekday: "long",
     day: "numeric",
     month: "long",
+    timeZone: profile?.timezone ?? "UTC",
   }).format(new Date());
 
   return (
     <AppShell>
+      <PageViewEvent name="daily_viewed" />
       <PageHeader
         eyebrow="Daily practice"
         title="Today"
@@ -119,11 +149,45 @@ export default async function DashboardPage() {
         topic={topic}
         activeDebateId={activeDebate?.id ?? null}
         evidenceCards={(evidenceRows ?? []) as unknown as EvidenceCardView[]}
-        goalLine={goal?.headline ?? "Use evidence for major claims."}
+        goalLine={goal?.goalLine ?? "Use evidence for major claims."}
         lastLine={goal?.lastLine ?? null}
-        focusLabel="Today's focus"
+        focusLabel={pendingRetest ? "Retest after repair" : "Today's focus"}
         isFirstVisit={!previousDebate}
       />
+      {coachingContext.status !== "ok" && (
+        <p className="text-xs text-ink3" role="status">
+          Coaching context is temporarily {coachingContext.status}; today&apos;s debate is still available without treating missing data as progress.
+        </p>
+      )}
+
+      {unfinishedRepair && (
+        <section
+          className="surface-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+          aria-labelledby="unfinished-repair-heading"
+          data-testid="unfinished-repair"
+        >
+          <div className="min-w-0">
+            <p className="home-secondary-kicker">Continue your repair</p>
+            <h2 id="unfinished-repair-heading" className="mt-1 text-base font-semibold">
+              Finish the {unfinishedRepair.label.toLowerCase()} rewrite
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-ink3">
+              {unfinishedRepair.state === "partially_repaired"
+                ? "Your last version partially repaired the weak link, but one required move is still missing."
+                : "Your last version still needs another pass before this repair is demonstrated."}
+            </p>
+            {unfinishedRepair.nextCue && (
+              <p className="mt-1 text-xs text-ink2">Next cue: {unfinishedRepair.nextCue}</p>
+            )}
+          </div>
+          <Link
+            href={`/debate/${unfinishedRepair.debateId}`}
+            className="btn btn-primary shrink-0 px-4 py-2 text-center text-sm"
+          >
+            Retry repair →
+          </Link>
+        </section>
+      )}
 
       <section aria-labelledby="continue-heading">
         <div className="section-heading">
@@ -140,10 +204,9 @@ export default async function DashboardPage() {
                 <p className="home-secondary-kicker">Skill progress</p>
                 <h3>Argument profile</h3>
               </div>
-              {skillProfile?.overallScore != null && (
-                <span className="tabular text-lg font-bold">
-                  {skillProfile.overallScore}
-                  <span className="text-xs font-medium text-ink3">/100</span>
+              {skillProfile && (
+                <span className="tabular text-xs font-medium text-ink3">
+                  {skillProfile.debatesAnalysed} debate{skillProfile.debatesAnalysed === 1 ? "" : "s"} observed
                 </span>
               )}
             </div>
@@ -164,8 +227,8 @@ export default async function DashboardPage() {
             <h3>{previousDebateTitle ?? "Your first rep is waiting"}</h3>
             {previousDebate ? (
               <p className="home-secondary-meta">
-                {formatShortDate(previousDebate.completed_at ?? previousDebate.created_at)} · arguing{" "}
-                {previousDebate.side} · {previousDebate.total_score ?? "—"}/100
+                {formatShortDate(previousDebate.completed_at ?? previousDebate.created_at, profile?.timezone ?? "UTC")} · arguing{" "}
+                {previousDebate.side} · {previousDebate.performance_score ?? "—"}/100 performance
                 {improvementKey ? <span className="block text-[var(--accent)]">Improving: {improvementKey.replace(/([A-Z])/g, " $1").toLowerCase()}</span> : null}
               </p>
             ) : (
@@ -188,7 +251,7 @@ export default async function DashboardPage() {
             <div className="home-secondary-highlight">
               <span className="home-coaching-label">Goal</span>
               <br />
-              {goal?.headline ?? "Complete a debate to unlock your training focus."}
+              {goal?.goalLine ?? "Complete a debate to unlock your training focus."}
             </div>
             <Link href="/dna" className="home-secondary-action">
               See Argument DNA →

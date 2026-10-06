@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/backend/server";
-import { checkRateLimit } from "@/lib/rateLimit";
+import { checkRateLimit, checkRateLimitKey } from "@/lib/rateLimit";
 import { summarizeSoloDebate } from "@/lib/openrouter";
 import { summarizeSoloDebate as anthropicSummarize } from "@/lib/anthropic";
 import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidSummary } from "@/lib/aiSchema";
-import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
+import { performanceScoreForTurns, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { computeCoachRewards, totalBonusXP } from "@/lib/coachRewards";
 import { buildEvaluationResult } from "@/lib/evaluationEnvelope";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
@@ -13,13 +14,15 @@ import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { minRoundsFor, measurementHonestyFor, resolveDebateFormat } from "@/lib/sprint";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { snapshotFromAssessment } from "@/lib/coachingGoal";
-import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
-import { recordProductEvent } from "@/lib/productEvents";
-import type { CoachingRecord } from "@/lib/types";
+import { type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
+import { loadSoloFinalizationContext } from "@/lib/solo/finalizationContext";
+import { extractSkillPoint } from "@/lib/skillLedger";
+import { pointMeasuresDimension, repairKindToDimension } from "@/lib/repairRetest";
+import { buildTrainingSummary } from "@/lib/trainingSummary";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
-  const limited = await checkRateLimit(request, { name: "solo-finish", limit: 10, windowMs: 60_000 });
-  if (limited) return limited;
+  const ipLimited = await checkRateLimit(request, { name: "solo-finish-ip", limit: 60, windowMs: 60_000 });
+  if (ipLimited) return ipLimited;
 
   const { debateId } = await params;
   const db = await createClient();
@@ -27,6 +30,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     data: { user },
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = user.id;
+
+  const userLimit = await checkRateLimitKey(user.id, { name: "solo-finish-user", limit: 10, windowMs: 60_000 });
+  if (!userLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many finish attempts. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(userLimit.retryAfterSeconds), "Cache-Control": "no-store" } },
+    );
+  }
+
+  const body = await request.json().catch(() => null);
+  const finishSavedResponse = body?.finishSavedResponse === true;
+  const expectedTurnId = typeof body?.expectedTurnId === "string" ? body.expectedTurnId : "";
 
   const { data: debate, error: debateError } = await db
     .from("solo_debates")
@@ -35,20 +51,106 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     .eq("user_id", user.id)
     .single();
   if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
-  if (debate.status === "completed") return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
+
+  if (debate.status === "completed") {
+    if (debate.result_payload && typeof debate.result_payload === "object") {
+      return NextResponse.json(debate.result_payload);
+    }
+    return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
+  }
 
   const format = resolveDebateFormat(debate.format);
   const minRounds = minRoundsFor(format);
+
+  // Provider failure after an accepted response must not trap a sufficiently
+  // complete debate. Commit that exact staged response as the final answered
+  // round without creating another opponent turn, then run normal finalization.
+  if (finishSavedResponse) {
+    if (!expectedTurnId) {
+      return NextResponse.json({ error: "expectedTurnId is required to finish a saved response." }, { status: 400 });
+    }
+    const { data: stagedData, error: stagedError } = await db.rpc("commit_staged_solo_turn_for_finish", {
+      p_debate_id: debateId,
+      p_user_id: user.id,
+      p_turn_id: expectedTurnId,
+      p_min_rounds: minRounds,
+      p_stale_after_seconds: 300,
+    });
+    if (stagedError) {
+      console.error("Failed to commit staged response for finish:", stagedError);
+      return NextResponse.json({ error: "Your saved response is still available, but it could not be committed yet." }, { status: 500 });
+    }
+    const stagedResult = (stagedData ?? {}) as {
+      saved?: boolean;
+      reason?: string;
+      completedTurn?: { round_number?: number } | null;
+    };
+    if (!stagedResult.saved) {
+      const message =
+        stagedResult.reason === "submission-in-progress"
+          ? "Opponent generation is still active for this saved response. Try again shortly."
+          : stagedResult.reason === "debate-finalizing"
+            ? "This debate is already being finalized in another tab."
+            : stagedResult.reason === "minimum-rounds-not-met"
+              ? `Complete at least ${minRounds} rounds before finishing.`
+              : "The saved response could not be used to finish this debate. Refresh and try again.";
+      return NextResponse.json({ error: message, code: stagedResult.reason ?? "saved_response_unavailable" }, { status: 409 });
+    }  }
+
+  // Claim the finalization barrier before loading the transcript. A turn that
+  // is already committing finishes first because both paths lock the debate;
+  // new turn work is rejected once this token exists. This prevents a result
+  // snapshot from omitting a response accepted concurrently in another tab.
+  const finalizationToken = randomUUID();
+  const { data: claimed, error: claimError } = await db.rpc("claim_solo_debate_finalization", {
+    p_debate_id: debateId,
+    p_user_id: user.id,
+    p_token: finalizationToken,
+    p_stale_after_seconds: 300,
+  });
+  if (claimError) {
+    console.error("Failed to claim debate finalization:", claimError);
+    return NextResponse.json({ error: "Failed to finish debate." }, { status: 500 });
+  }
+  if (!claimed) {
+    const { data: stagedTurn } = await db
+      .from("solo_debate_turns")
+      .select("id")
+      .eq("debate_id", debateId)
+      .is("user_message", null)
+      .not("staged_user_message", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (stagedTurn) {
+      return NextResponse.json(
+        { error: "A saved response still needs to finish advancing before this debate can be completed.", code: "submission_pending" },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ error: "This debate is already being finalized. Try again shortly." }, { status: 409 });
+  }
+
+  async function releaseFinalizationClaim() {
+    await db.rpc("release_solo_debate_finalization", {
+      p_debate_id: debateId,
+      p_user_id: userId,
+      p_token: finalizationToken,
+    });
+  }
 
   const { data: turns, error: turnsError } = await db
     .from("solo_debate_turns")
     .select("*")
     .eq("debate_id", debateId)
     .order("round_number", { ascending: true });
-  if (turnsError || !turns) return NextResponse.json({ error: "Failed to load turns." }, { status: 500 });
+  if (turnsError || !turns) {
+    await releaseFinalizationClaim();
+    return NextResponse.json({ error: "Failed to load turns." }, { status: 500 });
+  }
 
   const answered = turns.filter((turn) => turn.user_message);
   if (answered.length < minRounds) {
+    await releaseFinalizationClaim();
     return NextResponse.json(
       { error: `Complete at least ${minRounds} rounds before finishing.` },
       { status: 400 },
@@ -56,40 +158,86 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   }
 
   const totalScore = answered.reduce((sum, turn) => sum + (turn.turn_score ?? 0), 0);
+  const performanceScore = performanceScoreForTurns(answered.map((turn) => turn.turn_score));
 
-  // Claim completion atomically before any model call or point award. Two
-  // concurrent finishes must not both summarize (double cost) or both award
-  // profile points (double credit).
-  const { data: completedDebate, error: completeError } = await db
-    .from("solo_debates")
-    .update({ status: "completed", total_score: totalScore, completed_at: new Date().toISOString() })
-    .eq("id", debateId)
-    .eq("status", "active")
-    .select("id");
-  if (completeError) {
-    console.error("Failed to complete debate:", completeError);
-    return NextResponse.json({ error: "Failed to finish debate." }, { status: 500 });
-  }
-  if (!completedDebate || completedDebate.length === 0) {
-    return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
+  async function refreshFinalizationLease(): Promise<"refreshed" | "lost" | "error"> {
+    const { data, error } = await db.rpc("refresh_solo_debate_finalization", {
+      p_debate_id: debateId,
+      p_user_id: userId,
+      p_token: finalizationToken,
+    });
+    if (error) {
+      // A transient DB/network error does not prove ownership was lost. Release
+      // only our exact token so the user can retry immediately instead of
+      // waiting for the five-minute stale-lease timeout.
+      await releaseFinalizationClaim();
+      return "error";
+    }
+    return data === true ? "refreshed" : "lost";
   }
 
-  const { data: topic } = await db.from("daily_topics").select("title").eq("id", debate.topic_id).single();
+  async function requireFreshFinalizationLease() {
+    const state = await refreshFinalizationLease();
+    if (state === "refreshed") return null;
+    if (state === "error") {
+      return NextResponse.json(
+        { error: "Finalization could not refresh its database lease. Your debate is safe to retry." },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json(
+      { error: "Debate finalization was restarted elsewhere. Retry to load the saved result." },
+      { status: 409 },
+    );
+  }
+
+  const finalizationContext = await loadSoloFinalizationContext({
+    db,
+    userId,
+    debateId,
+    topicId: debate.topic_id,
+  });
+  if (!finalizationContext.ok) {
+    console.error(
+      `Finalization context unavailable at ${finalizationContext.stage}:`,
+      finalizationContext.message,
+    );
+    await releaseFinalizationClaim();
+    return NextResponse.json(
+      {
+        error: "Finalization context is temporarily unavailable. Your debate is safe to retry.",
+        code: "finalization_context_unavailable",
+      },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const { topic, priorAssessments, priorDebateKinds } = finalizationContext;
 
   const transcript = answered
     .map((turn) => `AI: ${turn.ai_message}\nUser: ${turn.user_message}`)
     .join("\n\n");
 
   let summary;
+  let summarySource: "ai" | "fallback" = "ai";
   try {
     summary = await withProviderFallback(
-      () => summarizeSoloDebate({ topicTitle: topic?.title ?? "the debate", transcript }),
+      () => summarizeSoloDebate({ topicTitle: topic.title, transcript }),
       isValidSummary,
-      () => anthropicSummarize({ topicTitle: topic?.title ?? "the debate", transcript }),
+      () => anthropicSummarize({ topicTitle: topic.title, transcript }),
     );
   } catch (error) {
     console.error("Failed to summarize debate:", error);
-    summary = { overallFeedback: "Great work completing the debate.", strengths: [], improvements: [] };
+    summarySource = "fallback";
+    summary = {
+      overallFeedback: "Detailed generated feedback was unavailable. Your deterministic assessment and coaching result are still shown below.",
+      strengths: [],
+      improvements: [],
+    };
+  }
+
+  {
+    const leaseError = await requireFreshFinalizationLease();
+    if (leaseError) return leaseError;
   }
 
   const turnAssessments = answered
@@ -103,143 +251,147 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     : null;
   if (finalAssessment) summary = { ...summary, argGraph: finalAssessment.graph, assessment: finalAssessment };
 
-  // Prior completed debates: feeds BOTH coach rewards (per-debate assessments)
-  // and repeated-weakness detection (side-scoped weakness counts). One query.
-  const { data: priorDebates } = await db
-    .from("solo_debates")
-    .select("id, completed_at")
-    .eq("user_id", user.id)
-    .eq("status", "completed")
-    .neq("id", debateId)
-    .order("completed_at", { ascending: false })
-    .limit(5);
-  let priorAssessments: ObservableAssessment[] = [];
-  let priorDebateKinds: Array<{ completedAt: string; kinds: Record<string, number> }> = [];
-  if (priorDebates?.length) {
-    const { data: priorTurns } = await db
-      .from("solo_debate_turns")
-      .select("debate_id, assessment")
-      .in("debate_id", priorDebates.map((d) => d.id))
-      .not("assessment", "is", null)
-      .order("round_number", { ascending: true })
-      .limit(30);
-    const byDebate = new Map<string, ObservableAssessment>();
-    const graphsByDebate = new Map<string, ObservableAssessment["graph"][]>();
-    for (const t of (priorTurns ?? []) as Array<{ debate_id: string; assessment: unknown }>) {
-      const a = t.assessment as ObservableAssessment;
-      if (a?.graph) {
-        byDebate.set(t.debate_id, a);
-        const list = graphsByDebate.get(t.debate_id) ?? [];
-        list.push(a.graph);
-        graphsByDebate.set(t.debate_id, list);
-      }
-    }
-    priorAssessments = [...byDebate.values()];
-    priorDebateKinds = priorDebates
-      .map((d) => {
-        const graphs = graphsByDebate.get(d.id);
-        if (!graphs?.length) return null;
-        const merged = assessArgumentGraph(mergeAssessmentGraphs(graphs), {
-          sideA: "a", sideB: "ai", extractionSource: "deterministic", labelA: "You", labelB: "AI opponent",
-        });
-        return { completedAt: d.completed_at ?? new Date().toISOString(), kinds: countWeaknessesForSide(merged.graph, "a") };
-      })
-      .filter((x): x is { completedAt: string; kinds: Record<string, number> } => x !== null)
-      .reverse(); // oldest last
-  }
-  const { data: topicCategory } = await db
-    .from("daily_topics").select("category").eq("id", debate.topic_id).single();
-  const { data: pastDebates } = await db
-    .from("solo_debates")
-    .select("topic_id")
-    .eq("user_id", user.id).eq("status", "completed").neq("id", debateId);
-  const priorTopicIds = [...new Set((pastDebates ?? []).map((row) => row.topic_id))];
-  const { data: pastTopics } = priorTopicIds.length
-    ? await db.from("daily_topics").select("category").in("id", priorTopicIds)
-    : { data: [] };
-  const previouslyDebatedCategories = (pastTopics ?? []).map((topic) => topic.category ?? "").filter(Boolean);
-  const currentCategory = topicCategory?.category ?? "";
+  const currentCategory = topic.category ?? "";
   const rewardEvents = finalAssessment
-    ? computeCoachRewards({ assessment: finalAssessment, priorAssessments, previouslyDebatedCategories, currentCategory })
+    ? computeCoachRewards({
+        assessment: finalAssessment,
+        priorAssessments,
+        previouslyDebatedCategories: [],
+        currentCategory,
+        // Novelty is resolved atomically by finalize_solo_debate_v4 so a
+        // history scan or concurrent Finish cannot double-award this bonus.
+        includeUnfamiliarTopic: false,
+      })
     : [];
   const bonusXP = totalBonusXP(rewardEvents);
 
-  // Award points atomically when possible (007_profile_points_atomic.sql);
-  // streak fields are idempotent per day so their read-modify-write is safe.
-  const { data: profile } = await db.from("profiles").select("total_points, last_activity_date, current_streak, longest_streak").eq("id", user.id).single();
-  if (profile) {
-    const today = new Date().toISOString().slice(0, 10);
-    const streak = updateStreak(today, profile.last_activity_date, profile.current_streak, profile.longest_streak);
-
-    let awarded = false;
-    try {
-      const { data: newTotal } = await db.rpc("increment_total_points", {
-        p_user_id: user.id,
-        p_points: totalScore + bonusXP,
-        p_points_per_level: POINTS_PER_LEVEL,
-      });
-      awarded = typeof newTotal === "number";
-    } catch {
-      // RPC not deployed yet — fall through to read-modify-write.
-    }
-
-    if (!awarded) {
-      const newTotalPoints = profile.total_points + totalScore + bonusXP;
-      await db.from("profiles").update({ total_points: newTotalPoints, level: levelForPoints(newTotalPoints) }).eq("id", user.id);
-    }
-    await db
-      .from("profiles")
-      .update({
-        current_streak: streak.current_streak,
-        longest_streak: streak.longest_streak,
-        last_activity_date: streak.last_activity_date,
-      })
-      .eq("id", user.id);
-  }
-
   // ── Coaching loop: assess today's goal and persist the snapshot ─────────
   const coaching = (debate.coaching ?? {}) as CoachingRecord;
-  const goalDimension = coaching.dimension ?? null;
+  const goalDimension = (coaching.dimension ?? null) as import("@/lib/adaptiveCoach").CoachDimension | null;
 
+  // The result story must receive the goal dimension. Without it the
+  // user-facing "Today's focus outcome" panel is empty even though the debate
+  // was started with a coaching goal.
   const snapshot = buildResultSnapshot(finalAssessment, {
     format,
     summary,
     priorDebates: priorDebateKinds,
+    goalDimension,
   });
   let coachingUpdate: CoachingRecord = { ...coaching, snapshot: null, demonstrated: null };
   if (goalDimension && finalAssessment?.features?.a) {
-    // Single source of truth for the coaching snapshot (coachingGoal.ts) —
-    // no inline duplicate of the behaviour extraction.
+    // One source of truth: buildResultSnapshot delegates to
+    // coachingGoal.assessGoalOutcome, and the persisted result reuses it.
     const behaviourSnapshot = snapshotFromAssessment(finalAssessment);
-    let demonstrated: boolean | null = null;
-    if (behaviourSnapshot && goalDimension === "rebuttal" && behaviourSnapshot.responseOpportunities > 0) {
-      demonstrated = behaviourSnapshot.responsesAnswered >= behaviourSnapshot.responseOpportunities * 0.8;
-    } else if (behaviourSnapshot && goalDimension === "evidence" && behaviourSnapshot.majorClaims > 0) {
-      demonstrated = behaviourSnapshot.unsupportedClaims === 0;
-    } else if (behaviourSnapshot && goalDimension === "structure") {
-      demonstrated = behaviourSnapshot.droppedOwn === 0;
-    }
-    coachingUpdate = { ...coaching, snapshot: behaviourSnapshot, demonstrated, weaknessKind: snapshot.weakness?.kind ?? null, recurrenceCount: snapshot.recurrence?.count ?? 0 };
-    await db.from("solo_debates").update({ coaching: coachingUpdate }).eq("id", debateId);
+    coachingUpdate = {
+      ...coaching,
+      snapshot: behaviourSnapshot,
+      demonstrated: snapshot.goalOutcome.demonstrated,
+      weaknessKind: snapshot.weakness?.kind ?? null,
+      recurrenceCount: snapshot.recurrence?.count ?? 0,
+    };
   }
 
-  void recordProductEvent("debate_completed", { format, side: debate.side, debateId });
-
+  const trainingSummary = buildTrainingSummary(answered);
   const evaluation = buildEvaluationResult({
     scoreStatus: finalAssessment?.status ?? "insufficient_evidence",
     summary,
     observableAssessment: finalAssessment ?? undefined,
   });
-  return NextResponse.json({
+  const completedAt = new Date().toISOString();
+  let retestCompletion: {
+    repairResultId: string | null;
+    observable: boolean;
+    demonstrated: boolean | null;
+  } | null = null;
+  if (coaching.repairRetest) {
+    const retestDimension = repairKindToDimension(coaching.repairRetest.targetKind);
+    const clarityValues = answered
+      .map((turn) => {
+        const scores = turn.scores as { clarity?: unknown } | null;
+        return typeof scores?.clarity === "number" ? scores.clarity : null;
+      })
+      .filter((value): value is number => value !== null);
+    const avgClarity = clarityValues.length
+      ? clarityValues.reduce((sum, value) => sum + value, 0) / clarityValues.length
+      : null;
+    const retestPoint = retestDimension && finalAssessment
+      ? extractSkillPoint(debateId, completedAt, finalAssessment, "a", avgClarity)
+      : null;
+    const observable = !!(
+      retestDimension &&
+      retestPoint &&
+      pointMeasuresDimension(retestPoint, retestDimension)
+    );
+    retestCompletion = {
+      repairResultId: coaching.repairRetest.repairResultId ?? null,
+      observable,
+      demonstrated: observable ? snapshot.goalOutcome.demonstrated === true : null,
+    };
+  }
+  const resultPayload: PersistedSoloResult = {
     totalScore,
+    performanceScore,
     bonusXP,
     rewardEvents,
     summary,
-    assessment: finalAssessment,
+    summarySource,
+    assessment: finalAssessment ?? undefined,
     evaluation,
     format,
     honesty: measurementHonestyFor(format),
     snapshot,
     coaching: coachingUpdate,
+    trainingSummary,
+  };
+
+  {
+    const leaseError = await requireFreshFinalizationLease();
+    if (leaseError) return leaseError;
+  }
+
+  const { data: finalized, error: finalizeError } = await db.rpc("finalize_solo_debate_v4", {
+    p_debate_id: debateId,
+    p_user_id: user.id,
+    p_token: finalizationToken,
+    p_total_score: totalScore,
+    p_bonus_xp: bonusXP,
+    p_points_per_level: POINTS_PER_LEVEL,
+    p_completed_at: completedAt,
+    p_coaching: JSON.stringify(coachingUpdate),
+    p_result_payload: JSON.stringify(resultPayload),
+    p_has_retest: retestCompletion !== null,
+    p_repair_result_id: retestCompletion?.repairResultId ?? null,
+    p_retest_observable: retestCompletion?.observable ?? false,
+    p_retest_demonstrated: retestCompletion?.demonstrated ?? null,
+    p_current_category: currentCategory,
   });
+  if (finalizeError || !finalized) {
+    console.error("Failed durable debate finalization:", finalizeError);
+    await db.rpc("release_solo_debate_finalization", {
+      p_debate_id: debateId,
+      p_user_id: user.id,
+      p_token: finalizationToken,
+    });
+    return NextResponse.json({ error: "Failed to finish debate. Your debate is still available to retry." }, { status: 500 });
+  }
+
+  // v4 may atomically add the unfamiliar-topic reward. Return the persisted
+  // payload rather than the pre-transaction draft so the first response and
+  // every replay expose exactly the same XP/reward state.
+  const { data: durableDebate, error: durableResultError } = await db
+    .from("solo_debates")
+    .select("result_payload")
+    .eq("id", debateId)
+    .eq("user_id", user.id)
+    .single();
+  if (durableResultError || !durableDebate?.result_payload || typeof durableDebate.result_payload !== "object") {
+    console.error("Debate finalized but durable result reload failed:", durableResultError);
+    return NextResponse.json(
+      { error: "Debate finished, but the result could not be reloaded. Refresh to view it." },
+      { status: 503 },
+    );
+  }
+
+  return NextResponse.json(durableDebate.result_payload as PersistedSoloResult);
 }

@@ -52,6 +52,7 @@ describe("skill ledger extraction", () => {
     // Rebuttal exists but targets nothing -> zero coverage.
     expect(p.metrics.rebuttalCoverage).toBe(0);
     expect(p.metrics.unsupportedClaimRate).toBeGreaterThan(0);
+    expect(p.opportunities).toEqual({ majorClaims: 1, opponentMoves: 1 });
     // A "strong" evidence node citing MyBlog is not real grounding.
     expect(p.metrics.evidenceGrounding).toBeLessThan(1);
   });

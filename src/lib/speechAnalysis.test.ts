@@ -1,11 +1,31 @@
 import { describe, it, expect } from "vitest";
 import {
   analyseSpeechTurn,
+  parseTurnTiming,
   scoreSpeechQuality,
   rebuttalImmediacy,
 } from "./speechAnalysis";
 
 const TIMING = { startedAt: "2026-01-01T00:00:00Z", endedAt: "2026-01-01T00:01:00Z", durationSeconds: 60 };
+
+describe("parseTurnTiming", () => {
+  it("normalises internally consistent client timing", () => {
+    expect(parseTurnTiming(TIMING)).toEqual({
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: "2026-01-01T00:01:00.000Z",
+      durationSeconds: 60,
+    });
+  });
+
+  it("rejects a materially fabricated duration", () => {
+    expect(parseTurnTiming({ ...TIMING, durationSeconds: 10 })).toBeNull();
+  });
+
+  it("rejects reversed or excessively long timing", () => {
+    expect(parseTurnTiming({ ...TIMING, startedAt: TIMING.endedAt, endedAt: TIMING.startedAt })).toBeNull();
+    expect(parseTurnTiming({ ...TIMING, durationSeconds: 7200 })).toBeNull();
+  });
+});
 
 describe("analyseSpeechTurn", () => {
   it("computes pace for a normal-length response", () => {

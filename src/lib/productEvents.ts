@@ -3,11 +3,41 @@
 // Events carry no free text, no transcript content, and no identifiers beyond
 // the session's own user id (server-side, when a user is signed in). They exist
 // to answer product questions like "do people finish sprints?" and "does the
-// repair loop get used?" — nothing else. Fire-and-forget: a failed write must
-// never break a user flow.
+// repair loop get used?" — nothing else. Server routes await best-effort writes
+// so serverless shutdown cannot silently drop them; failed telemetry still
+// never breaks a user flow.
 
-import { createClient } from "@/lib/backend/server";
+import { createClient, createServiceClient } from "@/lib/backend/server";
 import type { DebateFormat } from "./sprint";
+import type { ChallengeRule } from "./challengeMe";
+import type { RepairState } from "./argumentRepair";
+
+export type ProductEventReason =
+  | ChallengeRule
+  | RepairState
+  | "evidence"
+  | "rebuttal"
+  | "logic"
+  | "impact"
+  | "structure"
+  | "clarity";
+
+export const PRODUCT_EVENT_REASONS: readonly ProductEventReason[] = [
+  "random-cold-start",
+  "side-balance",
+  "performance-gap",
+  "alternation-fallback",
+  "needs_another_pass",
+  "partially_repaired",
+  "repair_demonstrated",
+  "evidence",
+  "rebuttal",
+  "logic",
+  "impact",
+  "structure",
+  "clarity",
+] as const;
+>>>>>>> origin/main
 
 export type ProductEventName =
   | "daily_viewed"
@@ -18,7 +48,13 @@ export type ProductEventName =
   | "round_completed"
   | "debate_completed"
   | "repair_started"
+  | "repair_attempted"
+  | "repair_demonstrated"
+  | "repair_episode_closed"
   | "repair_completed"
+  | "retest_started"
+  | "retest_completed"
+  | "retest_skill_demonstrated"
   | "full_analysis_opened"
   | "progress_viewed"
   | "pvp_started"
@@ -28,8 +64,8 @@ export type ProductEventName =
 
 export interface ProductEventContext {
   format?: DebateFormat;
-  side?: string | null;
-  reason?: string | null;
+  side?: "for" | "against" | null;
+  reason?: ProductEventReason | null;
   round?: number | null;
   repairScore?: number | null;
   /** Bounded flow identifier (the debate row's UUID) for session-level funnels. */
@@ -45,7 +81,13 @@ export const PRODUCT_EVENT_NAMES: readonly ProductEventName[] = [
   "round_completed",
   "debate_completed",
   "repair_started",
+  "repair_attempted",
+  "repair_demonstrated",
+  "repair_episode_closed",
   "repair_completed",
+  "retest_started",
+  "retest_completed",
+  "retest_skill_demonstrated",
   "full_analysis_opened",
   "progress_viewed",
   "pvp_started",
@@ -54,8 +96,41 @@ export const PRODUCT_EVENT_NAMES: readonly ProductEventName[] = [
   "challenge_link_accepted",
 ] as const;
 
-function isProductEventName(value: unknown): value is ProductEventName {
+export function isProductEventName(value: unknown): value is ProductEventName {
   return typeof value === "string" && (PRODUCT_EVENT_NAMES as readonly string[]).includes(value);
+}
+
+export function isProductEventReason(value: unknown): value is ProductEventReason {
+  return typeof value === "string" && (PRODUCT_EVENT_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * Persist an event for an already-authenticated user. This avoids repeating a
+ * session lookup inside API routes and, because callers await it, avoids
+ * dropping writes when a serverless invocation is frozen after the response.
+ */
+export async function recordProductEventForUser(
+  userId: string,
+  name: ProductEventName,
+  context: ProductEventContext = {},
+): Promise<void> {
+  try {
+    if (!isProductEventName(name)) return;
+    if (context.reason !== undefined && context.reason !== null && !isProductEventReason(context.reason)) return;
+    const db = createServiceClient();
+    await db.from("product_events").insert({
+      user_id: userId,
+      name,
+      format: context.format ?? null,
+      side: context.side ?? null,
+      reason: context.reason ?? null,
+      round: context.round ?? null,
+      repair_score: context.repairScore ?? null,
+      debate_id: context.debateId ?? null,
+    });
+  } catch {
+    // Analytics must never break the training loop.
+  }
 }
 
 /**
@@ -77,16 +152,7 @@ export async function recordProductEvent(
     // Keep only bounded, non-free-text fields. Persona/difficulty are NOT
     // recorded here — they are already persisted on the solo_debates row, so
     // analytics can join rather than widen this table's schema.
-    await db.from("product_events").insert({
-      user_id: user.id,
-      name,
-      format: context.format ?? null,
-      side: context.side ?? null,
-      reason: context.reason ?? null,
-      round: context.round ?? null,
-      repair_score: context.repairScore ?? null,
-      debate_id: context.debateId ?? null,
-    });
+    await recordProductEventForUser(user.id, name, context);
   } catch {
     // Never let telemetry break a user flow.
   }

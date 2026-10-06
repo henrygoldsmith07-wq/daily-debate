@@ -4,7 +4,15 @@ import { proxy } from "./proxy";
 import { SESSION_COOKIE } from "./lib/backend/session";
 
 describe("routing proxy", () => {
-  it.each(["/", "/login", "/api/daily-topic"])("allows public route %s", (path) => {
+  it.each([
+    "/",
+    "/login",
+    "/api/daily-topic",
+    "/challenge/abc234",
+    "/research",
+    "/metrics",
+    "/benchmark",
+  ])("allows public route %s", (path) => {
     const response = proxy(new NextRequest(`https://daily-debate.test${path}`));
 
     expect(response.status).toBe(200);
@@ -16,7 +24,15 @@ describe("routing proxy", () => {
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
-      "https://daily-debate.test/login?reason=sign-in-required",
+      "https://daily-debate.test/login?reason=sign-in-required&next=%2Fhistory",
+    );
+  });
+
+  it("preserves a protected internal path and query for post-login return", () => {
+    const response = proxy(new NextRequest("https://daily-debate.test/progress?view=skills"));
+
+    expect(response.headers.get("location")).toBe(
+      "https://daily-debate.test/login?reason=sign-in-required&next=%2Fprogress%3Fview%3Dskills",
     );
   });
 

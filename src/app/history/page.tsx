@@ -4,12 +4,20 @@ import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
 import type { PvpVerdict } from "@/lib/types";
+import { normalizeIanaTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
 
-function formatDate(iso: string | null): string {
+const HISTORY_LIMIT = 50;
+
+function formatDate(iso: string | null, timeZone: string): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone,
+  }).format(new Date(iso));
 }
 
 export default async function HistoryPage() {
@@ -29,21 +37,23 @@ export default async function HistoryPage() {
     );
   }
 
-  const [soloRes, pvpRes] = await Promise.all([
+  const [soloRes, pvpRes, profileRes] = await Promise.all([
     db
       .from("solo_debates")
-      .select("id, status, side, round_count, total_score, created_at, completed_at, topic_id")
+      .select("id, status, side, round_count, total_score, performance_score, bonus_xp, created_at, completed_at, topic_id")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
-      .limit(50),
+      .limit(HISTORY_LIMIT),
     db
       .from("pvp_matches")
       .select("id, status, player_a, player_b, winner_id, judge_verdict, completed_at, topic_id")
       .or(`player_a.eq.${user.id},player_b.eq.${user.id}`)
       .order("created_at", { ascending: false })
-      .limit(50),
+      .limit(HISTORY_LIMIT),
+    db.from("profiles").select("timezone").eq("id", user.id).single(),
   ]);
 
+  const timeZone = normalizeIanaTimeZone(profileRes.data?.timezone);
   const soloDebates = soloRes.data ?? [];
   const pvpMatches = pvpRes.data ?? [];
   const topicIds = [...new Set([...soloDebates, ...pvpMatches].map((row) => row.topic_id))];
@@ -58,11 +68,11 @@ export default async function HistoryPage() {
       <PageHeader
         eyebrow="Your record"
         title="Your debates"
-        description="Every rep you have finished or left open, newest first."
+        description={`Latest debates, newest first. Up to ${HISTORY_LIMIT} solo and ${HISTORY_LIMIT} PvP records are shown.`}
         actions={
           <>
-            <span className="pill tabular">{soloDebates.length} solo</span>
-            <span className="pill tabular">{pvpMatches.length} PvP</span>
+            <span className="pill tabular">{soloDebates.length} solo shown</span>
+            <span className="pill tabular">{pvpMatches.length} PvP shown</span>
           </>
         }
       />
@@ -75,7 +85,10 @@ export default async function HistoryPage() {
         {soloDebates.length === 0 ? (
           <p className="text-sm text-ink3">No solo debates yet.</p>
         ) : (
-          soloDebates.map((d) => (
+          soloDebates.map((d) => {
+            const performance = d.performance_score;
+            const xp = (d.total_score ?? 0) + (d.bonus_xp ?? 0);
+            return (
             <Link
               key={d.id}
               href={`/debate/${d.id}`}
@@ -84,18 +97,24 @@ export default async function HistoryPage() {
               <span className="flex min-w-0 flex-col">
                 <span className="truncate font-medium">{topicTitles.get(d.topic_id) ?? "Daily topic"}</span>
                 <span className="text-xs text-ink3">
-                  {formatDate(d.completed_at ?? d.created_at)} · arguing {d.side} · {d.round_count} rounds
+                  {formatDate(d.completed_at ?? d.created_at, timeZone)} · arguing {d.side} · {d.round_count} rounds
                 </span>
               </span>
               <span className="shrink-0 text-right">
                 {d.status === "completed" ? (
-                  <span className="tabular font-medium">{d.total_score ?? 0} pts</span>
+                  <>
+                    <span className="block tabular font-medium">
+                      {performance === null ? "Performance unavailable" : `${performance}/100 performance`}
+                    </span>
+                    <span className="block text-xs text-ink3">+{xp} XP</span>
+                  </>
                 ) : (
                   <span className="text-xs text-[var(--accent)]">resume →</span>
                 )}
               </span>
             </Link>
-          ))
+            );
+          })
         )}
       </section>
 
@@ -127,7 +146,7 @@ export default async function HistoryPage() {
               >
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate font-medium">{topicTitles.get(m.topic_id) ?? "Daily topic"}</span>
-                  <span className="text-xs text-ink3">{formatDate(m.completed_at)}</span>
+                  <span className="text-xs text-ink3">{formatDate(m.completed_at, timeZone)}</span>
                 </span>
                 <span className="shrink-0 text-right">
                   <span

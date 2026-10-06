@@ -22,6 +22,13 @@ import {
   type ArgumentRoutingPlan,
 } from "./argumentRouting";
 import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
+import {
+  bucketTranscriptChars,
+  buildShadowRecord,
+  classifyShadowAttemptStatus,
+  JUDGE_AVOIDANCE_ROUTES,
+  type RouteShadowRecord,
+} from "./routeShadowValidation";
 
 export type JudgeId = ProviderLabel | "anthropic";
 export interface JudgedVerdict extends PvpJudgeResult {
@@ -51,6 +58,14 @@ export interface EnsembleResult {
   observableAssessment?: ObservableAssessment;
   /** Structural route metadata; never a correctness or winner signal. */
   routing?: ArgumentRoutingSummary;
+  /**
+   * SHADOW structural-route result. NEVER authoritative and never allowed to
+   * influence winner, rank, XP or progression: it exists only to measure how
+   * closely the deterministic route tracks the established ensemble before any
+   * route may be adopted (see routeShadowValidation). Null when no shadow route
+   * was computed for this debate.
+   */
+  shadowRouting?: RouteShadowRecord | null;
 }
 
 const TIE_THRESHOLD = 5; // points: |A-B| < 5 => tie unless judges strongly agree
@@ -275,27 +290,47 @@ export async function liveEnsembleJudge(params: {
   topicPrompt: string;
   playerASide: "for" | "against";
   transcript: string;
+  /**
+   * Stable debate key (e.g. the PvP match id) enabling deterministic
+   * hash sampling of classifier.dev shadow-validation traffic. Omit to
+   * classify every debate — the human-grounded corpus harness does this,
+   * since human labels are too valuable to skip.
+   */
+  debateKey?: string;
 }): Promise<EnsembleResult> {
   const plan = await classifyDebateTranscript({
     transcript: params.transcript,
     topicTitle: params.topicTitle,
     topicPrompt: params.topicPrompt,
+    ...(params.debateKey ? { shadow: { key: params.debateKey } } : {}),
   });
   const baselineJudgeLegs = expectedExpensiveJudgeLegs();
-  if (!plan.requiresExpensiveJudge) {
-    const routed = deterministicRoutedResult(plan, baselineJudgeLegs);
-    if (routed) {
-      recordRoutingTelemetry(routed.routing!);
-      return routed;
-    }
-  }
+
+  // SHADOW MODE. The structural classifier may shape responses, but it must
+  // not decide a PvP winner: no route has passed its preregistered adoption
+  // gate (all default to `shadow`). So the deterministic route is computed
+  // ALONGSIDE the established ensemble and retained as evidence only. The
+  // ensemble result below is what gets served, stored, scored, and turned into
+  // XP or progression.
+  //
+  // Denominator honesty: EVERY debate where the classifier chooses a
+  // judge-avoidance candidate route gets a shadow record — including attempts
+  // whose deterministic scoring fails (recorded with a null shadow result and
+  // insufficientEvidence=true). Failed attempts must never disappear, or the
+  // validation dataset would be biased toward successes.
+  const candidateRoute =
+    !plan.requiresExpensiveJudge &&
+    (JUDGE_AVOIDANCE_ROUTES as string[]).includes(plan.route);
+  const shadow = candidateRoute ? deterministicRoutedResult(plan, baselineJudgeLegs) : null;
 
   // A recognised role is not enough to suppress judging when the existing
   // downstream assessment cannot produce a scoreable graph. That disagreement
   // is resolved in favour of the downstream path by falling through here.
   const ensemblePlan = effectiveEnsemblePlan(
     plan,
-    plan.requiresExpensiveJudge ? plan.reason : "Deterministic structural path was insufficient; existing ensemble remains authoritative.",
+    plan.requiresExpensiveJudge
+      ? plan.reason
+      : "Structural route is shadow-only until its adoption gate passes; the established ensemble remains authoritative.",
   );
   const ensembleRouting = routingSummary(ensemblePlan, 0);
   const primary = await import("./openrouter");
@@ -344,7 +379,44 @@ export async function liveEnsembleJudge(params: {
   }
   const ensemble = ensembleVerdicts(ok);
   recordRoutingTelemetry(ensembleRouting);
-  return { ...ensemble, routing: ensembleRouting };
+  // The authoritative result is the ensemble, always. The shadow route is
+  // attached as evidence for route-vs-ensemble validation only — including
+  // failed attempts (null shadow result), which count toward the adoption
+  // denominator instead of vanishing.
+  const roundCount = plan.arguments.length
+    ? Math.max(...plan.arguments.map((a) => a.round))
+    : null;
+  return {
+    ...ensemble,
+    routing: ensembleRouting,
+    shadowRouting: candidateRoute
+      ? buildShadowRecord({
+          routing: shadow?.routing ?? routingSummary(plan, 0),
+          ensemble: {
+            winner: ensemble.winner,
+            playerAScore: ensemble.playerAScore,
+            playerBScore: ensemble.playerBScore,
+            scoreGap: ensemble.scoreGap,
+            scoreStatus: ensemble.scoreStatus,
+          },
+          shadow: shadow
+            ? {
+                winner: shadow.winner,
+                playerAScore: shadow.playerAScore,
+                playerBScore: shadow.playerBScore,
+                scoreGap: shadow.scoreGap,
+                scoreStatus: shadow.scoreStatus,
+              }
+            : null,
+          status: classifyShadowAttemptStatus(
+            { route: plan.route, argumentCount: plan.arguments.length, fallbackCount: plan.fallbackCount },
+            shadow !== null,
+          ),
+          sizeBucket: bucketTranscriptChars(params.transcript.length),
+          roundCount,
+        })
+      : null,
+  };
 }
 
 /**
@@ -380,6 +452,10 @@ export function verdictFromEnsemble(e: EnsembleResult): PvpVerdict {
     scoreStatus: e.scoreStatus,
     observableAssessment: e.observableAssessment,
     routing: e.routing,
+    // Persist the shadow record on the verdict so route-vs-ensemble
+    // validation accumulates durably in judge_verdict jsonb. Telemetry only:
+    // readers must never take winner/scores from shadowRouting.
+    shadowRouting: e.shadowRouting ?? null,
     fingerprint: e.judges.length
       ? (() => {
           const fps = e.judges

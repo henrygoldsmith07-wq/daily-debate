@@ -46,26 +46,36 @@ describe("buildProgressSummary", () => {
 
   it("identifies strongest and weakest skills", () => {
     const summary = buildProgressSummary([
-      point({ clarity: 0.9, impactHandling: 0.3, evidenceGrounding: 0.6 }, 0),
-      point({ clarity: 0.9, impactHandling: 0.35, evidenceGrounding: 0.6 }, 1),
-      point({ clarity: 0.9, impactHandling: 0.4, evidenceGrounding: 0.6 }, 2),
+      point({ clarity: 0.9, impactHandling: 0.3, unsupportedClaimRate: 0.4 }, 0),
+      point({ clarity: 0.9, impactHandling: 0.35, unsupportedClaimRate: 0.4 }, 1),
+      point({ clarity: 0.9, impactHandling: 0.4, unsupportedClaimRate: 0.4 }, 2),
     ]);
     expect(summary.strongest?.key).toBe("clarity");
     expect(summary.weakest?.key).toBe("impact");
     expect(summary.debatesAnalysed).toBe(3);
   });
 
-  it("derives trend direction from the metric slope", () => {
+  it("derives trend direction in goodness terms for lower-is-better evidence failures", () => {
     const summary = buildProgressSummary([
-      point({ evidenceGrounding: 0.2, clarity: 0.9 }, 0),
-      point({ evidenceGrounding: 0.5, clarity: 0.9 }, 1),
-      point({ evidenceGrounding: 0.8, clarity: 0.9 }, 2),
-      point({ evidenceGrounding: 0.85, clarity: 0.9 }, 3),
+      point({ unsupportedClaimRate: 0.8, clarity: 0.9 }, 0),
+      point({ unsupportedClaimRate: 0.5, clarity: 0.9 }, 1),
+      point({ unsupportedClaimRate: 0.2, clarity: 0.9 }, 2),
+      point({ unsupportedClaimRate: 0.1, clarity: 0.9 }, 3),
     ]);
     const evidence = summary.skills.find((s) => s.key === "evidence");
     expect(evidence?.trend).toBe("up");
     const clarity = summary.skills.find((s) => s.key === "clarity");
     expect(clarity?.trend).toBe("flat");
+  });
+
+  it("shows falling fallacy and drop rates as improvement rather than slipping", () => {
+    const summary = buildProgressSummary([
+      point({ fallacyRate: 0.4, droppedArguments: 2 }, 0),
+      point({ fallacyRate: 0.2, droppedArguments: 1 }, 1),
+      point({ fallacyRate: 0.05, droppedArguments: 0 }, 2),
+    ]);
+    expect(summary.skills.find((s) => s.key === "logic")?.trend).toBe("up");
+    expect(summary.skills.find((s) => s.key === "structure")?.trend).toBe("up");
   });
 
   it("always exposes exactly the seven coached dimensions", () => {

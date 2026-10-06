@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CLASSIFIER_CONFIDENCE_POLICY,
+  CLASSIFIER_DEV_MAX_INPUT_CHARS,
   classifyArgumentBatch,
   classifyArgumentBatchDetailed,
   classifyDebateTranscript,
+  recordRoutingTelemetry,
   routeClassifiedArguments,
+  routingSummary,
 } from "./argumentRouting";
-import { ARGUMENT_ROLE_LABELS, type ArgumentClassification, type SubmittedArgument } from "./argumentTaxonomy";
+import { ARGUMENT_ROLE_LABELS, ARGUMENT_TAXONOMY_VERSION, type ArgumentClassification, type SubmittedArgument } from "./argumentTaxonomy";
 import { recentAiCalls, resetAiTelemetry } from "./aiTelemetry";
 
 function responseFor(inputs: string[]): Response {
@@ -127,5 +130,217 @@ describe("classifier.dev structural routing", () => {
     expect(plan.route).toBe("rebuttal-compare");
     // The classifier never receives or emits a correctness/winner field.
     expect(Object.keys(plan.classifications[0])).not.toContain("winner");
+  });
+});
+
+describe("classifier.dev API contract (verified against the live OpenAPI spec)", () => {
+  beforeEach(() => {
+    resetAiTelemetry();
+    vi.restoreAllMocks();
+  });
+
+  it("sends exactly the documented request shape with the versioned taxonomy", async () => {
+    const captured: { payload: Record<string, unknown> | null } = { payload: null };
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      captured.payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const inputs = captured.payload.inputs as string[];
+      return new Response(JSON.stringify({
+        tier: "fast",
+        model: "fast-1",
+        modelsUsed: ["fast-1"],
+        results: inputs.map(() => ({ label: "claim", labels: ["claim"], confidence: 0.9, scores: { claim: 0.9 } })),
+        usage: { classifications: inputs.length, escalated: 0, escalation_failed: 0, ms: 42 },
+      }), { status: 200, headers: { "content-type": "application/json", "x-api-version": "v1" } });
+    };
+    const detail = await classifyArgumentBatchDetailed(["The library should open later."], {
+      endpoint: "https://classifier.test/v1/classify",
+      fetchImpl,
+    });
+    // Request shape matches POST /v1/classify: inputs, labels, tier,
+    // instructions, multi, max_labels — and nothing else (no ids, no scores).
+    expect(Object.keys(captured.payload ?? {}).sort()).toEqual(
+      ["inputs", "instructions", "labels", "max_labels", "multi", "tier"].sort(),
+    );
+    expect(captured.payload?.tier).toBe("fast");
+    expect(String(captured.payload?.instructions)).toContain(ARGUMENT_TAXONOMY_VERSION);
+    expect(String(captured.payload?.instructions)).toMatch(/Ignore truth/);
+    // Response attribution is captured for fast-vs-smart evaluation.
+    expect(detail.tier).toBe("fast");
+    expect(detail.serverLatencyMs).toBe(42);
+    expect(detail.escalationFailed).toBeUndefined();
+    expect(detail.apiVersion).toBe("v1");
+    expect(detail.classifications[0].tier).toBe("fast");
+    expect(detail.classifications[0].model).toBe("fast-1");
+  });
+
+  it("captures per-result model attribution and smart-tier escalation", async () => {
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { inputs: string[]; tier: string };
+      expect(body.tier).toBe("smart");
+      return new Response(JSON.stringify({
+        tier: "smart",
+        model: "smart-1",
+        results: body.inputs.map(() => ({
+          label: "evidence",
+          labels: ["evidence"],
+          confidence: 0.88,
+          scores: { evidence: 0.88 },
+          escalated: true,
+          model: "smart-reasoning-1",
+        })),
+        usage: { classifications: body.inputs.length, escalated: body.inputs.length, escalation_failed: 0, ms: 900 },
+      }), { status: 200 });
+    };
+    const detail = await classifyArgumentBatchDetailed(["City data shows higher use."], { fetchImpl, tier: "smart" });
+    expect(detail.tier).toBe("smart");
+    expect(detail.classifications[0].model).toBe("smart-reasoning-1");
+    expect(detail.classifications[0].escalated).toBe(true);
+    expect(detail.serverLatencyMs).toBe(900);
+  });
+
+  it("degrades an unscored result to fallback instead of trusting its labels", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
+      model: "fast-1",
+      results: [{ label: "claim", labels: ["claim"], confidence: 0.99, scores: { claim: 0.99 }, unscored: "too_short" }],
+      usage: { classifications: 1, escalated: 0, escalation_failed: 0, ms: 5 },
+    }), { status: 200 });
+    const rows = await classifyArgumentBatch(["ok"], { fetchImpl });
+    expect(rows[0].source).toBe("fallback");
+    expect(rows[0].status).toBe("fallback");
+    expect(rows[0].errorCode).toBe("unscored_result");
+    const plan = routeClassifiedArguments(
+      [{ id: "u1", owner: "a", round: 1, text: "ok" }],
+      rows,
+    );
+    expect(plan.route).toBe("ensemble");
+  });
+
+  it("caps transmitted input length to minimise external text exposure", async () => {
+    const captured: { inputs: string[] | null } = { inputs: null };
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      captured.inputs = (JSON.parse(String(init?.body)) as { inputs: string[] }).inputs;
+      return responseFor(captured.inputs);
+    };
+    const long = "x".repeat(CLASSIFIER_DEV_MAX_INPUT_CHARS + 1_000);
+    await classifyArgumentBatch([long], { endpoint: "https://classifier.test/v1/classify", fetchImpl });
+    expect(CLASSIFIER_DEV_MAX_INPUT_CHARS).toBe(4_000);
+    expect(captured.inputs?.[0].length).toBe(CLASSIFIER_DEV_MAX_INPUT_CHARS);
+  });
+
+  it("never stores raw debate text in routing telemetry", async () => {
+    const secret = "ZebraQuill debate text that must never be telemetered";
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { inputs: string[] };
+      return responseFor(body.inputs);
+    };
+    const plan = await classifyDebateTranscript({
+      transcript: `Player A (round 1): ${secret}.`,
+      classifier: { fetchImpl },
+    });
+    recordRoutingTelemetry(routingSummary(plan, 0));
+    for (const entry of recentAiCalls(20)) {
+      expect(JSON.stringify(entry)).not.toContain("ZebraQuill");
+    }
+  });
+});
+
+describe("shadow sampling of classifier traffic", () => {
+  beforeEach(() => {
+    resetAiTelemetry();
+    vi.restoreAllMocks();
+  });
+
+  const transcript = "Player A (round 1): The library should open later.\nPlayer B (round 1): However, costs may rise.";
+
+  it("classifies every debate when no sampling key is supplied (current behaviour)", async () => {
+    let calls = 0;
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      calls += 1;
+      return responseFor((JSON.parse(String(init?.body)) as { inputs: string[] }).inputs);
+    };
+    const plan = await classifyDebateTranscript({ transcript, classifier: { fetchImpl } });
+    expect(calls).toBe(1);
+    expect(plan.shadowSampled).toBeNull();
+    expect(routingSummary(plan, 0).shadowSampled).toBeUndefined();
+  });
+
+  it("skips the remote call for non-sampled debates and stays on the ensemble", async () => {
+    let calls = 0;
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      calls += 1;
+      return responseFor((JSON.parse(String(init?.body)) as { inputs: string[] }).inputs);
+    };
+    const plan = await classifyDebateTranscript({
+      transcript,
+      classifier: { fetchImpl },
+      shadow: { key: "match-skip", rate: 0 },
+    });
+    expect(calls).toBe(0);
+    expect(plan.shadowSampled).toBe(false);
+    expect(plan.batchCount).toBe(0);
+    expect(plan.classifierSource).toBe("fallback");
+    expect(plan.fallbackCount).toBe(plan.arguments.length);
+    expect(plan.route).toBe("ensemble");
+    expect(plan.requiresExpensiveJudge).toBe(true);
+    const summary = routingSummary(plan, 0);
+    expect(summary.shadowSampled).toBe(false);
+    // Skipped debates record a routing row with no remote inputs, so traffic
+    // accounting stays honest (batchCount 0, fallbacks N).
+    expect(summary.batchCount).toBe(0);
+    expect(summary.fallbackCount).toBe(plan.arguments.length);
+    recordRoutingTelemetry(summary);
+    const routingRows = recentAiCalls(10).filter((entry) => entry.operation === "argument_routing");
+    expect(routingRows).toHaveLength(1);
+    expect(routingRows[0].inputCount).toBe(0);
+    expect(routingRows[0].classificationFallbacks).toBe(plan.arguments.length);
+  });
+
+  it("classifies sampled debates remotely and marks the decision", async () => {
+    let calls = 0;
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      calls += 1;
+      return responseFor((JSON.parse(String(init?.body)) as { inputs: string[] }).inputs);
+    };
+    const plan = await classifyDebateTranscript({
+      transcript,
+      classifier: { fetchImpl },
+      shadow: { key: "match-keep", rate: 1 },
+    });
+    expect(calls).toBe(1);
+    expect(plan.shadowSampled).toBe(true);
+    expect(routingSummary(plan, 0).shadowSampled).toBe(true);
+  });
+
+  it("records the skip reason on skipped classifications, never a winner", async () => {
+    const fetchImpl: typeof fetch = async () => { throw new Error("must not be called"); };
+    const plan = await classifyDebateTranscript({
+      transcript,
+      classifier: { fetchImpl },
+      shadow: { key: "match-skip-2", rate: 0 },
+    });
+    expect(plan.classifications.every((c) => c.errorCode === "shadow_not_sampled")).toBe(true);
+    expect(Object.keys(plan.classifications[0])).not.toContain("winner");
+  });
+
+  it("counts zero remote inputs when the remote is disabled (E2E mode)", async () => {
+    const previous = process.env.E2E_MOCK_AI;
+    process.env.E2E_MOCK_AI = "1";
+    try {
+      const detail = await classifyArgumentBatchDetailed(["The library should open later."], {});
+      expect(detail.remoteUsed).toBe(false);
+      const plan = routeClassifiedArguments(
+        [{ id: "e2e-1", owner: "a", round: 1, text: "The library should open later." }],
+        detail.classifications,
+        detail.batchCount,
+      );
+      expect(plan.classifierSource).toBe("disabled");
+      recordRoutingTelemetry(routingSummary(plan, 0));
+      const routingRows = recentAiCalls(10).filter((entry) => entry.operation === "argument_routing");
+      expect(routingRows).toHaveLength(1);
+      expect(routingRows[0].inputCount).toBe(0);
+    } finally {
+      if (previous === undefined) delete process.env.E2E_MOCK_AI;
+      else process.env.E2E_MOCK_AI = previous;
+    }
   });
 });

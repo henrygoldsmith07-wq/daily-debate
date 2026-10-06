@@ -46,6 +46,9 @@ export function VerdictExplainPanel({ verdict, playerAName, playerBName }: { ver
             ? "Scores unavailable — insufficient observable evidence"
             : `${playerAName}: ${verdict.playerAScore}/100 · ${playerBName}: ${verdict.playerBScore}/100`}
         </p>
+        {verdict.scoreStatus !== "insufficient_evidence" && (
+          <p className="text-[11px] text-ink3">Application score from the observable inputs below; not a calibrated ability rating.</p>
+        )}
         {verdict.observableAssessment && <ObservableFeaturePanel assessment={verdict.observableAssessment} playerAName={playerAName} playerBName={playerBName} />}
         {verdict.isTie && (
           <div className="rounded-xl border border-[var(--accent-soft)] bg-[var(--accent-soft)]/40 p-3">
@@ -108,22 +111,21 @@ function ObservableFeaturePanel({ assessment, playerAName, playerBName }: { asse
 }
 
 function ConfidencePanel({ verdict, playerAName, playerBName }: { verdict: PvpVerdict; playerAName: string; playerBName: string }) {
-  const confidence = verdict.confidence ?? 0;
   const multiJudge = (verdict.judges?.length ?? 0) > 1;
+  const split = verdict.judgeSplit;
+  const agreementLabel = !multiJudge
+    ? "Single-judge heuristic"
+    : split && Math.max(split.a, split.b, split.tie) >= 0.99
+      ? "Judges aligned"
+      : "Judges split";
   return (
     <div className="surface-card p-5 flex flex-col gap-3">
       <div className="flex items-baseline justify-between">
         <p className="text-xs uppercase tracking-wide text-ink3">Agreement signal (provisional)</p>
-        <p className="tabular text-xs text-ink3">{Math.round(confidence * 100)}%</p>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-ink/30 shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]">
-        <div
-          className="h-full rounded-full transition-[width]"
-          style={{ width: `${Math.max(0, Math.min(100, confidence * 100))}%`, background: confidence >= 0.7 ? "var(--good)" : confidence >= 0.5 ? "var(--accent)" : "var(--bad)" }}
-        />
+        <p className="text-xs font-medium text-ink2">{agreementLabel}</p>
       </div>
       <p className="text-xs text-ink3">
-        Provisional heuristic from the score gap and judge votes — not a calibrated probability.
+        The internal confidence heuristic combines score separation and judge votes. It is deliberately not shown as a percentage because it is not a calibrated probability.
       </p>
       {verdict.scoreGapEstimate && (
         <p className="text-xs text-ink3 tabular">

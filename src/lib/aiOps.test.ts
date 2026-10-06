@@ -60,8 +60,7 @@ describe("summariseAiOps", () => {
     expect(report.overall.errors).toBe(0);
   });
 
-  it("reports structural-routing volume, fallbacks, and judge legs avoided", () => {
-    const report = summariseAiOps([
+  it("reports structural-routing volume, fallbacks, and judge legs avoided", () => {    const report = summariseAiOps([
       {
         ...row("classify_argument_structure", "2026-06-14T09:00:00Z", { provider: "classifier", latency: 80 }),
         eventType: "model_call",
@@ -88,5 +87,35 @@ describe("summariseAiOps", () => {
       ambiguous: 1,
       byRoute: { "rebuttal-compare": 1 },
     });
+  });
+
+  it("tracks classifier latency, failures, batches, and classified arguments", () => {
+    const rows = [
+      ...[100, 200, 300, 400, 500].map((latency, i) => ({
+        ...row("classify_argument_structure", `2026-06-1${i + 1}T09:00:00Z`, { provider: "classifier", latency }),
+        eventType: "model_call" as const,
+        inputCount: 4,
+        batchCount: 1,
+      })),
+      {
+        ...row("classify_argument_structure", "2026-06-14T09:00:00Z", {
+          provider: "classifier",
+          latency: 2000,
+          ok: false,
+          errorCategory: "timeout",
+        }),
+        eventType: "model_call" as const,
+        inputCount: 4,
+        batchCount: 1,
+      },
+    ];
+    const report = summariseAiOps(rows, { now: NOW });
+    const classify = report.byOperation.find((o) => o.operation === "classify_argument_structure");
+    expect(classify?.calls).toBe(6);
+    expect(classify?.errors).toBe(1);
+    expect(classify?.errorRate).toBeCloseTo(1 / 6);
+    expect(classify?.avgLatencyMs).toBe(583);
+    expect(classify?.p95LatencyMs).toBe(2000);
+    expect(classify?.byCategory).toEqual({ timeout: 1 });
   });
 });

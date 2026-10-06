@@ -3,15 +3,21 @@
 import { useState } from "react";
 import type { ArgGraph } from "@/lib/argGraph";
 import type { RepairTarget } from "@/lib/argumentRepair";
-import { pickRepairTarget, scoreRepair, type RepairScore } from "@/lib/argumentRepair";
+import { pickRepairTarget, scoreRepair, type RepairScore, type RepairState } from "@/lib/argumentRepair";
 import { trackEvent } from "@/lib/trackClientEvent";
 
 interface RepairFeedback {
-  score: number;
+  state: RepairState;
   signals: string[];
   succeeded: boolean;
   feedback: string;
 }
+
+const REPAIR_STATE_LABEL: Record<RepairState, string> = {
+  needs_another_pass: "Needs another pass",
+  partially_repaired: "Partially repaired",
+  repair_demonstrated: "Repair demonstrated",
+};
 
 export default function ArgumentRepair({
   graph,
@@ -52,7 +58,7 @@ export default function ArgumentRepair({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to record the repair.");
       setPersisted({
-        score: data.score,
+        state: data.state,
         signals: data.signals,
         succeeded: data.succeeded,
         feedback: data.feedback,
@@ -65,10 +71,15 @@ export default function ArgumentRepair({
     }
   }
 
-  const shown = persisted ?? (result ? { ...result, succeeded: result.score >= 60, feedback: null } : null);
+  const shown = persisted ?? (result ? { ...result, succeeded: result.state === "repair_demonstrated", feedback: null } : null);
 
   return (
-    <section className="repair-panel surface-card flex flex-col gap-4 p-5" aria-labelledby="repair-title" data-testid="repair-panel">
+    <section
+      className="repair-panel surface-card flex flex-col gap-4 p-5"
+      aria-labelledby="repair-title"
+      data-testid="repair-panel"
+      data-repair-kind={target.kind}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="repair-overline">One-minute repair</p>
@@ -80,7 +91,7 @@ export default function ArgumentRepair({
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">{target.label}</span>
       </div>
 
-      <div className="repair-target">
+      <div className="repair-target" data-testid="repair-source">
         <p className="repair-target-label">From your debate</p>
         <p className="mt-1 text-sm leading-6 text-ink2">“{target.sourceText}”</p>
       </div>
@@ -122,8 +133,8 @@ export default function ArgumentRepair({
       {shown && (
         <div className="repair-result" role="status" aria-live="polite" data-testid="repair-feedback">
           <div className="flex items-baseline justify-between gap-3">
-            <p className="text-sm font-semibold">{persisted ? (persisted.succeeded ? "Repair recorded" : "Not there yet — recorded") : "Repair signal"}</p>
-            <p className="tabular text-lg font-bold">{shown.score}<span className="text-xs font-medium text-ink3">/100</span></p>
+            <p className="text-sm font-semibold">{REPAIR_STATE_LABEL[shown.state]}</p>
+            {persisted && <span className="text-xs text-ink3">Saved</span>}
           </div>
           {"feedback" in shown && shown.feedback && (
             <p className="mt-1 text-sm text-ink2">{shown.feedback}</p>
@@ -134,7 +145,7 @@ export default function ArgumentRepair({
           <ul className="mt-1 list-inside list-disc text-xs leading-5 text-ink3">
             {shown.signals.map((signal) => <li key={signal}>{signal}</li>)}
           </ul>
-          <p className="mt-2 text-xs text-ink3">Use the signals as a next move, not as a verdict on your ability. This check does not verify sources or prove mastery. Test the reasoning move on a different example, then use it without a reminder in a later debate.</p>
+          <p className="mt-2 text-xs text-ink3">This is formative practice feedback based on observable structure, not a revised debate score or a validated ability measure. The real test is whether you can use the same move later without the repair prompt.</p>
         </div>
       )}
     </section>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/backend/server";
+import { createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import {
   abilityBandFor,
@@ -7,12 +7,13 @@ import {
   deriveDynamicsTier,
   deriveEvidenceDensity,
   deriveStyleBucket,
-  isCorpusAdmin,
   lengthBucketFor,
   oppositeStance,
 } from "@/lib/corpus";
 import { assessArgumentGraph, mergeAssessmentGraphs, graphFromTurn } from "@/lib/observableAssessment";
 import { styleFeatures } from "@/lib/debateEvaluation";
+import { getRequestAuthContext } from "@/lib/requestAuth";
+import { invalidatePublicCorpusMetrics } from "@/lib/publicCorpusMetrics";
 
 // Admin-only: import finished debates into the blind-rating corpus.
 // Anonymisation happens HERE — raters never see contributor identity,
@@ -53,12 +54,10 @@ export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "corpus-import", limit: 6, windowMs: 60 * 60_000 });
   if (limited) return limited;
 
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const auth = await getRequestAuthContext();
+  const user = auth.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  if (!auth.isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -180,6 +179,8 @@ export async function POST(request: Request) {
       errors.push(`pvp ${match.id}: ${String(e)}`);
     }
   }
+
+  if (imported > 0) invalidatePublicCorpusMetrics();
 
   return NextResponse.json({ imported, errors: errors.slice(0, 20) });
 }

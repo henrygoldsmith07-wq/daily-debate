@@ -11,7 +11,8 @@
 // scripts/lib/corpus-repair.mjs). Counts from the pre-lock scan are never
 // written. Guarantees: dry-run default; reports affected ids; never deletes
 // or edits ratings; only flips open -> rated when the fresh count meets the
-// threshold; idempotent; transaction-capable DATABASE_URL required (plain
+// threshold; reopens historical rated rows below the new collection target;
+// idempotent; transaction-capable DATABASE_URL required (plain
 // postgres:// TCP - Neon HTTP endpoints cannot run transactions and are
 // refused rather than silently degraded).
 
@@ -40,17 +41,17 @@ const APPLY = process.argv.includes("--apply");
 function thresholdFromSource() {
   try {
     const src = fs.readFileSync(path.join(projectRoot, "src", "lib", "corpus.ts"), "utf8");
-    const m = src.match(/export const MIN_RATERS_PER_ITEM\s*=\s*(\d+)/);
+    const m = src.match(/export const RATING_COLLECTION_TARGET\s*=\s*(\d+)/);
     if (m) return Number(m[1]);
   } catch {
     /* fall through to flag */
   }
   return null;
 }
-const idx = process.argv.indexOf("--min-raters");
-const minRaters = idx !== -1 ? Number(process.argv[idx + 1]) : thresholdFromSource();
-if (!Number.isInteger(minRaters) || minRaters < 1) {
-  process.stderr.write("Could not resolve the rating threshold; pass --min-raters N.\n");
+const idx = process.argv.indexOf("--target-raters");
+const targetRaters = idx !== -1 ? Number(process.argv[idx + 1]) : thresholdFromSource();
+if (!Number.isInteger(targetRaters) || targetRaters < 1) {
+  process.stderr.write("Could not resolve the rating collection target; pass --target-raters N.\n");
   process.exit(2);
 }
 
@@ -64,20 +65,20 @@ try {
   // Scan is a hint list only: it widens to items one below threshold so a
   // racing final rating is still re-checked under the lock. Stale scan
   // numbers are NEVER used for writes.
-  const candidates = await repairCandidates(reader, admin, minRaters, APPLY, log);
+  const candidates = await repairCandidates(reader, admin, targetRaters, APPLY, log);
   log(`done: ${candidates.length} candidate(s) examined, ${candidates.filter((c) => c.changed).length} item(s) repaired.`);
 } finally {
   await admin.end();
   await reader.end();
 }
 
-async function repairCandidates(reader, admin, minRaters, apply, log) {
+async function repairCandidates(reader, admin, targetRaters, apply, log) {
   const query = async (text, params) => (await reader.query(text, params)).rows;
-  const found = await findCandidates(query, minRaters);
+  const found = await findCandidates(query, targetRaters);
   log(`candidate scan: ${found.length} item(s) (decisions re-taken under lock)`);
   const results = [];
   for (const candidate of found) {
-    const res = await repairItemWithLock(admin, candidate.id, minRaters, { apply });
+    const res = await repairItemWithLock(admin, candidate.id, targetRaters, { apply });
     if (res.skipped) {
       log(`  ${res.id}: ${res.skipped} (raced away) - untouched`);
       continue;
@@ -85,7 +86,7 @@ async function repairCandidates(reader, admin, minRaters, apply, log) {
     if (res.wouldChange) {
       log(
         `  ${res.id}: stored=${res.before.stored} actual=${res.actual} status ${res.before.status} -> ${res.after.status}` +
-        `${res.before.status === "rated" && res.actual < minRaters ? " (rated-below-threshold: status left, count synced)" : ""}` +
+        `${res.before.status === "rated" && res.actual < targetRaters ? " (rated-below-target: reopened for remaining ratings)" : ""}` +
         `${apply ? "" : " [would change; dry run]"}`,
       );
     }

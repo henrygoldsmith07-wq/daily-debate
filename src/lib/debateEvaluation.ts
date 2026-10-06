@@ -62,18 +62,65 @@ export interface ArgumentRoleLabelCase {
  * Small, auditable seed set for the role router. It deliberately contains
  * mixed-role moves: a real classifier evaluation must measure multi-label
  * recall rather than rewarding a forced single label.
+ *
+ * Coverage: five single-role items for each of the ten taxonomy roles, plus
+ * ten mixed-role paragraphs (the eleventh evaluation class). All motions are
+ * civically neutral (libraries, parks, schools, markets) so the set measures
+ * structural labelling only — never political or controversial judgement.
+ * New items are marked synthetic; promotion to verified_human goes through
+ * the human-corpus protocol, never by editing in place.
  */
 export const ARGUMENT_ROLE_EVAL_DATASET: readonly ArgumentRoleLabelCase[] = [
   { id: "claim-1", text: "The policy would reduce peak electricity costs.", expected: ["claim"], provenance: "synthetic" },
+  { id: "claim-2", text: "The library should extend its evening hours.", expected: ["claim"], provenance: "synthetic" },
+  { id: "claim-3", text: "A community garden would give residents fresh produce.", expected: ["claim"], provenance: "synthetic" },
+  { id: "claim-4", text: "The town festival deserves a larger budget.", expected: ["claim"], provenance: "synthetic" },
+  { id: "claim-5", text: "Shorter school days would improve student focus.", expected: ["claim"], provenance: "synthetic" },
   { id: "evidence-1", text: "According to the 2024 NREL report, storage costs fell by 18%.", expected: ["evidence"], provenance: "synthetic" },
+  { id: "evidence-2", text: "The 2023 parks survey reports 40% higher weekend use.", expected: ["evidence"], provenance: "synthetic" },
+  { id: "evidence-3", text: "According to the library audit, visits rose by 12%.", expected: ["evidence"], provenance: "synthetic" },
+  { id: "evidence-4", text: "Research on school start times links later mornings to better attendance: https://example.org/sleep-study", expected: ["evidence"], provenance: "synthetic" },
+  { id: "evidence-5", text: "City data shows recycling tonnage doubled after the bin rollout.", expected: ["evidence"], provenance: "synthetic" },
   { id: "reasoning-1", text: "Because the queue is shorter, more households can access the service.", expected: ["reasoning"], provenance: "synthetic" },
+  { id: "reasoning-2", text: "Because the pool heater failed, lessons moved indoors.", expected: ["reasoning"], provenance: "synthetic" },
+  { id: "reasoning-3", text: "More shade means the playground stays usable at noon.", expected: ["reasoning"], provenance: "synthetic" },
+  { id: "reasoning-4", text: "The grant leads to new instruments, so the music club can restart.", expected: ["reasoning"], provenance: "synthetic" },
+  { id: "reasoning-5", text: "Volunteers sort donations; therefore the pantry opens earlier.", expected: ["reasoning"], provenance: "synthetic" },
   { id: "rebuttal-1", text: "However, that cost estimate ignores the grid-upgrade requirement.", expected: ["rebuttal"], provenance: "synthetic" },
+  { id: "rebuttal-2", text: "You argue the mural harms visibility, but drivers slow down instead.", expected: ["rebuttal"], provenance: "synthetic" },
+  { id: "rebuttal-3", text: "That ignores the waiting list: demand already exceeds capacity.", expected: ["rebuttal"], provenance: "synthetic" },
+  { id: "rebuttal-4", text: "However, the night market funds the cleanup crew.", expected: ["rebuttal"], provenance: "synthetic" },
+  { id: "rebuttal-5", text: "In response, the council published the full maintenance log.", expected: ["rebuttal"], provenance: "synthetic" },
   { id: "counterexample-1", text: "One rural district kept service reliable without that subsidy.", expected: ["counterexample"], provenance: "synthetic" },
+  { id: "counterexample-2", text: "One branch kept weekend hours without extra staff.", expected: ["counterexample"], provenance: "synthetic" },
+  { id: "counterexample-3", text: "The north pool stayed open all winter as an exception.", expected: ["counterexample"], provenance: "synthetic" },
+  { id: "counterexample-4", text: "A nearby town funds its festival entirely by donations.", expected: ["counterexample"], provenance: "synthetic" },
+  { id: "counterexample-5", text: "One school kept scores steady with a four-day week.", expected: ["counterexample"], provenance: "synthetic" },
   { id: "concession-1", text: "I agree that the transition creates short-term disruption.", expected: ["concession"], provenance: "synthetic" },
+  { id: "concession-2", text: "Admittedly, the new bins overflow on holidays.", expected: ["concession"], provenance: "synthetic" },
+  { id: "concession-3", text: "Fair point: the poster campaign reached few renters.", expected: ["concession"], provenance: "synthetic" },
+  { id: "concession-4", text: "I agree the evening bus ran nearly empty.", expected: ["concession"], provenance: "synthetic" },
+  { id: "concession-5", text: "Even if turnout was low, the workshop was worth holding.", expected: ["concession"], provenance: "synthetic" },
   { id: "qualification-1", text: "That conclusion may hold only where the grid has spare capacity.", expected: ["qualification"], provenance: "synthetic" },
+  { id: "qualification-2", text: "The pool plan works unless lifeguard hiring stalls.", expected: ["qualification"], provenance: "synthetic" },
+  { id: "qualification-3", text: "In some cases the garden beds need replanting mid-season.", expected: ["qualification"], provenance: "synthetic" },
+  { id: "qualification-4", text: "That schedule generally holds, except during exams.", expected: ["qualification"], provenance: "synthetic" },
+  { id: "qualification-5", text: "Results might differ for the high-school league.", expected: ["qualification"], provenance: "synthetic" },
   { id: "question-1", text: "What evidence would show that the effect persists after year five?", expected: ["question"], provenance: "synthetic" },
+  { id: "question-2", text: "When does the farmers market move outdoors?", expected: ["question"], provenance: "synthetic" },
+  { id: "question-3", text: "Could the museum lend its exhibit for the fair?", expected: ["question"], provenance: "synthetic" },
+  { id: "question-4", text: "Who maintains the trail markers after storms?", expected: ["question"], provenance: "synthetic" },
+  { id: "question-5", text: "Should the closing time shift in winter?", expected: ["question"], provenance: "synthetic" },
   { id: "off-topic-1", text: "My favourite films this year have all been comedies.", expected: ["off-topic"], topic: "Should cities expand public transit?", provenance: "synthetic" },
+  { id: "off-topic-2", text: "I finally fixed the wobbly shelf in my garage.", expected: ["off-topic"], topic: "Should the library extend evening hours?", provenance: "synthetic" },
+  { id: "off-topic-3", text: "Penguins cannot fly but swim remarkably well.", expected: ["off-topic"], topic: "Should the town fund a night market?", provenance: "synthetic" },
+  { id: "off-topic-4", text: "My sourdough starter survived the move.", expected: ["off-topic"], topic: "Should schools start later?", provenance: "synthetic" },
+  { id: "off-topic-5", text: "Thursday chess club welcomes beginners of all ages.", expected: ["off-topic"], topic: "Should the pool open year-round?", provenance: "synthetic" },
   { id: "other-1", text: "Thanks for taking the time to debate this.", expected: ["other"], provenance: "synthetic" },
+  { id: "other-2", text: "Thanks, that covers everything I wanted to raise.", expected: ["other"], provenance: "synthetic" },
+  { id: "other-3", text: "Hello everyone, glad to be here.", expected: ["other"], provenance: "synthetic" },
+  { id: "other-4", text: "Let us take a short break before continuing.", expected: ["other"], provenance: "synthetic" },
+  { id: "other-5", text: "Noted.", expected: ["other"], provenance: "synthetic" },
   { id: "mixed-claim-evidence", text: "The policy cuts costs; Lazard's 2024 analysis reports lower levelised cost for new solar.", expected: ["claim", "evidence"], provenance: "synthetic" },
   { id: "mixed-claim-reasoning", text: "The policy improves access because the eligibility gap is smaller, so fewer people are excluded.", expected: ["claim", "reasoning"], provenance: "synthetic" },
   { id: "mixed-rebuttal-evidence", text: "That objection misses the measured result: the NIST review found failure rates fell after the upgrade.", expected: ["rebuttal", "evidence"], provenance: "synthetic" },
@@ -82,6 +129,8 @@ export const ARGUMENT_ROLE_EVAL_DATASET: readonly ArgumentRoleLabelCase[] = [
   { id: "mixed-question-qualification", text: "Could the result be different if demand doubles, and what assumption controls that?", expected: ["question", "qualification"], provenance: "synthetic" },
   { id: "mixed-evidence-reasoning", text: "Pew's survey finds higher uptake, which means the access benefit is not just theoretical.", expected: ["evidence", "reasoning"], provenance: "synthetic" },
   { id: "mixed-claim-off-topic", text: "The proposal is important, but I also want to mention my weekend plans.", expected: ["claim", "off-topic"], topic: "Should the proposal be adopted?", provenance: "synthetic" },
+  { id: "mixed-evidence-qualification", text: "The 2024 audit reports higher footfall, though weekends may still need extra staff.", expected: ["evidence", "qualification"], provenance: "synthetic" },
+  { id: "mixed-claim-concession", text: "The market should open weekly; I agree the first month will be quiet.", expected: ["claim", "concession"], provenance: "synthetic" },
 ] as const;
 
 export interface ArgumentRoleLabelMetrics {

@@ -48,3 +48,16 @@ export function updateStreak(
   };
 }
 
+
+
+/**
+ * Length-normalized deterministic performance index.
+ * Turn points are on the existing 0–50 observable scale; performance maps the
+ * mean turn score to 0–100 so a 12-round debate is comparable with a 5-round one.
+ */
+export function performanceScoreForTurns(turnScores: Array<number | null | undefined>): number {
+  const valid = turnScores.filter((score): score is number => typeof score === "number" && Number.isFinite(score));
+  if (!valid.length) return 0;
+  const average = valid.reduce((sum, score) => sum + score, 0) / valid.length;
+  return Math.max(0, Math.min(100, Math.round((average / 50) * 100)));
+}

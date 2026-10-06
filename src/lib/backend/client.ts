@@ -4,7 +4,7 @@ import { AuthApi, type CookieStore, type ResetTokenSender } from "./auth";
 import { tableQuery, type TableName } from "./query";
 import { queryRows } from "./sql";
 
-type RpcArgs = Record<string, string | number>;
+type RpcArgs = Record<string, string | number | boolean | null>;
 
 export class BackendClient {
   readonly auth: AuthApi;
@@ -21,8 +21,25 @@ export class BackendClient {
     name:
       | "increment_rate_limit"
       | "increment_total_points"
+      | "claim_solo_debate_finalization"
+      | "release_solo_debate_finalization"
+      | "finalize_solo_debate_v3"
+      | "finalize_solo_debate_v4"
+      | "claim_solo_debate_start"
+      | "release_solo_debate_start"
+      | "complete_solo_debate_start"
+      | "start_solo_turn_window"
+      | "claim_solo_turn_submission"
+      | "commit_staged_solo_turn_for_finish"
+      | "release_solo_turn_submission"
+      | "finalize_solo_turn_submission"
+      | "refresh_solo_debate_finalization"
       | "claim_pvp_opponent_and_create_match"
-      | "enqueue_pvp_if_unmatched",
+      | "enqueue_pvp_if_unmatched"
+      | "join_pvp_queue_and_match"
+      | "create_friend_challenge"
+      | "create_friend_challenge_v2"
+      | "accept_friend_challenge",
     args: RpcArgs,
   ) {
     try {
@@ -33,9 +50,182 @@ export class BackendClient {
         );
         return { data, error: null };
       }
+      if (name === "claim_solo_debate_finalization") {
+        const rows = await queryRows<{ claimed: boolean }>(
+          "SELECT claim_solo_debate_finalization($1, $2, $3, $4) AS claimed",
+          [args.p_debate_id, args.p_user_id, args.p_token, args.p_stale_after_seconds],
+        );
+        return { data: rows[0]?.claimed === true, error: null };
+      }
+      if (name === "release_solo_debate_finalization") {
+        const rows = await queryRows<{ released: boolean }>(
+          "SELECT release_solo_debate_finalization($1, $2, $3) AS released",
+          [args.p_debate_id, args.p_user_id, args.p_token],
+        );
+        return { data: rows[0]?.released === true, error: null };
+      }
+      if (name === "finalize_solo_debate_v4") {
+        const rows = await queryRows<{ finalized: boolean }>(
+          `SELECT finalize_solo_debate_v4(
+            $1, $2, $3, $4, $5, $6, $7::timestamptz, $8::jsonb, $9::jsonb,
+            $10::boolean, $11::uuid, $12::boolean, $13::boolean, $14
+          ) AS finalized`,
+          [
+            args.p_debate_id,
+            args.p_user_id,
+            args.p_token,
+            args.p_total_score,
+            args.p_bonus_xp,
+            args.p_points_per_level,
+            args.p_completed_at,
+            args.p_coaching,
+            args.p_result_payload,
+            args.p_has_retest,
+            args.p_repair_result_id,
+            args.p_retest_observable,
+            args.p_retest_demonstrated,
+            args.p_current_category,
+          ],
+        );
+        return { data: rows[0]?.finalized === true, error: null };
+      }
+      if (name === "finalize_solo_debate_v3") {
+        const rows = await queryRows<{ finalized: boolean }>(
+          `SELECT finalize_solo_debate_v3(
+            $1, $2, $3, $4, $5, $6, $7::timestamptz, $8::jsonb, $9::jsonb,
+            $10::boolean, $11::uuid, $12::boolean, $13::boolean
+          ) AS finalized`,
+          [
+            args.p_debate_id,
+            args.p_user_id,
+            args.p_token,
+            args.p_total_score,
+            args.p_bonus_xp,
+            args.p_points_per_level,
+            args.p_completed_at,
+            args.p_coaching,
+            args.p_result_payload,
+            args.p_has_retest,
+            args.p_repair_result_id,
+            args.p_retest_observable,
+            args.p_retest_demonstrated,
+          ],
+        );
+        return { data: rows[0]?.finalized === true, error: null };
+      }
+      if (name === "claim_solo_debate_start") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          "SELECT claim_solo_debate_start($1, $2, $3::uuid, $4) AS result",
+          [args.p_user_id, args.p_topic_id, args.p_token, args.p_stale_after_seconds],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "release_solo_debate_start") {
+        const rows = await queryRows<{ released: boolean }>(
+          "SELECT release_solo_debate_start($1, $2, $3::uuid) AS released",
+          [args.p_user_id, args.p_topic_id, args.p_token],
+        );
+        return { data: rows[0]?.released === true, error: null };
+      }
+      if (name === "complete_solo_debate_start") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          `SELECT complete_solo_debate_start(
+            $1, $2, $3::uuid, $4, $5, $6::jsonb, $7, $8, $9::uuid, $10::uuid, $11
+          ) AS result`,
+          [
+            args.p_user_id,
+            args.p_topic_id,
+            args.p_token,
+            args.p_side,
+            args.p_format,
+            args.p_coaching,
+            args.p_ai_message,
+            args.p_side_rule,
+            args.p_repair_result_id,
+            args.p_repair_debate_id,
+            args.p_target_kind,
+          ],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "start_solo_turn_window") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          "SELECT start_solo_turn_window($1, $2, $3, $4, $5) AS result",
+          [args.p_debate_id, args.p_user_id, args.p_turn_id, args.p_mode, args.p_limit_seconds],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "claim_solo_turn_submission") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          `SELECT claim_solo_turn_submission(
+            $1, $2, $3, $4::uuid, $5, $6::boolean, $7, $8, $9::jsonb, $10,
+            $11::jsonb, $12::jsonb, $13, $14
+          ) AS result`,
+          [
+            args.p_debate_id,
+            args.p_user_id,
+            args.p_turn_id,
+            args.p_token,
+            args.p_mode,
+            args.p_require_window,
+            args.p_user_message,
+            args.p_input_mode,
+            args.p_scores,
+            args.p_turn_score,
+            args.p_assessment,
+            args.p_training_meta,
+            args.p_elapsed_seconds,
+            args.p_stale_after_seconds,
+          ],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "commit_staged_solo_turn_for_finish") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          "SELECT commit_staged_solo_turn_for_finish($1, $2, $3, $4, $5) AS result",
+          [args.p_debate_id, args.p_user_id, args.p_turn_id, args.p_min_rounds, args.p_stale_after_seconds],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "release_solo_turn_submission") {
+        const rows = await queryRows<{ released: boolean }>(
+          "SELECT release_solo_turn_submission($1, $2, $3, $4::uuid) AS released",
+          [args.p_debate_id, args.p_user_id, args.p_turn_id, args.p_token],
+        );
+        return { data: rows[0]?.released === true, error: null };
+      }
+      if (name === "finalize_solo_turn_submission") {
+        const rows = await queryRows<{ result: Record<string, unknown> | null }>(
+          "SELECT finalize_solo_turn_submission($1, $2, $3, $4::uuid, $5, $6, $7) AS result",
+          [
+            args.p_debate_id,
+            args.p_user_id,
+            args.p_turn_id,
+            args.p_token,
+            args.p_feedback,
+            args.p_next_round_number,
+            args.p_next_ai_message,
+          ],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
+      }
+      if (name === "refresh_solo_debate_finalization") {
+        const rows = await queryRows<{ refreshed: boolean }>(
+          "SELECT refresh_solo_debate_finalization($1, $2, $3::uuid) AS refreshed",
+          [args.p_debate_id, args.p_user_id, args.p_token],
+        );
+        return { data: rows[0]?.refreshed === true, error: null };
+      }
       if (name === "claim_pvp_opponent_and_create_match") {
         const rows = await queryRows<Record<string, unknown>>(
           "SELECT * FROM claim_pvp_opponent_and_create_match($1, $2, $3)",
+          [args.p_joiner, args.p_topic_id, args.p_round_limit],
+        );
+        return { data: rows, error: null };
+      }
+      if (name === "join_pvp_queue_and_match") {
+        const rows = await queryRows<Record<string, unknown>>(
+          "SELECT * FROM join_pvp_queue_and_match($1, $2, $3)",
           [args.p_joiner, args.p_topic_id, args.p_round_limit],
         );
         return { data: rows, error: null };
@@ -48,6 +238,27 @@ export class BackendClient {
           [args.p_user, args.p_topic_id],
         );
         return { data: rows[0]?.queued === true, error: null };
+      }
+      if (name === "create_friend_challenge") {
+        const rows = await queryRows<Record<string, unknown>>(
+          "SELECT * FROM create_friend_challenge($1, $2, $3, $4)",
+          [args.p_challenger, args.p_topic_id, args.p_challenger_side, args.p_expiry_days],
+        );
+        return { data: rows, error: null };
+      }
+      if (name === "create_friend_challenge_v2") {
+        const rows = await queryRows<Record<string, unknown>>(
+          "SELECT * FROM create_friend_challenge_v2($1, $2, $3, $4)",
+          [args.p_challenger, args.p_topic_id, args.p_challenger_side, args.p_expiry_days],
+        );
+        return { data: rows, error: null };
+      }
+      if (name === "accept_friend_challenge") {
+        const rows = await queryRows<Record<string, unknown>>(
+          "SELECT * FROM accept_friend_challenge($1, $2, $3)",
+          [args.p_code, args.p_opponent, args.p_round_limit],
+        );
+        return { data: rows, error: null };
       }
       const rows = await queryRows<{ value: number }>(
         "SELECT increment_total_points($1, $2, $3) AS value",

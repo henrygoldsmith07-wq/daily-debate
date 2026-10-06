@@ -59,19 +59,81 @@ export function isRootHomepage(url?: string): boolean {
   try {
     const u = new URL(url);
     if (u.protocol !== "https:" && u.protocol !== "http:") return false;
-    // Root only: pathname must be / or empty, no deep article path, no query-based article id
+    // This field identifies the institution, not an article. Accept the
+    // origin only: no path, query, or fragment that could smuggle a different
+    // resource under an otherwise plausible source name.
     const path = u.pathname.replace(/\/+$/, "") || "/";
-    if (path !== "/" && path.split("/").filter(Boolean).length > 1) return false;
-    return true;
+    return path === "/" && !u.search && !u.hash;
   } catch { return false; }
+}
+
+function hostnameFor(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+export interface CitationIdentityCheck {
+  verified: boolean;
+  expectedHomepage: string | null;
+  reason: string;
+}
+
+/**
+ * A known source name is only a verified identity when its supplied root
+ * domain matches the domain registered in KNOWN_SOURCES. This prevents a
+ * citation such as "NREL — https://example.com" from inheriting NREL's trust.
+ */
+export function citationIdentityCheck(c: { sourceName: string; homepage?: string }): CitationIdentityCheck {
+  const expectedHomepage = homepageFor(c.sourceName);
+  if (!expectedHomepage) {
+    return { verified: false, expectedHomepage: null, reason: "Source is not in the registered source list." };
+  }
+  if (!c.homepage) {
+    return { verified: false, expectedHomepage, reason: "Source homepage is missing." };
+  }
+  if (!isRootHomepage(c.homepage)) {
+    return { verified: false, expectedHomepage, reason: "Source homepage must be a root URL." };
+  }
+
+  const actualHost = hostnameFor(c.homepage);
+  const expectedHost = hostnameFor(expectedHomepage);
+  if (!actualHost || !expectedHost || actualHost !== expectedHost) {
+    return {
+      verified: false,
+      expectedHomepage,
+      reason: `Source domain does not match the registered domain for ${c.sourceName}.`,
+    };
+  }
+
+  return { verified: true, expectedHomepage, reason: "Source name and registered domain match." };
 }
 
 export function verifyCitation(c: { sourceName: string; homepage?: string }): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
-  if (!c.sourceName?.trim()) issues.push({ message: "Empty sourceName", kind: "hallucination" });
-  else if (!isKnownSource(c.sourceName)) issues.push({ message: `Unknown source: ${c.sourceName}`, kind: "unknown_source" });
-  if (c.homepage && !isRootHomepage(c.homepage)) issues.push({ message: `Homepage must be root only (no article URL): ${c.homepage}`, kind: "bad_url" });
-  if (!c.homepage) issues.push({ message: `Missing homepage for ${c.sourceName} — add root URL`, kind: "missing_homepage" });
+  const hasName = Boolean(c.sourceName?.trim());
+  const known = hasName && isKnownSource(c.sourceName);
+
+  if (!hasName) issues.push({ message: "Empty sourceName", kind: "hallucination" });
+  else if (!known) issues.push({ message: `Unknown source: ${c.sourceName}`, kind: "unknown_source" });
+
+  if (!c.homepage) {
+    issues.push({ message: `Missing homepage for ${c.sourceName} — add root URL`, kind: "missing_homepage" });
+  } else if (!isRootHomepage(c.homepage)) {
+    issues.push({ message: `Homepage must be root only (no article URL): ${c.homepage}`, kind: "bad_url" });
+  } else if (known) {
+    const identity = citationIdentityCheck(c);
+    if (!identity.verified) {
+      const expectedHost = identity.expectedHomepage ? hostnameFor(identity.expectedHomepage) : null;
+      const actualHost = hostnameFor(c.homepage);
+      issues.push({
+        message: `Homepage domain for ${c.sourceName} must match ${expectedHost ?? "the registered source"}; got ${actualHost ?? "invalid host"}`,
+        kind: "bad_url",
+      });
+    }
+  }
   return issues;
 }
 
