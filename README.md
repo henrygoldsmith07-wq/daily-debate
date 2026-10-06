@@ -104,7 +104,9 @@ Authenticated users get the full daily-topic experience. Signed-out users get a 
 
 The Vercel project must point its **Root Directory** at the repository root (this is a standalone repo) with the framework preset left on **Next.js**.
 
-Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only checks for the app's signed-in session cookie; it performs no database or third-party network work, so a backend outage cannot crash Vercel Routing Middleware. Without `DATABASE_URL`, `/` remains available in guest mode, `/login` explains that sign-in is unavailable, and protected pages redirect there. Set the variables in **Settings → Environment Variables** for Production, Preview, and Development, run the migration against that database, then redeploy:
+Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only checks for the app's signed-in session cookie; it performs no database or third-party network work, so a backend outage cannot crash Vercel Routing Middleware. Without `DATABASE_URL`, `/` remains available in guest mode, `/login` explains that sign-in is unavailable, and protected pages redirect there.
+
+**Previews must never share the production database.** Scope `DATABASE_URL` to **Production only**; point Preview (and local Development) at their own database — the Vercel–Neon integration can create a Neon branch per preview automatically, or set a dedicated `DATABASE_URL` override for the Preview environment. Sharing one URL across environments lets a preview build run migrations against production and leak preview writes into prod data. Redeploy after setting variables:
 
 | Variable | Required | Notes |
 | --- | --- | --- |
@@ -119,6 +121,8 @@ Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only chec
 | `APP_BASE_URL` | recommended | Canonical public origin used in reset links, for example `https://debate.example.com`. Vercel production URL is used as a fallback. |
 
 After setting `DATABASE_URL`, run `npm run db:migrate` locally against the same database before deploying authenticated features.
+
+**Deploys migrate themselves.** Production builds run pending migrations before `next build` (see `scripts/vercel-build.mjs`); a failed migration fails the build so the previous deployment stays live. Preview builds skip migrations unless `MIGRATE_ON_PREVIEW=1` is set for a preview-scoped database. Check ledger state any time with `npm run db:status` (non-zero exit while migrations are pending); `npm run db:policy` enforces the expand/contract rule (destructive SQL needs a `-- destructive-ok: <reason>` marker).
 
 ## Tests
 
