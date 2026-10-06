@@ -227,7 +227,9 @@ d("delete_app_account (migration 037)", () => {
        )::int AS n`,
       [other, rater, unrelatedMatchId, cleanInvite.rows[0].id, otherItemId],
     );
-    expect(intact.rows[0].n).toBe(10);
+    // 2 users + 2 profiles + unrelated match + its turn + clean invite +
+    // other's corpus item + rater's rating on it + rater's report + other's event
+    expect(intact.rows[0].n).toBe(11);
 
     // The victim's rating on someone else's item is gone; nothing else moved.
     const victimRatingGone = await pool.query<{ n: number }>(
