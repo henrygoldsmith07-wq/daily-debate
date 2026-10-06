@@ -69,7 +69,7 @@ describe("buildSkillJourney", () => {
     const entry = journey[0];
     expect(entry.label).toBe("Rebuttal");
     expect(entry.trigger?.detail).toMatch(/unanswered/);
-    expect(entry.repair?.state).toBe("repair-demonstrated");
+    expect(entry.repair?.state).toBe("repair_demonstrated");
     expect(entry.retest?.outcome).toBe("skill-observed");
     expect(entry.laterObservations.length).toBeGreaterThanOrEqual(2);
     expect(entry.currentState).toMatch(/rebuttal/i);

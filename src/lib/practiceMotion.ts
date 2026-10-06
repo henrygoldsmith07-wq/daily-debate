@@ -1,17 +1,22 @@
 // Practice motion resolution — one motion per user per session, chosen under
 // rules that protect the measurement.
 //
-// The shared daily motion stays the product's identity; personalisation only
-// decides which motion best serves ONE user's practice today, and only within
-// hard constraints:
-//   - a deliberate retest MUST use a different topic from the repaired debate;
-//   - repeated exposure to the same category is avoided;
-//   - the motion is always explainable in one sentence.
+// The shared daily motion stays the product's identity and the default; this
+// module only swaps it when the swap clearly serves the user:
 //
-// Server module (DB access); the selection rules live in topicPersonalisation.ts.
+//   - a due deliberate retest needs a genuinely different topic from the
+//     repaired debate — if today's shared motion collides with that topic, a
+//     different motion is served so the retest can actually happen (the
+//     different-topic rule is the measurement, never decoration);
+//   - a repair made today never becomes a same-day "retest": the retest stays
+//     queued for a later session, and the shared motion stands;
+//   - with no retest due, repeated exposure to the same category is softened
+//     by a personalised pick, and the reason is always one honest sentence.
+//
+// Server module (DB access); the pure selection rules live in
+// topicPersonalisation.ts and are covered by its own tests.
 
 import { createServiceClient } from "./backend/server";
-import { getTodayTopic } from "./dailyTopic";
 import {
   pickPracticeMotion,
   pickRetestMotion,
@@ -20,150 +25,155 @@ import {
   type MotionChoice,
 } from "./topicPersonalisation";
 import type { CoachDimension } from "./adaptiveCoach";
+import { isDifferentRetestContext } from "./repairRetest";
 import type { DailyTopic } from "./types";
 
-export interface PracticeMotion {
+export interface ResolvedMotion {
   topic: DailyTopic;
-  choice: MotionChoice;
-  reasonLine: string;
-  /** Set when this motion is a deliberate retest of a specific repair. */
-  retest: {
-    repairId: string;
-    kind: string;
-    repairedTopicId: string | null;
-    repairedTopicTitle: string | null;
-    repairedAt: string;
-    focus: CoachDimension | null;
-  } | null;
+  /** One-sentence "why this motion", or null when it is simply today's shared motion. */
+  reasonLine: string | null;
+  /** True when the shared daily motion is being served unchanged. */
+  isShared: boolean;
+  /** The retest this motion is meant to serve, if any. */
+  servesRetest: boolean;
 }
 
-interface RepairRow {
-  id: string;
-  debate_id: string;
-  target_kind: string;
-  created_at: string;
-  retest_debate_id: string | null;
+export interface DueRetest {
+  /** Topic of the REPAIRED debate — the retest must differ from it. */
+  topicId: string | null;
+  /** When the repair happened. The Postgres layer returns timestamptz as Date. */
+  attemptedAt: string | Date;
+  dimension: CoachDimension;
+}
+
+/** How many historical motions form the personalisation pool. */
+const POOL_LIMIT = 30;
+/** How many recent debates drive the exposure-avoidance read. */
+const HISTORY_LIMIT = 10;
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 /**
- * Resolve the motion for this user's next practice session.
- * `dueRetest` is passed by the caller (Today already knows the priority
- * order); when present the different-topic rule decides everything.
+ * Calendar day of a timestamp. The Postgres layer returns timestamptz values
+ * as Date objects, so never assume a string — normalise through Date.
  */
-export async function resolvePracticeMotion(opts: {
-  dueRetest: {
-    repair: RepairRow;
-    repairedTopicId: string | null;
-    repairedTopicTitle: string | null;
-    focus: CoachDimension | null;
-  } | null;
-  focus?: CoachDimension | null;
-}): Promise<PracticeMotion> {
-  const db = createServiceClient();
-  const daily = await getTodayTopic();
+function dayOf(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toISOString().slice(0, 10);
+}
 
-  // Candidate pool: the shared daily motion + recent stored motions the user
-  // has not debated. Real rows only — every candidate id is a valid topic_id.
-  const [{ data: recentTopics }, { data: recentDebates }] = await Promise.all([
+/**
+ * Resolve the motion for this user's next practice session. `dueRetest` is the
+ * oldest unresolved repair retest (the caller already holds coaching context);
+ * when it is due, the different-topic rule decides everything else.
+ */
+export async function resolvePracticeMotion(input: {
+  userId: string;
+  shared: DailyTopic;
+  dueRetest: DueRetest | null;
+  focus?: CoachDimension | null;
+}): Promise<ResolvedMotion> {
+  const { userId, shared, dueRetest, focus = null } = input;
+  const db = createServiceClient();
+
+  const [{ data: poolRows }, { data: recentDebates }] = await Promise.all([
     db
       .from("daily_topics")
       .select("id, title, prompt, category")
       .order("created_at", { ascending: false })
-      .limit(30),
+      .limit(POOL_LIMIT),
     db
       .from("solo_debates")
-      .select("topic_id, completed_at")
+      .select("topic_id")
+      .eq("user_id", userId)
       .eq("status", "completed")
       .order("completed_at", { ascending: false })
-      .limit(10),
+      .limit(HISTORY_LIMIT),
   ]);
 
-  const debatedTopicIds = new Set((recentDebates ?? []).map((d) => d.topic_id as string));
-  const candidates: MotionCandidate[] = (recentTopics ?? [])
-    .map((t) => ({
-      id: t.id as string,
-      title: t.title as string,
-      prompt: t.prompt as string,
-      category: (t.category as string | null) ?? null,
-      debateCount: debatedTopicIds.has(t.id as string) ? 1 : 0,
-    }))
-    .filter((t) => t.id === daily.id || !debatedTopicIds.has(t.id));
+  const pool: MotionCandidate[] = (poolRows ?? []).map((row) => ({
+    id: row.id as string,
+    title: row.title as string,
+    prompt: row.prompt as string,
+    category: (row.category as string | null) ?? null,
+  }));
+  const alternatives = pool.filter((m) => m.id !== shared.id);
+  const daily: MotionCandidate = {
+    id: shared.id,
+    title: shared.title,
+    prompt: shared.prompt,
+    category: shared.category,
+  };
 
-  const pool = candidates.length ? candidates : [
-    { id: daily.id, title: daily.title, prompt: daily.prompt, category: daily.category },
-  ];
+  // Exposure read: categories of the debates this user actually did recently.
+  const debatedIds = (recentDebates ?? []).map((row) => row.topic_id as string);
+  const recentCategories = debatedIds.length
+    ? (pool.filter((m) => debatedIds.includes(m.id)).map((m) => m.category ?? "").filter(Boolean))
+    : [];
 
-  // ── Deliberate retest: the different-topic rule decides the motion ──────
-  if (opts.dueRetest) {
-    const { repair, repairedTopicId, repairedTopicTitle, focus } = opts.dueRetest;
-    const repairedTopic = repairedTopicId
-      ? (recentTopics ?? []).find((t) => t.id === repairedTopicId)
-      : null;
-    const repairedCategory =
-      (repairedTopic?.category as string | null) ??
-      // The repaired debate's topic may be older than the pool window; its
-      // category is only a preference, the id is the hard rule.
-      null;
-    const choice =
-      pickRetestMotion(pool, repairedTopicId ?? repair.debate_id, repairedCategory) ??
-      // Nothing else available: any motion with a different id satisfies the
-      // measurement rule; if even that is impossible, fall back to the daily
-      // motion and say so honestly.
-      ({ motion: pool[0], reason: "The only motion available today — note that it reuses your repaired topic.", isDaily: pool[0].id === daily.id });
+  // ── A retest is due: the different-topic rule decides the motion ─────────
+  if (dueRetest) {
+    // Canonical eligibility (repairRetest.ts): the retest only counts on a
+    // genuinely different topic, and a repair made today never retests today —
+    // a same-day replay of the repaired motion is practice, not transfer.
+    const eligibleNow = isDifferentRetestContext(dueRetest.topicId, shared.id);
+    if (eligibleNow) {
+      return { topic: shared, reasonLine: null, isShared: true, servesRetest: true };
+    }
 
-    return {
-      topic: await topicRowFor(db, choice.motion.id, daily),
-      choice,
-      reasonLine: motionReasonLine(choice, {
-        daily: { id: daily.id, title: daily.title, prompt: daily.prompt, category: daily.category },
-        alternatives: pool,
-        recentCategories: [],
-        retestAvoid: { topicId: repairedTopicId ?? repair.debate_id, category: repairedCategory },
-        focus,
-      }),
-      retest: {
-        repairId: repair.id,
-        kind: repair.target_kind,
-        repairedTopicId,
-        repairedTopicTitle,
-        repairedAt: repair.created_at,
-        focus,
-      },
-    };
+    const repairedToday = dayOf(dueRetest.attemptedAt) === todayIso();
+    const collides = dueRetest.topicId === shared.id;
+    if (collides && !repairedToday && dueRetest.topicId) {
+      // The retest is due but today's motion would reuse the repaired topic.
+      // Serve a different motion so the retest can actually happen.
+      const repairedCategory = pool.find((m) => m.id === dueRetest.topicId)?.category ?? null;
+      const choice = pickRetestMotion([shared, ...alternatives], dueRetest.topicId, repairedCategory);
+      if (choice && isDifferentRetestContext(dueRetest.topicId, choice.motion.id)) {
+        return {
+          topic: await fullTopicFor(db, choice.motion.id, shared),
+          reasonLine: motionReasonLine(choice, {
+            daily,
+            alternatives,
+            recentCategories,
+            retestAvoid: { topicId: dueRetest.topicId, category: repairedCategory },
+            focus: dueRetest.dimension,
+          }),
+          isShared: false,
+          servesRetest: true,
+        };
+      }
+    }
+    // Same-topic collision (or an unverifiable repaired topic): keep the
+    // shared motion and let the retest stay queued rather than break the
+    // measurement.
+    return { topic: shared, reasonLine: null, isShared: true, servesRetest: false };
   }
 
-  // ── Ordinary practice: shared motion by default, personalised when it     ─
-  //    clearly beats repetition.
-  const recentCategories = (recentDebates ?? [])
-    .map((d) => (recentTopics ?? []).find((t) => t.id === d.topic_id)?.category as string | null)
-    .filter((c): c is string => !!c);
-  const choice = pickPracticeMotion({
-    daily: { id: daily.id, title: daily.title, prompt: daily.prompt, category: daily.category },
-    alternatives: pool,
+  // ── No retest due: shared motion by default, personalised when stale ─────
+  const choice: MotionChoice = pickPracticeMotion({
+    daily,
+    alternatives,
     recentCategories,
-    focus: opts.focus ?? null,
-    experience: Math.min(1, (recentDebates?.length ?? 0) / 10),
+    focus,
+    experience: Math.min(1, debatedIds.length / HISTORY_LIMIT),
   });
   return {
-    topic: await topicRowFor(db, choice.motion.id, daily),
-    choice,
-    reasonLine: motionReasonLine(choice, {
-      daily: { id: daily.id, title: daily.title, prompt: daily.prompt, category: daily.category },
-      alternatives: pool,
-      recentCategories,
-      focus: opts.focus ?? null,
-    }),
-    retest: null,
+    topic: choice.isDaily ? shared : await fullTopicFor(db, choice.motion.id, shared),
+    reasonLine: choice.isDaily ? null : motionReasonLine(choice, { daily, alternatives, recentCategories, focus }),
+    isShared: choice.isDaily,
+    servesRetest: false,
   };
 }
 
-/** Full topic row for a candidate id; the shared daily row is the fallback. */
-async function topicRowFor(
+/** Full topic row for a pool id; the shared daily row is the fallback. */
+async function fullTopicFor(
   db: ReturnType<typeof createServiceClient>,
   id: string,
-  daily: DailyTopic,
+  shared: DailyTopic,
 ): Promise<DailyTopic> {
-  if (id === daily.id) return daily;
+  if (id === shared.id) return shared;
   const { data } = await db.from("daily_topics").select("*").eq("id", id).maybeSingle();
-  return (data as unknown as DailyTopic) ?? daily;
+  return (data as unknown as DailyTopic) ?? shared;
 }

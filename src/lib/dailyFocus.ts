@@ -12,20 +12,21 @@
 
 export type PriorityKind = "repair" | "retest" | "drill" | "debate";
 
-export interface PriorityInput {
-  /** A finished debate with an identified weakness and no completed repair. */
-  unresolvedRepair: { debateId: string; kind: string } | null;
-  /** A successful repair whose deliberate retest is still owed. */
+export interface PriorityInputs {
+  /** A debate whose weakness is not yet successfully repaired. */
+  unfinishedRepair: {
+    debateId: string;
+    label: string;
+    nextCue: string | null;
+  } | null;
+  /** A successful repair whose deliberate retest is due on a different topic. */
   dueRetest: {
-    repairId: string;
-    kind: string;
-    /** Topic the repair happened on — the retest must differ. */
-    repairedTopicId: string | null;
-    repairedTopicTitle: string | null;
-    repairedAt: string;
+    label: string;
   } | null;
   /** Today's drill assignment, when unattempted. */
-  activeDrill: { id: string; title: string; dimension: string } | null;
+  openDrill: {
+    title: string;
+  } | null;
   /** Whether today's debate still awaits the user. */
   debateAvailable: boolean;
 }
@@ -42,49 +43,38 @@ export interface PriorityAction {
   href: string;
 }
 
-const KIND_LABEL: Record<string, string> = {
-  evidence: "Evidence",
-  rebuttal: "Rebuttal",
-  logic: "Logic",
-  impact: "Impact",
-  structure: "Structure",
-  clarity: "Clarity",
-};
-
-export function kindLabel(kind: string): string {
-  return KIND_LABEL[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
-}
-
 /**
  * The single highest-priority unfinished action, or null when there is
  * nothing to continue (the user simply debates today).
  */
-export function pickPriority(input: PriorityInput): PriorityAction | null {
-  if (input.unresolvedRepair) {
-    const label = kindLabel(input.unresolvedRepair.kind);
+export function pickPriority(input: PriorityInputs): PriorityAction | null {
+  if (input.unfinishedRepair) {
+    const label = input.unfinishedRepair.label.toLowerCase();
     return {
       kind: "repair",
-      title: `Finish your ${label.toLowerCase()} repair`,
+      title: `Finish the ${label} rewrite`,
       detail:
-        "A debate ended with one weakness identified but not yet repaired. The repair takes about a minute and is the most valuable part of the loop.",
+        input.unfinishedRepair.nextCue
+          ? `One weakness is still open from your last debate. Next cue: ${input.unfinishedRepair.nextCue}`
+          : "One weakness is still open from your last debate. The repair takes about a minute and is the most valuable part of the loop.",
       action: "Resume the repair",
-      href: `/debate/${input.unresolvedRepair.debateId}`,
+      href: `/debate/${input.unfinishedRepair.debateId}`,
     };
   }
   if (input.dueRetest) {
-    const label = kindLabel(input.dueRetest.kind);
     return {
       kind: "retest",
-      title: `Retest: ${label.toLowerCase()} is due`,
-      detail: `You repaired ${label.toLowerCase()} after an earlier debate. Today's goal is to see whether you use it naturally, on a different motion.`,
-      action: "Start the retest",
+      title: `Retest: ${input.dueRetest.label.toLowerCase()} is due`,
+      detail:
+        "You repaired this skill in an earlier debate. Today's goal is to see whether it shows up naturally, on a different motion.",
+      action: "Start today's retest",
       href: "/",
     };
   }
-  if (input.activeDrill) {
+  if (input.openDrill) {
     return {
       kind: "drill",
-      title: `Today's drill: ${input.activeDrill.title}`,
+      title: `Today's drill: ${input.openDrill.title}`,
       detail: "A short exercise on your current training focus. About three minutes.",
       action: "Open the drill",
       href: "/",

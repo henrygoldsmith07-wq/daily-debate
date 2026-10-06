@@ -15,19 +15,13 @@
 import type { DebateWeaknessRow } from "./repairEffectiveness";
 import { weaknessKindsFor, hasOpportunity } from "./repairEffectiveness";
 import { isRepairKind } from "./argumentRepair";
+import { REPAIR_KIND_TO_DIMENSION as CANONICAL_KIND_TO_DIMENSION } from "./repairRetest";
 import type { RepairRecord, RetestOutcome } from "./retest";
-import { RETEST_OUTCOME_LABELS, LONGITUDINAL_MIN_OBSERVATIONS } from "./retest";
+import { RETEST_OUTCOME_LABELS, LONGITUDINAL_MIN_OBSERVATIONS, formativeStateFor } from "./retest";
 import type { CoachDimension } from "./adaptiveCoach";
 import { DIMENSION_LABELS } from "./adaptiveCoach";
 
-export const REPAIR_KIND_TO_DIMENSION: Record<string, CoachDimension> = {
-  evidence: "evidence",
-  rebuttal: "rebuttal",
-  logic: "logic",
-  impact: "impact",
-  structure: "structure",
-  clarity: "clarity",
-};
+export const REPAIR_KIND_TO_DIMENSION: Record<string, CoachDimension> = CANONICAL_KIND_TO_DIMENSION;
 
 export interface JourneyObservation {
   debateId: string;
@@ -71,11 +65,6 @@ const KIND_TRIGGER_DETAIL: Record<string, string> = {
   structure: "dropped threads or self-contradictions",
   clarity: "moves where claim and reason blurred together",
 };
-
-function formativeStateForScore(score: number, succeeded: boolean): string {
-  if (succeeded) return "repair-demonstrated";
-  return score >= 35 ? "partially-repaired" : "needs-another-pass";
-}
 
 function stateSentence(met: number, opportunities: number, label: string): string {
   if (opportunities === 0) return `No chances to show ${label.toLowerCase()} yet.`;
@@ -171,7 +160,7 @@ export function buildSkillJourney(
       repair: {
         at: repair.created_at,
         succeeded: repair.succeeded,
-        state: formativeStateForScore(repair.score, repair.succeeded),
+        state: formativeStateFor(repair.score, repair.succeeded),
         debateId: repair.debate_id,
       },
       retest,

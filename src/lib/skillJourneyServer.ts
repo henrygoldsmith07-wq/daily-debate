@@ -23,16 +23,30 @@ export interface JourneyInputs {
 interface RetestRow {
   repair_result_id: string;
   assigned_debate_id: string;
-  assigned_at: string;
-  completed_at: string | null;
+  assigned_at: string | Date;
+  completed_at: string | Date | null;
   observable: boolean | null;
   demonstrated: boolean | null;
 }
 
-/** Map main's assignment-row semantics to the four truthful retest outcomes. */
-function outcomeFromAssignment(row: RetestRow): RetestOutcome | null {
+/**
+ * timestamptz columns come back as Date objects; the public record shape and
+ * every Date.parse consumer expect ISO strings. Normalise once at the read.
+ */
+function isoString(value: unknown): string {
+  return value instanceof Date ? value.toISOString() : typeof value === "string" ? value : new Date().toISOString();
+}
+
+/**
+ * Map main's assignment-row semantics to the four truthful retest outcomes.
+ * `demonstrated: null` means the debate did not support a judgement — a
+ * 3-round sprint is too small a sample to judge the skill either way — so it
+ * reads "not enough evidence", never a clean failure or success claim.
+ */
+function outcomeFromAssignment(row: RetestRow, format: string | null): RetestOutcome | null {
   if (!row.completed_at || row.observable === null) return null;
   if (!row.observable) return "no-valid-opportunity";
+  if (format === "sprint" || row.demonstrated === null) return "not-enough-evidence";
   return row.demonstrated ? "skill-observed" : "skill-not-observed";
 }
 
@@ -48,7 +62,7 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
       .limit(50),
     db
       .from("solo_debates")
-      .select("id, completed_at")
+      .select("id, completed_at, format")
       .eq("user_id", userId)
       .eq("status", "completed")
       .order("completed_at", { ascending: true })
@@ -65,19 +79,32 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
   const retestByRepair = new Map<string, RetestRow>();
   for (const row of (retests ?? []) as unknown as RetestRow[]) {
     const current = retestByRepair.get(row.repair_result_id);
-    if (!current || Date.parse(row.assigned_at) > Date.parse(current.assigned_at)) {
-      retestByRepair.set(row.repair_result_id, row);
+    const assignedAt = isoString(row.assigned_at);
+    const candidate: RetestRow = { ...row, assigned_at: assignedAt, completed_at: row.completed_at ? isoString(row.completed_at) : null };
+    if (!current || Date.parse(assignedAt) > Date.parse(isoString(current.assigned_at))) {
+      retestByRepair.set(row.repair_result_id, candidate);
     }
   }
 
+  // Retest verdicts need the assigned debate's format: a sprint retest is
+  // "not enough evidence", not a clean pass/fail.
+  const debateFormat = new Map<string, string>();
+  for (const debate of debates ?? []) {
+    debateFormat.set(debate.id as string, debate.format as string);
+  }
+
   const repairs: RepairRecord[] = (repairRows ?? []).map((row) => {
-    const r = row as unknown as RepairRecord & { id: string };
+    // timestamptz comes back as Date; the public record shape is ISO strings.
+    const r = row as unknown as RepairRecord & { id: string; created_at: string | Date };
     const retest = retestByRepair.get(r.id);
     return {
       ...r,
+      created_at: isoString(r.created_at),
       retest_debate_id: retest?.assigned_debate_id ?? null,
-      retest_outcome: retest ? outcomeFromAssignment(retest) : null,
-      retest_completed_at: retest?.completed_at ?? null,
+      retest_outcome: retest
+        ? outcomeFromAssignment(retest, debateFormat.get(retest.assigned_debate_id) ?? null)
+        : null,
+      retest_completed_at: retest?.completed_at ? isoString(retest.completed_at) : null,
     };
   });
 
@@ -103,7 +130,7 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
     rows.push({
       debateId: debate.id as string,
       userId,
-      completedAt: (debate.completed_at ?? new Date().toISOString()) as string,
+      completedAt: debate.completed_at ? isoString(debate.completed_at) : new Date().toISOString(),
       kinds: countWeaknessesForSide(merged.graph, "a"),
       opps: debateOpportunities(merged.graph, "a"),
     });

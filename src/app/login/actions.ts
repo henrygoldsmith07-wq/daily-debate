@@ -8,6 +8,7 @@ import { createClient } from "@/lib/backend/server";
 import { checkRateLimitKey } from "@/lib/rateLimit";
 import { safeReturnPath } from "@/lib/authRedirect";
 import { normalizeIanaTimeZone } from "@/lib/timeZone";
+import { guestContextWriteFailureLog, parseGuestLoopSummary } from "@/lib/guestLoop";
 
 export interface AuthState {
   error: string | null;
@@ -80,8 +81,12 @@ export async function signUp(_prevState: AuthState, formData: FormData): Promise
   if (await authActionLimited("auth-sign-up", email, { ip: 8, identity: 3, windowMs: 60 * 60_000 })) {
     return { error: AUTH_LIMIT_MESSAGE };
   }
+  // A completed guest practice loop is carried into the new account so the
+  // first signed-in experience starts from that result. Re-validated and
+  // bounded here — the client value is never trusted as-is.
+  const guestContext = parseGuestLoopSummary(formData.get("guestContext"));
   const db = await createClient();
-  const { error } = await db.auth.signUp({
+  const { data, error } = await db.auth.signUp({
     email,
     password: String(formData.get("password")),
     options: {
@@ -92,6 +97,17 @@ export async function signUp(_prevState: AuthState, formData: FormData): Promise
     },
   });
   if (error) return { error: error.message };
+
+  if (guestContext && data.user) {
+    // Best-effort carry-through: the account already exists either way, and a
+    // database that has not applied migration 036 (profiles.guest_context)
+    // must still get a working account. A schema-lagging write is skipped
+    // with exactly one log line; anything else is logged at error level for
+    // diagnosis. The signup itself is never failed by this write.
+    const result = await db.from("profiles").update({ guest_context: guestContext }).eq("id", data.user.id);
+    const failureLog = guestContextWriteFailureLog(result.error);
+    if (failureLog) console.error(failureLog);
+  }
 
   revalidatePath("/", "layout");
   redirect(nextPath);
