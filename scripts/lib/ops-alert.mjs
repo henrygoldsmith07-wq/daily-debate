@@ -114,6 +114,74 @@ export function classifyFailureStage(input) {
 }
 
 /**
+ * The durable marker written into an alert issue's body after each email
+ * notice: `<!-- digest:email-sent:ISO -->`. The issue itself is the state
+ * store — no external database, no workflow state. Returns the newest
+ * marker's ISO timestamp, or null when no notice has been sent.
+ * @param {string | null | undefined} body
+ * @returns {string | null}
+ */
+export function lastNotificationMarker(body) {
+  if (!body || typeof body !== "string") return null;
+  const matches = [...body.matchAll(/<!--\s*digest:email-sent:(\S+)\s*-->/g)];
+  return matches.length ? matches[matches.length - 1][1] : null;
+}
+
+/** Append the sent-notice marker to an issue body. */
+export function withNotificationMarker(body, nowIso) {
+  return `${body ?? ""}\n<!-- digest:email-sent:${nowIso} -->`;
+}
+
+/**
+ * Notification gate (pure): the operator must SEE alert state changes, not
+ * only find them on a dashboard — and an alert that sits open for days must
+ * resurface on its own (issue #27 sat open for two weeks unnoticed).
+ *
+ * Policy:
+ * - healthy → alerting (no open issue): "new" — immediate notice.
+ * - alerting with an open issue that has no prior email on record: "new"
+ *   (the issue predates email notices; send the initial one once).
+ * - alerting with a prior notice older than `renotifyAfterHours`: "reminder".
+ * - alerting with a recent notice: "update" — issue is edited in place, no
+ *   email (no alert fatigue from the daily digest touching the same issue).
+ * - alerting → healthy: "resolved" — one closure notice, then the issue is
+ *   closed and the alert channel goes quiet.
+ *
+ * @param {{
+ *   alerting: boolean,
+ *   openIssue: { number: number, title?: string | null } | null,
+ *   issueBody: string | null | undefined,
+ *   nowIso: string,
+ *   renotifyAfterHours?: number,
+ * }} input
+ * @returns {{ kind: "new" | "reminder" | "update" | "resolved" | "none", notify: boolean, reason: string }}
+ */
+export function decideOpsNotification(input) {
+  const lastNotifiedAt = lastNotificationMarker(input.issueBody ?? null);
+  if (!input.alerting) {
+    if (input.openIssue) {
+      return { kind: "resolved", notify: true, reason: `alert #${input.openIssue.number} resolved — sending closure notice` };
+    }
+    return { kind: "none", notify: false, reason: "healthy with no open alert" };
+  }
+  if (!input.openIssue) {
+    return { kind: "new", notify: true, reason: "new alert opened — immediate notice" };
+  }
+  if (!lastNotifiedAt) {
+    return { kind: "new", notify: true, reason: `open alert #${input.openIssue.number} has no prior email notice — sending the initial one` };
+  }
+  const hoursSince = (Date.parse(input.nowIso) - Date.parse(lastNotifiedAt)) / 3_600_000;
+  if (!Number.isFinite(hoursSince)) {
+    return { kind: "reminder", notify: true, reason: "prior-notice marker unreadable — re-notifying" };
+  }
+  const limit = input.renotifyAfterHours ?? 24;
+  if (hoursSince >= limit) {
+    return { kind: "reminder", notify: true, reason: `alert still open ${Math.round(hoursSince)}h after the last notice (>= ${limit}h)` };
+  }
+  return { kind: "update", notify: false, reason: `alert updated in place; last notice ${Math.round(hoursSince)}h ago (< ${limit}h)` };
+}
+
+/**
  * @param {{
  *   runs: Array<{ event: string; status: string; conclusion: string | null; createdAt: string }>,
  *   telemetry: Array<{ event: string; at: string; result: string; targetDate: string | null; delayMs?: number | null }>,

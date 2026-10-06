@@ -38,8 +38,10 @@ import { fileURLToPath } from "node:url";
 import {
   classifyFailureStage,
   decideOpsAlert,
+  decideOpsNotification,
   latestFailedScheduledRun,
   normaliseTopicWorkflowRun,
+  withNotificationMarker,
 } from "./lib/ops-alert.mjs";
 
 const REPO = "henrygoldsmith07-wq/daily-debate";
@@ -48,6 +50,45 @@ const CANONICAL_PROD_BASE = "https://daily-debate-brown.vercel.app";
 const CONFIGURED_PROD_BASE = (process.env.PROD_HEALTH_URL?.trim() || CANONICAL_PROD_BASE).replace(/\/+$/, "");
 const FALLBACK_PROD_BASE = (process.env.PROD_HEALTH_FALLBACK_URL?.trim() || CANONICAL_PROD_BASE).replace(/\/+$/, "");
 const PROD_BASES = [...new Set([CONFIGURED_PROD_BASE, FALLBACK_PROD_BASE])];
+
+// Operator notification (P2.5): email on alert STATE CHANGES and daily
+// reminders while an alert stays open past 24h (the #27 class of silence:
+// an open issue nobody re-opens). Best-effort by design — an unset key or
+// address skips email with a log line; a failed send never fails the digest.
+// The durable "when did we last email" state lives in the issue body itself
+// as a `digest:email-sent` marker, so there is no external state to lose.
+const RESEND_API_KEY = process.env.RESEND_API_KEY?.trim() || null;
+const OPS_ALERT_EMAIL_TO = process.env.OPS_ALERT_EMAIL_TO?.trim() || null;
+const OPS_ALERT_FROM = process.env.OPS_ALERT_FROM?.trim() || "Daily Debate Ops <onboarding@resend.dev>";
+
+/**
+ * Send one plain-text notice through the existing Resend setup. Never throws;
+ * returns whether the send succeeded (so the marker is only written when the
+ * notice actually went out). Logs carry no secrets and no recipient address.
+ */
+async function sendOpsAlertEmail(subject, text) {
+  if (!RESEND_API_KEY || !OPS_ALERT_EMAIL_TO) {
+    console.log("[ops-alert] email notify skipped — RESEND_API_KEY / OPS_ALERT_EMAIL_TO not configured");
+    return false;
+  }
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: OPS_ALERT_FROM, to: [OPS_ALERT_EMAIL_TO], subject, text }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      console.error(`[ops-alert] email notify failed: HTTP ${res.status}`);
+      return false;
+    }
+    console.log("[ops-alert] email notice sent");
+    return true;
+  } catch (error) {
+    console.error(`[ops-alert] email notify error: ${String(error?.message ?? error).slice(0, 120)}`);
+    return false;
+  }
+}
 
 /**
  * The exact operator command for schema drift. `db-migrate` is deliberately
@@ -261,6 +302,21 @@ async function main() {
   const openAlerts = listRes.ok ? await listRes.json() : [];
 
   if (!decision) {
+    // Closure notice: the operator should learn the pipeline healed without
+    // re-checking the issue tracker. Sent once per resolution (the issues are
+    // closed immediately after, so the next run sees none open).
+    const resolutionNotice = decideOpsNotification({
+      alerting: false,
+      openIssue: openAlerts[0] ?? null,
+      issueBody: openAlerts[0]?.body ?? null,
+      nowIso,
+    });
+    if (resolutionNotice.notify) {
+      await sendOpsAlertEmail(
+        "[daily-debate ops] RESOLVED — topic pipeline healthy",
+        `The topic-pipeline ops alert is resolved as of ${nowIso}.\n\nAll topic-pipeline checks pass; the alert issue is being closed.\n\n-- daily ops-alert digest`,
+      );
+    }
     for (const issue of openAlerts) {
       await gh(`/repos/${REPO}/issues/${issue.number}/comments`, token, {
         method: "POST",
@@ -291,12 +347,40 @@ async function main() {
   ].join("\n");
 
   const existing = openAlerts[0];
+  // Notification gate: immediate notice on state change, daily reminder while
+  // open, in-place updates otherwise (no alert fatigue from the daily run).
+  const notice = decideOpsNotification({
+    alerting: true,
+    openIssue: existing ? { number: existing.number } : null,
+    issueBody: existing?.body ?? null,
+    nowIso,
+  });
+  let bodyWithMarker = body;
+  if (notice.notify) {
+    const sent = await sendOpsAlertEmail(
+      `[daily-debate ops] ${String(decision.severity ?? "warning").toUpperCase()} — ${decision.title}`,
+      [
+        `Ops alert (${decision.severity}) as of ${nowIso}.`,
+        notice.reason,
+        "",
+        ...decision.facts.map((f) => `- ${f}`),
+        "",
+        `Issue: https://github.com/${REPO}/issues${existing ? `/${existing.number}` : ""}`,
+        "-- daily ops-alert digest",
+      ].join("\n"),
+    );
+    // Only a DELIVERED notice advances the reminder clock; a failed send is
+    // retried by the next run instead of being silently marked as notified.
+    if (sent) bodyWithMarker = withNotificationMarker(body, nowIso);
+  } else {
+    console.log(`[ops-alert] no email — ${notice.reason}`);
+  }
   if (existing) {
     await gh(`/repos/${REPO}/issues/${existing.number}`, token, {
       method: "PATCH",
-      body: JSON.stringify({ title: decision.title, body, state: "open" }),
+      body: JSON.stringify({ title: decision.title, body: bodyWithMarker, state: "open" }),
     });
-    console.log(`[ops-alert] still alerting (${decision.severity}) — updated #${existing.number}`);
+    console.log(`[ops-alert] still alerting (${decision.severity}) — updated #${existing.number} (${notice.kind})`);
   } else {
     await gh(`/repos/${REPO}/labels`, token, {
       method: "POST",
@@ -304,7 +388,7 @@ async function main() {
     }); // 422 = already exists; fine.
     const createRes = await gh(`/repos/${REPO}/issues`, token, {
       method: "POST",
-      body: JSON.stringify({ title: decision.title, body, labels: [LABEL] }),
+      body: JSON.stringify({ title: decision.title, body: bodyWithMarker, labels: [LABEL] }),
     });
     const created = await createRes.json();
     console.log(`[ops-alert] ALERT (${decision.severity}) — opened #${created.number}: ${decision.facts.join(" | ")}`);
