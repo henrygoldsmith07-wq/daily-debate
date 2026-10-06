@@ -1,5 +1,6 @@
 import Link from "next/link";
 import AuthForm from "./AuthForm";
+import LegalLinks from "@/components/LegalLinks";
 import { isDatabaseConfigured } from "@/lib/backend/env";
 import { safeReturnPath } from "@/lib/authRedirect";
 
@@ -36,6 +37,7 @@ export default async function LoginPage({
           </Link>
         </div>
       )}
+      <LegalLinks />
     </div>
   );
 }

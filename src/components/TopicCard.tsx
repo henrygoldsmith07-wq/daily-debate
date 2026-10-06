@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isKnownSource } from "@/lib/citationVerifier";
-import { formatEstimateLabel, formatLabelFor, type DebateFormat } from "@/lib/sprint";
+import { formatEstimateLabel, formatLabelFor, SPRINT_ESTIMATE_MINUTES, SPRINT_ROUNDS, type DebateFormat } from "@/lib/sprint";
 import { OPPONENT_DIFFICULTY_LIST, OPPONENT_PERSONA_LIST, type OpponentDifficulty, type OpponentPersonaId } from "@/lib/opponentPersona";
 import type { DailyTopic, DebateSide } from "@/lib/types";
 
@@ -105,7 +105,7 @@ export default function TopicCard({
       <div className="home-motion-heading">
         <div>
           <p className="home-motion-kicker">{retestMode ? "Today's retest motion" : "Today's motion"}</p>
-          <p className="home-motion-meta">Three focused rounds · about 4 minutes</p>
+          <p className="home-motion-meta">{SPRINT_ROUNDS} focused rounds · about {SPRINT_ESTIMATE_MINUTES} minutes</p>
         </div>
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">
           {topic.category ?? "Daily debate"}

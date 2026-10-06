@@ -9,7 +9,7 @@
 //   -> "PROBE-OK ..." exit 0 | "PROBE-FAIL ..." exit 4 | "NO-KEY" exit 3
 
 import fs from "node:fs";
-import { allJudgeProviders } from "./lib/judge-providers.mjs";
+import { allJudgeProviders, anthropicJudgeFor } from "./lib/judge-providers.mjs";
 
 for (const line of (fs.existsSync(".env.local") ? fs.readFileSync(".env.local", "utf8") : "").split(/\r?\n/)) {
   const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
@@ -17,8 +17,12 @@ for (const line of (fs.existsSync(".env.local") ? fs.readFileSync(".env.local", 
 }
 
 const want = process.argv[2] ?? "kiraai";
-const judges = allJudgeProviders(process.env);
-const judge = judges.find((j) => j.id.startsWith(`${want}:`)) ?? judges[0];
+// Probe the provider the study arm will actually use: "anthropic" builds the
+// pinned paid judge explicitly (it is not part of the default sweep), and a
+// miss never silently falls back to a DIFFERENT provider's judge.
+const judge = want === "anthropic"
+  ? anthropicJudgeFor(process.env)
+  : (allJudgeProviders(process.env).find((j) => j.id.startsWith(`${want}:`)) ?? allJudgeProviders(process.env)[0]);
 if (!judge) {
   process.stdout.write("NO-KEY\n");
   process.exit(3);

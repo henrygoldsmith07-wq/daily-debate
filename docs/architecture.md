@@ -57,9 +57,23 @@ hint. Routing telemetry stores counts and decisions, never submitted text.
 
 ### Classifier.dev: external processing, traffic sampling, and evaluation
 
-The structural classifier is the only component that sends submitted text to
-an external processor (classifier.dev, `POST /v1/classify`; keyless per-IP
-free tier). Request/response handling is verified against the service's live
+External model providers receive debate content in several places; the
+structural classifier is NOT the only one. The full list: opponent generation
+(`debate_opening` / `debate_turn`), finish summaries (`summarize_solo`), PvP
+judge verdicts (`judge_pvp`) and daily topic generation send the transcript or
+prompt to the configured LLM provider (Anthropic by default; the free
+OpenAI-style chain only when `JUDGE_ALLOW_FREE_PROVIDERS=1`), and the
+structural classifier sends argument texts to classifier.dev. Everything
+below applies to the classifier leg specifically.
+
+The structural classifier calls classifier.dev (`POST /v1/classify`; keyless
+per-IP free tier) only when explicitly enabled with
+`CLASSIFIER_DEV_ENABLED=1`. It is default-OFF everywhere — until the service
+is disclosed in the privacy policy, application requests (production and
+local) take the local fallback (`remote_disabled`), which cannot reach a
+judge-avoidance route. Callers that supply their own fetch implementation or
+endpoint (unit tests, offline evaluations) bypass the flag. Request/response
+handling is verified against the service's live
 OpenAPI contract (see the "classifier.dev API contract" tests in
 `argumentRouting.test.ts`): versioned multi-label taxonomy, `tier`
 fast/smart, `multi` with a two-label cap, calibrated confidences, and
@@ -95,7 +109,7 @@ confidence calibration (ECE), latency, fast-vs-smart comparison, and
 shadow-route agreement in `rhetoricalRoleEvaluation.ts`, all covered by
 `rhetoricalRoleEvaluation.test.ts`.
 
-## Data model (migrations 001–034)
+## Data model (migrations 001–037)
 
 Standard Postgres tables: `app_users`, `app_sessions`, `profiles`, `daily_topics`, `solo_debates` (+ `format`, `coaching`, durable result/finalization fields), `solo_debate_turns` (with `assessment`, `training_meta`, and response-window timestamps), `pvp_queue`, `pvp_matches`, `pvp_turns`, `rate_limits`, `benchmark_corpus`, `match_appeals`, `reports`, `corpus_items`, `corpus_ratings`, `drill_assignments`, `topic_evidence`, plus 004's `repair_results`, `challenge_invites`, `product_events` and 025's durable `repair_retests`. Hand-written row types live in `src/lib/backend/database.types.ts`. Migration 026 adds per-turn training metadata. Migration 027 adds retry-safe finalization, exact persisted result payloads, and atomic rewards/retest completion. Migration 028 adds server-issued timed-mode windows and atomic solo-turn advancement. Migration 029 stages accepted user submissions before any external AI call, adds tokenized opponent-generation leases, records non-resettable per-mode response windows, and moves authoritative turn timing plus finalization lease refreshes entirely onto the PostgreSQL clock. Migration 030 closes the turn/finish state machine: finalization is a hard barrier, only the current pending turn can be claimed, the legacy migration-028 advancement RPC is removed, profile timezone is persisted, and streak-day selection uses the database clock in that IANA timezone. Migration 031 makes recovery self-healing: stale finalization leases are reclaimed by turn/timer work and scheduled cleanup, a durably staged answer can be committed as the final answered round when the minimum length is met, solo round numbers are unique in PostgreSQL, and compact performance/bonus fields are stored directly on `solo_debates`. Migration 032 makes debate creation claim-first and atomic: one start lease per user/topic gates the external opening call, PostgreSQL atomically creates or repairs the canonical active debate + round 1 + optional repair-retest assignment + exactly-once start analytics, and a partial unique index enforces one active debate per user/topic. Migration 033 reconciles the remaining post-recovery hardening: timer mutation now follows the canonical debate→turn lock order and refreshes its DB clock after lock waits; compact historical result repair is bounded/safe; state-defining solo lifecycle analytics move into the same transactions as round advancement/finalization with idempotency indexes for round, debate and retest completion events. Migration 034 persists normalized per-user topic-category exposure and moves the unfamiliar-topic reward into finalization v4, eliminating an unbounded history scan and making concurrent first-exposure rewards exactly-once.
 

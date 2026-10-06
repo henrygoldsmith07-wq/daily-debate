@@ -48,6 +48,18 @@ export const EXPERIMENTS = {
       "averaging two independent model verdicts under the existing deterministic tie policy raises fixture agreement >= 0.08 and lowers ECE without regressing any invariance metric",
     citationClause: CITATION_CLAUSE_DEFAULT,
   },
+  "pinned-paid-judge": {
+    label: "pinned paid judge (provider switch)",
+    kind: "single-prompt",
+    // Phase 3 provider switch, pre-registered 2026-10-06 BEFORE any run. The
+    // prompt is BYTE-IDENTICAL to baseline (same default citation clause, same
+    // v5 system, same fixtures, temperature, tie policy, retry policy); the
+    // single registered variable is the judge provider/model declared in the
+    // registration's arms.models (incumbent free chain vs pinned Anthropic).
+    hypothesis:
+      "the same shipped v5 prompt on one pinned paid model (anthropic claude-sonnet-5) raises provider reliability without regressing agreement, calibration or invariance versus the incumbent free chain",
+    citationClause: CITATION_CLAUSE_DEFAULT,
+  },
   "citation-zero-weight": {
     label: "v5.1 citation-zero-weight",
     status:

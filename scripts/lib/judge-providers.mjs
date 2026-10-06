@@ -368,6 +368,106 @@ export function primaryChainJudge(env = process.env) {
   return allJudgeProviders(env)[0] ?? null;
 }
 
+// --- Anthropic judge (explicit selection only) -----------------------------
+// The pinned paid default judge. It is NOT part of allJudgeProviders' default
+// sweep — judge-benchmark only builds it when `--models anthropic` is passed —
+// so the weekly benchmark's judge set and leaderboard rows are unchanged by
+// its existence. Used by the pre-registration study that compares the pinned
+// paid model against the incumbent free chain. Dependency-free REST call,
+// same verdict prompt/normalisation/retry semantics as the chain judges.
+
+const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_API_VERSION = "2023-06-01";
+
+async function anthropicChat({ key, model, system, user, maxTokens, timeoutMs = 35_000 }) {
+  const started = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(ANTHROPIC_API_URL, {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": ANTHROPIC_API_VERSION,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        temperature: 0,
+        system,
+        messages: [{ role: "user", content: user }],
+      }),
+      signal: controller.signal,
+    });
+    const bodyText = await res.text();
+    if (!res.ok) {
+      const err = new Error(`${res.status}: ${bodyText.slice(0, 160)}`);
+      err.httpStatus = res.status;
+      err.retryAfterSec = Number(res.headers?.get("retry-after")) || null;
+      throw err;
+    }
+    const data = JSON.parse(bodyText);
+    const content = data?.content?.find((block) => block.type === "text")?.text;
+    if (typeof content !== "string" || !content.trim()) throw new Error("empty content");
+    return {
+      content,
+      tokens: (data?.usage?.input_tokens ?? 0) + (data?.usage?.output_tokens ?? 0),
+      promptTokens: data?.usage?.input_tokens ?? null,
+      completionTokens: data?.usage?.output_tokens ?? null,
+      latencyMs: Date.now() - started,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function makeAnthropicJudge({ key, model, system = buildVerdictSystem(), stats = null }) {
+  return async (input) => {
+    let lastError;
+    const chainErrors = {};
+    const started = Date.now();
+    if (stats) stats.jobs += 1;
+    for (let attempt = 1; attempt <= CHAIN_ATTEMPTS_PER_MODEL; attempt++) {
+      if (stats) {
+        stats.attempts += 1;
+        stats.byModel[model] = (stats.byModel[model] ?? 0) + 1;
+      }
+      try {
+        const { content, tokens, promptTokens, completionTokens, latencyMs } = await anthropicChat({
+          key,
+          model,
+          system,
+          user: verdictUser(input),
+          maxTokens: 900,
+        });
+        if (stats) stats.succeeded += 1;
+        return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs };
+      } catch (e) {
+        if (stats) stats.errors += 1;
+        chainErrors[model] = String(e?.message ?? e).slice(0, 90);
+        lastError = e;
+        if (attempt >= CHAIN_ATTEMPTS_PER_MODEL || !isTransportError(e)) break;
+        const backoff = Math.min(e.retryAfterSec ? e.retryAfterSec * 1000 : 1200 * attempt, Math.max(0, CHAIN_RETRY_BUDGET_MS - (Date.now() - started)));
+        if (backoff <= 0) break;
+        if (stats) stats.backoffMs += backoff;
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+    if (lastError) lastError.chainErrors = chainErrors;
+    throw lastError ?? new Error("anthropic judge failed");
+  };
+}
+
+/** The Anthropic judge for an EXPLICIT `--models anthropic` selection, or null without a key. */
+export function anthropicJudgeFor(env = process.env, { system = buildVerdictSystem() } = {}) {
+  const key = (env.ANTHROPIC_API_KEY ?? "").trim();
+  if (!key) return null;
+  const model = env.ANTHROPIC_MODEL || "claude-sonnet-5";
+  const stats = newJudgeStats();
+  return { id: `anthropic:${model}`, stats, fn: makeAnthropicJudge({ key, model, system, stats }) };
+}
+
 /**
  * Cost per 1M tokens (USD) for priced models. Used only to PUBLISH an
  * estimated run cost — never a gate. Free-tier models (any ":free"/"-free"

@@ -24,7 +24,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { EXPERIMENTS } from "./lib/judge-experiments.mjs";
-import { canonicalHash, deriveAdoptionRule, validateRegistration } from "./lib/judge-registration.mjs";
+import { canonicalHash, deriveAdoptionRule, validateRegistration, armModels } from "./lib/judge-registration.mjs";
 import { estimateCapacity } from "./judge-capacity.mjs";
 import {
   basicStats,
@@ -153,10 +153,10 @@ function collectArm(armDir) {
 
 // --- Probe-gated, balanced execution (item 5) --------------------------------
 const probesPath = path.join(studyDir, "probes.jsonl");
-function probeProvider() {
-  const res = spawnSync(process.execPath, ["scripts/quota-probe.mjs", reg.models ?? ""], { encoding: "utf8" });
+function probeProvider(models) {
+  const res = spawnSync(process.execPath, ["scripts/quota-probe.mjs", models ?? ""], { encoding: "utf8" });
   const line = `${res.stdout?.trim() || res.stderr?.toString().trim() || "probe-no-output"}`;
-  fs.appendFileSync(probesPath, JSON.stringify({ at: new Date().toISOString(), provider: reg.models ?? "any", ok: line.startsWith("PROBE-OK"), detail: line.slice(0, 220) }) + "\n");
+  fs.appendFileSync(probesPath, JSON.stringify({ at: new Date().toISOString(), provider: models ?? "any", ok: line.startsWith("PROBE-OK"), detail: line.slice(0, 220) }) + "\n");
   return line.startsWith("PROBE-OK");
 }
 
@@ -169,15 +169,19 @@ if (!REANALYZE) {
   const plan = nextArmPlan(counts.baseline, counts.candidate, REPS);
   log(`resume counts: baseline=${counts.baseline} candidate=${counts.candidate}; plan=${plan.join(",") || "(complete)"}`);
   for (const arm of plan) {
-    if (!probeProvider()) {
+    const exp = reg.arms[arm].experiment;
+    // Per-arm provider selection: an arm may pin its own `models` (e.g. a
+    // provider-vs-provider study); otherwise the study-level models apply.
+    // The quota probe checks the provider this arm will actually use.
+    const armModelsForArm = armModels(reg, arm);
+    if (!probeProvider(armModelsForArm)) {
       stoppedEarly = `provider probe failed before arm ${arm}; study stops cleanly and stays resumable under the same seal`;
       log(`STOPPING: ${stoppedEarly}`);
       break;
     }
-    const exp = reg.arms[arm].experiment;
-    log(`arm ${arm} (${exp})`);
+    log(`arm ${arm} (${exp}) models=${armModelsForArm || "any"}`);
     const spawnArgs = ["scripts/judge-benchmark.mjs", "--concurrency", "3", "--runs-dir", dirs[arm], "--experiment", exp];
-    if (reg.models) spawnArgs.push("--models", reg.models);
+    if (armModelsForArm) spawnArgs.push("--models", armModelsForArm);
     const res = spawnSync(process.execPath, spawnArgs, { stdio: ["ignore", "ignore", "inherit"] });
     log(`  arm ${arm} exited ${res.status} (gate failures are data)`);
     counts[arm] += 1;

@@ -1,12 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
+  armModels,
   canonicalHash,
   deriveAdoptionRule,
   validateRegistration,
   REGISTRATION_SCHEMA_VERSION,
 } from "./judge-registration.mjs";
 import { estimateCapacity } from "../judge-capacity.mjs";
+import { EXPERIMENTS as LIVE_EXPERIMENTS } from "./judge-experiments.mjs";
 
 const EXPERIMENTS = { baseline: { kind: "single-prompt" }, "grounding-two-pass": { kind: "two-pass-grounding" } };
 
@@ -94,4 +98,50 @@ test("capacity planner: unknown budget => BLOCKED; sufficient => GO; grounding d
   assert.equal(estimateCapacity(VALID, 10_000).decision, "GO");
   assert.equal(estimateCapacity(VALID, 500).decision, "BLOCKED"); // >80% headroom
   assert.ok(estimateCapacity(VALID, 10_000).expectedJobs === 312 * 3 * 2);
+});
+
+test("every registration file on disk validates against the live experiment registry", () => {
+  const dir = path.join(process.cwd(), "docs", "judge-experiments", "registrations");
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+  assert.ok(files.length >= 3, `expected sealed registrations, found ${files.length}`);
+  for (const file of files) {
+    const reg = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
+    const v = validateRegistration(reg, { experiments: LIVE_EXPERIMENTS });
+    // Sealed registrations whose arm is deliberately unimplemented (stated
+    // BLOCKED in executionStatus) must fail ONLY on that pending arm — any
+    // other structural error is a real regression.
+    const blockedPendingArm = /BLOCKED/i.test(String(reg.executionStatus ?? ""));
+    if (blockedPendingArm) {
+      assert.ok(v.errors.length > 0, `${file}: a BLOCKED registration should refuse to execute`);
+      assert.ok(
+        v.errors.every((e) => /not implemented yet/.test(e)),
+        `${file}: unexpected validation errors ${JSON.stringify(v.errors)}`,
+      );
+    } else {
+      assert.equal(v.ok, true, `${file}: ${JSON.stringify(v.errors)}`);
+    }
+    // Adoption prose must equal the structured rule, byte for byte (v2+).
+    if ((reg.schemaVersion ?? 1) >= REGISTRATION_SCHEMA_VERSION) {
+      assert.equal(String(reg.adoptionRule).trim(), deriveAdoptionRule(reg), `${file}: adoptionRule drifted`);
+    }
+  }
+});
+
+test("pinned-paid-judge is a provider-only variable: prompt byte-identical to baseline", () => {
+  const candidate = LIVE_EXPERIMENTS["pinned-paid-judge"];
+  assert.ok(candidate, "experiment must exist for the pre-registered arm");
+  assert.equal(candidate.kind, "single-prompt");
+  assert.equal(candidate.citationClause, LIVE_EXPERIMENTS.baseline.citationClause);
+  assert.equal(candidate.implementationPending, undefined);
+});
+
+test("armModels: per-arm provider overrides the study-level provider", () => {
+  const reg = {
+    models: "unorouter",
+    arms: { baseline: { experiment: "baseline" }, candidate: { experiment: "pinned-paid-judge", models: "anthropic" } },
+  };
+  assert.equal(armModels(reg, "baseline"), "unorouter");
+  assert.equal(armModels(reg, "candidate"), "anthropic");
+  assert.equal(armModels({ models: "x", arms: { baseline: { experiment: "a", models: " y " } } }, "baseline"), "y");
+  assert.equal(armModels({ arms: {} }, "baseline"), "");
 });

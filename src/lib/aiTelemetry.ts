@@ -177,6 +177,7 @@ function mirrorToDatabase(entry: AiCallTelemetry): void {
         batch_count: entry.batchCount ?? null,
         taxonomy_version: entry.taxonomyVersion ?? null,
         routing_decision: entry.routingDecision ?? null,
+        cost_usd: entry.costUsd ?? null,
         expensive_judge_calls_avoided: entry.expensiveJudgeCallsAvoided ?? null,
         classification_fallbacks: entry.classificationFallbacks ?? null,
         classification_ambiguous: entry.classificationAmbiguous ?? null,

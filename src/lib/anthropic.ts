@@ -3,12 +3,19 @@ import type { ArgGraph } from "./argGraph";
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
+import { ensureSpendWithinCap } from "./spendCap";
+import { e2eMockAiEnabled, mockPvpJudge } from "./aiE2eMock";
 import type { ArgumentRoute } from "./argumentTaxonomy";
 
 // Lazy import to avoid circular deps: types -> argGraph ok, but anthropic -> types is fine.
 // ArgGraph types are structural; runtime validation via argGraph.validateGraph.
 
-const MODEL = "claude-sonnet-5";
+const DEFAULT_MODEL = "claude-sonnet-5";
+
+/** The exact pinned model id every Anthropic call (and its telemetry/fingerprint) uses. */
+export function anthropicModel(env: Record<string, string | undefined> = process.env): string {
+  return env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+}
 
 function getClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -25,6 +32,8 @@ async function createWithTelemetry(
   operation: string,
   params: Anthropic.MessageCreateParamsNonStreaming,
 ): Promise<Anthropic.Message> {
+  // Durable daily spend cap: explicit SpendCapReachedError before any call.
+  await ensureSpendWithinCap();
   const anthropic = getClient();
   const startedAt = Date.now();
   try {
@@ -103,7 +112,7 @@ export async function generateDailyTopic(recentTitles: string[]): Promise<Genera
   const avoid = recentTitles.length ? `Avoid repeating or closely resembling these recent topics: ${recentTitles.join("; ")}.` : "";
 
   const message = await createWithTelemetry("generate_daily_topic", {
-    model: MODEL,
+    model: anthropicModel(),
     max_tokens: 1024,
     tools: [TOPIC_TOOL],
     tool_choice: { type: "tool", name: TOPIC_TOOL.name },
@@ -166,7 +175,7 @@ export async function debateTurn(params: {
   const opponentStyle = params.directive ? `\n\n${params.directive}` : "";
 
   const message = await createWithTelemetry("debate_turn", {
-    model: MODEL,
+    model: anthropicModel(),
     max_tokens: 1024,
     tools: [TURN_TOOL],
     tool_choice: { type: "tool", name: TURN_TOOL.name },
@@ -196,7 +205,7 @@ const OPENING_TOOL = {
 export async function debateOpening(params: { topicTitle: string; topicPrompt: string; aiSide: DebateSide; directive?: string }): Promise<string> {
   const opponentStyle = params.directive ? `\n\n${params.directive}` : "";
   const message = await createWithTelemetry("debate_opening", {
-    model: MODEL,
+    model: anthropicModel(),
     max_tokens: 512,
     tools: [OPENING_TOOL],
     tool_choice: { type: "tool", name: OPENING_TOOL.name },
@@ -228,7 +237,7 @@ const SUMMARY_TOOL = {
 
 export async function summarizeSoloDebate(params: { topicTitle: string; transcript: string }): Promise<DebateSummary> {
   const message = await createWithTelemetry("summarize_solo", {
-    model: MODEL,
+    model: anthropicModel(),
     max_tokens: 768,
     tools: [SUMMARY_TOOL],
     tool_choice: { type: "tool", name: SUMMARY_TOOL.name },
@@ -415,6 +424,10 @@ const JUDGE_TOOL = {
 };
 
 export async function judgePvpMatch(params: { topicTitle: string; topicPrompt: string; playerASide: DebateSide; transcript: string }): Promise<PvpJudgeResult> {
+  // E2E: the pinned judge is now the DEFAULT leg, so the scripted verdict
+  // short-circuits here too — local e2e must never spend real calls.
+  if (e2eMockAiEnabled()) return finalizePvpAssessment(mockPvpJudge(), { extractionSource: "llm" });
+
   const instructions = `You are a neutral, rigorous debate judge for a critical-thinking app.
 
 Topic: "${params.topicTitle}" — ${params.topicPrompt}
@@ -428,7 +441,7 @@ Judge only what is argued and shown: identical content earns identical treatment
 Return a faithful argGraph with nodes (c1,e1,k1,r1,i1, text ≤18 words), edges, dropped arguments, contradictions, concessions, fallacies, evidenceStats, and impactComparison. Every cited/strong evidence node MUST include a citation object with a named source; never invent arguments or citations not present in the transcript. Also return a short rationale citing specific graph moments. Numeric scores and winner are computed by the application from the graph and must not be estimated here.`;
 
   const message = await createWithTelemetry("judge_pvp", {
-    model: MODEL,
+    model: anthropicModel(),
     max_tokens: 4096,
     tools: [JUDGE_TOOL],
     tool_choice: { type: "tool", name: JUDGE_TOOL.name },

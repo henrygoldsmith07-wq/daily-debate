@@ -301,6 +301,12 @@ export interface EvaluationStamp {
   schemaVersion: number;
   policyVersion: number;
   evaluatedAt: string;
+  /** Exact provider that produced this verdict's primary judge leg. Absent when no live judge ran (deterministic/insufficient evaluations). */
+  judgeProvider?: string;
+  /** Exact model id that produced this verdict's primary judge leg, e.g. "claude-sonnet-5". Absent on pre-v3 stamps. */
+  judgeModel?: string;
+  /** Every judge model ATTEMPTED for this verdict, "provider:model" — the full ensemble composition. */
+  judgeEnsemble?: string[];
 }
 
 // Alias: the judge modules export PvpJudgeResult; app code uses PvpVerdict. Keep both names.

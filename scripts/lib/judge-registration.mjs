@@ -38,6 +38,16 @@ export function deriveAdoptionRule(reg) {
 const KNOWN_METRICS = new Set(Object.keys(METRIC_DIRECTION));
 
 /**
+ * Provider label(s) a registration arm runs on: the arm's own `models` when
+ * set (provider-vs-provider studies), else the study-level `models`. Used by
+ * the runner for BOTH the quota probe and the benchmark spawn so a study can
+ * never probe one provider and run another.
+ */
+export function armModels(reg, arm) {
+  return String(reg?.arms?.[arm]?.models ?? reg?.models ?? "").trim();
+}
+
+/**
  * Validate a registration before sealing/executing. Returns { ok, errors[] }.
  * Anything the engine cannot execute authoritatively is an error: a bad
  * registration must never produce a confident-looking verdict.

@@ -321,6 +321,8 @@ export type AiCallLogRow = {
   batch_count: number | null;
   taxonomy_version: string | null;
   routing_decision: string | null;
+  /** Provider-reported USD cost (migration 037); null when the provider does not report cost. */
+  cost_usd: number | null;
   expensive_judge_calls_avoided: number | null;
   classification_fallbacks: number | null;
   classification_ambiguous: number | null;

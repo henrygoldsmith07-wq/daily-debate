@@ -1,0 +1,67 @@
+{
+  "name": "pinned-paid-judge-default",
+  "schemaVersion": 2,
+  "status": "registered",
+  "registeredAt": "2026-10-06T16:14:46.492Z",
+  "kind": "provider",
+  "question": "Production is switching its default judge from the free OpenAI-style chain (measured provider reliability 0.295-0.808 on 312-call packs) to ONE pinned paid model (anthropic claude-sonnet-5). Does the pinned paid model clear the reliability floor and raise reliability without regressing verdict quality against the incumbent chain?",
+  "hypothesis": "the same shipped v5 prompt on one pinned paid model (anthropic claude-sonnet-5) raises provider reliability by >= 0.05 versus the incumbent free chain without regressing fixture agreement, ECE, fake-citation influence or any invariance stability metric beyond their registered caps",
+  "singleVariable": "JUDGE PROVIDER/MODEL ONLY: baseline = incumbent free chain (unorouter nemotron-3.5-lightning:free); candidate = single pinned paid model (anthropic claude-sonnet-5). Byte-identical v5 system prompt (default citation clause), identical fixtures, temperature 0, tie threshold, retry policy and scoring; nothing else differs.",
+  "arms": {
+    "baseline": {
+      "experiment": "baseline",
+      "models": "unorouter"
+    },
+    "candidate": {
+      "experiment": "pinned-paid-judge",
+      "models": "anthropic"
+    }
+  },
+  "models": "unorouter",
+  "runsPerArm": 3,
+  "minimumUsableReliability": 0.75,
+  "target": {
+    "metric": "provider reliability",
+    "direction": "up",
+    "minImprovement": 0.05
+  },
+  "protected": {
+    "fixture agreement": {
+      "maxRegression": 0.05
+    },
+    "ECE": {
+      "maxRegression": 0.03
+    },
+    "fake-citation influence": {
+      "maxRegression": 0.05
+    },
+    "position stability": {
+      "maxRegression": 0.08
+    },
+    "names stability": {
+      "maxRegression": 0.08
+    },
+    "verbosity stability": {
+      "maxRegression": 0.08
+    },
+    "style stability": {
+      "maxRegression": 0.08
+    },
+    "whitespace stability": {
+      "maxRegression": 0.08
+    },
+    "prestige stability": {
+      "maxRegression": 0.08
+    },
+    "latency p50 ms": {
+      "maxRegression": 40000
+    },
+    "prompt tokens": {
+      "maxRegression": 400000
+    }
+  },
+  "bootstrapSeed": 42,
+  "providerNote": "study-level models (unorouter) keeps the capacity plan and baseline probe on the incumbent chain; each arm carries its own models so the candidate arm probes and runs anthropic. Requires UNOROUTER_API_KEY AND ANTHROPIC_API_KEY.",
+  "executionStatus": "READY - both arms implemented (anthropic judge selectable via --models anthropic; per-arm models probed before every arm). Declare a call budget: expected 2340 calls, so pass --budget-calls 3000 (or set JUDGE_DAILY_CALL_BUDGET).",
+  "adoptionRule": "supported iff usable runs >= 3/arm at reliability >= 0.75 AND target \"provider reliability\" moves up by >= 0.05 AND the bootstrap 90% CI lower bound of the signed improvement is > 0 AND no protected metric regresses beyond its cap AND pooled run sd. Fewer usable runs, any unmet condition or missing data => INCONCLUSIVE. Gate thresholds are untouchable."
+}
