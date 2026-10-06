@@ -7,6 +7,7 @@ import { withProviderFallback } from "@/lib/aiFallback";
 import { isValidOpening } from "@/lib/aiSchema";
 import type { DebateSide } from "@/lib/types";
 import { resolveDebateFormat, type DebateFormat } from "@/lib/sprint";
+import { openingDirective, resolveDifficulty, resolvePersona } from "@/lib/opponentPersona";
 import { assignChallengeSide, type SideHistoryItem } from "@/lib/challengeMe";
 import { pickFocusDimension } from "@/lib/coachingGoal";
 import { buildLedgerForUser } from "@/lib/skillLedgerServer";
@@ -25,6 +26,10 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const topicId = typeof body?.topicId === "string" ? body.topicId : null;
   const format: DebateFormat = resolveDebateFormat(body?.format);
+  // Adversary controls: persona changes how the AI attacks, difficulty how
+  // hard. Unknown values fall back to the legacy balanced/challenging pairing.
+  const persona = resolvePersona(body?.persona);
+  const difficulty = resolveDifficulty(body?.difficulty);
   if (!topicId) {
     return NextResponse.json({ error: "topicId is required." }, { status: 400 });
   }
@@ -80,6 +85,8 @@ export async function POST(request: Request) {
       side,
       round_count: 1,
       format,
+      persona,
+      difficulty,
       coaching: { dimension: coachingDimension, sideReason },
     })
     .select("*")
@@ -89,7 +96,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to start debate." }, { status: 500 });
   }
 
-  void recordProductEvent(format === "sprint" ? "sprint_started" : "full_debate_started", {
+  // Legacy formats keep their historical event names (funnel continuity); the
+  // new practice formats share one start event and are distinguished by the
+  // format context value.
+  const startEvent =
+    format === "sprint" ? "sprint_started" : format === "full" ? "full_debate_started" : "solo_debate_started";
+  void recordProductEvent(startEvent, {
     format,
     side,
     reason: sideReason,
@@ -97,12 +109,13 @@ export async function POST(request: Request) {
   });
 
   const aiSide: DebateSide = side === "for" ? "against" : "for";
+  const directive = openingDirective(persona, difficulty, format);
   let aiMessage: string;
   try {
     aiMessage = await withProviderFallback(
-      () => debateOpening({ topicTitle: topic.title, topicPrompt: topic.prompt, aiSide }),
+      () => debateOpening({ topicTitle: topic.title, topicPrompt: topic.prompt, aiSide, directive }),
       isValidOpening,
-      () => anthropicOpening({ topicTitle: topic.title, topicPrompt: topic.prompt, aiSide }),
+      () => anthropicOpening({ topicTitle: topic.title, topicPrompt: topic.prompt, aiSide, directive }),
     );
   } catch (error) {
     console.error("Failed to generate opening:", error);
@@ -123,5 +136,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to start debate." }, { status: 500 });
   }
 
-  return NextResponse.json({ debate, turn, side, sideReason, format });
+  return NextResponse.json({ debate, turn, side, sideReason, format, persona, difficulty });
 }

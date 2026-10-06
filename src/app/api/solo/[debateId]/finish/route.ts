@@ -10,7 +10,7 @@ import { computeCoachRewards, totalBonusXP } from "@/lib/coachRewards";
 import { buildEvaluationResult } from "@/lib/evaluationEnvelope";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
-import { minRoundsFor, measurementHonestyFor } from "@/lib/sprint";
+import { minRoundsFor, measurementHonestyFor, resolveDebateFormat } from "@/lib/sprint";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { snapshotFromAssessment } from "@/lib/coachingGoal";
 import { countWeaknessesForSide } from "@/lib/repairEffectiveness";
@@ -37,7 +37,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (debateError || !debate) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
   if (debate.status === "completed") return NextResponse.json({ error: "Debate already completed." }, { status: 409 });
 
-  const format = debate.format === "sprint" ? "sprint" : "full";
+  const format = resolveDebateFormat(debate.format);
   const minRounds = minRoundsFor(format);
 
   const { data: turns, error: turnsError } = await db

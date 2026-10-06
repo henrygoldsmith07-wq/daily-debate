@@ -8,7 +8,9 @@ import { isValidDebateTurn } from "@/lib/aiSchema";
 import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
 import { type InputMode } from "@/lib/types";
-import { roundCapFor } from "@/lib/sprint";
+import { resolveDebateFormat, roundCapFor } from "@/lib/sprint";
+import { resolveDifficulty, resolvePersona, turnDirective } from "@/lib/opponentPersona";
+import { liveCoachingForTurn } from "@/lib/liveCoaching";
 import { recordProductEvent } from "@/lib/productEvents";
 import {
   classifyArgumentBatchDetailed,
@@ -72,7 +74,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (pendingTurn.user_message) {
     return NextResponse.json({ error: "Latest round already answered." }, { status: 409 });
   }
-  const debateFormat = debate.format === "sprint" ? "sprint" : "full";
+  const debateFormat = resolveDebateFormat(debate.format);
   const roundCap = roundCapFor(debateFormat);
   // The cap is the last round the user may ANSWER: a sprint's round 3 is
   // playable, but it creates no round 4. Full debates keep the same semantics
@@ -115,6 +117,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     console.warn("Structural argument routing unavailable; continuing with the normal response path.");
   }
 
+  // Adversary controls: how the AI attacks (persona) and how hard (difficulty),
+  // composed with the format's turn-style directive. Legacy rows predate these
+  // columns, so resolve* normalises anything missing to the legacy pairing.
+  const directive = turnDirective(
+    resolvePersona(debate.persona),
+    resolveDifficulty(debate.difficulty),
+    debateFormat,
+    isFinalRound,
+  );
+
   let result;
   try {
     result = await withProviderFallback(
@@ -126,6 +138,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
           history,
           latestUserMessage: message,
           argumentRoute,
+          directive,
         }),
       isValidDebateTurn,
       () =>
@@ -136,6 +149,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
           history,
           latestUserMessage: message,
           argumentRoute,
+          directive,
         }),
     );
   } catch (error) {
@@ -153,6 +167,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   });
   const scores = observable.scores;
   const turnScore = observable.turnScore;
+
+  // Real-time coaching: the same deterministic evidence that scores the turn
+  // becomes at most two hints for the NEXT round. Advisory only — never
+  // persisted as ground truth, never altering scores.
+  const liveCoaching = liveCoachingForTurn({
+    assessment: observable.assessment,
+    round: pendingTurn.round_number,
+    userMessage: message,
+  });
 
   // Claim the turn atomically: only the first concurrent submit may write the
   // answer. A loser gets zero rows back and must not insert a duplicate
@@ -194,6 +217,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       nextTurn: null,
       roundCount: pendingTurn.round_number,
       debateComplete: true,
+      liveCoaching,
     });
   }
 
@@ -215,6 +239,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     nextTurn,
     roundCount: nextRoundNumber,
     debateComplete: false,
+    liveCoaching,
   });
 }
 

@@ -5,7 +5,7 @@ import DebateRoom from "@/components/DebateRoom";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
-import { measurementHonestyFor } from "@/lib/sprint";
+import { measurementHonestyFor, resolveDebateFormat } from "@/lib/sprint";
 import type { SoloDebate, SoloDebateTurn } from "@/lib/types";
 
 export default async function DebatePage({ params }: { params: Promise<{ debateId: string }> }) {
@@ -59,7 +59,7 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
         })
       : null;
     const snapshot = finalAssessment
-      ? buildResultSnapshot(finalAssessment, { format: debate.format === "sprint" ? "sprint" : "full" })
+      ? buildResultSnapshot(finalAssessment, { format: resolveDebateFormat(debate.format) })
       : null;    const { data: repair } = await db
       .from("repair_results")
       .select("id, created_at")
@@ -72,7 +72,7 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
       argGraph: finalAssessment?.graph,
       snapshot,
       repaired: !!repair,
-      honestyNote: measurementHonestyFor(debate.format === "sprint" ? "sprint" : "full").note,
+      honestyNote: measurementHonestyFor(resolveDebateFormat(debate.format)).note,
     };
   }
 

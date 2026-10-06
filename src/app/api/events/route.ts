@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { DEBATE_FORMATS } from "@/lib/sprint";
 import { PRODUCT_EVENT_NAMES, type ProductEventContext } from "@/lib/productEvents";
 
 /**
@@ -19,7 +20,9 @@ export async function POST(request: Request) {
   const eventName = name as (typeof PRODUCT_EVENT_NAMES)[number];
 
   const context: ProductEventContext = {};
-  if (body?.format === "sprint" || body?.format === "full") context.format = body.format;
+  if (typeof body?.format === "string" && (DEBATE_FORMATS as readonly string[]).includes(body.format)) {
+    context.format = body.format;
+  }
   if (body?.side === "for" || body?.side === "against") context.side = body.side;
   if (typeof body?.reason === "string") context.reason = body.reason.slice(0, 64);
   if (typeof body?.round === "number" && Number.isInteger(body.round)) context.round = body.round;

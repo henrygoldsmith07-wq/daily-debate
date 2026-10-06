@@ -12,7 +12,9 @@ import { useSpeechSynthesis } from "./useSpeechSynthesis";
 import { MAX_ROUNDS, type DebateSummary, type SoloDebate, type SoloDebateTurn } from "@/lib/types";
 import type { ArgGraph } from "@/lib/argGraph";
 import type { ResultSnapshot } from "@/lib/resultSnapshot";
-import { minRoundsFor } from "@/lib/sprint";
+import { formatLabelFor, minRoundsFor, resolveDebateFormat, roundCapFor } from "@/lib/sprint";
+import { OPPONENT_PERSONAS } from "@/lib/opponentPersona";
+import type { LiveCoachingHint } from "@/lib/liveCoaching";
 import { trackEvent } from "@/lib/trackClientEvent";
 
 interface RewardEventView { kind: string; xp: number; label: string; detail?: string; dimension?: string; }
@@ -21,7 +23,7 @@ interface DebateSummaryPayload {
   bonusXP: number;
   rewardEvents: RewardEventView[];
   summary: DebateSummary;
-  format?: "sprint" | "full";
+  format?: string;
   honesty?: { confidence: "standard" | "reduced"; note: string | null };
   snapshot?: ResultSnapshot;
 }
@@ -67,12 +69,15 @@ export default function DebateRoom({
   const [result, setResult] = useState<DebateSummaryPayload | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  // Real-time coaching: hints computed server-side from the just-submitted
+  // turn's observable evidence, shown for the NEXT round and cleared on submit.
+  const [liveHints, setLiveHints] = useState<LiveCoachingHint[]>([]);
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
   const repairRef = useRef<HTMLDivElement>(null);
 
-  const format = debate.format === "sprint" ? "sprint" : "full";
+  const format = resolveDebateFormat(debate.format);
   const minRounds = minRoundsFor(format);
   const aiSide = debate.side === "for" ? "against" : "for";
   const pending = turns[turns.length - 1];
@@ -82,11 +87,13 @@ export default function DebateRoom({
   const sideReason =
     (debate.coaching as { sideReason?: string | null } | null)?.sideReason ??
     ((debate as unknown as { side_reason?: string | null }).side_reason ?? null);
-  // Sprint rounds are answered up to and including round 3 (the cap itself);
-  // full debates keep the legacy behaviour where round_count counts created
-  // turns and the composer hides at 12.
+  const personaLabel =
+    debate.persona && debate.persona !== "balanced" ? OPPONENT_PERSONAS[debate.persona]?.label : null;
+  // The composer is visible while a round within the format's hard cap is
+  // awaiting an answer: fixed-length formats cap at their round count
+  // (sprint 3, flash 1, cross-examination/socratic 4); full debates cap at 12.
   const composerVisible =
-    status === "active" && !pending?.user_message && (format === "sprint" ? roundCount <= 3 : roundCount < MAX_ROUNDS);
+    status === "active" && !pending?.user_message && roundCount <= roundCapFor(format);
 
   useEffect(() => {
     // Follow new messages only while the reader is already near the bottom;
@@ -101,6 +108,7 @@ export default function DebateRoom({
   async function submitTurn(data: ComposerSubmitData) {
     setSending(true);
     setError(null);
+    setLiveHints([]);
     try {
       const res = await fetch(`/api/solo/${debate.id}/turn`, {
         method: "POST",
@@ -119,6 +127,7 @@ export default function DebateRoom({
           : [...prev.slice(0, -1), resData.completedTurn],
       );
       setRoundCount(resData.roundCount);
+      if (Array.isArray(resData.liveCoaching)) setLiveHints(resData.liveCoaching);
       if (resData.nextTurn && ttsSupported) speak(resData.nextTurn.ai_message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit response.");
@@ -214,9 +223,9 @@ export default function DebateRoom({
         <div className="surface-card flex flex-col gap-4 p-6" data-testid="result-card">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
             {view.fresh ? (
-              <>Debate complete{format === "sprint" ? " · Sprint" : ""}</>
+              <>Debate complete · {formatLabelFor(format)}</>
             ) : (
-              <>Replay{format === "sprint" ? " · Sprint" : ""}</>
+              <>Replay · {formatLabelFor(format)}</>
             )}
           </p>
 
@@ -369,6 +378,7 @@ export default function DebateRoom({
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-ink3">
           You&apos;re arguing <span className="text-[var(--foreground)]">{debate.side}</span> · AI argues {aiSide}
+          {personaLabel && <span className="text-[var(--accent)]"> · {personaLabel}</span>}
         </p>
         <RoundProgress answered={answeredCount} />
       </div>
@@ -421,6 +431,23 @@ export default function DebateRoom({
 
       {composerVisible && (
         <div className="flex flex-col gap-2">
+          {liveHints.length > 0 && (
+            <div className="flex flex-col gap-1.5" data-testid="live-coaching">
+              {liveHints.map((hint) => (
+                <p
+                  key={hint.id}
+                  className={`rounded-lg border px-3 py-2 text-xs leading-5 ${
+                    hint.severity === "warning"
+                      ? "border-amber-500/40 bg-amber-500/10 text-ink2"
+                      : "border-[var(--rule)] bg-surface-2 text-ink3"
+                  }`}
+                >
+                  <span className="mr-1.5 font-semibold uppercase tracking-wide text-[var(--accent)]">Coach</span>
+                  {hint.message}
+                </p>
+              ))}
+            </div>
+          )}
           <div className="flex gap-2 flex-wrap" role="group" aria-label="Debate mode">
             {[
               { id: "text", label: "📝 Text" },

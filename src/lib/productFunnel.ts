@@ -230,7 +230,7 @@ export function returnRate(
   };
 }
 
-const DEBATE_STARTS = new Set(["sprint_started", "full_debate_started", "debate_started"]);
+const DEBATE_STARTS = new Set(["sprint_started", "full_debate_started", "solo_debate_started", "debate_started"]);
 
 // ── Deeper product validation metrics ───────────────────────────────────────
 
@@ -462,7 +462,13 @@ export function buildSessionFunnel(
 
   const startedSessions = new Map<string, string>(); // debate_id -> format
   for (const r of sessionRows) {
-    if (r.name === "sprint_started" || r.name === "full_debate_started") {
+    if (
+      r.name === "sprint_started" ||
+      r.name === "full_debate_started" ||
+      r.name === "solo_debate_started"
+    ) {
+      // Non-sprint formats (flash, cross-examination, socratic) roll up into the
+      // "full" completion bucket; their exact format value stays on the row.
       startedSessions.set(r.debate_id!, r.format === "sprint" ? "sprint" : "full");
     }
   }

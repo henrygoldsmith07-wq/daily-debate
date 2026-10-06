@@ -1,6 +1,7 @@
 import type { ArgGraph } from "./argGraph";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
 import type { DebateFormat } from "./sprint";
+import type { OpponentDifficulty, OpponentPersonaId } from "./opponentPersona";
 import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
 
 export type DebateSide = "for" | "against";
@@ -40,8 +41,12 @@ export interface SoloDebate {
   status: "active" | "completed";
   round_count: number;
   total_score: number | null;
-  /** "sprint" (3 rounds, reduced measurement confidence) or "full" (5–12). */
+  /** "sprint", "full", "flash", "cross-examination", or "socratic". */
   format: DebateFormat;
+  /** Opponent adversary control: how the AI attacks (default "balanced"). */
+  persona: OpponentPersonaId;
+  /** Opponent adversary control: how hard the AI presses (default "challenging"). */
+  difficulty: OpponentDifficulty;
   /** Coaching snapshot jsonb: goal dimension + observed behaviour from the debate. */
   coaching: CoachingRecord | null;
   created_at: string;

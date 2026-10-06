@@ -7,12 +7,14 @@
 // never break a user flow.
 
 import { createClient } from "@/lib/backend/server";
+import type { DebateFormat } from "./sprint";
 
 export type ProductEventName =
   | "daily_viewed"
   | "debate_started"
   | "sprint_started"
   | "full_debate_started"
+  | "solo_debate_started"
   | "round_completed"
   | "debate_completed"
   | "repair_started"
@@ -25,7 +27,7 @@ export type ProductEventName =
   | "challenge_link_accepted";
 
 export interface ProductEventContext {
-  format?: "sprint" | "full";
+  format?: DebateFormat;
   side?: string | null;
   reason?: string | null;
   round?: number | null;
@@ -39,6 +41,7 @@ export const PRODUCT_EVENT_NAMES: readonly ProductEventName[] = [
   "debate_started",
   "sprint_started",
   "full_debate_started",
+  "solo_debate_started",
   "round_completed",
   "debate_completed",
   "repair_started",
@@ -71,7 +74,9 @@ export async function recordProductEvent(
       data: { user },
     } = await db.auth.getUser();
     if (!user) return;
-    // Keep only bounded, non-free-text fields.
+    // Keep only bounded, non-free-text fields. Persona/difficulty are NOT
+    // recorded here — they are already persisted on the solo_debates row, so
+    // analytics can join rather than widen this table's schema.
     await db.from("product_events").insert({
       user_id: user.id,
       name,

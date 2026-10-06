@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isKnownSource } from "@/lib/citationVerifier";
+import { formatEstimateLabel, formatLabelFor, type DebateFormat } from "@/lib/sprint";
+import { OPPONENT_DIFFICULTY_LIST, OPPONENT_PERSONA_LIST, type OpponentDifficulty, type OpponentPersonaId } from "@/lib/opponentPersona";
 import type { DailyTopic, DebateSide } from "@/lib/types";
 
 export interface EvidenceChecksView {
@@ -55,10 +57,12 @@ export default function TopicCard({
 }) {
   const router = useRouter();
   const [side, setSide] = useState<SideChoice>("challenge");
-  const [starting, setStarting] = useState<null | "sprint" | "full">(null);
+  const [persona, setPersona] = useState<OpponentPersonaId>("balanced");
+  const [difficulty, setDifficulty] = useState<OpponentDifficulty>("challenging");
+  const [starting, setStarting] = useState<DebateFormat | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function startDebate(format: "sprint" | "full") {
+  async function startDebate(format: DebateFormat) {
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setError("You appear to be offline — reconnect and try again.");
       return;
@@ -69,7 +73,7 @@ export default function TopicCard({
       const res = await fetch("/api/solo/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicId: topic.id, side, format }),
+        body: JSON.stringify({ topicId: topic.id, side, format, persona, difficulty }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start debate.");
@@ -137,6 +141,54 @@ export default function TopicCard({
               ))}
             </div>
 
+            <details className="home-motion-details">
+              <summary className="home-motion-details-summary">
+                <span data-testid="opponent-picker-summary">
+                  Opponent: {OPPONENT_PERSONA_LIST.find((p) => p.id === persona)?.label} ·{" "}
+                  {OPPONENT_DIFFICULTY_LIST.find((d) => d.id === difficulty)?.label}
+                </span>
+                <span className="home-motion-details-chevron" aria-hidden="true">+</span>
+              </summary>
+              <div className="mt-3">
+                <p className="mb-2 text-xs uppercase tracking-wide text-ink3">Who argues against you</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {OPPONENT_PERSONA_LIST.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setPersona(p.id)}
+                      aria-pressed={persona === p.id}
+                      title={p.tagline}
+                      className={`rounded-xl border px-3 py-2 text-left text-sm ${persona === p.id ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--accent)]" : "border-[var(--rule)] bg-surface-2 text-ink2"}`}
+                      data-testid={`persona-${p.id}`}
+                    >
+                      {p.label}
+                      <span className="mt-0.5 block text-[11px] font-normal leading-4 opacity-80">{p.tagline}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mb-2 mt-4 text-xs uppercase tracking-wide text-ink3">Pressure</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {OPPONENT_DIFFICULTY_LIST.map((d) => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setDifficulty(d.id)}
+                      aria-pressed={difficulty === d.id}
+                      title={d.description}
+                      className={`rounded-xl border px-3 py-2 text-sm ${difficulty === d.id ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--accent)]" : "border-[var(--rule)] bg-surface-2 text-ink2"}`}
+                      data-testid={`difficulty-${d.id}`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 text-[11px] leading-5 text-ink3">
+                  Personas change how the AI attacks; pressure changes how hard. Neither changes how you are scored.
+                </p>
+              </div>
+            </details>
+
             <button
               type="button"
               onClick={() => startDebate("sprint")}
@@ -153,17 +205,38 @@ export default function TopicCard({
                 <>Daily Sprint · three rounds, ~4 min <span aria-hidden="true">→</span></>
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => startDebate("full")}
-              disabled={starting !== null}
-              className="btn btn-ghost px-4 py-2 text-sm text-ink3 disabled:opacity-40"
-              data-testid="start-full"
-            >
-              {starting === "full" ? "Starting…" : "Full debate · 5–12 rounds"}
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => startDebate("full")}
+                disabled={starting !== null}
+                className="btn btn-ghost px-3 py-2 text-sm text-ink3 disabled:opacity-40"
+                data-testid="start-full"
+              >
+                {starting === "full" ? "Starting…" : "Full debate · 5–12 rounds"}
+              </button>
+              {(["flash", "cross-examination", "socratic"] as const).map((format) => (
+                <button
+                  key={format}
+                  type="button"
+                  onClick={() => startDebate(format)}
+                  disabled={starting !== null}
+                  className="btn btn-ghost px-3 py-2 text-sm text-ink3 disabled:opacity-40"
+                  data-testid={`start-${format}`}
+                  title={
+                    format === "flash"
+                      ? "One sharp ~60-second exchange"
+                      : format === "cross-examination"
+                        ? "The AI probes with questions and presses your answers"
+                        : "The AI only asks questions — you build the whole case"
+                  }
+                >
+                  {starting === format ? "Starting…" : `${formatLabelFor(format)} · ${formatEstimateLabel(format)}`}
+                </button>
+              ))}
+            </div>
             <p className="home-start-note">
-              Three focused rounds with directional feedback. Full Debate provides deeper analysis.
+              Three focused rounds with directional feedback. Cross-examination and Socratic train probing and answer-building; Flash is one sharp exchange.
             </p>
             {error && <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>}
           </div>

@@ -32,6 +32,10 @@ export type SoloDebateRow = {
   round_count: number;
   total_score: number | null;
   format: string;
+  /** Opponent persona (migration 016), default 'balanced'. */
+  persona: string;
+  /** Opponent difficulty (migration 016), default 'challenging'. */
+  difficulty: string;
   coaching: unknown;
   created_at: string;
   completed_at: string | null;
