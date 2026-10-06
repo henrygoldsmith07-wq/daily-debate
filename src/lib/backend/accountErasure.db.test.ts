@@ -56,15 +56,19 @@ d("delete_app_account (migration 037)", () => {
     const other = await createUser(emails.other);
     const rater = await createUser(emails.rater);
 
+    // Own topic row on a FIXED date: sibling db suites share today's
+    // daily_topics row, and verifyTopicStored.db.test nukes every topic dated
+    // >= 2026-10-01 in its beforeEach — referencing that row from a parallel
+    // suite (via solo_debates.topic_id) fails with an FK violation. An old
+    // date is outside its blast radius and outside every other suite's.
+    const topicDate = "2025-06-15";
     await pool.query(
       `INSERT INTO daily_topics (topic_date, title, prompt)
        VALUES ($1, 'Erasure test topic', 'Should this row outlive the victim?')
        ON CONFLICT (topic_date) DO NOTHING`,
-      [new Date().toISOString().slice(0, 10)],
+      [topicDate],
     );
-    const topic = await pool.query<{ id: string }>("SELECT id FROM daily_topics WHERE topic_date = $1", [
-      new Date().toISOString().slice(0, 10),
-    ]);
+    const topic = await pool.query<{ id: string }>("SELECT id FROM daily_topics WHERE topic_date = $1", [topicDate]);
     const topicId = topic.rows[0].id;
 
     // Victim's own solo debate (cascade path) and auth session.
@@ -106,7 +110,9 @@ d("delete_app_account (migration 037)", () => {
     );
 
     // Invites: one names the victim as opponent (must go), one does not
-    // involve them at all (must stay).
+    // involve them at all (must stay). challenge_invites allows only ONE open
+    // invite per challenger (023), so the clean invite is filed by the third
+    // account, not the same challenger as the victim's invite.
     const victimInvite = await pool.query<{ id: string }>(
       `INSERT INTO challenge_invites (code, challenger_id, topic_id, challenger_side, opponent_id, match_id, expires_at)
        VALUES ($1, $2, $3, 'for', $4, $5, now() + interval '1 day') RETURNING id`,
@@ -115,7 +121,7 @@ d("delete_app_account (migration 037)", () => {
     const cleanInvite = await pool.query<{ id: string }>(
       `INSERT INTO challenge_invites (code, challenger_id, topic_id, challenger_side, opponent_id, expires_at)
        VALUES ($1, $2, $3, 'for', $4, now() + interval '1 day') RETURNING id`,
-      [`clean${suffix}`.slice(0, 12), other, topicId, rater],
+      [`clean${suffix}`.slice(0, 12), rater, topicId, other],
     );
 
     // Corpus: victim's item (ratings from other + rater die WITH the item) and
