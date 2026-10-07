@@ -2,103 +2,39 @@
 
 One focused debate. One clear weakness. One immediate repair. One measurable improvement over time.
 
-Daily Debate is a daily reasoning trainer: argue today's motion against an AI opponent (in a ~4-minute Sprint or a full 5–12-round debate), get one clear coaching insight grounded in the arguments you actually made, repair your weakest link immediately, and watch whether the fix sticks across debates.
+## What
+
+Daily Debate is a daily reasoning trainer built around one loop:
+
+1. **Debate** — a Daily Sprint (3 rounds, ~4 min) or a Full Debate (5–12 rounds) against an AI opponent.
+2. **One weakness** — the result screen leads with a single highest-priority weakness, evidenced from your argument graph, not a wall of analytics.
+3. **Repair now** — **Fix this now** opens a one-minute, server-scored rewrite exercise on the exact flagged move.
+4. **Remember** — coaching goal, side history, and repair outcomes persist between sessions.
+5. **Test again** — the next debate carries the same focus and assesses whether you demonstrated the target behaviour.
+6. **Measure** — Progress shows seven skill dimensions with simple trends; improvement claims stay observational until enough debates exist.
+
+Guests get the same loop deterministically, without an account or any network call, before signing up.
+
+## Why
+
+Practice quality beats practice volume. The product deliberately optimises the
+smallest complete loop and measures whether it works before adding anything
+else. Validation is published, not implied: as of the latest benchmark run **no
+judge clears the quality gates**, so every training-loop number is unvalidated
+and competitive claims stay behind `eloGate` — see
+[docs/status.md](docs/status.md) for the honest numbers and
+[docs/roadmap.md](docs/roadmap.md) for what is active (proving the loop) versus
+parked (corpus, benchmarks, classrooms, tournaments, ranked play).
 
 ## Stack
 
 Next.js (App Router) + a repository-owned Postgres/auth backend + Anthropic as the default judge and opponent (one pinned paid model, `claude-sonnet-5`, over `@anthropic-ai/sdk`; `ANTHROPIC_MODEL` overrides). The free OpenAI-style chain (NVIDIA → OpenRouter → UnoRouter → Kirai) is opt-in for dev/e2e only via `JUDGE_ALLOW_FREE_PROVIDERS=1` and is never used in production by default. The app talks to standard Postgres through the Neon serverless driver.
 
-## The daily loop
-
-The product is built around one loop:
-
-1. **Debate** — a Daily Sprint (3 rounds, ~4 min) or a Full Debate (5–12 rounds).
-2. **One weakness** — the result screen leads with a single highest-priority weakness, evidenced from your argument graph, not a wall of analytics.
-3. **Repair now** — the **Fix this now** action opens a one-minute rewrite exercise on the exact flagged move. Scored server-side, remembered, and linked into coaching.
-4. **Remember** — the coaching goal, side history, and repair outcomes persist between sessions.
-5. **Test again** — the next debate carries the same focus; the result assesses whether you demonstrated the target behaviour.
-6. **Measure** — the Progress screen shows seven skill dimensions with simple trends; improvement claims stay observational until enough debates exist.
-
-> ### ⚠️ Validation status: no judge currently passes
->
-> As of the latest published benchmark run, **no model clears the judge gates**
-> (`docs/latest-judge-benchmark.json`, rendered per surface on `/metrics`):
->
-> | | best measured | gate |
-> |---|---|---|
-> | Fixture-label agreement | **0.583** (n=24) | ≥ 0.75 |
-> | Calibration error (ECE) | **0.189** | ≤ 0.08 |
-> | Position-swap stability | **0.792** | ≥ 0.97 |
-> | Fake-citation influence | **0.381** | ≤ 0.05 |
->
-> The default judge returned usable data for **4 of 72** benchmark calls. A
-> fake injected citation moves its verdict roughly a third of the time.
->
-> **What follows from that, stated plainly:** the software below is real and
-> works, but **every training-loop output it produces — weakness detection,
-> repair targeting, the seven skill dimensions, trend arrows, PvP verdicts — is
-> unvalidated.** There are no externally validated claims in this project yet
-> (`docs/validation.md`, tier 5). Competitive claims stay gated; the training
-> loop does not make competitive claims, but it does present numbers derived
-> from an unvalidated instrument, and that is now stated in the product rather
-> than only in this file.
-
-## Feature status
-
-Honest labels for what is shipped, provisional, or gated. "Shipped" below means
-the **software** ships and works — it does not mean the **claims** it produces
-are validated; see the notice above and `/metrics`.
-
-**Shipped**
-
-- Daily Sprint (3 rounds) and Full Debate (5–12 rounds) through the same argument/evaluation pipeline.
-- Opponent adversary controls: six personas (Skeptic, Lawyer, Philosopher, Economist, Devil's Advocate, Expert) plus three pressure levels (Easy, Challenging, Expert). Personas change how the AI attacks and pressure changes how hard — they are prompt-level controls and never touch the deterministic scoring.
-- Three targeted practice formats beside Sprint/Full: Flash (1 round, ~60 seconds), Cross-examination (4 probing-question rounds), Socratic (4 question-only rounds). All carry reduced measurement confidence with an explicit note.
-- Real-time coaching: deterministic mid-debate hints (unanswered opposition, contradictions, ungrounded claims, absolute language) computed from the same per-turn observable evidence as the score — no extra model calls, advisory only.
-- Best/weakest topic categories on Progress: observational averages over scored debates, shown only once a category has a minimum sample.
-- Recovery-first solo state: Start is claim-first and atomic (one opening call + one canonical active debate per user/topic), stale Finish leases self-heal, timed modes survive reloads, and an accepted response can be used to **Finish with saved response** once the minimum debate length is satisfied.
-- Simplified result screen: one strength, one weakness, one evidence line, **Fix this now**, length-normalized performance + cumulative XP secondary, full analysis behind progressive disclosure.
-- Weak-link repair: server-checked rewrite of the flagged move with formative states and observable signals; the internal numeric rubric stays hidden, persists in `repair_results`, and links to the day's drill assignment for later retest scheduling.
-- "Challenge me" side assignment: explainable, history-based side choice (side balance → performance gap → alternation → random when no data). Lightweight by design — not presented as optimised.
-- Daily coaching goal: shown before the debate, assessed after it, numeric only when the data supports the precision.
-- Progress screen: seven skills (Evidence, Rebuttal, Logic, Clarity, Impact, Steelmanning, Structure) with score + trend, strongest/weakest, current focus; raw metrics behind "How this was calculated". The live coaching ledger is explicitly bounded to the latest 100 completed debates and discloses when older history falls outside that window.
-- Measurement honesty: Sprint results carry an explicit reduced-confidence note; `insufficient_evidence`, uncertainty lists, and evaluation stamps are preserved everywhere.
-- PvP with atomic matchmaking, turn clocks, forfeits, judged verdicts with ensemble + fingerprints. Competitive trust claims stay conservative; the judge-validation gate is intact.
-- Async friend challenges: shareable `/challenge/<code>` link, persistent match state, expiry, turn state. (Foundation; UI marked experimental.)
-- Guest practice without an account: deterministic local checks react to the actual response (claim, reasoning, opponent engagement, impact comparison, named evidence), identify one observable weakness, and offer a mini repair. The motion rotates from a curated set by UTC day (`src/lib/guestMotions.ts`), so guest mode costs nothing and stays deterministic. The loop completes the full cycle — debate → one weakness → repair → **retest under debate conditions** → an honest read of whether the move reappeared — before the signup prompt appears. Guest mode deliberately shows no numeric ability score: the retest reports one observed instance and names its sample size, never a claim of mastery.
-- Product analytics: allowlisted, bounded, no-free-text funnel events (`src/lib/productEvents.ts`), with transactional/idempotent solo round, completion and retest events plus an internal admin report at `/analytics` covering the training funnel and observational repair-effectiveness measurement.
-- Expired sessions, password-reset tokens, rate-limit buckets, stale solo start/finalization/submission leases, legacy zero-turn solo orphans, and stale challenge invites are swept daily by the unattended `backend-cleanup` workflow; `npm run db:cleanup` runs the same maintenance function manually. Database maintenance and manual migrations share one concurrency group so they cannot overlap.
-
-**Provisional (measured, not validated)**
-
-- Skill scores and trends: deterministic and reproducible, but not yet validated against external measures of debating ability.
-- Opponent personas, pressure levels, and mid-debate coaching hints: deterministic and inspectable, but not yet validated against learning outcomes.
-- Coach focus selection and drill-outcome movement.
-- Ensemble-judge confidence heuristics.
-
-**Gated / future**
-
-- Ranked play, Elo expansion, tournaments: stay behind `eloGate` (judge invariance + ≥75% human agreement on a real corpus, matching `config/judge-gates.json`).
-- Judge validation on live models: weekly benchmark runs (`npm run benchmark:judges`), gates in `config/judge-gates.json`.
-
-## Documentation
-
-| File | Contents |
-|---|---|
-| [docs/product.md](docs/product.md) | The daily loop, Sprint vs Full, coaching goal, repair, screen-by-screen hierarchy |
-| [docs/judging.md](docs/judging.md) | Argument graph, observable assessment, scoring policy, judge ensemble + invariance |
-| [docs/evidence.md](docs/evidence.md) | Source grounding, citation verification, quote + claim-to-source matching |
-| [docs/validation.md](docs/validation.md) | Measurement honesty, confidence labels, benchmarks, corpus, what stays provisional |
-| [docs/architecture.md](docs/architecture.md) | Pipeline, data model, reliability, security, testing |
-| [docs/roadmap.md](docs/roadmap.md) | Evaluation corpus, judge bias benchmarks, gated path to ranked play |
-
-## Setup
+## Run
 
 1. Create a standard Postgres database (a pooled Neon/Vercel Postgres URL is recommended for serverless deployments).
 2. Run `npm install`, copy `.env.example` to `.env.local`, and set `DATABASE_URL` plus at least one AI provider key. Configure the password-reset email variables before relying on account recovery.
 3. Run `npm run db:migrate && npm run dev`.
-
-Authenticated users get the full daily-topic experience. Signed-out users get a local guest practice loop first, so the product can be evaluated before starting a debate account.
 
 ## Deploying to Vercel
 
@@ -117,6 +53,7 @@ Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only chec
 | `AI_DAILY_SPEND_CAP_USD` | optional | Daily AI spend cap, default `10`; `off` disables. When hit: opponent/judge degrade to an explicit retryable unavailable state (never silent). |
 | `AI_SPEND_UNCOSTED_CALL_USD` | optional | Declared charge for each call whose provider reports no cost, default `0.02`. |
 | `CLASSIFIER_DEV_ENABLED` | optional | `1` sends argument texts to classifier.dev. Default off everywhere until the service is disclosed in the privacy policy. |
+| `NEXT_PUBLIC_EXPERIMENTAL_SURFACES` | optional | `1` re-enables the parked surfaces in navigation (PvP, friend challenges, voice input, corpus-validation pages). Default off — see [docs/status.md](docs/status.md). |
 | `OPENROUTER_API_KEY` / `UNOROUTER_API_KEY` / `KIRAAI_API_KEY` / `NVIDIA_API_KEY` | optional | Free-chain transports; only used when `JUDGE_ALLOW_FREE_PROVIDERS` allows them. |
 | `OPENROUTER_MODEL` | optional | Defaults to `nvidia/nemotron-3-super-120b-a12b:free`. |
 | `OPENROUTER_FALLBACK_MODELS` | optional | Comma-separated failover chain. Defaults to free Nemotron 3 Super then Ultra. Empty string pins to one model. |
@@ -134,3 +71,15 @@ After setting `DATABASE_URL`, run `npm run db:migrate` locally against the same 
 - `npm test` — unit + regression suite (fully offline; DB invariant tests also run when `TEST_DATABASE_URL` is set).
 - `npm run test:e2e` — Playwright against an ephemeral Postgres with `E2E_MOCK_AI=1`; includes PvP, full-debate, and the Sprint → weakness → repair loop.
 - `npm run benchmark:judges` — live-model judge benchmark (weekly in CI).
+
+## Documentation
+
+| File | Contents |
+|---|---|
+| [docs/status.md](docs/status.md) | Feature status with honest labels, validation notice, capability map, model-call costs |
+| [docs/product.md](docs/product.md) | The daily loop, Sprint vs Full, coaching goal, repair, screen-by-screen hierarchy |
+| [docs/judging.md](docs/judging.md) | Argument graph, observable assessment, scoring policy, judge ensemble + invariance |
+| [docs/evidence.md](docs/evidence.md) | Source grounding, citation verification, quote + claim-to-source matching |
+| [docs/validation.md](docs/validation.md) | Measurement honesty, confidence labels, benchmarks, corpus, what stays provisional |
+| [docs/architecture.md](docs/architecture.md) | Pipeline, data model, reliability, security, testing |
+| [docs/roadmap.md](docs/roadmap.md) | Prove-the-loop scorecard, active backlog, parked surfaces, gating rule |

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isKnownSource } from "@/lib/citationVerifier";
+import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import { formatEstimateLabel, formatLabelFor, SPRINT_ESTIMATE_MINUTES, SPRINT_ROUNDS, type DebateFormat } from "@/lib/sprint";
 import { OPPONENT_DIFFICULTY_LIST, OPPONENT_PERSONA_LIST, type OpponentDifficulty, type OpponentPersonaId } from "@/lib/opponentPersona";
 import type { DailyTopic, DebateSide } from "@/lib/types";
@@ -317,9 +318,11 @@ export default function TopicCard({
           </div>
         </details>
 
-        <Link href="/pvp" className="home-motion-foot-link">
-          Challenge another player →
-        </Link>
+        {experimentalSurfacesEnabled() && (
+          <Link href="/pvp" className="home-motion-foot-link">
+            Challenge another player →
+          </Link>
+        )}
       </div>
     </section>
   );

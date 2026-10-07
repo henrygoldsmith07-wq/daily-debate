@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   NAV_ITEMS,
   NAV_SECTIONS,
   PRIMARY_NAV_ITEMS,
   activeNavItem,
   isActivePath,
+  visibleNavItems,
+  visibleNavSections,
+  visiblePrimaryNavItems,
 } from "./nav";
 
 describe("nav configuration", () => {
@@ -38,6 +41,44 @@ describe("nav configuration", () => {
   it("groups every item under exactly one section", () => {
     const grouped = NAV_SECTIONS.flatMap((section) => section.items);
     expect(grouped).toHaveLength(NAV_ITEMS.length);
+  });
+});
+
+describe("visibleNavSections (experimental-surfaces flag)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("hides experimental items by default and drops emptied sections", () => {
+    vi.stubEnv("NEXT_PUBLIC_EXPERIMENTAL_SURFACES", "");
+    const hrefs = visibleNavItems().map((item) => item.href);
+    expect(hrefs).not.toContain("/pvp");
+    expect(hrefs).toContain("/");
+    expect(hrefs).toContain("/history");
+    // The Practice section keeps Today, so it must still render — but with a
+    // single item, not an empty group label.
+    const practice = visibleNavSections().find((section) => section.id === "practice");
+    expect(practice?.items.map((item) => item.href)).toEqual(["/"]);
+  });
+
+  it("keeps the full declaration when experimental surfaces are enabled", () => {
+    vi.stubEnv("NEXT_PUBLIC_EXPERIMENTAL_SURFACES", "1");
+    expect(visibleNavSections()).toEqual(NAV_SECTIONS);
+    expect(visibleNavItems().map((item) => item.href)).toContain("/pvp");
+  });
+
+  it("never promotes an experimental item into the mobile tab bar", () => {
+    vi.stubEnv("NEXT_PUBLIC_EXPERIMENTAL_SURFACES", "1");
+    expect(visiblePrimaryNavItems().map((item) => item.href)).toEqual(
+      PRIMARY_NAV_ITEMS.map((item) => item.href),
+    );
+  });
+
+  it("leaves the underlying declarations untouched by the filter", () => {
+    vi.stubEnv("NEXT_PUBLIC_EXPERIMENTAL_SURFACES", "");
+    visibleNavSections();
+    expect(NAV_ITEMS.map((item) => item.href)).toContain("/pvp");
+    expect(NAV_SECTIONS).toHaveLength(3);
   });
 });
 

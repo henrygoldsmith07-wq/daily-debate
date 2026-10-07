@@ -480,6 +480,107 @@ export function buildWeeklyCohorts(rows: FunnelEventRow[], now: string, weeks = 
 }
 
 /**
+ * Weekly loop volumes — the raw per-week counts behind the roadmap's
+ * "Prove the loop" scorecard. Deliberately counts, not conversion rates:
+ * at the sizes this product has, rates hide behind the minimum-sample rule
+ * while the volumes themselves still show whether the loop is used.
+ *
+ * - `debateStarts` counts start events (sprint_started, full_debate_started,
+ *   solo_debate_started, debate_started), so a user starting twice counts
+ *   twice — it is session volume, not reach.
+ * - `repairsDemonstrated` uses the same successful-completion rule as the
+ *   funnel (legacy `repair_completed` retries excluded).
+ * - `returningUsers` counts users active this week whose first-ever activity
+ *   was before this week — the loop's week-over-week pull.
+ * - The newest row is the current, unfinished week and is reported like the
+ *   others; read it knowing the week has not finished.
+ */
+export interface WeeklyLoopRow {
+  weekStart: string;
+  activeUsers: number;
+  debatingUsers: number;
+  debateStarts: number;
+  debatesCompleted: number;
+  /** debatesCompleted / debateStarts; null below FUNNEL_MIN_SAMPLE starts. */
+  completionRate: number | null;
+  repairsDemonstrated: number;
+  repairUsers: number;
+  returningUsers: number;
+}
+
+export function buildWeeklyLoop(rows: FunnelEventRow[], now: string, weeks = 8): WeeklyLoopRow[] {
+  const today = dayOf(now);
+  const weekStartOf = (day: string): string => {
+    const d = new Date(`${day}T00:00:00Z`);
+    const dow = d.getUTCDay(); // 0 = Sunday; weeks start Monday
+    d.setUTCDate(d.getUTCDate() - ((dow + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+  const currentWeek = weekStartOf(today);
+
+  // First-ever activity per user, over ALL rows — a user whose first event
+  // predates the reported window still counts as returning when they show up
+  // again inside it.
+  const firstSeen = new Map<string, string>();
+  for (const r of rows) {
+    const day = dayOf(r.created_at);
+    const existing = firstSeen.get(r.user_id);
+    if (!existing || day < existing) firstSeen.set(r.user_id, day);
+  }
+
+  interface Bucket {
+    users: Set<string>;
+    debaters: Set<string>;
+    repairers: Set<string>;
+    starts: number;
+    completions: number;
+    repairs: number;
+  }
+  const buckets = new Map<string, Bucket>();
+  for (let i = weeks - 1; i >= 0; i--) {
+    buckets.set(addDays(currentWeek, -7 * i), { users: new Set(), debaters: new Set(), repairers: new Set(), starts: 0, completions: 0, repairs: 0 });
+  }
+
+  for (const r of rows) {
+    const bucket = buckets.get(weekStartOf(dayOf(r.created_at)));
+    if (!bucket) continue;
+    bucket.users.add(r.user_id);
+    if (DEBATE_STARTS.has(r.name)) {
+      bucket.starts += 1;
+      bucket.debaters.add(r.user_id);
+    }
+    if (r.name === "debate_completed") bucket.completions += 1;
+    if (isSuccessfulRepairCompletion(r)) {
+      bucket.repairs += 1;
+      bucket.repairers.add(r.user_id);
+    }
+  }
+
+  const out: WeeklyLoopRow[] = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    const weekStart = addDays(currentWeek, -7 * i);
+    const b = buckets.get(weekStart)!;
+    let returning = 0;
+    for (const userId of b.users) {
+      const first = firstSeen.get(userId);
+      if (first !== undefined && first < weekStart) returning += 1;
+    }
+    out.push({
+      weekStart,
+      activeUsers: b.users.size,
+      debatingUsers: b.debaters.size,
+      debateStarts: b.starts,
+      debatesCompleted: b.completions,
+      completionRate: b.starts >= FUNNEL_MIN_SAMPLE ? +(b.completions / b.starts).toFixed(3) : null,
+      repairsDemonstrated: b.repairs,
+      repairUsers: b.repairers.size,
+      returningUsers: returning,
+    });
+  }
+  return out;
+}
+
+/**
  * Session-level (per-debate) funnel from events that carry a debate_id.
  * A debate session counts as "completed" when its id appears on a
  * debate_completed event, etc. Legacy rows without an id are excluded from

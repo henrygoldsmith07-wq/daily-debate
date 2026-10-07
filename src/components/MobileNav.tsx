@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import NavIcon from "./NavIcon";
-import { NAV_SECTIONS, PRIMARY_NAV_ITEMS, isActivePath } from "@/lib/nav";
+import { visibleNavSections, visiblePrimaryNavItems, isActivePath } from "@/lib/nav";
 
 /**
  * Small-screen navigation: a fixed bottom tab bar for the screens people open
@@ -64,7 +64,7 @@ export default function MobileNav({ sheetFooter }: { sheetFooter?: React.ReactNo
   }, [sheetOpen]);
 
   // "More" counts as active whenever the open screen isn't one of the tabs.
-  const onSecondaryScreen = !PRIMARY_NAV_ITEMS.some((item) => isActivePath(pathname, item.href));
+  const onSecondaryScreen = !visiblePrimaryNavItems().some((item) => isActivePath(pathname, item.href));
 
   return (
     <>
@@ -84,7 +84,7 @@ export default function MobileNav({ sheetFooter }: { sheetFooter?: React.ReactNo
         <div className="app-sheet-grabber" aria-hidden="true" />
         <div className="app-sheet-body nice-scroll">
           <h2 id="app-more-sheet-title" className="sr-only">All screens</h2>
-          {NAV_SECTIONS.map((section) => (
+          {visibleNavSections().map((section) => (
             <div key={section.id} className="app-sheet-group">
               <p className="app-nav-group-label">{section.label}</p>
               <ul>
@@ -112,7 +112,7 @@ export default function MobileNav({ sheetFooter }: { sheetFooter?: React.ReactNo
       </div>
 
       <nav className="app-tabbar elev-nav" aria-label="Primary">
-        {PRIMARY_NAV_ITEMS.map((item) => {
+        {visiblePrimaryNavItems().map((item) => {
           const active = isActivePath(pathname, item.href);
           return (
             <Link

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PVP_ROUNDS } from "@/lib/types";
 import { trackEvent } from "@/lib/trackClientEvent";
+import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 
 export default function PvpLobby() {
   const router = useRouter();
@@ -132,6 +133,10 @@ export default function PvpLobby() {
       )}
       {error && <p className="text-sm text-[var(--bad)]">{error}</p>}
 
+      {/* Friend challenges are parked behind the experimental-surfaces flag
+          (default off) until the daily loop has real weekly users; the
+          challenge routes and tests stay in place for when it returns. */}
+      {experimentalSurfacesEnabled() && (
       <div className="w-full border-t border-[var(--rule)] pt-5">
         <p className="text-xs uppercase tracking-[0.14em] text-ink3">Challenge a friend</p>
         <p className="mt-1 text-sm text-ink3">
@@ -165,6 +170,7 @@ export default function PvpLobby() {
         )}
         {inviteError && <p className="mt-2 text-sm text-[var(--bad)]">{inviteError}</p>}
       </div>
+      )}
     </div>
   );
 }

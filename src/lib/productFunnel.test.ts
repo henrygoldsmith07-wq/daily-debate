@@ -4,6 +4,7 @@ import {
   buildRepairOutcomeFunnel,
   buildRepairOutcomeRows,
   buildWeeklyCohorts,
+  buildWeeklyLoop,
   completenessNote,
   completionTime,
   isSuccessfulRepairCompletion,
@@ -685,5 +686,73 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     expect(r.eligibleUsers).toBe(1);
     expect(r.returnedUsers).toBe(0);
     expect(r.pendingUsers).toBe(1);
+  });
+});
+
+describe("buildWeeklyLoop", () => {
+  // 2026-06-15 is a Monday, so the current week starts that day and the
+  // previous week starts 2026-06-08.
+  it("buckets weekly volumes onto Mondays and counts sessions, not reach", () => {
+    const rows = [
+      // Last week: u1 starts five sessions and completes three (2/5 would be
+      // below the min-sample rate, so the fixture clears the threshold).
+      ...event(["u1"], "sprint_started", "2026-06-09T09:00:00Z", { format: "sprint" }),
+      ...event(["u1"], "sprint_started", "2026-06-09T15:00:00Z", { format: "sprint" }),
+      ...event(["u1"], "sprint_started", "2026-06-10T09:00:00Z", { format: "sprint" }),
+      ...event(["u1"], "sprint_started", "2026-06-10T15:00:00Z", { format: "sprint" }),
+      ...event(["u1"], "sprint_started", "2026-06-11T09:00:00Z", { format: "sprint" }),
+      ...event(["u1"], "debate_completed", "2026-06-10T09:20:00Z", { format: "sprint" }),
+      ...event(["u1"], "debate_completed", "2026-06-10T15:20:00Z", { format: "sprint" }),
+      ...event(["u1"], "debate_completed", "2026-06-11T09:20:00Z", { format: "sprint" }),
+      // This week: u2 starts and completes; u1 returns (view only).
+      ...event(["u2"], "full_debate_started", "2026-06-15T10:00:00Z", { format: "full" }),
+      ...event(["u2"], "debate_completed", "2026-06-15T10:40:00Z", { format: "full" }),
+      ...event(["u1"], "daily_viewed", "2026-06-16T08:00:00Z"),
+    ];
+    const weekly = buildWeeklyLoop(rows, NOW, 2);
+    expect(weekly.map((w) => w.weekStart)).toEqual(["2026-06-08", "2026-06-15"]);
+
+    const lastWeek = weekly[0];
+    expect(lastWeek.activeUsers).toBe(1);
+    expect(lastWeek.debateStarts).toBe(5);
+    expect(lastWeek.debatingUsers).toBe(1);
+    expect(lastWeek.debatesCompleted).toBe(3);
+    expect(lastWeek.completionRate).toBe(0.6); // 5 starts ≥ min sample
+    expect(lastWeek.returningUsers).toBe(0); // u1's first-ever activity is this week
+
+    const thisWeek = weekly[1];
+    expect(thisWeek.activeUsers).toBe(2);
+    expect(thisWeek.debateStarts).toBe(1);
+    expect(thisWeek.debatesCompleted).toBe(1);
+    expect(thisWeek.completionRate).toBeNull(); // 1 start < min sample
+    expect(thisWeek.returningUsers).toBe(1); // u1's first activity was last week
+  });
+
+  it("counts repairs with the successful-completion rule and returns users from before the window", () => {
+    const rows = [
+      // u1 first seen long before the reported window — still "returning".
+      ...event(["u1"], "daily_viewed", "2026-01-05T09:00:00Z"),
+      // This week: u1 repairs (success), u2's legacy retry is NOT a repair.
+      ...event(["u1"], "repair_demonstrated", "2026-06-15T11:00:00Z", { debate_id: "d1" }),
+      ...event(["u2"], "repair_completed", "2026-06-16T11:00:00Z", { reason: "retry", debate_id: "d2" }),
+    ];
+    const weekly = buildWeeklyLoop(rows, NOW, 1);
+    expect(weekly).toHaveLength(1);
+    expect(weekly[0].weekStart).toBe("2026-06-15");
+    expect(weekly[0].repairsDemonstrated).toBe(1);
+    expect(weekly[0].repairUsers).toBe(1);
+    expect(weekly[0].activeUsers).toBe(2);
+    expect(weekly[0].returningUsers).toBe(1);
+  });
+
+  it("ignores events outside the reported weeks without losing them for the returning check", () => {
+    const rows = [
+      ...event(["u1"], "daily_viewed", "2020-01-06T09:00:00Z"), // years before the window
+      ...event(["u1"], "daily_viewed", "2026-06-15T09:00:00Z"),
+    ];
+    const weekly = buildWeeklyLoop(rows, NOW, 2);
+    expect(weekly[0].activeUsers).toBe(0);
+    expect(weekly[1].activeUsers).toBe(1);
+    expect(weekly[1].returningUsers).toBe(1);
   });
 });
