@@ -2,7 +2,7 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadFunnelData } from "@/lib/productFunnelServer";
-import { buildFunnelReport, buildRepairOutcomeFunnel } from "@/lib/productFunnel";
+import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, FUNNEL_MIN_SAMPLE } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
 import { getRequestAuthContext } from "@/lib/requestAuth";
@@ -63,6 +63,7 @@ export default async function AnalyticsPage() {
   }
   const { events, repairs, retests, debateWeaknesses, completeness } = funnelData;
   const funnel = buildFunnelReport(events, {});
+  const weeklyLoop = buildWeeklyLoop(events, funnel.generatedAt);
   const effectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { retests });
   const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { retests });
 
@@ -143,6 +144,50 @@ export default async function AnalyticsPage() {
         <p className="mt-1 text-xs text-ink3">
           Repair→return (observational): repairers {funnel.repairRetention.repairers.returned}/{funnel.repairRetention.repairers.users || "—"}
           {" · "}non-repairers {funnel.repairRetention.nonRepairers.returned}/{funnel.repairRetention.nonRepairers.users || "—"} (D1)
+        </p>
+      </section>
+
+      <section className="surface-card p-5" aria-labelledby="weekly-loop-heading">
+        <h2 id="weekly-loop-heading" className="text-sm font-semibold">Weekly loop volumes</h2>
+        <p className="mt-1 text-xs text-ink3">
+          Raw weekly counts from product_events — the scorecard the roadmap’s “Prove the loop” section tracks (targets and
+          definitions in docs/roadmap.md). The newest row is the current, unfinished week.
+        </p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="text-ink3">
+                <th className="py-1 pr-3 font-medium">Week</th>
+                <th className="py-1 pr-3 font-semibold">Active</th>
+                <th className="py-1 pr-3 font-semibold">Debating</th>
+                <th className="py-1 pr-3 font-semibold">Starts</th>
+                <th className="py-1 pr-3 font-semibold">Completed</th>
+                <th className="py-1 pr-3 font-semibold">Completion</th>
+                <th className="py-1 pr-3 font-semibold">Repairs</th>
+                <th className="py-1 font-semibold">Returning</th>
+              </tr>
+            </thead>
+            <tbody className="tabular">
+              {weeklyLoop.map((w) => (
+                <tr key={w.weekStart} className="border-t border-[var(--rule)]">
+                  <td className="py-1.5 pr-3 font-medium">{w.weekStart}</td>
+                  <td className="py-1.5 pr-3">{w.activeUsers}</td>
+                  <td className="py-1.5 pr-3">{w.debatingUsers}</td>
+                  <td className="py-1.5 pr-3">{w.debateStarts}</td>
+                  <td className="py-1.5 pr-3">{w.debatesCompleted}</td>
+                  <td className="py-1.5 pr-3">{w.completionRate === null ? "—" : pct(w.completionRate)}</td>
+                  <td className="py-1.5 pr-3">{w.repairsDemonstrated}</td>
+                  <td className="py-1.5">{w.returningUsers}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs text-ink3">
+          Active = distinct users with any tracked event that week · Debating = users who started ≥1 debate · Starts =
+          debate-start sessions (a user starting twice counts twice) · Repairs = successful repair demonstrations ·
+          Returning = active users whose first-ever activity was before that week. Completion is dashed below{" "}
+          {FUNNEL_MIN_SAMPLE} starts — no rate is made from noise, and zeros are never inferred when data is missing.
         </p>
       </section>
 

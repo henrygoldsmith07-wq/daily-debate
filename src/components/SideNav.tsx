@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import NavIcon from "./NavIcon";
-import { NAV_SECTIONS, isActivePath } from "@/lib/nav";
+import { visibleNavSections, isActivePath } from "@/lib/nav";
 
 /**
  * The desktop sidebar's link list. Grouped by what the screen is for —
@@ -15,7 +15,7 @@ export default function SideNav() {
 
   return (
     <nav className="app-sidebar-nav nice-scroll" aria-label="Main">
-      {NAV_SECTIONS.map((section) => (
+      {visibleNavSections().map((section) => (
         <div key={section.id} className="app-nav-group">
           <p className="app-nav-group-label" id={`nav-group-${section.id}`}>
             {section.label}

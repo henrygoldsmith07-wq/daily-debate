@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useSpeechRecognition } from "./useSpeechRecognition";
 import { resolveMode } from "@/lib/debateModes";
+import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import type { InputMode } from "@/lib/types";
 import type { TurnTiming } from "@/lib/speechAnalysis";
 
@@ -173,7 +174,9 @@ export default function MessageComposer({
       />
       <div className="flex items-center justify-between gap-2">
         <div className="flex flex-col gap-1">
-          {supported ? (
+          {/* Voice input is parked behind the experimental-surfaces flag
+              (default off); the speech pipeline and its tests stay in place. */}
+          {experimentalSurfacesEnabled() && supported && (
             <button
               type="button"
               onClick={toggleListening}
@@ -184,7 +187,8 @@ export default function MessageComposer({
             >
               {listening ? `● Listening… ${elapsedSecs}s` : "🎙️ Speak instead"}
             </button>
-          ) : (
+          )}
+          {experimentalSurfacesEnabled() && !supported && (
             <span className="text-xs text-ink2">Voice: Chrome/Edge only — type or paste on Safari/Firefox.</span>
           )}
           {speechError ? <span className="text-xs text-[var(--bad)]" role="alert">{speechError}</span> : null}

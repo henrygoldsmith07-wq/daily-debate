@@ -31,6 +31,10 @@ export default defineConfig({
       // browser-layer route mocks in the specs cannot see server-side calls).
       ...(process.env.E2E_DATABASE_URL ? { DATABASE_URL: process.env.E2E_DATABASE_URL } : {}),
       ...(process.env.E2E_MOCK_AI ? { E2E_MOCK_AI: process.env.E2E_MOCK_AI } : {}),
+      // The e2e specs exist to exercise the parked surfaces (PvP, friend
+      // challenges, voice), so the production build under test gets the
+      // experimental-surfaces flag regardless of the host environment.
+      NEXT_PUBLIC_EXPERIMENTAL_SURFACES: "1",
     },
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,

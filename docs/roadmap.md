@@ -1,203 +1,125 @@
 # Daily Debate — Roadmap
 
-A backlog for growing Daily Debate from a daily game into a trustworthy
-debate-training and competition platform. The headline is **evidence**: before
-ranked play, tournaments, or classroom use can ship, the judge must be
-validated against a large, provenance-audited human-labelled corpus and shown
-to be unbiased.
+One priority is active: **prove the daily loop with real users.** Everything
+else — the evaluation corpus, judge benchmarks, classrooms, tournaments — is
+parked, kept, and tested, until the loop has real weekly users. Feature status
+lives in [docs/status.md](status.md); this file is about what happens next.
 
-Items marked *(extend)* already have a working baseline in `src/lib/` and need
-depth rather than a new subsystem. The current labelled fixture corpus is not
-provenance-audited human data; it is a regression scaffold until moderated
-annotations are imported. Order within each group is not priority order.
+## Prove the loop (current focus)
 
-## Progress (2026-10-05)
+The product is one loop: debate today → one evidenced weakness → repair it
+immediately → deliberate retest → measured improvement. A week counts as
+"real" when the loop's volume grows **and** the loop's mechanics actually
+fire. The weekly scorecard below is computed from `product_events`; read it
+every week at `/analytics` (admin; JSON at `/api/analytics/funnel`), which
+renders the same numbers as its **Weekly loop volumes** table.
 
-**Adversary controls & practice formats pass (current).** Closes the three
-product gaps a feature audit surfaced (opponent variety, mid-debate feedback,
-format variety) without touching the deterministic judge:
+| Weekly metric | Definition (`product_events`) | Now | 8-week target |
+|---|---|---|---|
+| Active users | distinct users with any tracked event | read at /analytics | ≥ 25 |
+| Debate starts | `sprint_started` + `full_debate_started` + `solo_debate_started` sessions | 〃 | ≥ 50 |
+| Debates completed | `debate_completed` events | 〃 | ≥ 30 |
+| Completion rate | completed ÷ starts (reported only at ≥5 starts) | 〃 | ≥ 60% |
+| Repairs demonstrated | successful repair completions (legacy retries excluded) | 〃 | ≥ 12 |
+| Repair → retest | `retest_completed` ÷ repairs demonstrated | 〃 | ≥ 30% |
+| Returning users | active users whose first-ever activity was before that week | 〃 | ≥ 40% of active |
+| D1 return | users back exactly 1 day after first activity (≥5 eligible to report) | 〃 | ≥ 25% |
 
-- Opponent personas + pressure (`opponentPersona.ts`, migration 016): six
-  personas (Skeptic/Lawyer/Philosopher/Economist/Devil's Advocate/Expert) ×
-  three pressure levels, composed into opening/turn prompt directives only —
-  the observable assessment and scoring pipeline are unchanged, so persona
-  selection can never move a score.
-- Practice formats (`sprint.ts` + migration 016): Flash (1 round),
-  Cross-examination (4 probing rounds), Socratic (4 question-only rounds),
-  all reduced-confidence with explicit notes; `product_events` widened so the
-  funnel can tell the new formats apart (`solo_debate_started`).
-- Real-time coaching (`liveCoaching.ts`): ≤2 deterministic hints per turn
-  (unanswered opposition, contradiction, ungrounded claim, absolute language)
-  from the same per-turn observable evidence the score uses — no extra model
-  calls, advisory only, never persisted as ground truth.
-- Topic map on Progress (`topicInsights.ts`): best/weakest categories with a
-  minimum-sample rule and two-category requirement before a weak-topic signal
-  is shown.
+**Baseline: not yet measured.** Production has only just become stable enough
+to trust its own numbers (deploys migrate themselves, the daily topic never
+fails closed, the judge is pinned and spend-capped). The first job is one
+clean week of recorded numbers — not a feature. The targets are proposed
+floors for a loop that "works": completion above coin-flip, a repair after
+roughly every second completed debate, one new user in four back the next
+day. Re-read them after two weeks of real data instead of defending them.
 
-Open from this pass: measuring whether persona/difficulty choice improves
-retention (funnel event is in place) and whether live hints change next-round
-behaviour (needs a holdout design — see the judge experiment protocol before
-calling any effect real).
+**Weekly rhythm**
 
-## Progress (2026-09-08)
+1. **Monday** — record the new row from `/analytics` Weekly loop volumes.
+2. **One loop improvement per week, maximum.** Nothing that adds a surface.
+3. **Friday** — check returning + D1. If a number moved, understand why
+   before adding anything; if nothing moved, cut something.
 
-**Product-loop pass (current).** The experience was restructured around one
-loop — debate → one weakness → immediate repair → deliberate retest → measured
-improvement:
+**What counts as progress:** the weekly row goes up. **What does not:** new
+features, new surfaces, or claims.
 
-- Daily Sprint (3 rounds, ~4 min) with explicitly reduced measurement
-  confidence; Full Debate (5–12 rounds) unchanged.
-- Simplified result screen: one strength, one evidenced weakness,
-  **Fix this now**, score secondary, full analysis behind disclosure.
-- Weak-link repair is now server-scored and persisted (`repair_results`,
-  migration 004) and links into the drill/coaching system.
-- "Challenge me" side assignment with explainable, history-based heuristics
-  (`challengeMe.ts`).
-- Daily coaching goal: set before the debate, assessed after it, persisted on
-  the debate row; numeric only where the data supports precision.
-- Progress redesigned: seven skills with trend arrows, focus card, raw metrics
-  behind "How this was calculated".
-- Async friend-challenge foundation (`challenge_invites`, `/challenge/<code>`) —
-  experimental.
-- Privacy-conscious product analytics hooks (allowlisted events, migration 004).
+## Active backlog (serves the loop only)
 
-Shipped in earlier passes: rater-guidance/consensus-label scaffolding +
-adjudication helpers (`corpusAdjudication.ts`), source-date checking +
-original-source detection (`citationVerifier.ts`), political-topic /
-ideological asymmetry / writing-complexity / source-prestige bias audit
-(`judgeInvariance.ts`), and judge uncertainty in the UI — PvP verdicts store
-confidence, a score-gap band, per-judge agreement, and a "too close to call"
-result (`ensembleJudge.ts`). Classroom/team formats remain roadmap work. Still
-open: the 1,000+ debate data collection, live-model benchmark runs (need API
-keys), and better STT (needs a transcription service).
+- **Retest timing.** The repair → deliberate-retest hand-off exists; make the
+  retest land when the user is likely to act on it (day 1, not day 14), and
+  measure whether prompted retests beat incidental ones.
+- **Coach focus steering.** Repair outcomes already persist; let the next
+  debate's focus and the drill assignment consume them explicitly, then
+  measure the repair → retest → recurrence chain the analytics page tracks.
+- **Measurement honesty, kept.** Sprint's reduced-confidence label,
+  `insufficient_evidence` surfaces, evaluation stamps, "not yet measurable"
+  rates — these are features. Do not regress them under pressure to look good.
+- **Loop latency.** p95 of the first paint and the first judge turn; loop
+  starts die on slow first rounds.
+- **Judge transparency in the loop.** Keep "too close to call" and the
+  uncertainty lists visible; appeals and human correction wait for volume.
 
-Second pass (§4 citation & evidence integrity): quote verification
-(`quoteVerification.ts`) — quoted spans in evidence are checked against the cited
-source's excerpt and classified verbatim → verified, close → paraphrase, partial →
-misquoted, absent → fabricated — plus evidence-quality scoring that adds quote +
-date dimensions to the source tier (`evidenceQualityScore`, composing
-`sourceQualityScore` and `sourceDateCheck`). The graph evidence report now counts
-fabricated quotes and docks its score for them (`evidenceVerification.ts` →
-`GraphEvidenceReport.quoteIssueCount` / `fabricatedQuoteCount`).
+## Parked until the loop has real weekly users
 
-Third pass (§4 citation & evidence integrity): claim-to-source matching
-(`claimSourceMatch` in `quoteVerification.ts`) — a claim's content is checked
-against the best-matching cited excerpt and graded supported → weak → mismatched
-(no excerpt = unverifiable, not a violation). The graph evidence report now
-counts claims whose citations don't support them (`claimMismatchCount`), demotes
-those links to tangential, and docks its score for decorative citations.
+Everything below is frozen, not deleted. The code and tests stay green; the
+parked surfaces (PvP, friend challenges, voice input, the corpus-validation
+pages) are additionally hidden from navigation behind
+`NEXT_PUBLIC_EXPERIMENTAL_SURFACES` (default off) — see [docs/status.md](status.md).
 
-## Baseline already shipped
+### Evaluation corpus
 
-| Capability | Where |
-|------------|-------|
-| Argument graph `claim → evidence → counterclaim → rebuttal → impact` | `src/lib/argGraph.ts` |
-| Source-grounded evidence + citation allowlist / quality score | `src/lib/citationVerifier.ts` |
-| User-attached evidence (URL inference) | `src/lib/evidence.ts` |
-| Judge invariance transforms (swap labels, strip names, verbosity, hedge, fake source) | `src/lib/judgeInvariance.ts` |
-| Labelled fixture corpus (provenance currently unverified) | `src/lib/humanCorpus.ts` |
-| Heuristic enrichers (repetition, rebuttal coverage, fallacy hints) | `src/lib/argHeuristics.ts` |
-| Adaptive drills + weakness/profile selection | `src/lib/adaptiveCoach.ts`, `src/lib/coachLoop.ts` |
-| Elo gating + matchmaking | `src/lib/competitive.ts` |
-| Finished-debate replay from persisted turns | `src/app/debate/[debateId]/page.tsx` |
-| Voice input/output (Web Speech API, Chrome-family) | `src/components` |
+- Staged genuine-debate corpus with `VALIDATION_STAGES` as the threshold
+  source of truth: Stage 1 pilot (100+ debates, ≥2 independent ratings),
+  Stage 2 calibration (500+, ≥3), Stage 3 mature (1,000+, ≥3, balanced strata).
+- Rater guidance, adjudicated disagreements, human consensus labels.
+- Real judge-vs-human benchmark. The labelled fixtures in
+  `src/lib/humanCorpus.ts` are a regression scaffold, not human truth.
 
-## 1. Evaluation corpus — the headline
+### Model benchmarks & bias testing
 
-- One staged genuine-debate corpus, using `VALIDATION_STAGES` as the threshold source of truth:
-  - Stage 1 pilot: 100+ debates, ≥2 independent ratings/debate.
-  - Stage 2 calibration: 500+ debates, ≥3 independent ratings/debate.
-  - Stage 3 mature: 1,000+ debates, ≥3 independent ratings/debate plus balanced strata.
-- Rater guidance.
-- Adjudicated disagreements.
-- Human consensus labels.
-- Real judge-vs-human benchmark *(extend — fixture labels are not human truth;
-  scale through the staged corpus and keep winner agreement alongside per-dimension/coaching validation)*.
+- Multi-model ensemble; position-swap, name-removal, verbosity,
+  writing-complexity, source-prestige, political-topic,
+  ideological-asymmetry, and confidence-calibration testing (most have working
+  transforms in `src/lib/judgeInvariance.ts` — the harness survives).
+- The weekly CI benchmark run stays alive regardless of parking
+  (`npm run benchmark:judges`, gates in `config/judge-gates.json`): it costs
+  nothing and keeps the standing judge honest while everything else waits.
 
-## 2. Model benchmarks & bias testing
+### Multiplayer & classroom
 
-- Gemini benchmark.
-- Live judge benchmark on the free OpenRouter NVIDIA chain (24 fixtures, gated).
-- Multi-model ensemble.
-- Position-swap testing *(extend — `swapLabels`)*.
-- Name-removal testing *(extend — `stripNames`)*.
-- Verbosity testing *(extend — `inflateVerbosity`)*.
-- Writing-complexity testing.
-- Source-prestige testing *(extend — `injectFakeSource` probes hallucination;
-  add prestige-gradient sources)*.
-- Political-topic testing.
-- Ideological asymmetry testing.
-- Confidence calibration *(extend — `addConfidenceHedge` + `calibrationCurve`)*.
+- Team debates, classroom debates, teacher-assigned motions, research/prep
+  mode. PvP itself (matchmaking, turn clocks, judged verdicts) is built and
+  flag-gated; it reopens with the corpus and classroom work.
 
-## 3. Judge transparency & human-in-the-loop
+### Competitive & progression
 
-- "Too close to call." (a legitimate third verdict, not a forced win).
-- Judge uncertainty display.
-- Appeals.
-- Human correction.
+- Ranked play and tournaments stay behind `eloGate` — mature Stage 3 corpus,
+  judge invariance measured on the real model, ≥75% human agreement
+  (`config/judge-gates.json`). Skill progression, targeted drills
+  (`adaptiveCoach.ts` / `coachLoop.ts`), drill-effectiveness measurement.
 
-## 4. Citation & evidence integrity
+### Also parked
 
-- Better real citation fetching *(extend — live homepage reachability is the
-  known gap; the offline allowlist is the floor)*.
-- Claim-to-source matching — *shipped (third pass)*: `claimSourceMatch` in
-  `quoteVerification.ts`.
-- Quote verification — *shipped (second pass)*: `quoteVerification.ts`.
-- Source-date checking — *shipped (first pass)*: `sourceDateCheck` in
-  `citationVerifier.ts`.
-- Evidence-quality scoring — *shipped (second pass)*: `evidenceQualityScore`
-  (source tier + quote fidelity + date recency).
-- Original-source detection — *shipped (first pass)*: `originalSourceGap` in
-  `citationVerifier.ts`.
-
-## 5. Argument graph & fallacy
-
-- Argument graph corrections.
-- Stronger fallacy validation *(extend — `fallacyHints` is lexicon-based)*.
-- Better dropped-argument detection.
-- Better burden-of-proof modelling.
-- Rebuttal semantics — *shipped*: one canonical implementation in
-  `src/lib/opportunity.ts`; rewards, ledger, scoring, dropped detection,
-  goals, results, and repair all share the same opportunity/target/coverage
-  definitions. Impact is measured separately as weighing, not as a rebuttal
-  opportunity.
-
-## 6. Speech
-
-- Speech debates *(extend — voice input/output exists, Chrome-family only)*.
-- Better STT (beyond the browser Web Speech API: real speech-to-text for
-  Safari/Firefox and higher-accuracy transcription).
-
-## 7. Multiplayer & classroom
-
-- Team debates.
-- Classroom debates.
-- Teacher-assigned motions.
-- Research/prep mode.
-
-## 8. Competitive & progression (gated)
-
-- Tournament mode after judge validation *(extend — gated by `eloGate`)*.
-- Ranked mode after validation *(extend — gated by `eloGate`)*.
-- Skill progression.
-- Targeted drills *(extend — `adaptiveCoach.ts` / `coachLoop.ts`)*.
-- Measure drill effectiveness.
-
-## 9. Sharing
-
-- Shareable debate replay *(current replay exists for signed-in persisted debates; public sharing is still open)*.
+- **Speech:** real STT beyond the browser Web Speech API; speech debates.
+  (Voice input exists behind the experimental-surfaces flag, Chrome-family.)
+- **Sharing:** public shareable debate replay.
+- **Citation & evidence depth:** live citation fetching (the offline
+  allowlist, quote verification, claim-to-source matching, and source-date
+  checking are shipped — see [docs/evidence.md](evidence.md)).
+- **Argument-graph depth:** fallacy validation beyond the lexicon,
+  dropped-argument detection, burden-of-proof modelling.
 
 ## Gating rule (unchanged)
 
 Ranked and tournament modes stay behind the existing gate — a mature Stage 3
 corpus, judge invariance measured on the real model, and ≥75% human agreement
-against the Section 1 corpus. Friend challenges are experimental unranked play,
-so they do not imply that the competitive ranking gate has passed.
+against that corpus. Friend challenges are experimental unranked play and are
+themselves parked behind the experimental-surfaces flag; neither implies the
+competitive ranking gate has passed.
 
 ## North star
 
 Daily Debate wins when a player can trust the judge more than the opponent —
-"the judge is calibrated, auditable, and can say *too close to call*." The corpus
-and bias benchmarks in Sections 1–2 are what earn that trust; the classroom and
-competition features in Sections 7–8 are what it unlocks.
-
+"the judge is calibrated, auditable, and can say *too close to call*." Trust is
+earned in order: first people run the loop, then the judge is validated on
+what they produced, then the gates open. The loop comes first.

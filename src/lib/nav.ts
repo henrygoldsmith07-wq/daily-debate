@@ -5,7 +5,15 @@
  * bar, and the mobile "More" sheet — so the destinations only get declared
  * once here. `primary` marks the handful of screens that earn a tab slot on
  * small screens; everything else lives behind More.
+ *
+ * `experimental: true` marks a surface the roadmap parks until the daily loop
+ * has real weekly users. Those items stay declared here (the code and tests
+ * behind them are kept) but `visibleNavSections()` filters them out unless
+ * `NEXT_PUBLIC_EXPERIMENTAL_SURFACES=1` — production navigation stays
+ * focused on the daily solo loop.
  */
+
+import { experimentalSurfacesEnabled } from "./featureFlags";
 
 export type NavIconName =
   | "today"
@@ -27,6 +35,8 @@ export interface NavItem {
   icon: NavIconName;
   /** Gets its own slot in the mobile tab bar. */
   primary?: boolean;
+  /** Hidden from navigation unless experimental surfaces are enabled. */
+  experimental?: boolean;
 }
 
 export interface NavSection {
@@ -52,6 +62,7 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "Player vs Player",
         description: "Debate another player on today's motion",
         icon: "pvp",
+        experimental: true,
       },
     ],
   },
@@ -104,6 +115,29 @@ export const NAV_SECTIONS: NavSection[] = [
 export const NAV_ITEMS: NavItem[] = NAV_SECTIONS.flatMap((section) => section.items);
 
 export const PRIMARY_NAV_ITEMS: NavItem[] = NAV_ITEMS.filter((item) => item.primary);
+
+/**
+ * The nav sections for the current environment: the full declaration, minus
+ * experimental items unless `NEXT_PUBLIC_EXPERIMENTAL_SURFACES=1`. Sections
+ * left empty by the filter are dropped so no orphaned group label renders.
+ */
+export function visibleNavSections(): NavSection[] {
+  if (experimentalSurfacesEnabled()) return NAV_SECTIONS;
+  return NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => !item.experimental),
+  })).filter((section) => section.items.length > 0);
+}
+
+/** Every visible nav entry, flattened (mirrors `NAV_ITEMS`). */
+export function visibleNavItems(): NavItem[] {
+  return visibleNavSections().flatMap((section) => section.items);
+}
+
+/** The visible items that earn a mobile tab slot (mirrors `PRIMARY_NAV_ITEMS`). */
+export function visiblePrimaryNavItems(): NavItem[] {
+  return visibleNavItems().filter((item) => item.primary);
+}
 
 /**
  * True when `href` is the section the current path belongs to. "/" only ever

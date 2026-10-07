@@ -2,6 +2,7 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { EVIDENCE_CLASS_LABELS } from "@/lib/argGraph";
+import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 
 export const metadata = {
   title: "Trust & research",
@@ -35,6 +36,10 @@ const EVIDENCE_CLASSES = Object.entries(EVIDENCE_CLASS_LABELS) as Array<
 >;
 
 export default function ResearchPage() {
+  // Corpus validation tooling (benchmark, metrics, rating) is parked behind the
+  // experimental-surfaces flag (default off) until the daily loop has real
+  // weekly users; the pages themselves stay deployed and reachable by URL.
+  const destinations = experimentalSurfacesEnabled() ? DESTINATIONS : [];
   return (
     <AppShell width="narrow">
       <PageHeader
@@ -76,8 +81,14 @@ export default function ResearchPage() {
 
       <section className="surface-card p-5 flex flex-col gap-4">
         <h2 className="text-sm font-semibold">Validation &amp; metrics</h2>
+        {destinations.length === 0 && (
+          <p className="text-xs text-ink3">
+            The corpus-validation surfaces (judge benchmark, corpus metrics, human rating) are parked while the
+            daily product loop is being proven. They remain available at their usual addresses.
+          </p>
+        )}
         <ul className="flex flex-col gap-3">
-          {DESTINATIONS.map((d) => (
+          {destinations.map((d) => (
             <li key={d.href} className="rounded-xl border border-[var(--rule)] p-4 transition-colors hover:bg-[var(--surface-2)]">
               <Link href={d.href} className="flex flex-col gap-1">
                 <span className="text-sm font-medium underline-offset-2 hover:underline">{d.label} →</span>
