@@ -234,7 +234,10 @@ export default async function ProgressPage() {
           data-testid="next-practice"
         >
           <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">
-            {learnerModel.nextPractice.priority === "retest-due"
+            {/* A retest is only surfaced when the canonical motion has one
+                scheduled (agrees with Today/CoachToday) — a same-topic repair is
+                never relabelled as a transfer retest by this card. */}
+            {learnerModel.nextPractice.priority === "retest-due" && pendingRetest
               ? "Retest after repair"
               : learnerModel.nextPractice.priority === "needs-evidence"
                 ? "Gather evidence"
@@ -264,7 +267,7 @@ export default async function ProgressPage() {
             className="btn btn-primary mt-4 px-5 py-2.5 text-sm"
             data-testid="next-practice-cta"
           >
-            {learnerModel.nextPractice.priority === "retest-due"
+            {learnerModel.nextPractice.priority === "retest-due" && pendingRetest
               ? "Start today's retest"
               : "Start today's debate"}{" "}
             →
