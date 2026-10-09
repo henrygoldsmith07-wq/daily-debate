@@ -3,6 +3,7 @@ import type { ArgGraph } from "./argGraph";
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
+import { isValidJudgeExtraction } from "./aiSchema";
 import { ensureSpendWithinCap } from "./spendCap";
 import { e2eMockAiEnabled, mockPvpJudge } from "./aiE2eMock";
 import type { ArgumentRoute } from "./argumentTaxonomy";
@@ -451,6 +452,12 @@ Return a faithful argGraph with nodes (c1,e1,k1,r1,i1, text ≤18 words), edges,
   const toolUse = message.content.find((block) => block.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") throw new Error("Claude did not return structured output");
   const extracted = toolUse.input as { rationale?: string; argGraph?: ArgGraph };
+  // Shape gate: the pinned judge's structured output must match the expected
+  // schema before it can become a score. A malformed or truncated tool payload
+  // is a retryable failure, never a favourable verdict or a valid-looking score.
+  if (!isValidJudgeExtraction(extracted)) {
+    throw new Error("Claude returned a judge payload that failed schema validation");
+  }
   return finalizePvpAssessment(extracted, { extractionSource: "llm" });
 }
 

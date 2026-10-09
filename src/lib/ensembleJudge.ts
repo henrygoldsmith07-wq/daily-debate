@@ -13,6 +13,7 @@ import type { PvpJudgeResult, PvpVerdict } from "./types";
 import type { AssessmentStatus, ObservableAssessment } from "./observableAssessment";
 import type { ProviderLabel } from "./openrouter";
 import { makeEnsembleFingerprint, type JudgeFingerprint } from "./judgeVersioning";
+import { isValidScore, isValidWinner } from "./aiSchema";
 import { finalizePvpAssessment } from "./observableAssessment";
 import { buildDeterministicArgumentGraph } from "./argumentEvaluation";
 import {
@@ -448,19 +449,35 @@ export function verdictFromEnsemble(e: EnsembleResult): PvpVerdict {
   // Surface the breakdown of a judge that actually scored the debate —
   // judges[0] may have returned insufficient_evidence while another scored.
   const breakdownSource = e.judges.find(isScoredJudge) ?? e.judges[0];
+
+  // Stored-verdict guardrail: a winner or score that is not a valid comparison
+  // must never persist as a favourable verdict. The application derives these
+  // from the graph, but a malformed upstream value is downgraded to an explicit
+  // insufficient-evidence tie rather than written through as a result.
+  const scoresValid =
+    isValidScore(e.playerAScore) &&
+    isValidScore(e.playerBScore) &&
+    isValidWinner(e.winner);
+  const winner = scoresValid ? e.winner : "tie";
+  const playerAScore = isValidScore(e.playerAScore) ? e.playerAScore : 0;
+  const playerBScore = isValidScore(e.playerBScore) ? e.playerBScore : 0;
+  const scoreStatus: AssessmentStatus = scoresValid ? e.scoreStatus : "insufficient_evidence";
+
   return {
-    winner: e.winner,
-    playerAScore: e.playerAScore,
-    playerBScore: e.playerBScore,
+    winner,
+    playerAScore,
+    playerBScore,
     rationale: e.rationale,
     decidingFactor: e.decidingFactor,
     argGraph: e.argGraph,
     breakdown: breakdownSource?.breakdown,
-    confidence: e.confidence,
+    confidence: scoresValid ? e.confidence : 0,
     scoreGapEstimate: e.scoreGapEstimate,
     judgeSplit: e.judgeSplit,
-    isTie: e.isTie,
-    tieReason: e.tieReason,
+    isTie: scoresValid ? e.isTie : true,
+    tieReason: scoresValid
+      ? e.tieReason
+      : "Insufficient evidence: the stored scores were not a valid comparison.",
     judges: e.judges.map((j) => ({
       judgeId: j.judgeId,
       winner: j.winner,
@@ -469,7 +486,7 @@ export function verdictFromEnsemble(e: EnsembleResult): PvpVerdict {
       scoreStatus: j.scoreStatus ?? j.observableAssessment?.status,
       latencyMs: j.latencyMs,
     })),
-    scoreStatus: e.scoreStatus,
+    scoreStatus,
     observableAssessment: e.observableAssessment,
     routing: e.routing,
     // Persist the shadow record on the verdict so route-vs-ensemble
