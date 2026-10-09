@@ -21,6 +21,7 @@ import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types
 import { finalizePvpAssessment } from "./observableAssessment";
 import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
+import { isValidJudgeExtraction } from "./aiSchema";
 import { ensureSpendWithinCap } from "./spendCap";
 import type { ArgumentRoute } from "./argumentTaxonomy";
 
@@ -274,7 +275,17 @@ interface ChatOptions {
   maxTokens?: number;
   /** Logical operation name for the AI telemetry ledger (e.g. "judge_pvp"). */
   operation?: string;
+  /**
+   * Output-shape gate. When present, a parsed value that fails it is treated as
+   * a retryable failure and never returned as a successful result — so malformed
+   * model output cannot become a favourable verdict or an apparently valid score.
+   */
+  validate?: (value: unknown) => boolean;
 }
+
+/** ChatOptions with the optional fields resolved to their defaults. */
+type ResolvedChatOptions = Required<Omit<ChatOptions, "validate">> &
+  Pick<ChatOptions, "validate">;
 
 type Attempt<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -287,7 +298,7 @@ type Attempt<T> = { ok: true; value: T } | { ok: false; error: string };
  */
 async function post(
   m: string,
-  { instruction, schema, maxTokens }: Required<ChatOptions>,
+  { instruction, schema, maxTokens }: ResolvedChatOptions,
   key: string,
   disableReasoning: boolean,
 ): Promise<Response> {
@@ -328,7 +339,7 @@ async function post(
 
 async function tryModel<T>(
   m: string,
-  options: Required<ChatOptions>,
+  options: ResolvedChatOptions,
   key: string,
   deadline: number,
   maxAttempts: number,
@@ -394,6 +405,14 @@ async function tryModel<T>(
 
       try {
         const value = parseJson<T>(content);
+        // Shape gate: an output that fails the expected schema is a retryable
+        // failure, never a successful result. This is what keeps a malformed or
+        // truncated judge graph from becoming a valid-looking score or verdict.
+        if (options.validate && !options.validate(value)) {
+          const invalid = `${m} returned an output that failed schema validation`;
+          record("error", invalid);
+          return { ok: false, error: invalid };
+        }
         record("ok");
         return { ok: true, value };
       } catch (error) {
@@ -430,14 +449,14 @@ async function tryModel<T>(
   return { ok: false, error: `${m}: ${lastError}` };
 }
 
-async function chatJson<T>({ instruction, schema, maxTokens = 2_000, operation = "unknown" }: ChatOptions): Promise<T> {
+async function chatJson<T>({ instruction, schema, maxTokens = 2_000, operation = "unknown", validate }: ChatOptions): Promise<T> {
   // Durable daily spend cap: explicit SpendCapReachedError when today's
   // metered spend is exhausted (callers degrade visibly, never silently).
   await ensureSpendWithinCap();
   const key = apiKey();
   const deadline = Date.now() + RETRY_BUDGET_MS;
   const chain = modelChain();
-  const options = { instruction, schema, maxTokens, operation };
+  const options: ResolvedChatOptions = { instruction, schema, maxTokens, operation, validate };
   const failures: string[] = [];
 
   for (const [index, m] of chain.entries()) {
@@ -702,6 +721,7 @@ export async function judgePvpMatch(params: {
     schema: JUDGE_SCHEMA,
     maxTokens: 6_000,
     operation: "judge_pvp",
+    validate: isValidJudgeExtraction,
     instruction: `You are a neutral, rigorous debate analyst. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nPlayer A argued "${params.playerASide}"; Player B argued the opposite side.\n\nTranscript:\n${params.transcript}\n\nAnalyze the observable argument structure, not which side of the topic is "correct". Judge only what is argued and shown: identical content earns identical treatment regardless of which label (A or B) speaks it, and length, repetition, formatting, fluency or confident tone are not argument quality. Named sources, institutions and statistics count only where the argument makes the evidence usable (mechanism, figure, context); authoritative-sounding references without usable content are noise, never strength. Return a faithful argGraph with nodes (c1,e1,k1,r1,i1, text <=18 words), edges, dropped arguments, contradictions, concessions, fallacies, evidenceStats, and impactComparison. Every cited/strong evidence node MUST include a citation object with a named source; never invent arguments or citations not present in the transcript. Also return a short rationale citing specific graph moments. Numeric scores and winner are computed by the application from the graph and must not be estimated here.`,
   });
 

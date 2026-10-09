@@ -23,6 +23,8 @@ import { getTodayTopic } from "@/lib/dailyTopic";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import { buildSkillJourney, buildRecentlyImproved, journeyObservationsFor } from "@/lib/skillJourney";
 import { buildMilestones } from "@/lib/milestones";
+import { buildLearnerModel, CLAIM_KIND_LABEL } from "@/lib/learnerModel";
+import { EVIDENCE_LEVEL_LABEL } from "@/lib/skillTaxonomy";
 import { FORMATIVE_STATE_LABELS } from "@/lib/retest";
 
 export const dynamic = "force-dynamic";
@@ -137,6 +139,39 @@ export default async function ProgressPage() {
   const journeyInputs = await buildJourneyInputsForUser(user.id);
   const journey = buildSkillJourney(journeyInputs.repairs, journeyInputs.weaknessRows);
   const recentlyImproved = buildRecentlyImproved(journey);
+  // Canonical learner model: one coherent answer to "what should I practise
+  // next and why", assembled from the same stored debates as every other
+  // surface. Repair episodes and deliberate-retest outcomes feed it so a
+  // successful repair is never read as mastery.
+  const learnerModel = buildLearnerModel({
+    points: ledger.points,
+    repairs: journeyInputs.repairs.map((r) => ({
+      targetKind: r.target_kind,
+      debateId: r.debate_id,
+      createdAt: r.created_at,
+      succeeded: r.succeeded,
+    })),
+    retests: journeyInputs.repairs.flatMap((r) =>
+      r.retest_debate_id && r.retest_completed_at
+        ? [
+            {
+              targetKind: r.target_kind,
+              repairDebateId: r.debate_id,
+              assignedDebateId: r.retest_debate_id,
+              completedAt: r.retest_completed_at,
+              observable:
+                r.retest_outcome === "skill-observed" || r.retest_outcome === "skill-not-observed",
+              demonstrated:
+                r.retest_outcome === "skill-observed"
+                  ? true
+                  : r.retest_outcome === "skill-not-observed"
+                    ? false
+                    : null,
+            },
+          ]
+        : [],
+    ),
+  });
   const milestones = buildMilestones({
     repairs: journeyInputs.repairs,
     observationsByKind: Object.fromEntries(
@@ -191,6 +226,100 @@ export default async function ProgressPage() {
         title="Progress"
         description={progressDescription}
       />
+      {/* ── What to practise next: the one recommended action + why ────── */}
+      {learnerModel.nextPractice && (
+        <section
+          className="surface-card p-5"
+          aria-labelledby="next-practice-heading"
+          data-testid="next-practice"
+        >
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">
+            {/* A retest is only surfaced when the canonical motion has one
+                scheduled (agrees with Today/CoachToday) — a same-topic repair is
+                never relabelled as a transfer retest by this card. */}
+            {learnerModel.nextPractice.priority === "retest-due" && pendingRetest
+              ? "Retest after repair"
+              : learnerModel.nextPractice.priority === "needs-evidence"
+                ? "Gather evidence"
+                : learnerModel.nextPractice.priority === "persistent-weakness"
+                  ? "Focus now"
+                  : "Next practice"}
+          </p>
+          <h2 id="next-practice-heading" className="mt-1 text-lg font-semibold">
+            {learnerModel.nextPractice.label}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-ink2">{learnerModel.nextPractice.reason}</p>
+          <dl className="mt-3 grid gap-2 text-xs">
+            <div>
+              <dt className="font-medium text-ink2">Today, watch for</dt>
+              <dd className="text-ink3">{learnerModel.nextPractice.observable}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-ink2">Why here</dt>
+              <dd className="text-ink3">{learnerModel.nextPractice.evidence}</dd>
+            </div>
+          </dl>
+          <p className="mt-3 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink3">
+            {learnerModel.nextPractice.caveat}
+          </p>
+          <Link
+            href="/"
+            className="btn btn-primary mt-4 px-5 py-2.5 text-sm"
+            data-testid="next-practice-cta"
+          >
+            {learnerModel.nextPractice.priority === "retest-due" && pendingRetest
+              ? "Start today's retest"
+              : "Start today's debate"}{" "}
+            →
+          </Link>
+        </section>
+      )}
+
+      {/* ── Your training story: the five honest questions ─────────────── */}
+      <section className="surface-card p-5" aria-labelledby="training-story-heading" data-testid="training-story">
+        <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">Your training story</p>
+        <h2 id="training-story-heading" className="mt-1 text-lg font-semibold">What your debates show</h2>
+        <dl className="mt-3 flex flex-col gap-3">
+          <div>
+            <dt className="text-xs font-medium text-ink2">What did I do badly?</dt>
+            <dd className="mt-0.5 text-sm leading-6 text-ink3">{learnerModel.questions.whatDidIDoBadly}</dd>
+          </div>
+          {learnerModel.questions.whyDoesItMatter && (
+            <div>
+              <dt className="text-xs font-medium text-ink2">Why does it matter?</dt>
+              <dd className="mt-0.5 text-sm leading-6 text-ink3">{learnerModel.questions.whyDoesItMatter}</dd>
+            </div>
+          )}
+          <div>
+            <dt className="text-xs font-medium text-ink2">How did I repair it?</dt>
+            <dd className="mt-0.5 text-sm leading-6 text-ink3">{learnerModel.questions.howDidIRepairIt}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium text-ink2">Did I demonstrate it later?</dt>
+            <dd className="mt-0.5 text-sm leading-6 text-ink3">{learnerModel.questions.didIDemonstrateIt}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium text-ink2">What should I practise next?</dt>
+            <dd className="mt-0.5 text-sm leading-6 text-ink3">{learnerModel.questions.whatShouldIPractiseNext}</dd>
+          </div>
+        </dl>
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs font-medium text-ink3">How much of this is certain?</summary>
+          <ul className="mt-2 flex flex-col gap-1 text-[11px] leading-4 text-ink3">
+            {learnerModel.skills
+              .filter((s) => s.level !== null)
+              .map((s) => (
+                <li key={s.key}>
+                  <span className="font-medium text-ink2">{s.label}:</span> {CLAIM_KIND_LABEL[s.claim]}
+                  {" · "}
+                  {EVIDENCE_LEVEL_LABEL[s.instrument]} · {s.sampleSize} debate{s.sampleSize === 1 ? "" : "s"}
+                </li>
+              ))}
+          </ul>
+          <p className="mt-2 text-[11px] leading-4 text-ink3">{learnerModel.honestyNote}</p>
+        </details>
+      </section>
+
       {coachingContext.status === "partial" && (
         <p className="text-xs text-ink3" role="status">
           Some coaching context is temporarily unavailable; saved progress remains intact and no missing signal is being treated as zero.
@@ -427,7 +556,7 @@ export default async function ProgressPage() {
         {focusLabel && (
           <Link
             href="/"
-            className="btn btn-primary mt-4 w-full px-4 py-2.5 text-center text-sm sm:w-auto"
+            className="btn btn-ghost mt-4 w-full px-4 py-2.5 text-center text-sm sm:w-auto"
             data-testid="practice-focus"
           >
             {pendingRetest ? "Retest" : "Practice"} {focusLabel.toLowerCase()} in today&apos;s debate →

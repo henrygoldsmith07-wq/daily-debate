@@ -43,3 +43,72 @@ export function isValidSummary(v: unknown): boolean {
   }
   return true;
 }
+
+// --- Judge extraction (PvP) ----------------------------------------------
+// The judge returns an argument graph (plus rationale); the application derives
+// winner and numeric scores from that graph. The graph is therefore the one
+// model-produced artefact that must not pass unvalidated: a malformed or
+// truncated graph that reached scoring would silently become an apparently
+// valid comparison. Validation is at the provider boundary so an invalid shape
+// is a retryable failure, never a favourable verdict. Pure.
+
+const NODE_KINDS = new Set(["claim", "evidence", "counterclaim", "rebuttal", "impact"]);
+const OWNERS = new Set(["a", "b", "ai"]);
+const EDGE_RELATIONS = new Set(["supports", "counters", "rebuts", "impacts"]);
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** A single graph node: the identity/ownership fields a scorer relies on. */
+function isValidArgNode(v: unknown): boolean {
+  if (!isPlainObject(v)) return false;
+  return (
+    isNonEmptyString(v.id, 1, 64) &&
+    typeof v.kind === "string" &&
+    NODE_KINDS.has(v.kind) &&
+    typeof v.owner === "string" &&
+    OWNERS.has(v.owner) &&
+    typeof v.round === "number" &&
+    Number.isFinite(v.round)
+  );
+}
+
+function isValidArgEdge(v: unknown): boolean {
+  if (!isPlainObject(v)) return false;
+  return (
+    isNonEmptyString(v.from, 1, 64) &&
+    isNonEmptyString(v.to, 1, 64) &&
+    typeof v.relation === "string" &&
+    EDGE_RELATIONS.has(v.relation)
+  );
+}
+
+/**
+ * The judge's extraction payload. Only the fields the scorer derives truth from
+ * are hardened — a graph with a well-formed `nodes` array is what scoring needs.
+ * Anything that cannot be scored must be rejected here so it is retried or
+ * falls through to an explicit insufficient-evidence outcome downstream.
+ */
+export function isValidJudgeExtraction(v: unknown): boolean {
+  if (!isPlainObject(v)) return false;
+  const graph = v.argGraph;
+  if (!isPlainObject(graph)) return false;
+  if (!Array.isArray(graph.nodes) || !graph.nodes.every(isValidArgNode)) return false;
+  if (graph.edges !== undefined && (!Array.isArray(graph.edges) || !graph.edges.every(isValidArgEdge))) {
+    return false;
+  }
+  // A rationale is required for an inspectable diagnosis; an empty one means the
+  // model did not produce the analysis we asked for.
+  return isNonEmptyString(v.rationale, 1, 8000);
+}
+
+/** A stored verdict's winner must be one of the three labels — never a stray string. */
+export function isValidWinner(v: unknown): v is "a" | "b" | "tie" {
+  return v === "a" || v === "b" || v === "tie";
+}
+
+/** A comparable score is a finite number; anything else is not a valid score. */
+export function isValidScore(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
