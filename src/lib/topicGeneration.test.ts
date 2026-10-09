@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -28,6 +29,15 @@ import {
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const script = path.join(projectRoot, "scripts", "generate-topics.mjs");
 
+// The generator self-loads .env.local from its cwd at import time. Spawn it
+// from a guaranteed-empty directory so a developer's local .env.local cannot
+// resurrect a scrubbed DATABASE_URL and defeat the missing-config contract.
+const emptyCwd = mkdtempSync(path.join(os.tmpdir(), "dd-topics-test-"));
+
+afterAll(() => {
+  rmSync(emptyCwd, { recursive: true, force: true });
+});
+
 function runScript(args: string[], env: Record<string, string | undefined>): { stdout: string; stderr: string; status: number } {
   const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
   for (const k of ["DATABASE_URL", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "UNOROUTER_API_KEY", "KIRAAI_API_KEY", "OPENROUTER_MODEL", "OPENROUTER_FALLBACK_MODELS", "ANTHROPIC_API_KEY"]) {
@@ -39,6 +49,7 @@ function runScript(args: string[], env: Record<string, string | undefined>): { s
   try {
     const stdout = execFileSync("node", [script, ...args], {
       env: cleanEnv,
+      cwd: emptyCwd,
       encoding: "utf8",
       timeout: 30_000,
       stdio: ["ignore", "pipe", "pipe"],
