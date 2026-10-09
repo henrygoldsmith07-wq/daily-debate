@@ -9,7 +9,10 @@ import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import SkillProfileBars from "@/components/SkillProfileBars";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, type CoachingSnapshot } from "@/lib/coachingGoal";
-import type { CoachDimension } from "@/lib/adaptiveCoach";
+import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
+import { buildLearnerModel } from "@/lib/learnerModel";
+import { buildLoopThread } from "@/lib/loopThread";
+import LoopThread from "@/components/LoopThread";
 import { isDatabaseConfigured } from "@/lib/backend/env";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { asRepairAttemptLite, latestUnfinishedRepair } from "@/lib/repairResume";
@@ -156,7 +159,44 @@ export default async function DashboardPage() {
     drillOutcomes,
     pendingRetest?.dimension ?? null,
   );
-  const focusDimension: CoachDimension | null = goal?.dimension ?? null;
+  // Canonical learner model — the same intelligence that drives Progress, so
+  // Today leads with what to practise and why rather than a wall of cards.
+  // Built from the same stored debates/repairs; a repair is practice, not mastery.
+  const journeyInputs = await buildJourneyInputsForUser(user.id);
+  const learnerModel = buildLearnerModel({
+    points: ledger?.points ?? [],
+    repairs: journeyInputs.repairs.map((r) => ({
+      targetKind: r.target_kind,
+      debateId: r.debate_id,
+      createdAt: r.created_at,
+      succeeded: r.succeeded,
+    })),
+    retests: journeyInputs.repairs.flatMap((r) =>
+      r.retest_debate_id && r.retest_completed_at
+        ? [
+            {
+              targetKind: r.target_kind,
+              repairDebateId: r.debate_id,
+              assignedDebateId: r.retest_debate_id,
+              completedAt: r.retest_completed_at,
+              observable:
+                r.retest_outcome === "skill-observed" || r.retest_outcome === "skill-not-observed",
+              demonstrated:
+                r.retest_outcome === "skill-observed"
+                  ? true
+                  : r.retest_outcome === "skill-not-observed"
+                    ? false
+                    : null,
+            },
+          ]
+        : [],
+    ),
+  });
+
+  // The training loop as a visible thread: practice → diagnose → repair →
+  // retest → demonstrate, with the learner's current position marked. Derived
+  // from the same learner model as the hero — no second source of truth.
+  const loopThread = buildLoopThread(learnerModel);
 
   // ── Continue training: one priority action, never competing cards ────────
   const priority = pickPriority({
@@ -196,6 +236,45 @@ export default async function DashboardPage() {
           )
         }
       />
+
+      {/* ── Today's training target: what to practise, why, and what we'll watch ── */}
+      {learnerModel.nextPractice && (
+        <section
+          className="surface-card p-5"
+          aria-labelledby="today-target-heading"
+          data-testid="today-target"
+        >
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">
+            Today&apos;s training target
+          </p>
+          <h2 id="today-target-heading" className="mt-1 text-xl font-semibold">
+            {learnerModel.nextPractice.label}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-ink2">{learnerModel.nextPractice.reason}</p>
+          <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+            <div>
+              <dt className="font-medium text-ink2">Today, watch for</dt>
+              <dd className="text-ink3">{learnerModel.nextPractice.observable}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-ink2">How long</dt>
+              <dd className="text-ink3">Daily Sprint ≈4 min, or a Full Debate (5–12 rounds).</dd>
+            </div>
+          </dl>
+          <p className="mt-3 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink3">
+            {learnerModel.nextPractice.evidence} {learnerModel.nextPractice.caveat}
+          </p>
+          <Link
+            href="/progress"
+            className="mt-3 inline-block text-xs font-medium text-[var(--accent)] underline underline-offset-2"
+          >
+            How we picked this →
+          </Link>
+        </section>
+      )}
+
+      {/* ── The loop: where you are in practice → diagnose → repair → retest → demonstrate ── */}
+      <LoopThread thread={loopThread} />
 
       <TopicCard
         topic={topic}
@@ -292,16 +371,11 @@ export default async function DashboardPage() {
           </article>
 
           <article className="home-secondary-card">
-            <p className="home-secondary-kicker">Coaching</p>
-            <h3>One move for today</h3>
+            <p className="home-secondary-kicker">Deep dive</p>
+            <h3>Argument DNA</h3>
             <p className="home-secondary-meta">
-              {focusDimension ? `Focus: ${focusDimension}` : "A clear target for your next rep"}
+              The structure behind your scores — claims, evidence and rebuttals, and how they connect.
             </p>
-            <div className="home-secondary-highlight">
-              <span className="home-coaching-label">Goal</span>
-              <br />
-              {goal?.goalLine ?? "Complete a debate to unlock your training focus."}
-            </div>
             <Link href="/dna" className="home-secondary-action">
               See Argument DNA →
             </Link>
