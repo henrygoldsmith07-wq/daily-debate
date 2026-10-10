@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { METRIC_KEYS } from "./skillLedger";
 import {
+  type SkillDimensionKey,
   SKILL_DIMENSION_KEYS,
   SKILL_DIMENSIONS,
   canonicalSkillKey,
@@ -44,6 +45,32 @@ describe("skillTaxonomy — canonical coverage", () => {
       expect(SKILL_DIMENSIONS[key].metrics.length).toBeGreaterThan(0);
     }
   });
+
+  it("labels are unique across skills", () => {
+    const labels = SKILL_DIMENSION_KEYS.map((k) => SKILL_DIMENSIONS[k].label);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it("aliases never overlap across skills or repeat the canonical label", () => {
+    // "engagement" was previously claimed by both clarity (as its learner-facing
+    // label) and rebuttal (as an alias), so canonicalSkillKey silently mis-filed
+    // it. This pins the crosswalk: every alias resolves to exactly one skill, and
+    // every alias resolves to the skill that owns it.
+    const seen = new Map<string, SkillDimensionKey>();
+    for (const key of SKILL_DIMENSION_KEYS) {
+      for (const alias of SKILL_DIMENSIONS[key].aliases) {
+        const norm = alias.replace(/[\s_-]+/g, "").toLowerCase();
+        if (seen.has(norm) && seen.get(norm) !== key) {
+          throw new Error(`alias "${alias}" resolves to both ${seen.get(norm)} and ${key}`);
+        }
+        seen.set(norm, key);
+      }
+    }
+    // Cross-check the switch resolves every alias to its owning skill.
+    for (const [alias, expected] of seen.entries()) {
+      expect(canonicalSkillKey(alias)).toBe(expected);
+    }
+  });
 });
 
 describe("skillTaxonomy — legacy crosswalk", () => {
@@ -55,7 +82,9 @@ describe("skillTaxonomy — legacy crosswalk", () => {
     expect(canonicalSkillKey("delivery")).toBe("structure");
     expect(canonicalSkillKey("steelman quality")).toBe("steelmanning");
     expect(canonicalSkillKey("evidence support")).toBe("evidence");
+    expect(canonicalSkillKey("engagement")).toBe("clarity");
   });
+
 
   it("returns null for unknown terms instead of silently mis-filing", () => {
     expect(canonicalSkillKey("nonsense-term")).toBeNull();

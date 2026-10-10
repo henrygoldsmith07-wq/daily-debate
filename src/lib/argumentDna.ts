@@ -405,12 +405,12 @@ function buildInsights(points: SkillMetricPoint[], ledger: SkillLedger): Argumen
   if (clarity !== null && (trajectories.clarity?.goodnessDelta ?? 0) > 0.02) {
     result.push(
       insight(
-        "clearer-delivery",
+        "engagement-up",
         "positive",
-        "Delivery",
-        "Your through-line is getting easier to follow",
-        "Recent turns project a clearer claim → support → response sequence. Keep the same structure when the topic gets unfamiliar.",
-        `Clarity is ${pct(clarity)} in the latest window`,
+        "Engagement",
+        "You're answering more of the opponent's moves",
+        "Recent turns show a rising answer-the-opponent rate — the move the opponent actually made is more often met by your response rather than a new claim of your own.",
+        `Engagement is ${pct(clarity)} in the latest window`,
         "up",
         "clarity",
       ),

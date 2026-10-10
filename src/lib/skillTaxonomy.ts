@@ -92,7 +92,7 @@ export const SKILL_DIMENSIONS: Record<SkillDimensionKey, SkillDimensionDef> = {
     skill: "Meeting the opponent's actual argument instead of talking past it.",
     metrics: ["rebuttalCoverage", "rebuttalTargeting"],
     primaryMetric: "rebuttalCoverage",
-    aliases: ["rebuttal coverage", "rebuttal targeting", "engagement"],
+    aliases: ["rebuttal coverage", "rebuttal targeting"],
   },
   logic: {
     key: "logic",
@@ -116,7 +116,7 @@ export const SKILL_DIMENSIONS: Record<SkillDimensionKey, SkillDimensionDef> = {
     skill: "Answering the move your opponent actually made, on the round they made it.",
     metrics: ["clarity"],
     primaryMetric: "clarity",
-    aliases: ["clarity", "claim clarity", "claim-clarity", "readability", "engagement"],
+    aliases: ["clarity", "claim clarity", "claim-clarity", "readability"],
   },
   impact: {
     key: "impact",
@@ -197,7 +197,6 @@ export function canonicalSkillKey(term: string | null | undefined): SkillDimensi
     case "rebuttal":
     case "rebuttalcoverage":
     case "rebuttaltargeting":
-    case "engagement":
       return "rebuttal";
     case "logic":
     case "reasoning":
@@ -207,6 +206,7 @@ export function canonicalSkillKey(term: string | null | undefined): SkillDimensi
     case "clarity":
     case "claimclarity":
     case "readability":
+    case "engagement":
       return "clarity";
     case "impact":
     case "weighing":
@@ -223,6 +223,7 @@ export function canonicalSkillKey(term: string | null | undefined): SkillDimensi
     case "organisation":
     case "organization":
     case "coherence":
+    case "precision":
     case "positionconsistency":
       return "structure";
     default:

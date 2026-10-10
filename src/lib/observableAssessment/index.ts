@@ -79,6 +79,6 @@ export {
 } from "./scoring";
 
 export { assessArgumentGraph, finalizePvpAssessment, labelFor, swapGraphSides } from "./assess";
-export { citationFromText, graphFromTurn, splitSentences } from "./turnExtraction";
+export { citationFromText, NODE_TEXT_CAP, graphFromTurn, splitSentences } from "./turnExtraction";
 export { assessTurn, mergeAssessmentGraphs, turnScoresFromAssessment } from "./turnProjection";
 export type { TurnObservableAssessment } from "./turnProjection";
