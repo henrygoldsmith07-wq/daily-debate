@@ -234,20 +234,4 @@ export function validateGraph(graph: ArgGraph): string[] {
   return errors;
 }
 
-// Build a quick lookup: which claims are supported (have an evidence edge into them).
-export function claimSupportMap(graph: ArgGraph): Map<string, boolean> {
-  // convention: evidence --supports--> claim, so the claim is `to`; adjust to handle both orientations stored by the judge
-  const supportedClaims = new Set<string>();
-  for (const e of graph.edges) {
-    if (e.relation === "supports") {
-      supportedClaims.add(e.to);
-      supportedClaims.add(e.from);
-    }
-  }
-  const map = new Map<string, boolean>();
-  for (const n of graph.nodes) if (n.kind === "claim") map.set(n.id, supportedClaims.has(n.id));
-  // if the judge used unsupportedClaimIds, prefer that ground truth
-  for (const id of graph.evidenceStats.unsupportedClaimIds) map.set(id, false);
-  return map;
-}
 

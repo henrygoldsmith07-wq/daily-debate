@@ -266,34 +266,6 @@ button { -webkit-tap-highlight-color: transparent; }
 .nice-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 9999px; }
 .nice-scroll::-webkit-scrollbar-track { background: transparent; }
 
-/* ---- horizontal snap rail ---- */
-.snap-rail {
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-.snap-rail::-webkit-scrollbar { display: none; }
-.snap-rail > * { scroll-snap-align: start; }
-
-/* ---- motion vocabulary ---- */
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.99); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.fade-in { animation: fade-in 0.25s ease-out; }
-
-@keyframes app-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.app-enter { animation: app-enter 0.35s ease-out; }
-
-@keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
-.sheet-enter { animation: sheet-up 0.28s cubic-bezier(0.2, 0.9, 0.3, 1); }
-
-@keyframes bubble-in {
-  from { opacity: 0; transform: translateY(12px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.bubble-in { animation: bubble-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.1); }
-
 /* ---- typing indicator (three bouncing dots) ---- */
 @keyframes dot-bounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
@@ -324,68 +296,9 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .skip-link:focus { top: 8px; }
 
-/* Long-list scroll & battery: skip layout/paint for off-screen rows.
-   contain-intrinsic-size reserves height so the scrollbar stays stable. */
-.cv-list > * { content-visibility: auto; contain-intrinsic-size: auto 64px; }
-
-/* Home's primary action has its own speaking colour and a compact mode
-   vocabulary, so the studio is scannable without abandoning its calm base. */
-.home-hero {
-  position: relative;
-  overflow: hidden;
-  border-left: 4px solid var(--speak);
-  background: var(--surface);
-}
-.home-hero::after {
-  content: "";
-  position: absolute;
-  width: 132px;
-  height: 132px;
-  right: -70px;
-  top: -70px;
-  border: 1px solid var(--speak);
-  border-radius: 50%;
-  opacity: 0.2;
-  pointer-events: none;
-}
-.home-hero > * { position: relative; z-index: 1; }
 .home-brand-lockup {
   display: inline-flex;
   align-items: center;
   gap: 0.625rem;
 }
 .home-brand-lockup .home-brand-copy { line-height: 1.1; }
-.home-mode-card {
-  position: relative;
-  display: flex;
-  min-height: 126px;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  padding: 0.875rem;
-  text-align: left;
-  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
-}
-.home-mode-card:hover { border-color: var(--mode-color); background: var(--mode-soft); }
-.home-mode-card:active { transform: scale(0.985); }
-.home-mode-card-speak { --mode-color: var(--speak); --mode-soft: var(--speak-soft); }
-.home-mode-card-review { --mode-color: var(--review); --mode-soft: var(--review-soft); }
-.home-mode-card-build { --mode-color: var(--success); --mode-soft: var(--success-soft); }
-.home-mode-icon {
-  display: grid;
-  width: 2.25rem;
-  height: 2.25rem;
-  place-items: center;
-  border-radius: 0.75rem;
-  background: var(--mode-soft);
-  color: var(--mode-color);
-}
-.home-mode-arrow {
-  position: absolute;
-  right: 0.75rem;
-  top: 0.9rem;
-  color: var(--mode-color);
-}

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import NavIcon from "./NavIcon";
-import { visibleNavSections, isActivePath } from "@/lib/nav";
+import { visibleNavSections, activeNavItem } from "@/lib/nav";
 
 /**
  * The desktop sidebar's link list. Grouped by what the screen is for —
@@ -12,6 +12,10 @@ import { visibleNavSections, isActivePath } from "@/lib/nav";
  */
 export default function SideNav() {
   const pathname = usePathname();
+  // Which nav entry this screen belongs to. Derived once so screens with no nav
+  // entry of their own (the debate room, a challenge invite) still light up the
+  // section they came from instead of leaving the nav dead.
+  const activeHref = activeNavItem(pathname)?.href;
 
   return (
     <nav className="app-sidebar-nav nice-scroll" aria-label="Main">
@@ -22,7 +26,7 @@ export default function SideNav() {
           </p>
           <ul aria-labelledby={`nav-group-${section.id}`}>
             {section.items.map((item) => {
-              const active = isActivePath(pathname, item.href);
+              const active = activeHref === item.href;
               return (
                 <li key={item.href}>
                   <Link

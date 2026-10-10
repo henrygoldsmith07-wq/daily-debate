@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { emptyGraph, validateGraph, claimSupportMap, groundedEvidenceRatio, claimCoverageWithGroundedEvidence } from "./argGraph";
+import { emptyGraph, validateGraph, groundedEvidenceRatio, claimCoverageWithGroundedEvidence } from "./argGraph";
 import type { ArgGraph } from "./argGraph";
 
 function sample(): ArgGraph {
@@ -44,13 +44,6 @@ describe("argGraph", () => {
     g.edges.push({ from: "nope", to: "c1", relation: "supports" });
     const errors = validateGraph(g);
     expect(errors.some((e) => e.includes("nope"))).toBe(true);
-  });
-
-  it("claimSupportMap uses unsupportedClaimIds as ground truth", () => {
-    const g = sample();
-    const m = claimSupportMap(g);
-    expect(m.get("c1")).toBe(true);
-    expect(m.get("c2")).toBe(false);
   });
 
   it("tracking: dropped, unsupported, fallacies shape", () => {

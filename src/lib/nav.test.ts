@@ -103,10 +103,18 @@ describe("activeNavItem", () => {
     expect(activeNavItem("/pvp/match-1")?.href).toBe("/pvp");
   });
 
-  it("returns nothing for routes outside the nav", () => {
-    // /debate/:id is reached from Today and History, not from a nav entry —
-    // the mobile bar falls back to highlighting "More" for these.
-    expect(activeNavItem("/debate/abc")).toBeUndefined();
+  it("resolves a debate to Today, which it belongs to", () => {
+    // /debate/:id has no nav entry of its own. Leaving it unresolved made the
+    // sidebar and tab bar go dead on the screen users spend the most time on.
+    expect(activeNavItem("/debate/abc")?.href).toBe("/");
+  });
+
+  it("resolves a challenge invite to Today, which it belongs to", () => {
+    expect(activeNavItem("/challenge/abc")?.href).toBe("/");
+  });
+
+  it("returns nothing only for screens that belong to no section", () => {
     expect(activeNavItem("/login")).toBeUndefined();
+    expect(activeNavItem("/")?.href).toBe("/");
   });
 });
