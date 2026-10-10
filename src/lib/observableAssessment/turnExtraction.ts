@@ -10,6 +10,20 @@ import { classifyFallacies, detectConcessions, detectContradictions } from "../g
 import { recomputeEvidenceStats, tokens } from "./graphEnrichment";
 
 /**
+ * Maximum characters of a turn stored on an ArgNode.
+ *
+ * Must be >= the largest input the API accepts (6000; see isSuspiciousLength
+ * and aiSchema's isNonEmptyString(..., 16, 6000)) so that deterministic
+ * enrichers (fallacy / contradiction / concession detection) see the full
+ * turn. A smaller bound created a fidelity gap: signals after the cutoff were
+ * silently never detected.
+ *
+ * Display excerpts are still truncated separately in `nodeRef` (240 chars), so
+ * this only affects what the scorer can observe, not how it is shown.
+ */
+export const NODE_TEXT_CAP = 6000;
+
+/**
  * Offline source-recognition table.
  *
  * A name only counts as a citation when it appears in the text AND maps to a
@@ -93,12 +107,12 @@ export function graphFromTurn(params: {
       id: opponentId,
       kind: "counterclaim",
       owner: "ai",
-      text: opponentMessage.slice(0, 240),
+      text: opponentMessage.slice(0, NODE_TEXT_CAP),
       round: Math.max(0, params.round - 1),
     });
   }
   const claimId = `r${params.round}-claim`;
-  nodes.push({ id: claimId, kind: "claim", owner: "a", text: userMessage.slice(0, 240), round: params.round });
+  nodes.push({ id: claimId, kind: "claim", owner: "a", text: userMessage.slice(0, NODE_TEXT_CAP), round: params.round });
 
   const sentences = splitSentences(userMessage);
   const evidenceSentences = sentences.filter(
@@ -111,7 +125,7 @@ export function graphFromTurn(params: {
       id: evidenceId,
       kind: "evidence",
       owner: "a",
-      text: sentence.slice(0, 240),
+      text: sentence.slice(0, NODE_TEXT_CAP),
       round: params.round,
       evidenceStrength: citations.length ? "cited" : "general",
       citations: citations.map((citation) => ({ sourceName: citation.sourceName, homepage: citation.homepage })),
@@ -128,7 +142,7 @@ export function graphFromTurn(params: {
       id: rebuttalId,
       kind: "rebuttal",
       owner: "a",
-      text: userMessage.slice(0, 240),
+      text: userMessage.slice(0, NODE_TEXT_CAP),
       round: params.round,
       targets: [opponentId],
     });
@@ -136,7 +150,7 @@ export function graphFromTurn(params: {
   }
   if (IMPACT_PATTERN.test(userMessage)) {
     const impactId = `r${params.round}-impact`;
-    nodes.push({ id: impactId, kind: "impact", owner: "a", text: userMessage.slice(0, 240), round: params.round });
+    nodes.push({ id: impactId, kind: "impact", owner: "a", text: userMessage.slice(0, NODE_TEXT_CAP), round: params.round });
     edges.push({ from: claimId, to: impactId, relation: "impacts" });
   }
   const fallacies = nodes.flatMap((node) =>

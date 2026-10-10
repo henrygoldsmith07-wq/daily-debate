@@ -86,7 +86,7 @@ const WEAKNESS_WHY: Record<string, string> = {
   structure: "Every thread you open and drop hands the other side a free win.",
   rebuttal: "Unanswered counterarguments decide rounds against you, even when your case is strong.",
   impact: "A point that never lands on 'why this matters' doesn't move the decision.",
-  clarity: "When claim and reason blur together, judges credit neither.",
+  clarity: "Unanswered opponent moves let the other side score uncontested points this round.",
 };
 
 /**

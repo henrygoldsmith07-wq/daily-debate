@@ -189,7 +189,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
   if (!longest) return null;
   return {
     kind: "clarity",
-    label: "Clarity opportunity",
+    label: "Engagement opportunity",
     title: "Make the move easier to follow",
     prompt: "Rewrite this as two short sentences: one clear claim, then the reason or evidence that supports it.",
     sourceText: longest.text,
