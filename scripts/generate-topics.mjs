@@ -826,7 +826,21 @@ Return JSON: {"topics":[{"title":"...","prompt":"...","category":"...","sources"
   throw failure;
 }
 
-// --- Scoring (inline port of topicScoring.ts) ---
+// --- Scoring ---------------------------------------------------------------
+
+let topicScoringModulePromise;
+
+// The canonical 9-dimension rubric lives in src/lib/topicScoring.ts and is
+// exercised by src/lib/topicScoring.test.ts. It used to be duplicated inline
+// here as a 5-dimension approximation, which meant the richer rubric — the one
+// with tests, age-appropriateness, factual grounding, source diversity and the
+// negative recency penalty — validated nothing that ever ran, while production
+// picked from the weaker copy. jiti bridges the TypeScript module so there is
+// one scorer, not two.
+async function sharedTopicScoringModule() {
+  topicScoringModulePromise ??= jiti.import("../src/lib/topicScoring.ts");
+  return topicScoringModulePromise;
+}
 
 function scoreNovelty(title, recentTitles) {
   const words = new Set(title.toLowerCase().match(/[a-z]{4,}/g) ?? []);
@@ -842,40 +856,24 @@ function scoreNovelty(title, recentTitles) {
   return Math.round(Math.max(0, Math.min(10, (1 - maxOverlap * 2.5) * 10)));
 }
 
-function scoreCandidate(topic, recentTitles) {
-  const text = `${topic.title} ${topic.prompt}`.toLowerCase();
-  let score = 5;
-  if (/should|whether|better than|worth|trade-off|versus|vs/.test(text)) score += 2;
-  if (/obviously|everyone knows|clearly bad|without question/.test(text)) score -= 4;
-  if (/ban|mandate|subsidiz|legali|regulat|restrict|limit/i.test(text)) score += 1;
-  const debatableBalance = Math.max(0, Math.min(10, score));
-
-  let evScore = 3;
-  const domains = ["technology","science","economics","education","health","environment","energy","policy","ethics","infrastructure"];
-  for (const d of domains) if (text.includes(d) || topic.category.toLowerCase().includes(d)) { evScore += 3; break; }
-  if (/cost|rate|percentage|data|study|research|statistics/i.test(text)) evScore += 3;
-  const evidenceAvailability = Math.max(0, Math.min(10, evScore));
-
-  const novelty = scoreNovelty(topic.title, recentTitles);
-
-  let specScore = 3;
-  if (topic.title.length >= 25 && topic.title.length <= 100) specScore += 2;
-  if (topic.prompt.length >= 40 && topic.prompt.length <= 300) specScore += 2;
-  if (/ban|require|fund|tax|subsid|limit|allow|prohibit|restrict/i.test(topic.prompt)) specScore += 2;
-  const specificity = Math.max(0, Math.min(10, specScore));
-
-  const flashpoints = ["abortion","gun control","border wall","election fraud","prayer in school","capital punishment"];
-  const fpCount = flashpoints.filter(fp => text.includes(fp)).length;
-  const ideologicalLoading = fpCount === 0 ? 9 : fpCount === 1 ? 6 : 2;
-
-  const total =
-    debatableBalance * 1.8 +
-    evidenceAvailability * 1.5 +
-    novelty * 1.2 +
-    specificity * 1.2 +
-    ideologicalLoading * 1.3;
-
-  return { ...topic, _score: Math.round(total * 100) / 100 };
+/**
+ * Score one candidate with the canonical rubric.
+ *
+ * Returns the same shape the caller expects (`_score` on the topic) so the
+ * ranking and the emitted diagnostics are unchanged; the number now comes from
+ * the tested 9-dimension composite instead of the inline approximation.
+ */
+async function scoreCandidate(topic, recentTitles) {
+  const { scoreTopic } = await sharedTopicScoringModule();
+  const breakdown = scoreTopic(
+    {
+      title: String(topic.title ?? ""),
+      prompt: String(topic.prompt ?? ""),
+      category: String(topic.category ?? ""),
+    },
+    Array.isArray(recentTitles) ? recentTitles : [],
+  );
+  return { ...topic, _score: breakdown.total, _breakdown: breakdown };
 }
 
 // --- Main ---
@@ -1007,9 +1005,14 @@ export async function runGeneration(deps = {}) {
       }
       if (!usableCandidates.length) throw new Error("no usable topics after sanitisation");
       emit(`[generate-topics] ${usableCandidates.length} candidates generated`);
-      const scored = usableCandidates.map((c) => ({ ...scoreCandidate(c, recentTitles), raw: c }));
+      const scored = [];
+      for (const c of usableCandidates) {
+        scored.push({ ...(await scoreCandidate(c, recentTitles)), raw: c });
+      }
       scored.sort((a, b) => b._score - a._score);
-      scored.forEach((c, i) => emit(`  #${i + 1} score=${c._score} "${c.raw.title}"`));
+      scored.forEach((c, i) =>
+        emit(`  #${i + 1} score=${c._score} "${c.raw.title}"${c._breakdown?.notes?.length ? ` — ${c._breakdown.notes.join(", ")}` : ""}`),
+      );
       const top = scored[0];
       if (top) {
         bestTopic = {

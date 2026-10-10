@@ -203,9 +203,9 @@ describe("candidate scoring", () => {
     sources: [],
   };
 
-  it("ranks a balanced, specific, evidence-rich candidate above a vague one", () => {
-    const good = scoreCandidate(candidate, []);
-    const bad = scoreCandidate(
+  it("ranks a balanced, specific, evidence-rich candidate above a vague one", async () => {
+    const good = await scoreCandidate(candidate, []);
+    const bad = await scoreCandidate(
       { title: "Stuff", prompt: "Everyone knows this is clearly bad without question.", category: "Misc", sources: [] },
       [],
     );
