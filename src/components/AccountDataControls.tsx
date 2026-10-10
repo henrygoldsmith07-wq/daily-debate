@@ -91,7 +91,7 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
       </div>
 
       <div className="rounded-lg border border-red-500/40 p-4">
-        <p className="text-sm font-semibold text-red-400">Delete my account</p>
+        <p className="text-sm font-semibold text-[var(--danger)]">Delete my account</p>
         <p className="mt-1 text-xs leading-5 text-ink3">
           Immediate and irreversible: account, debates, progress, shared PvP matches, invites naming you, and your
           corpus contributions are erased. Aggregate telemetry with no personal identifiers is kept. Export first if
@@ -133,7 +133,7 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
                 type="button"
                 onClick={handleDelete}
                 disabled={busy !== null}
-                className="btn btn-secondary px-3 py-2 text-sm text-red-400"
+                className="btn btn-secondary px-3 py-2 text-sm text-[var(--danger)]"
               >
                 {busy === "delete" ? "Deleting…" : "Delete my account"}
               </button>
@@ -156,12 +156,12 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
       </div>
 
       {error && (
-        <p role="alert" className="text-sm text-red-400">
+        <p role="alert" className="text-sm text-[var(--danger)]">
           {error}
         </p>
       )}
       {done && (
-        <p role="status" className="text-sm text-emerald-400">
+        <p role="status" className="text-sm text-[var(--success)]">
           {done}
         </p>
       )}

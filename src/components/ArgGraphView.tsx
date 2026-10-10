@@ -105,7 +105,7 @@ function ObservableFeaturePanel({ assessment, playerAName, playerBName }: { asse
         <span>{playerBName}</span>
         {rows.map(([label, a, b]) => <span key={label} className="contents"><span>{label}</span><span>{a}</span><span>{b}</span></span>)}
       </div>
-      {assessment.uncertainty.length > 0 && <p className="mt-2 text-amber-700">Uncertainty: {assessment.uncertainty.join(" ")}</p>}
+      {assessment.uncertainty.length > 0 && <p className="mt-2 text-[var(--review)]">Uncertainty: {assessment.uncertainty.join(" ")}</p>}
     </div>
   );
 }
@@ -227,7 +227,7 @@ export function ArgGraphInline({
                       ↳ {n.citations.map((c) => c.sourceName).join(", ")}
                     </span>
                   ) : n.kind === "evidence" && n.evidenceStrength && !["anecdotal", "general"].includes(n.evidenceStrength) ? (
-                    <span className="shrink-0 text-xs text-amber-600" title="Cited/strong evidence should carry a citation — the judge omitted one.">
+                    <span className="shrink-0 text-xs text-[var(--review)]" title="Cited/strong evidence should carry a citation — the judge omitted one.">
                       ⚠ no citation
                     </span>
                   ) : null}

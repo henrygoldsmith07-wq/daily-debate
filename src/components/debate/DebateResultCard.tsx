@@ -116,7 +116,7 @@ export function DebateResultCard({
                 <span className="mr-1 font-semibold text-[var(--accent)]">Repair retest ·</span>
               )}
               {snapshot.goalOutcome.demonstrated === true && <span className="mr-1 text-[var(--success)]">✓</span>}
-              {snapshot.goalOutcome.demonstrated === false && <span className="mr-1 text-amber-600">→</span>}
+              {snapshot.goalOutcome.demonstrated === false && <span className="mr-1 text-[var(--review)]">→</span>}
               {snapshot.goalOutcome.detail}
             </div>
           )}
