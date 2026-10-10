@@ -58,9 +58,31 @@ export function __clearBucketsForTests() {
 // ---- Public API ----------------------------------------------------------
 
 export function getClientIp(request: Request): string {
+  // Prefer `x-real-ip`, then the LAST hop of `x-forwarded-for`.
+  //
+  // The previous implementation took the FIRST entry of x-forwarded-for, which
+  // is the client-controlled, spoofable end on most platforms: a caller can
+  // rotate the header value and reset every IP bucket, defeating the throttle
+  // that is the only limit on unauthenticated routes such as /api/health and
+  // challenge-code preview.
+  //
+  // `x-real-ip` is set by the platform and cannot be forged by the caller;
+  // when it is absent, the last x-forwarded-for entry is the closest proxy's
+  // view of the peer, which is still harder to rotate than the first entry.
+  // Neither value is trusted as an identity — they are only a throttle key, and
+  // every authenticated route additionally buckets on the verified user id.
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+
   const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
-  return request.headers.get("x-real-ip")?.trim() || "unknown";
+  if (forwarded) {
+    const hops = forwarded
+      .split(",")
+      .map((hop) => hop.trim())
+      .filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
+  return "unknown";
 }
 
 export async function checkRateLimitKey(key: string, options: RateLimitOptions): Promise<RateLimitResult> {

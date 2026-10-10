@@ -4,6 +4,7 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { isSuspiciousLength, repeatScore } from "@/lib/moderation";
 import { stampVerdict } from "@/lib/evaluationEnvelope";
+import { renderTranscriptFromRows } from "@/lib/untrustedContent";
 import { ensureSpendWithinCap, isSpendCapError, retryAfterSecondsToReset } from "@/lib/spendCap";
 import { TURN_ABANDON_MINUTES, type InputMode, type PvpVerdict } from "@/lib/types";
 
@@ -187,9 +188,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     .order("round_number", { ascending: true })
     .order("created_at", { ascending: true });
 
-  const transcript = (allTurns ?? [])
-    .map((t) => `${t.player_id === match.player_a ? "Player A" : "Player B"} (round ${t.round_number}): ${t.message}`)
-    .join("\n");
+  // One line per turn, always. A debater whose message contains a newline plus a
+  // forged "Player B (round 3):" header would otherwise add a line that
+  // argumentRouting.parseDebateTranscript reads as a second, speaker-attributed
+  // argument. Flattening each turn keeps the transcript's speaker/round data
+  // (which comes from these rows) authoritative.
+  const transcript = renderTranscriptFromRows(
+    (allTurns ?? []).map((t) => ({
+      speaker: t.player_id === match.player_a ? "Player A" : "Player B",
+      round: t.round_number,
+      message: t.message,
+    })),
+  );
 
   let verdict: PvpVerdict;
   try {

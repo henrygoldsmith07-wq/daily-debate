@@ -20,6 +20,26 @@ describe("guest motions", () => {
     }
   });
 
+  it("gives every motion a distinct retest challenge", () => {
+    for (const motion of GUEST_MOTIONS) {
+      expect(motion.retest.opponent.trim().length).toBeGreaterThan(20);
+      expect(motion.retest.prompt.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("never re-serves a seen round as the retest, so the retest measures transfer not recall", () => {
+    // This is the property the guest loop's headline claim depends on: the
+    // learner is asked to demonstrate the repaired move against a challenge
+    // they have NOT already answered. If any retest text duplicates a round
+    // text, the observation is recall and the claim is false.
+    for (const motion of GUEST_MOTIONS) {
+      const seen = motion.rounds.map((round) => round.opponent.trim().toLowerCase());
+      expect(seen).not.toContain(motion.retest.opponent.trim().toLowerCase());
+      const seenPrompts = motion.rounds.map((round) => round.prompt.trim().toLowerCase());
+      expect(seenPrompts).not.toContain(motion.retest.prompt.trim().toLowerCase());
+    }
+  });
+
   it("is deterministic for the same day", () => {
     expect(guestMotionForDay("2026-03-14").id).toBe(guestMotionForDay("2026-03-14").id);
   });
