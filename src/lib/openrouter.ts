@@ -261,9 +261,14 @@ function parseJson<T>(text: string | undefined): T {
   try {
     return JSON.parse(json) as T;
   } catch (error) {
-    // Surface a snippet so 502s are diagnosable from logs alone.
+    // The parse failure reason is safe to surface, but the model's raw output
+    // is not: the provider is fed debate transcripts, so the output can echo
+    // user-authored text. `ai_call_log.error` is persisted, and the privacy
+    // policy states that no prompt or response content is ever stored. Only
+    // the length is disclosed, which is enough to diagnose a truncated or
+    // fenced response without durably storing a single character of it.
     throw new Error(
-      `OpenRouter returned invalid JSON: ${(error as Error).message} — "${json.slice(0, 200)}"`,
+      `OpenRouter returned invalid JSON: ${(error as Error).message} (output length ${json.length})`,
     );
   }
 }

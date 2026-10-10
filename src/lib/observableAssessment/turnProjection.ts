@@ -29,6 +29,13 @@ function toTen(value: number): number {
  * These buckets are presentation only. They are derived from the scored
  * features, never supplied independently by a model, so a bucket cannot
  * disagree with the assessment that produced it.
+ *
+ * NOTE (audit fix): the `clarity` bucket is `argumentResponses.value.rate` —
+ * engagement coverage, i.e. whether the learner answered the move the opponent
+ * made on that round. It is NOT claim clarity, and no claim-clarity signal
+ * exists anywhere in this codebase. The bucket key stays `clarity` because it
+ * is persisted; the learner-facing label was renamed to "Engagement" so the
+ * name matches the measurement.
  */
 export function turnScoresFromAssessment(assessment: ObservableAssessment, owner: "a" | "b" = "a"): TurnScores {
   const side = assessment.features[owner];

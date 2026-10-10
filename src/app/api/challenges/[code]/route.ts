@@ -9,14 +9,8 @@ interface RouteParams {
   params: Promise<{ code: string }>;
 }
 
-interface AcceptChallengeOutcome {
-  result: "accepted" | "accepted_existing" | "not_found" | "self" | "closed" | "active_match";
-  created_match_id: string | null;
-  challenger_side: string | null;
-}
-
-/** The invite row with its joined topic title and challenger username. */
-interface InviteWithJoins {
+/** The invite row. Relations are fetched separately — see the note in GET. */
+interface InviteRow {
   id: string;
   code: string;
   status: string;
@@ -24,11 +18,15 @@ interface InviteWithJoins {
   challenger_side: string;
   expires_at: string;
   topic_id: string;
-  daily_topics: { title: string } | null;
-  profiles: { username: string | null } | null;
 }
 
-const INVITE_SELECT = "id, code, status, challenger_side, expires_at, topic_id, daily_topics(title), profiles!challenge_invites_challenger_id_fkey(username)";
+const INVITE_SELECT = "id, code, status, challenger_id, challenger_side, expires_at, topic_id";
+
+interface AcceptChallengeOutcome {
+  result: "accepted" | "accepted_existing" | "not_found" | "self" | "closed" | "active_match";
+  created_match_id: string | null;
+  challenger_side: string | null;
+}
 
 /** View a challenge by code (no auth needed to preview; accept requires login). */
 export async function GET(request: Request, { params }: RouteParams) {
@@ -46,7 +44,16 @@ export async function GET(request: Request, { params }: RouteParams) {
     .maybeSingle();
   if (!inviteRow) return NextResponse.json({ error: "Challenge not found." }, { status: 404 });
 
-  const invite = inviteRow as unknown as InviteWithJoins;
+  const invite = inviteRow as unknown as InviteRow;
+  // The owned SQL builder intentionally supports only flat projections, not
+  // Supabase/PostgREST relation syntax — the old single-select with
+  // `daily_topics(title)` / `profiles!fkey(username)` threw in the builder's
+  // identifier check, so this endpoint always returned 404. The page already
+  // fetched both relations explicitly; do the same here.
+  const [{ data: topic }, { data: challengerProfile }] = await Promise.all([
+    service.from("daily_topics").select("title").eq("id", invite.topic_id).maybeSingle(),
+    service.from("profiles").select("username").eq("id", invite.challenger_id).maybeSingle(),
+  ]);
   const expired = new Date(invite.expires_at).getTime() < Date.now();
   return NextResponse.json({
     invite: {
@@ -55,8 +62,8 @@ export async function GET(request: Request, { params }: RouteParams) {
       challengerSide: invite.challenger_side,
       opponentSide: opponentSideOf(invite.challenger_side),
       expiresAt: invite.expires_at,
-      motion: invite.daily_topics?.title ?? null,
-      challengerName: invite.profiles?.username ?? "A debater",
+      motion: topic?.title ?? null,
+      challengerName: challengerProfile?.username ?? "A debater",
     },
   });
 }

@@ -153,13 +153,12 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
       );
       setRoundCount(resData.roundCount);
       if (Array.isArray(resData.liveCoaching)) setLiveHints(resData.liveCoaching);
-      if (resData.nextTurn && data.modeId !== "text") {
-        clearWindow();
-        announceOpponentTurn(resData.nextTurn, data.modeId as DebateModeId);
-      } else {
-        clearWindow();
-        if (resData.nextTurn) announceOpponentTurn(resData.nextTurn, data.modeId as DebateModeId);
-      }
+      // The window is cleared and the new opponent turn announced whenever one
+      // exists, regardless of mode: in text mode `announceOpponentTurn` is a
+      // no-op that only reads aloud, so there is nothing extra to branch on.
+      // (The previous if/else had two identical bodies.)
+      clearWindow();
+      if (resData.nextTurn) announceOpponentTurn(resData.nextTurn, data.modeId as DebateModeId);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit response.");

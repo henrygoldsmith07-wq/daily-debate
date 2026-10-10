@@ -24,7 +24,8 @@ const REPAIR_KIND_LABELS: Record<RepairKind, string> = {
   logic: "Logic",
   impact: "Impact",
   structure: "Structure",
-  clarity: "Clarity",
+  // Named after what is measured — see the note in skillTaxonomy.ts.
+  clarity: "Engagement",
 };
 
 function attemptTime(attempt: RepairAttemptLite): number {

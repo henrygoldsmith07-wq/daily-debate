@@ -102,13 +102,21 @@ export const SKILL_DIMENSIONS: Record<SkillDimensionKey, SkillDimensionDef> = {
     primaryMetric: "fallacyRate",
     aliases: ["reasoning", "reasoning discipline", "validity"],
   },
+  // NOTE (audit fix): the ingested signal for this dimension is the
+  // turn-projection engagement rate (`argumentResponses.value.rate`), i.e. how
+  // often the learner answered the move the opponent actually made on that
+  // round. It is NOT claim clarity. The skill key stays `clarity` because it is
+  // persisted (CoachingRecord.dimension, drill_assignments.dimension,
+  // repair target_kind) and rewriting stored rows would be destructive, but the
+  // learner-facing name now describes the measurement instead of a different
+  // skill that is never measured anywhere.
   clarity: {
     key: "clarity",
-    label: "Clarity",
-    skill: "Separating one clean claim from the reason that supports it.",
+    label: "Engagement",
+    skill: "Answering the move your opponent actually made, on the round they made it.",
     metrics: ["clarity"],
     primaryMetric: "clarity",
-    aliases: ["claim clarity", "claim-clarity", "readability"],
+    aliases: ["clarity", "claim clarity", "claim-clarity", "readability", "engagement"],
   },
   impact: {
     key: "impact",

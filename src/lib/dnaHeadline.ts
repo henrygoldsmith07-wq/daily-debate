@@ -89,7 +89,9 @@ export function buildDnaHeadline(model: ArgumentDnaModel, focus: string | null =
 }
 
 const BEHAVIOUR: Record<string, string> = {
-  "claim-clarity": "making one clear claim at a time",
+  // The ingested metric is the turn-projection engagement rate, so the copy
+  // describes engaging the opponent's actual move — see skillTaxonomy.ts.
+  "claim-clarity": "answering each move your opponent makes",
   evidence: "backing claims with named evidence",
   reasoning: "keeping the reasoning between fact and conclusion explicit",
   rebuttal: "meeting opposing arguments head-on",
@@ -99,7 +101,7 @@ const BEHAVIOUR: Record<string, string> = {
 };
 
 const WEAKNESS: Record<string, string> = {
-  "claim-clarity": "separating claim from reason",
+  "claim-clarity": "answering the move your opponent just made",
   evidence: "grounding major claims in named support",
   reasoning: "bridging facts to conclusions explicitly",
   rebuttal: "answering the strongest opposing argument",

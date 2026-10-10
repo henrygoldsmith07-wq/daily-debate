@@ -13,6 +13,13 @@ import type { ArgumentRoute } from "./argumentTaxonomy";
 
 const DEFAULT_MODEL = "claude-sonnet-5";
 
+/**
+ * Hard per-request timeout for the pinned paid leg. Aligned with the judge's
+ * documented latency budget so a slow provider degrades to an explicit
+ * retryable state instead of hanging the request until the platform kills it.
+ */
+const ANTHROPIC_TIMEOUT_MS = 30_000;
+
 /** The exact pinned model id every Anthropic call (and its telemetry/fingerprint) uses. */
 export function anthropicModel(env: Record<string, string | undefined> = process.env): string {
   return env.ANTHROPIC_MODEL || DEFAULT_MODEL;
@@ -38,7 +45,13 @@ async function createWithTelemetry(
   const anthropic = getClient();
   const startedAt = Date.now();
   try {
-    const message = await anthropic.messages.create(params);
+    // A bounded request: the SDK's default has no timeout, so a hung endpoint
+    // would hold a serverless invocation open until the platform kills it. The
+    // timeout is abortable, so the in-flight request is genuinely cancelled
+    // rather than merely raced (see the ensemble's soft Promise.race).
+    const message = await anthropic.messages.create(params, {
+      signal: AbortSignal.timeout(ANTHROPIC_TIMEOUT_MS),
+    });
     recordAiCall({
       at: new Date().toISOString(),
       operation,

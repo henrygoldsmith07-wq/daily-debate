@@ -26,7 +26,8 @@ const RETEST_SKILL_LABEL: Record<string, string> = {
   evidence: "Evidence",
   rebuttal: "Rebuttal",
   logic: "Logic",
-  clarity: "Clarity",
+  // Named after what is measured — see the note in skillTaxonomy.ts.
+  clarity: "Engagement",
   impact: "Impact",
   steelmanning: "Steelmanning",
   structure: "Structure",

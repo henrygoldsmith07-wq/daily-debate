@@ -6,7 +6,8 @@ const LABELS: Record<keyof TurnScores, string> = {
   evidence: "Evidence",
   logic: "Logic",
   rebuttal: "Rebuttal",
-  clarity: "Clarity",
+  // Named after what is measured (argumentResponses rate), not claim clarity.
+  clarity: "Engagement",
 };
 
 const FACTORS = Object.keys(LABELS) as (keyof TurnScores)[];

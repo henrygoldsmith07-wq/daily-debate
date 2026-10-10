@@ -1054,7 +1054,13 @@ describe("jsonb parameter binding (production write regression)", () => {
         title: "Cities should eliminate minimum parking requirements",
         prompt: "Should planning rules stop requiring parking?",
         category: "Policy",
-        sources: ["https://nrel.gov/a", "https://pewresearch.org/b"],
+        // Source objects, not bare strings: the topic pipeline sanitises
+        // candidates before storing them, so a bare-URL source is dropped
+        // rather than persisted as an unrenderable citation.
+        sources: [
+          { name: "NREL", homepage: "https://www.nrel.gov", angle: "levelised cost of energy" },
+          { name: "Pew Research Center", homepage: "https://www.pewresearch.org", angle: "polling data" },
+        ],
       },
     ];
     const result = await runGeneration({
@@ -1062,9 +1068,11 @@ describe("jsonb parameter binding (production write regression)", () => {
     });
     expect(result.outcome).toBe("ai-generated");
     expect(db.topics.size).toBe(1);
-    // Round-trips as the same array, not a Postgres array literal `{...}`.
-    expect(JSON.parse(String([...db.topics.values()][0].sources)))
-      .toEqual(["https://nrel.gov/a", "https://pewresearch.org/b"]);
+    // Round-trips as the same array of objects, not a Postgres array literal `{...}`.
+    expect(JSON.parse(String([...db.topics.values()][0].sources))).toEqual([
+      { name: "NREL", homepage: "https://www.nrel.gov", angle: "levelised cost of energy" },
+      { name: "Pew Research Center", homepage: "https://www.pewresearch.org", angle: "polling data" },
+    ]);
   });
 
   it("binds every jsonb parameter as a JSON string, never a raw array/object", async () => {
@@ -1109,8 +1117,17 @@ describe("jsonb parameter binding (production write regression)", () => {
       query: db.query, env: { NVIDIA_API_KEY: "x" }, generate, retrieve, now: NOW, ...silent,
     });
     expect(result.outcome).toBe("ai-generated");
-    expect(JSON.parse(String([...db.topics.values()][0].sources))).toEqual(nestedSources);
+    // The jsonb nesting invariant is proven by `checks`, which is stored
+    // verbatim: arbitrary nesting survives the bind as real JSON, not a raw
+    // binding or a Postgres array literal.
     expect(JSON.parse(String(db.evidence[0].checks))).toEqual({ nested: { a: [1, 2] } });
+    // Sources go through the topic sanitizer, which keeps only the documented
+    // fields. `extra` is intentionally dropped — the sanitizer's contract is
+    // that model-authored junk cannot ride into a stored row.
+    expect(JSON.parse(String([...db.topics.values()][0].sources))).toEqual([
+      { name: "Pew Research Center", homepage: "https://www.pewresearch.org", angle: "polling data" },
+      { name: "NREL", homepage: "https://www.nrel.gov", angle: "cost curves" },
+    ]);
 
     // Empty arrays and empty objects serialise as valid JSON, never raw bindings.
     const db2 = jsonbStrictDb();

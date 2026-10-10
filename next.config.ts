@@ -30,6 +30,21 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // HSTS: without it a first plaintext request can strip the session
+          // cookie, and `secure: NODE_ENV === "production"` does not describe
+          // the actual transport. Two years + subdomains is the preload-eligible
+          // form. Only meaningful over TLS, which production/Vercel enforce.
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
+          },
+          // Drop the APIs this product never uses. Geolocation/camera/mic are
+          // denied outright; `microphone=()` would be wrong because voice input
+          // uses the Web Speech API, which is not gated by this header.
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+          },
           {
             key: "Content-Security-Policy",
             value: contentSecurityPolicy,

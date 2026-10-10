@@ -73,7 +73,9 @@ export const GOAL_HEADLINES: Record<CoachDimension, string> = {
   evidence: "Ground every major claim in a named source.",
   rebuttal: "Answer the strongest opposing argument before adding another claim.",
   logic: "Make the reasoning step between facts and conclusions explicit.",
-  clarity: "Split each move into one claim and one reason.",
+  // The clarity metric is the turn-projection engagement rate, so the goal
+  // describes what that measurement actually rewards.
+  clarity: "Answer the move your opponent just made before moving on.",
   impact: "Explain why your point matters more than the opponent's argument.",
   steelmanning: "State the opposing case in its strongest form before answering it.",
   structure: "Close the loop on every claim you introduce.",
@@ -83,7 +85,7 @@ export const GOAL_DETAIL: Record<CoachDimension, string> = {
   evidence: "Claims without support are easy to dismiss, however good they sound.",
   rebuttal: "Unanswered counterarguments decide rounds against you, even when your case is strong.",
   logic: "A missing causal bridge is the gap a sharp opponent drives straight through.",
-  clarity: "When claim and reason blur together, judges credit neither.",
+  clarity: "A move the opponent made and you never answered counts against you on that round.",
   impact: "A point that never lands on 'why this matters' doesn't move the decision.",
   steelmanning: "Answering the weak version of an argument proves nothing about the strong one.",
   structure: "Every thread you open and drop is a free win for the other side.",
