@@ -30,10 +30,33 @@ import { generationChains, providerStatus as registryProviderStatus, usableProvi
 
 const jiti = createJiti(import.meta.url);
 let topicEvidenceModulePromise;
+let topicSanitizerModulePromise;
 
 async function sharedTopicEvidenceModule() {
   topicEvidenceModulePromise ??= jiti.import("../src/lib/topicEvidence.ts");
   return topicEvidenceModulePromise;
+}
+
+// The sanitizer already existed and was unit-tested, but nothing called it:
+// model-generated source homepages were persisted and rendered verbatim. A
+// hallucinated or hostile URL would ship as a clickable link, and the
+// name-only "known source" check would still badge it as verified. Sanitising
+// at the single point where a candidate becomes a stored topic closes that.
+async function sharedTopicSanitizerModule() {
+  topicSanitizerModulePromise ??= jiti.import("../src/lib/topicSanitizer.ts");
+  return topicSanitizerModulePromise;
+}
+
+/** Clamp and normalise one candidate before scoring, storing or fingerprinting it. */
+export async function sanitizeCandidateTopic(raw) {
+  const { sanitizeGeneratedTopic } = await sharedTopicSanitizerModule();
+  const clean = sanitizeGeneratedTopic(raw || {});
+  return {
+    title: clean.title,
+    prompt: clean.prompt,
+    category: clean.category,
+    sources: clean.sources,
+  };
 }
 
 /**
@@ -973,8 +996,18 @@ export async function runGeneration(deps = {}) {
     try {
       const candidates = await generate(recentTitles, 5);
       if (Array.isArray(candidates?.attempts)) successAttempts = candidates.attempts;
-      emit(`[generate-topics] ${candidates.length} candidates generated`);
-      const scored = candidates.map((c) => ({ ...scoreCandidate(c, recentTitles), raw: c }));
+      // Sanitise BEFORE scoring so the 9-dimension rubric, the stored row and
+      // the fingerprint all describe the same content. A hallucinated or
+      // hostile source URL is dropped here rather than reaching a clickable
+      // link, and a name/domain mismatch can no longer badge as verified.
+      const usableCandidates = [];
+      for (const raw of candidates) {
+        const clean = await sanitizeCandidateTopic(raw);
+        if (clean.title && clean.prompt && clean.category) usableCandidates.push(clean);
+      }
+      if (!usableCandidates.length) throw new Error("no usable topics after sanitisation");
+      emit(`[generate-topics] ${usableCandidates.length} candidates generated`);
+      const scored = usableCandidates.map((c) => ({ ...scoreCandidate(c, recentTitles), raw: c }));
       scored.sort((a, b) => b._score - a._score);
       scored.forEach((c, i) => emit(`  #${i + 1} score=${c._score} "${c.raw.title}"`));
       const top = scored[0];
@@ -1001,7 +1034,7 @@ export async function runGeneration(deps = {}) {
   // verification reads it, it is never reconstructed.
   const generationReason = bestTopic ? "ai" : (providerFailure ? "fallback-provider-failure" : "fallback-policy");
   if (!bestTopic) {
-    bestTopic = pickFallback(tomorrow, recentTitles);
+    bestTopic = await sanitizeCandidateTopic(pickFallback(tomorrow, recentTitles));
     emit(`[generate-topics] Using curated fallback: "${bestTopic.title}"`);
   }
   const fingerprint = topicFingerprint({

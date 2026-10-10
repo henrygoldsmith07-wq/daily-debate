@@ -85,12 +85,12 @@ export default async function AnalyticsPage() {
           Data: {completeness.events.loaded} events · {completeness.repairs.loaded} repair attempts · {completeness.retests.loaded} deliberate retest assignments · {completeness.debates.loaded} debate graphs.
         </p>
         {funnelData.status === "partial" && (
-          <p className="mt-1 text-xs text-amber-600" role="note">
+          <p className="mt-1 text-xs text-[var(--review)]" role="note">
             Partial analytics data{funnelData.errorCategory ? ` (${funnelData.errorCategory})` : ""}; outcome metrics may be incomplete.
           </p>
         )}
         {completeness.note && (
-          <p className="mt-1 text-xs text-amber-600" role="note">
+          <p className="mt-1 text-xs text-[var(--review)]" role="note">
             Data truncated: {completeness.note}
           </p>
         )}
@@ -230,7 +230,7 @@ export default async function AnalyticsPage() {
             {aiOps.overall.p95LatencyMs !== null && ` · p95 ${aiOps.overall.p95LatencyMs}ms`}. Rates appear at ≥5 calls per operation.
           </p>
           {aiOpsData.status === "partial" && (
-            <p className="mt-1 text-xs text-amber-600" role="note">
+            <p className="mt-1 text-xs text-[var(--review)]" role="note">
               AI reliability data is partial ({aiOpsData.errorCategory}); rates cover only the loaded window.
             </p>
           )}

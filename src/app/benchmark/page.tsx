@@ -67,7 +67,7 @@ export default function BenchmarkPage() {
               <p className="tabular text-ink3">n={statsFixture.n} · Fleiss κ={statsFixture.fleissKappa.toFixed(3)} · α={statsFixture.krippendorffAlpha.toFixed(3)}</p>
               <p className="tabular text-ink3">Cohen κ (mean pairwise)={cohenMean === null ? "—" : cohenMean.toFixed(3)}</p>
               <p className="tabular text-ink3">Labels: a={statsFixture.labelDist.a} b={statsFixture.labelDist.b} tie={statsFixture.labelDist.tie}</p>
-              <p className="mt-1 text-amber-700">Provenance: {HUMAN_CORPUS_AUDIT.status}; human-validity claim: {HUMAN_CORPUS_AUDIT.canClaimHumanValidity ? "allowed" : "not established"}</p>
+              <p className="mt-1 text-[var(--review)]">Provenance: {HUMAN_CORPUS_AUDIT.status}; human-validity claim: {HUMAN_CORPUS_AUDIT.canClaimHumanValidity ? "allowed" : "not established"}</p>
           </div>
           <div className="rounded-xl border border-[var(--rule)] bg-surface-2 p-3">
             <p className="font-medium">Synthetic scaffold (200, seed 42)</p>

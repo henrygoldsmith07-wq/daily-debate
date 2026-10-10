@@ -21,7 +21,7 @@ export const PROFILE_DIMENSIONS: Array<{
   label: string;
   sources: MetricKey[];
 }> = [
-  { key: "claim-clarity", label: "Claim clarity", sources: ["clarity"] },
+  { key: "claim-clarity", label: "Engagement", sources: ["clarity"] },
   // Unsupported claims are an evidence failure, not a clarity failure.
   // Including the rate keeps Evidence measurable when the user supplies no
   // cited/strong evidence at all (grounding/uncited metrics are then null).

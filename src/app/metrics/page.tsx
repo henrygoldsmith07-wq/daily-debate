@@ -35,9 +35,14 @@ const SURFACE_LABELS: Record<SurfaceId, string> = {
  * rendering it as "fine" is exactly the failure this surface exists to stop.
  */
 function statusStyle(s: SurfaceValidation): string {
-  if (s.status === "validated") return "bg-emerald-100 text-emerald-900";
-  if (s.status === "provisional") return "bg-amber-100 text-amber-900";
-  return "bg-rose-100 text-rose-900";
+  // Token-based, not hardcoded Tailwind palette: this app is dark-only
+  // (layout.tsx pins `dark` on <html>), so `bg-emerald-100 text-emerald-900`
+  // rendered near-black text on a near-black background — effectively
+  // invisible. The shared success/review/danger soft+ink pairs carry the same
+  // meaning in both themes.
+  if (s.status === "validated") return "bg-[var(--success-soft)] text-[var(--success)]";
+  if (s.status === "provisional") return "bg-[var(--review-soft)] text-[var(--review)]";
+  return "bg-[var(--danger-soft)] text-[var(--danger)]";
 }
 
 export default async function MetricsPage() {
@@ -74,7 +79,9 @@ export default async function MetricsPage() {
           <h2 id="hv-heading" className="text-sm font-semibold">Human validation status</h2>
           <span
             className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-              m.humanValidation.groundTruth.ready ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"
+              m.humanValidation.groundTruth.ready
+                ? "bg-[var(--success-soft)] text-[var(--success)]"
+                : "bg-[var(--review-soft)] text-[var(--review)]"
             }`}
           >
             {m.humanValidation.groundTruth.ready ? "pilot consensus gate met" : "pilot consensus gate pending"}
@@ -96,7 +103,7 @@ export default async function MetricsPage() {
           {m.corpus.presentation.unknown ? ` / unknown ${m.corpus.presentation.unknown}` : ""})
         </p>
         {!m.humanValidation.groundTruth.ready && (
-          <p className="mt-1 text-xs text-amber-700">
+          <p className="mt-1 text-xs text-[var(--review)]">
             Judge-vs-human numbers below are provisional until: {m.humanValidation.groundTruth.reasons.join("; ")}.
           </p>
         )}
@@ -105,7 +112,7 @@ export default async function MetricsPage() {
       <section className="surface-card p-5" aria-labelledby="jv-heading">
         <div className="flex items-baseline justify-between gap-3">
           <h2 id="jv-heading" className="text-sm font-semibold">What each surface may claim</h2>
-          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${judge.source === "ok" ? "bg-amber-100 text-amber-900" : "bg-rose-100 text-rose-900"}`}>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${judge.source === "ok" ? "bg-[var(--review-soft)] text-[var(--review)]" : "bg-[var(--danger-soft)] text-[var(--danger)]"}`}>
             {judge.source === "ok" ? (judge.stale ? "benchmark stale" : "benchmark current") : `benchmark ${judge.source}`}
           </span>
         </div>
@@ -126,7 +133,7 @@ export default async function MetricsPage() {
                 <p className="mt-1 text-xs text-ink2">{s.claim}</p>
                 <p className="mt-1 text-xs text-ink3">{s.reason}</p>
                 {!allowsCompetitiveClaims(s) && id === "pvp-verdict" && (
-                  <p className="mt-1 text-xs font-medium text-rose-700">
+                  <p className="mt-1 text-xs font-medium text-[var(--danger)]">
                     Competitive claims are withheld: only a model that cleared every gate unlocks result framing.
                   </p>
                 )}

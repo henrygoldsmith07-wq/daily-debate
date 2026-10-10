@@ -223,6 +223,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     }
   } catch (error) {
     console.error("Failed to judge PvP match:", error);
+    // A typed spend-cap failure is an EXPLICIT, retryable state, not a verdict.
+    // The ensemble deliberately re-throws SpendCapReachedError so a route can
+    // return 503 + Retry-After instead of committing a permanent tie. Catching
+    // everything into a stored verdict (as this branch used to) means a cap
+    // reached between the pre-check and the judge call silently converts a
+    // recoverable outage into a final, unscored result both players keep.
+    if (isSpendCapError(error)) {
+      const retryAfter = retryAfterSecondsToReset();
+      return NextResponse.json(
+        {
+          error: `${error.message} The match was not scored — retry after the daily reset to finish it.`,
+          code: "spend_cap_reached",
+          retryAfterSeconds: retryAfter,
+        },
+        { status: 503, headers: { "Retry-After": String(retryAfter), "Cache-Control": "no-store" } },
+      );
+    }
     verdict = stampVerdict({
       winner: "tie" as const,
       playerAScore: 0,

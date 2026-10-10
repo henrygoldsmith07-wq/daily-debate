@@ -10,11 +10,16 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Operations health (admin)" };
 
 const STATE_STYLES: Record<HealthState, string> = {
-  healthy: "bg-emerald-100 text-emerald-900",
-  degraded: "bg-amber-100 text-amber-900",
-  stale: "bg-orange-100 text-orange-900",
-  blocked: "bg-red-100 text-red-900",
-  failed: "bg-red-100 text-red-900",
+  // Token-based, not hardcoded Tailwind palette: this app is dark-only
+  // (layout.tsx pins `dark` on <html>), so `bg-emerald-100 text-emerald-900`
+  // rendered near-black text on a near-black background — effectively
+  // invisible on the only theme the product ships. The shared
+  // success/review/danger soft+ink pairs carry the same meaning either way.
+  healthy: "bg-[var(--success-soft)] text-[var(--success)]",
+  degraded: "bg-[var(--review-soft)] text-[var(--review)]",
+  stale: "bg-[var(--review-soft)] text-[var(--review)]",
+  blocked: "bg-[var(--danger-soft)] text-[var(--danger)]",
+  failed: "bg-[var(--danger-soft)] text-[var(--danger)]",
   unknown: "bg-surface-2 text-ink3",
 };
 
@@ -80,7 +85,7 @@ export default async function OpsHealthPage() {
           <StateBadge state={report.overall} />
         </div>
         {report.unknowns.length > 0 && (
-          <p className="mt-1 text-xs text-amber-700">
+          <p className="mt-1 text-xs text-[var(--review)]">
             Unresolved (raises overall to at least &ldquo;unknown&rdquo;, never healthy): {report.unknowns.join(", ")}
           </p>
         )}

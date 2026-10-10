@@ -113,7 +113,7 @@ export default async function ShadowValidationPage() {
     <AppShell width="narrow">
       {dataState === "unavailable" ? (
         <section className="surface-card mt-4 p-5" aria-labelledby="shadow-unavailable">
-          <h2 id="shadow-unavailable" className="text-sm font-semibold text-amber-900">
+          <h2 id="shadow-unavailable" className="text-sm font-semibold text-[var(--review)]">
             Shadow-validation data unavailable
           </h2>
           <p className="mt-2 text-sm text-ink3">

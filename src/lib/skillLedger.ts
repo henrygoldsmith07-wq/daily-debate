@@ -78,7 +78,7 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
   causalOverclaims: "Causal overclaims",
   fakePrecisionHits: "Fake-precision figures",
   uncitedEvidenceRate: "Cited evidence lacking citations",
-  clarity: "Clarity (turn projection)",
+  clarity: "Engagement coverage (turn projection)",
 };
 
 export interface SkillMetricPoint {

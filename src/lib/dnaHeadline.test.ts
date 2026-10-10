@@ -10,7 +10,7 @@ function model(overrides: Partial<ArgumentDnaModel> = {}): ArgumentDnaModel {
     analysedDebates: 4,
     profile: {
       dimensions: [
-        { key: "claim-clarity", label: "Claim clarity", score: 80, lowConfidence: false, sampleSize: 4 },
+        { key: "claim-clarity", label: "Engagement", score: 80, lowConfidence: false, sampleSize: 4 },
         { key: "evidence", label: "Evidence", score: 45, lowConfidence: false, sampleSize: 4 },
         { key: "rebuttal", label: "Rebuttal", score: 70, lowConfidence: false, sampleSize: 4 },
       ] as never,
@@ -30,8 +30,8 @@ function model(overrides: Partial<ArgumentDnaModel> = {}): ArgumentDnaModel {
 describe("buildDnaHeadline", () => {
   it("names the strongest behaviour and the current weakness qualitatively", () => {
     const headline = buildDnaHeadline(model(), "Rebuttal");
-    expect(headline.strongest?.label).toBe("Claim clarity");
-    expect(headline.strongest?.statement).toMatch(/making one clear claim/);
+    expect(headline.strongest?.label).toBe("Engagement");
+    expect(headline.strongest?.statement).toMatch(/answering each move your opponent makes/);
     expect(headline.weakness?.label).toBe("Evidence");
     expect(headline.weakness?.statement).toMatch(/grounding major claims/);
     expect(headline.focus).toBe("Rebuttal");
