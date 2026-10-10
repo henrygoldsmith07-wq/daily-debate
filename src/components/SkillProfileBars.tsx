@@ -25,14 +25,14 @@ export default function SkillProfileBars({ profile }: { profile: ArgumentSkillPr
   return (
     <div className="flex flex-col gap-1">
           {lowData && (
-        <p className="text-xs text-amber-600 mb-2">
+        <p className="text-xs text-[var(--review)] mb-2">
           Only {profile.debatesAnalysed} debate{profile.debatesAnalysed === 1 ? "" : "s"} so far — treat this as an early profile, not an ability rating.
         </p>
       )}
       {profile.dimensions.map((d) => (
         <div key={d.key} className="flex items-center justify-between gap-3 border-b border-[var(--rule)] py-1.5 text-xs last:border-0" aria-label={`${d.label}: ${qualitativeRead(d.score, d.lowConfidence, range)}`}>
           <span className={`w-28 shrink-0 ${d.lowConfidence ? "opacity-60" : "font-medium"}`}>{d.label}</span>
-          <span className={`text-right ${d.lowConfidence ? "text-amber-600/80" : "text-ink3"}`}>
+          <span className={`text-right ${d.lowConfidence ? "text-[var(--review)]" : "text-ink3"}`}>
             {qualitativeRead(d.score, d.lowConfidence, range)}{d.sampleSize > 0 ? ` · ${d.sampleSize} debate${d.sampleSize === 1 ? "" : "s"}` : ""}
           </span>
         </div>

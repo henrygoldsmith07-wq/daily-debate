@@ -23,6 +23,19 @@ export interface GuestMotion {
   /** One coaching focus for the day, matching the daily-practice promise. */
   coachingFocus: string;
   rounds: [GuestMotionRound, GuestMotionRound, GuestMotionRound];
+  /**
+   * A fourth, DISTINCT challenge used only for the deliberate retest after a
+   * repair.
+   *
+   * This is separate from `rounds[2]` on purpose. Re-serving the round-3
+   * pressure the learner has already answered asks them to recall an argument
+   * they just wrote, which proves nothing about whether the repaired move
+   * transfers. A genuinely new challenge that still requires the same move is
+   * the only honest way to observe transfer — and because guest mode is
+   * deterministic and free, the new pressure is curated here rather than
+   * generated.
+   */
+  retest: GuestMotionRound;
 }
 
 export const GUEST_MOTIONS: readonly GuestMotion[] = [
@@ -51,6 +64,12 @@ export const GUEST_MOTIONS: readonly GuestMotion[] = [
         prompt: "Compare the trade-offs and make your recommendation.",
       },
     ],
+    retest: {
+      label: "A new challenge",
+      opponent:
+        "A rule that only exists during the school hour says nothing about the other seven hours of the day, so the argument for it has to rest on what happens inside the lesson.",
+      prompt: "Meet this new objection on its own terms, and show the reasoning that carries your case through it.",
+    },
   },
   {
     id: "four-day-week",
@@ -77,6 +96,12 @@ export const GUEST_MOTIONS: readonly GuestMotion[] = [
         prompt: "Compare the trade-offs and make your recommendation.",
       },
     ],
+    retest: {
+      label: "A new challenge",
+      opponent:
+        "Condensing five days into four changes who can work at all — parents with school-age children, carers, and anyone on a shift pattern lose the flexibility the policy claims to create.",
+      prompt: "Meet this new objection on its own terms, and show the reasoning that carries your case through it.",
+    },
   },
   {
     id: "city-cars",
@@ -103,6 +128,12 @@ export const GUEST_MOTIONS: readonly GuestMotion[] = [
         prompt: "Compare the trade-offs and make your recommendation.",
       },
     ],
+    retest: {
+      label: "A new challenge",
+      opponent:
+        "A ban changes behaviour only while it is policed, and the shops, deliveries and trades that keep a centre alive have to get their vehicles in somehow.",
+      prompt: "Meet this new objection on its own terms, and show the reasoning that carries your case through it.",
+    },
   },
   {
     id: "homework-late",
@@ -129,6 +160,12 @@ export const GUEST_MOTIONS: readonly GuestMotion[] = [
         prompt: "Compare the trade-offs and make your recommendation.",
       },
     ],
+    retest: {
+      label: "A new challenge",
+      opponent:
+        "Removing homework does not remove the need to practise outside the lesson; it only moves where that practice has to happen.",
+      prompt: "Meet this new objection on its own terms, and show the reasoning that carries your case through it.",
+    },
   },
   {
     id: "ai-in-classrooms",
@@ -155,6 +192,12 @@ export const GUEST_MOTIONS: readonly GuestMotion[] = [
         prompt: "Compare the trade-offs and make your recommendation.",
       },
     ],
+    retest: {
+      label: "A new challenge",
+      opponent:
+        "A pupil who leans on an assistant for every difficult step never builds the habit of sitting with a problem that will not resolve on the first attempt.",
+      prompt: "Meet this new objection on its own terms, and show the reasoning that carries your case through it.",
+    },
   },
   {
     id: "remote-ordinance",
@@ -181,6 +224,12 @@ export const GUEST_MOTIONS: readonly GuestMotion[] = [
         prompt: "Compare the trade-offs and make your recommendation.",
       },
     ],
+    retest: {
+      label: "A new challenge",
+      opponent:
+        "Newer staff learn a role fastest by watching experienced colleagues work, and that transfer nearly stops when nobody shares a building.",
+      prompt: "Meet this new objection on its own terms, and show the reasoning that carries your case through it.",
+    },
   },
   {
     id: "voting-age",
@@ -207,6 +256,12 @@ export const GUEST_MOTIONS: readonly GuestMotion[] = [
         prompt: "Compare the trade-offs and make your recommendation.",
       },
     ],
+    retest: {
+      label: "A new challenge",
+      opponent:
+        "A wider franchise raises turnout only if the new voters and the older ones want different things, and there is little reason to assume they do.",
+      prompt: "Meet this new objection on its own terms, and show the reasoning that carries your case through it.",
+    },
   },
 ] as const;
 

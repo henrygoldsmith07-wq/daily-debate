@@ -173,7 +173,6 @@ export default function TopicCard({
                       type="button"
                       onClick={() => setPersona(p.id)}
                       aria-pressed={persona === p.id}
-                      title={p.tagline}
                       className={`rounded-xl border px-3 py-2 text-left text-sm ${persona === p.id ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--accent)]" : "border-[var(--rule)] bg-surface-2 text-ink2"}`}
                       data-testid={`persona-${p.id}`}
                     >
@@ -190,11 +189,17 @@ export default function TopicCard({
                       type="button"
                       onClick={() => setDifficulty(d.id)}
                       aria-pressed={difficulty === d.id}
-                      title={d.description}
-                      className={`rounded-xl border px-3 py-2 text-sm ${difficulty === d.id ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--accent)]" : "border-[var(--rule)] bg-surface-2 text-ink2"}`}
+                      className={`rounded-xl border px-3 py-2 text-left text-sm ${difficulty === d.id ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--accent)]" : "border-[var(--rule)] bg-surface-2 text-ink2"}`}
                       data-testid={`difficulty-${d.id}`}
                     >
                       {d.label}
+                      {/* The description used to live only in the `title`
+                          attribute, which is hover-only — unreachable by
+                          keyboard and unreliable for screen readers. Personas
+                          already render their tagline inline; pressure now
+                          does the same, so both controls describe themselves
+                          without a pointer. WCAG 1.4.13. */}
+                      <span className="mt-0.5 block text-[11px] font-normal leading-4 opacity-80">{d.description}</span>
                     </button>
                   ))}
                 </div>
@@ -286,7 +291,7 @@ export default function TopicCard({
                       <div className="flex gap-2"><dt className="w-20 shrink-0 uppercase tracking-wide text-ink3">Published</dt><dd className="tabular">{card.published_date ?? "unknown"}</dd></div>
                     </dl>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                      {chips.map((chip) => <span key={chip.label} className={`rounded-full px-2 py-0.5 text-xs ${chip.ok === true ? "bg-[var(--accent-soft)] text-[var(--accent)]" : chip.ok === false ? "bg-surface-2 text-amber-600" : "bg-surface-2 text-ink3"}`}>{chip.ok === false ? "⚠ " : chip.ok === true ? "✓ " : ""}{chip.label}</span>)}
+                      {chips.map((chip) => <span key={chip.label} className={`rounded-full px-2 py-0.5 text-xs ${chip.ok === true ? "bg-[var(--accent-soft)] text-[var(--accent)]" : chip.ok === false ? "bg-[var(--review-soft)] text-[var(--review)]" : "bg-surface-2 text-ink3"}`}>{chip.ok === false ? "⚠ " : chip.ok === true ? "✓ " : ""}{chip.label}</span>)}
                       <a href={card.url} target="_blank" rel="noreferrer" className="ml-auto text-xs font-medium text-[var(--accent)] hover:underline">[Open source]</a>
                     </div>
                   </li>
@@ -305,10 +310,19 @@ export default function TopicCard({
                 return (
                   <li key={source.name} className="text-sm text-ink3">
                     <a href={source.homepage} target="_blank" rel="noreferrer" className="font-medium text-ink hover:underline">
-                      {known ? <span className="mr-1 text-[var(--accent)]" title="Verified institution">✓</span> : null}
+                      {known ? <span className="mr-1 text-[var(--accent)]">✓</span> : null}
                       {source.name}
                     </a>
-                    {!known && <span className="ml-1 text-xs text-amber-600" title="Not in the verified-source allowlist — double-check before citing">⚠ unverified</span>} — {source.angle}
+                    {/* Was `text-amber-600`, which on --surface-2 in the
+                        app's only (dark) theme measures ~2.6:1 — well below
+                        WCAG AA. The shared --review token is specified to pass
+                        against its own soft tint, so it carries the same
+                        "check this" meaning without failing contrast.
+                        The explanation used to be hover-only (title), which is
+                        unreachable by keyboard; it is now visible. */}
+                    {!known && <span className="ml-1 text-xs font-medium text-[var(--review)]">⚠ unverified</span>}
+                    {!known && <span className="text-ink3"> — not in the verified-source allowlist, double-check before citing</span>}
+                    <span className="text-ink3"> — {source.angle}</span>
                   </li>
                 );
               })}

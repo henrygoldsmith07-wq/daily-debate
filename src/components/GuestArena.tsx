@@ -255,7 +255,10 @@ function GuestDebate({
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-ink3">
               <span>Round {round + 1} of {rounds.length} · {activeRound.label}</span>
-              <span>~ 2 min left</span>
+              {/* No fabricated countdown: guest practice is untimed and free.
+                  Showing "~2 min left" next to a round that never expires
+                  invents urgency the flow does not have. */}
+              <span>{round + 1 === rounds.length ? "Final round" : "Take your time"}</span>
             </div>
 
             <div className="mt-6 space-y-4">
@@ -375,7 +378,7 @@ function GuestResult({
   responses: string[];
   repairSucceeded: boolean;
   /** Called with the accepted rewrite so the retest checks the same move. */
-  onRepairSucceeded: (kind: GuestSkill, label: string, text: string) => void;
+  onRepairSucceeded: (kind: GuestSkill, label: string, text: string, succeeded: boolean) => void;
   /** Move to the deliberate retest. Only offered once a repair succeeded. */
   onRetest: () => void;
   onRestart: () => void;
@@ -393,7 +396,7 @@ function GuestResult({
     if (outcome.succeeded) {
       // The accepted rewrite is handed to the retest so it checks the SAME move
       // that was just repaired, not a fresh guess at what was weak.
-      onRepairSucceeded(assessment.weakness.kind, assessment.weakness.label, repair.trim());
+      onRepairSucceeded(assessment.weakness.kind, assessment.weakness.label, repair.trim(), outcome.succeeded);
     }
   }
 
@@ -547,23 +550,31 @@ function GuestRetest({
   weaknessKind,
   weaknessLabel,
   repairText,
+  repairSucceeded: repairSucceededFlag,
   onFinish,
 }: {
   motion: GuestMotion;
   weaknessKind: GuestSkill;
   weaknessLabel: string;
   repairText: string;
+  /** The real outcome of the repair drill, not a guess from its length. */
+  repairSucceeded: boolean;
   /** Finish the retest, reporting whether the repaired behaviour was observed. */
   onFinish: (demonstrated: boolean) => void;
 }) {
-  // A fresh round of the same debate, at higher pressure than the drill: this
-  // is the deliberate retest of the repaired move.
-  const retestRound = motion.rounds[2];
+  // A genuinely NEW challenge, not the round-3 pressure the learner has already
+  // answered. Re-serving a seen prompt measures recall; an unseen one that
+  // requires the same move is the only honest observation of transfer.
+  const retestRound = motion.retest;
   const [response, setResponse] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
+  // The retest reads the REAL repair outcome. Guessing from the rewrite's
+  // length would let a failed repair slide into "nothing to retest yet", and a
+  // merely long repair into a demonstration it never earned.
+  const repairSucceeded = repairText.trim().length >= 12 && repairSucceededFlag;
   const outcome = submitted
-    ? assessGuestRetest(weaknessKind, repairText.trim().length >= 12, response.trim(), retestRound.opponent)
+    ? assessGuestRetest(weaknessKind, repairSucceeded, response.trim(), retestRound.opponent)
     : null;
 
   return (
@@ -662,7 +673,7 @@ export default function GuestArena() {
   const [stage, setStage] = useState<Stage>("home");
   const [side, setSide] = useState<"for" | "against">("for");
   const [responses, setResponses] = useState<string[]>([]);
-  const [repair, setRepair] = useState<{ kind: GuestSkill; label: string; text: string } | null>(null);
+  const [repair, setRepair] = useState<{ kind: GuestSkill; label: string; text: string; succeeded: boolean } | null>(null);
 
   // Rotated by UTC day: deterministic, free, and no server state.
   const motion = guestMotionForDay(new Date().toISOString().slice(0, 10));
@@ -677,7 +688,10 @@ export default function GuestArena() {
       weaknessKind: assessment.weakness.kind,
       weaknessLabel: assessment.weakness.label,
       repairState: repair ? (demonstrated ? "repair_demonstrated" : "partially_repaired") : "needs_another_pass",
-      repairSucceeded: !!repair,
+      // `demonstrated` is the retest reading, not the drill reading: a
+      // successful repair that does not reappear under the new challenge is a
+      // completed repair with an unobserved transfer, not a demonstration.
+      repairSucceeded: !!repair && demonstrated,
       retestOutcome: demonstrated ? "observed" : "not-observed",
       completedAt: new Date().toISOString(),
     };
@@ -724,7 +738,7 @@ export default function GuestArena() {
         motion={motion}
         responses={responses}
         repairSucceeded={!!repair}
-        onRepairSucceeded={(kind, label, text) => setRepair({ kind, label, text })}
+        onRepairSucceeded={(kind, label, text, succeeded) => setRepair({ kind, label, text, succeeded })}
         onRetest={() => setStage("retest")}
         onRestart={restart}
       />
@@ -738,6 +752,7 @@ export default function GuestArena() {
         weaknessKind={repair.kind}
         weaknessLabel={repair.label}
         repairText={repair.text}
+        repairSucceeded={repair.succeeded}
         onFinish={(demonstrated) => {
           finishRetest(demonstrated);
           restart();

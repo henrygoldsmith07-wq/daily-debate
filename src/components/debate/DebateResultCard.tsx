@@ -43,10 +43,18 @@ export function DebateResultCard({
   onRepairSucceeded,
 }: DebateResultCardProps) {
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
   // Copy the plain-text summary for learners who want to revisit it elsewhere.
   const copyResult = () => {
     if (!freshResult) return;
+    if (!navigator.clipboard?.writeText) {
+      // Insecure contexts have no clipboard API at all; without this guard the
+      // handler throws a TypeError that surfaces as an unhandled rejection.
+      setCopyState("failed");
+      setTimeout(() => setCopyState("idle"), 3000);
+      return;
+    }
     const text = [
       `Debate complete - performance ${freshResult.performanceScore}/100 · +${freshResult.totalScore + freshResult.bonusXP} XP`,
       freshResult.summary.overallFeedback,
@@ -68,7 +76,7 @@ export function DebateResultCard({
       },
     );
   };
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+
   // Direct route to the repair exercise. The graph stays folded, and the
   // textarea takes focus so the learner can start typing immediately instead of
   // having to find the field after the scroll settles.
@@ -87,12 +95,15 @@ export function DebateResultCard({
     return (
       <div className="flex flex-col gap-5">
         <div className="surface-card flex flex-col gap-4 p-6" data-testid="result-card">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
-            {view.fresh ? (
-              <>Debate complete · {formatLabelFor(format)}</>
-            ) : (
-              <>Replay · {formatLabelFor(format)}</>
-            )}
+          {/* The result screen's h1. Previously this whole screen opened with a
+              <p> and used <h2> below, so the page had no h1 — same WCAG gap as
+              the live room, on the screen a learner returns to most often. */}
+          <h1 className="text-xl font-semibold tracking-tight">
+            {view.fresh ? "Debate complete" : "Debate replay"}
+            <span className="ml-2 text-sm font-normal text-ink3">{formatLabelFor(format)}</span>
+          </h1>
+          <p className="-mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+            {view.fresh ? "Finished just now" : "Past debate"}
           </p>
 
           {/* Today's focus outcome, including deliberate repair retests. */}
@@ -105,7 +116,7 @@ export function DebateResultCard({
                 <span className="mr-1 font-semibold text-[var(--accent)]">Repair retest ·</span>
               )}
               {snapshot.goalOutcome.demonstrated === true && <span className="mr-1 text-[var(--success)]">✓</span>}
-              {snapshot.goalOutcome.demonstrated === false && <span className="mr-1 text-amber-600">→</span>}
+              {snapshot.goalOutcome.demonstrated === false && <span className="mr-1 text-[var(--review)]">→</span>}
               {snapshot.goalOutcome.detail}
             </div>
           )}
@@ -225,7 +236,13 @@ export function DebateResultCard({
             </button>
             {view.fresh && (
               <button type="button" onClick={copyResult} className="btn btn-ghost px-3 py-1.5 text-xs">
-                {copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}
+                <span aria-hidden="true">{copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}</span>
+                {/* The button's label changes with no focus move, so the
+                    confirmation is invisible to a screen reader unless it is
+                    announced separately. */}
+                <span className="sr-only" role="status">
+                  {copyState === "copied" ? "Summary copied to clipboard" : copyState === "failed" ? "Copy failed" : ""}
+                </span>
               </button>
             )}
             {!view.fresh && (

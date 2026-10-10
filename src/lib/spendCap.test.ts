@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  SPEND_RESERVATION_FALLBACK_USD,
   SpendCapReachedError,
+  __clearSpendReservationsForTests,
   ensureSpendWithinCap,
   estimatedSpendUsd,
   isSpendCapError,
   parseSpendCapConfig,
+  reserveSpendCall,
+  reservedSpendUsd,
   retryAfterSecondsToReset,
   spendCapMessage,
 } from "./spendCap";
@@ -123,5 +127,82 @@ describe("error surface", () => {
     expect(isSpendCapError(foreign)).toBe(true);
     expect(isSpendCapError(new Error("other"))).toBe(false);
     expect(isSpendCapError(null)).toBe(false);
+  });
+});
+
+describe("in-flight reservations", () => {
+  const meter = (reportedUsd: number, uncosted = 0) => async () => ({ reportedUsd, uncostedCalls: uncosted });
+
+  it("starts at zero", () => {
+    __clearSpendReservationsForTests();
+    expect(reservedSpendUsd()).toBe(0);
+  });
+
+  it("adds a reservation's declared charge while it is outstanding", () => {
+    __clearSpendReservationsForTests();
+    const release = reserveSpendCall(SPEND_RESERVATION_FALLBACK_USD);
+    expect(reservedSpendUsd()).toBe(SPEND_RESERVATION_FALLBACK_USD);
+    release();
+    expect(reservedSpendUsd()).toBe(0);
+  });
+
+  it("releases exactly once, even if called repeatedly", () => {
+    __clearSpendReservationsForTests();
+    reserveSpendCall(0.5)();
+    reserveSpendCall(0.5)();
+    expect(reservedSpendUsd()).toBe(0);
+  });
+
+  it("refuses a burst that would overshoot, which the durable meter alone cannot see", async () => {
+    __clearSpendReservationsForTests();
+    // $9.97 durable against a $10 cap, so it is still under on its own.
+    const readMeter = meter(9.97);
+    const env = { AI_DAILY_SPEND_CAP_USD: "10" };
+
+    await expect(ensureSpendWithinCap(env, readMeter)).resolves.toBeUndefined();
+
+    // One call in flight: $9.97 + $0.02 = $9.99 — still under, so it passes.
+    const releaseA = reserveSpendCall(0.02);
+    await expect(ensureSpendWithinCap(env, readMeter)).resolves.toBeUndefined();
+
+    // Two in flight: $10.01 — over. The durable total has NOT moved, so a
+    // meter-only check would still pass this call; the reservation is what
+    // stops it.
+    const releaseB = reserveSpendCall(0.02);
+    await expect(ensureSpendWithinCap(env, readMeter)).rejects.toBeInstanceOf(SpendCapReachedError);
+
+    releaseA();
+    releaseB();
+  });
+
+  it("lets the same caller through again once reservations settle", async () => {
+    __clearSpendReservationsForTests();
+    const readMeter = meter(9.98);
+    const release = reserveSpendCall(0.02);
+    await expect(ensureSpendWithinCap({ AI_DAILY_SPEND_CAP_USD: "10" }, readMeter)).rejects.toBeInstanceOf(
+      SpendCapReachedError,
+    );
+    release();
+    await expect(ensureSpendWithinCap({ AI_DAILY_SPEND_CAP_USD: "10" }, readMeter)).resolves.toBeUndefined();
+  });
+
+  it("sweeps expired reservations so a crashed caller cannot wedge the cap", () => {
+    __clearSpendReservationsForTests();
+    const release = reserveSpendCall(5);
+    expect(reservedSpendUsd()).toBe(5);
+    // A leaked reservation (never released) must stop counting after its TTL.
+    // Reading at "now" still sees it; reading past the TTL must not.
+    expect(reservedSpendUsd(Date.now())).toBe(5);
+    expect(reservedSpendUsd(Date.now() + 10 * 60 * 1000 + 1)).toBe(0);
+    release();
+  });
+
+  it("does not change behaviour when the cap is disabled", async () => {
+    __clearSpendReservationsForTests();
+    reserveSpendCall(100)();
+    await expect(
+      ensureSpendWithinCap({ AI_DAILY_SPEND_CAP_USD: "off" }, meter(9999)),
+    ).resolves.toBeUndefined();
+    __clearSpendReservationsForTests();
   });
 });

@@ -56,13 +56,41 @@ function unknownReport(): OpsHealthReport {
  */
 export const dynamic = "force-dynamic";
 
+/**
+ * Server-side memo for the expensive report the probe reduces.
+ *
+ * The probe is unauthenticated by design — scripts/ops-alert-digest.mjs reads it
+ * over HTTP without a DATABASE_URL or a GitHub PAT, which is what makes the app
+ * an independent witness. But each `loadOpsHealth` call reads the whole corpus,
+ * runs table probes, and makes several GitHub API calls, and the response is
+ * `Cache-Control: no-store`, so nothing upstream absorbs a burst.
+ *
+ * A short memo keeps that cost bounded without weakening the contract: the
+ * consumer is a digest that runs once a day, so a few seconds of staleness is
+ * far below its sampling interval, and the payload stays exactly as fresh as
+ * before for any single request. `generatedAt` still comes from the real
+ * report, and healthProbe.isUsableProbe still refuses a genuinely stale read.
+ */
+const HEALTH_MEMO_MS = 15_000;
+let healthMemo: { atMs: number; nowIso: string; report: OpsHealthReport } | null = null;
+
+async function loadOpsHealthMemoized(nowIso: string): Promise<OpsHealthReport> {
+  const cached = healthMemo;
+  if (cached && Date.now() - cached.atMs < HEALTH_MEMO_MS && cached.nowIso === nowIso) {
+    return cached.report;
+  }
+  const report = await loadOpsHealth(nowIso);
+  healthMemo = { atMs: Date.now(), nowIso, report };
+  return report;
+}
+
 export async function GET(request: Request) {
   const limited = await checkRateLimit(request, { name: "public-health", limit: 10, windowMs: 60_000 });
   if (limited) return limited;
 
   try {
     const nowIso = new Date().toISOString();
-    const report = await loadOpsHealth(nowIso);
+    const report = await loadOpsHealthMemoized(nowIso);
     const state = derivePublicHealthState(report, nowIso);
     return NextResponse.json(state, { headers: { "Cache-Control": "no-store" } });
   } catch {

@@ -75,6 +75,9 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
   const [activating, setActivating] = useState(false);
   const [feedback, setFeedback] = useState<{ signals: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Distinguishes "still fetching" from "fetched, nothing to show". The empty
+  // state and the loading state look different on purpose.
+  const [loading, setLoading] = useState(true);
   const [coachingStatus, setCoachingStatus] = useState<"ok" | "partial" | "unavailable" | null>(null);
   const scoredDims = dims.map((d) => d.score).filter((score): score is number => score !== null);
   const profileMin = scoredDims.length ? Math.min(...scoredDims) : null;
@@ -104,6 +107,8 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Coach unavailable.");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -277,12 +282,35 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
             Opening Progress only previews the drill. It is added to your training history when you start it.
           </p>
         </section>
+      ) : loading ? (
+        /* The un-loaded state is NOT the empty state. Rendering
+           "Complete a debate to unlock today's training focus" while the two
+           coach requests are in flight tells a learner with pending repairs
+           that they have no coaching at all, for a moment, on every visit. */
+        <section className="surface-card p-5" role="status" aria-busy="true" data-testid="coach-loading">
+          <div className="flex items-center gap-3">
+            <span
+              className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--accent)]"
+              aria-hidden="true"
+            />
+            <p className="text-sm text-ink3">Loading today&apos;s training focus…</p>
+          </div>
+        </section>
+      ) : error ? (
+        /* The error is rendered here regardless of whether an assignment
+           loaded. Previously it only appeared inside the assignment and
+           proposal branches, so a load failure with no drill rendered nothing
+           at all — a silent hole on the coaching surface. */
+        <section className="surface-card p-5" role="alert">
+          <p className="text-sm text-[var(--bad)]">{error}</p>
+          <button type="button" onClick={() => void load()} className="btn btn-ghost mt-3 px-3 py-1.5 text-xs">
+            Try again
+          </button>
+        </section>
       ) : (
-        !error && (
-          <section className="surface-card p-5 text-sm text-ink3" role="status">
-            {focusReason || "Complete a debate to unlock today's training focus."}
-          </section>
-        )
+        <section className="surface-card p-5 text-sm text-ink3" role="status">
+          {focusReason || "Complete a debate to unlock today's training focus."}
+        </section>
       )}
 
       {(outcomes.length > 0 || outcomeSummary) && (

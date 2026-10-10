@@ -4,9 +4,10 @@ import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types
 import { finalizePvpAssessment } from "./observableAssessment";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
 import { isValidJudgeExtraction } from "./aiSchema";
-import { ensureSpendWithinCap } from "./spendCap";
+import { ensureSpendWithinCap, reserveSpendCall, SPEND_RESERVATION_FALLBACK_USD } from "./spendCap";
 import { e2eMockAiEnabled, mockPvpJudge } from "./aiE2eMock";
 import type { ArgumentRoute } from "./argumentTaxonomy";
+import { renderUntrusted, renderUntrustedTranscript, UNTRUSTED_INSTRUCTION } from "./untrustedContent";
 
 // Lazy import to avoid circular deps: types -> argGraph ok, but anthropic -> types is fine.
 // ArgGraph types are structural; runtime validation via argGraph.validateGraph.
@@ -42,6 +43,11 @@ async function createWithTelemetry(
 ): Promise<Anthropic.Message> {
   // Durable daily spend cap: explicit SpendCapReachedError before any call.
   await ensureSpendWithinCap();
+  // The durable meter counts completed calls, so concurrent requests all read
+  // the same pre-call total. Reserving this call's declared charge makes a
+  // burst visible to the very next caller and pushes the effective total over
+  // the cap at the point the overshoot would begin.
+  const releaseReservation = reserveSpendCall(SPEND_RESERVATION_FALLBACK_USD);
   const anthropic = getClient();
   const startedAt = Date.now();
   try {
@@ -79,6 +85,10 @@ async function createWithTelemetry(
       error: classified.sanitized,
     });
     throw error;
+  } finally {
+    // Always released, success or failure: a leaked reservation would keep
+    // charging the cap for a call that already finished.
+    releaseReservation();
   }
 }
 
@@ -178,8 +188,6 @@ export async function debateTurn(params: {
 }): Promise<DebateTurnResult> {
   const aiSide: DebateSide = params.userSide === "for" ? "against" : "for";
 
-  const transcript = params.history.map((turn) => `${turn.role === "ai" ? "AI (opposing)" : "User"}: ${turn.text}`).join("\n");
-
   const routeGuidance = params.argumentRoute === "response-generation"
     ? "The submitted move is structurally a question: answer the question directly first, then add one concise challenge grounded in the debate motion."
     : params.argumentRoute === "lightweight"
@@ -187,6 +195,11 @@ export async function debateTurn(params: {
       : "";
 
   const opponentStyle = params.directive ? `\n\n${params.directive}` : "";
+
+  // Fenced boundary: the transcript and the latest message are user data, not
+  // instructions, and their speaker prefixes cannot be forged.
+  const transcript = renderUntrustedTranscript(params.history);
+  const latest = renderUntrusted("User's latest response", params.latestUserMessage);
 
   const message = await createWithTelemetry("debate_turn", {
     model: anthropicModel(),
@@ -196,7 +209,7 @@ export async function debateTurn(params: {
     messages: [
       {
         role: "user",
-        content: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}${opponentStyle}\n\nTranscript so far:\n${transcript}\n\nUser's latest response: "${params.latestUserMessage}"\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
+        content: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}${opponentStyle}\n\n${UNTRUSTED_INSTRUCTION}\n\nTranscript so far:\n${transcript}\n\n${latest}\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
       },
     ],
   });
@@ -258,7 +271,7 @@ export async function summarizeSoloDebate(params: { topicTitle: string; transcri
     messages: [
       {
         role: "user",
-        content: `Here is a full debate practice transcript on "${params.topicTitle}":\n\n${params.transcript}\n\nGive the user a short overall assessment of their critical-thinking performance, with specific strengths and areas to improve.`,
+        content: `Here is a full debate practice transcript on "${params.topicTitle}":\n\n${UNTRUSTED_INSTRUCTION}\n\n${params.transcript}\n\nGive the user a short overall assessment of their critical-thinking performance, with specific strengths and areas to improve.`,
       },
     ],
   });
@@ -446,6 +459,8 @@ export async function judgePvpMatch(params: { topicTitle: string; topicPrompt: s
 
 Topic: "${params.topicTitle}" — ${params.topicPrompt}
 Player A argued "${params.playerASide}"; Player B argued the opposite side.
+
+${UNTRUSTED_INSTRUCTION}
 
 Transcript:
 ${params.transcript}

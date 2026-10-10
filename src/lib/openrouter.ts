@@ -22,8 +22,9 @@ import { finalizePvpAssessment } from "./observableAssessment";
 import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
 import { isValidJudgeExtraction } from "./aiSchema";
-import { ensureSpendWithinCap } from "./spendCap";
+import { ensureSpendWithinCap, reserveSpendCall, SPEND_RESERVATION_FALLBACK_USD } from "./spendCap";
 import type { ArgumentRoute } from "./argumentTaxonomy";
+import { renderUntrusted, renderUntrustedTranscript, UNTRUSTED_INSTRUCTION } from "./untrustedContent";
 
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
@@ -458,20 +459,30 @@ async function chatJson<T>({ instruction, schema, maxTokens = 2_000, operation =
   // Durable daily spend cap: explicit SpendCapReachedError when today's
   // metered spend is exhausted (callers degrade visibly, never silently).
   await ensureSpendWithinCap();
-  const key = apiKey();
-  const deadline = Date.now() + RETRY_BUDGET_MS;
-  const chain = modelChain();
-  const options: ResolvedChatOptions = { instruction, schema, maxTokens, operation, validate };
-  const failures: string[] = [];
+  // Reserve this request's declared charge for the duration of the retry loop.
+  // The loop can make several attempts, so a flat reservation per chatJson
+  // call under-charges; the retry budget is bounded (RETRY_BUDGET_MS), and the
+  // durable meter still catches the total. It closes the burst hole without
+  // needing a per-attempt price table the providers do not report.
+  const releaseReservation = reserveSpendCall(SPEND_RESERVATION_FALLBACK_USD);
+  try {
+    const key = apiKey();
+    const deadline = Date.now() + RETRY_BUDGET_MS;
+    const chain = modelChain();
+    const options: ResolvedChatOptions = { instruction, schema, maxTokens, operation, validate };
+    const failures: string[] = [];
 
-  for (const [index, m] of chain.entries()) {
-    const result = await tryModel<T>(m, options, key, deadline, attemptsFor(index, chain.length));
-    if (result.ok) return result.value;
-    failures.push(result.error);
-    if (Date.now() >= deadline) break;
+    for (const [index, m] of chain.entries()) {
+      const result = await tryModel<T>(m, options, key, deadline, attemptsFor(index, chain.length));
+      if (result.ok) return result.value;
+      failures.push(result.error);
+      if (Date.now() >= deadline) break;
+    }
+
+    throw new Error(`OpenRouter request failed. Tried ${chain.length}: ${failures.join(" | ")}`);
+  } finally {
+    releaseReservation();
   }
-
-  throw new Error(`OpenRouter request failed. Tried ${chain.length}: ${failures.join(" | ")}`);
 }
 
 // --- Daily topic -----------------------------------------------------------
@@ -563,9 +574,7 @@ export async function debateTurn(params: {
 }): Promise<DebateTurnResult> {
   const aiSide: DebateSide = params.userSide === "for" ? "against" : "for";
 
-  const transcript = params.history
-    .map((turn) => `${turn.role === "ai" ? "AI (opposing)" : "User"}: ${turn.text}`)
-    .join("\n");
+  const transcript = renderUntrustedTranscript(params.history);
 
   if (e2eMockAiEnabled()) return mockDebateTurn();
 
@@ -576,11 +585,12 @@ export async function debateTurn(params: {
       : "";
 
   const opponentStyle = params.directive ? `\n\n${params.directive}` : "";
+  const latest = renderUntrusted("User's latest response", params.latestUserMessage);
 
   return chatJson<DebateTurnResult>({
     schema: TURN_SCHEMA,
     operation: "debate_turn",
-    instruction: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}${opponentStyle}\n\nTranscript so far:\n${transcript}\n\nUser's latest response: "${params.latestUserMessage}"\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
+    instruction: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}${opponentStyle}\n\n${UNTRUSTED_INSTRUCTION}\n\nTranscript so far:\n${transcript}\n\n${latest}\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
   });
 }
 
@@ -627,7 +637,7 @@ export async function summarizeSoloDebate(params: {
   return chatJson<DebateSummary>({
     schema: SUMMARY_SCHEMA,
     operation: "summarize_solo",
-    instruction: `Here is a full debate practice transcript on "${params.topicTitle}":\n\n${params.transcript}\n\nGive the user a short overall assessment of their critical-thinking performance, with specific strengths and areas to improve.`,
+    instruction: `Here is a full debate practice transcript on "${params.topicTitle}":\n\n${UNTRUSTED_INSTRUCTION}\n\n${params.transcript}\n\nGive the user a short overall assessment of their critical-thinking performance, with specific strengths and areas to improve.`,
   });
 }
 
@@ -727,7 +737,7 @@ export async function judgePvpMatch(params: {
     maxTokens: 6_000,
     operation: "judge_pvp",
     validate: isValidJudgeExtraction,
-    instruction: `You are a neutral, rigorous debate analyst. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nPlayer A argued "${params.playerASide}"; Player B argued the opposite side.\n\nTranscript:\n${params.transcript}\n\nAnalyze the observable argument structure, not which side of the topic is "correct". Judge only what is argued and shown: identical content earns identical treatment regardless of which label (A or B) speaks it, and length, repetition, formatting, fluency or confident tone are not argument quality. Named sources, institutions and statistics count only where the argument makes the evidence usable (mechanism, figure, context); authoritative-sounding references without usable content are noise, never strength. Return a faithful argGraph with nodes (c1,e1,k1,r1,i1, text <=18 words), edges, dropped arguments, contradictions, concessions, fallacies, evidenceStats, and impactComparison. Every cited/strong evidence node MUST include a citation object with a named source; never invent arguments or citations not present in the transcript. Also return a short rationale citing specific graph moments. Numeric scores and winner are computed by the application from the graph and must not be estimated here.`,
+    instruction: `You are a neutral, rigorous debate analyst. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nPlayer A argued "${params.playerASide}"; Player B argued the opposite side.\n\n${UNTRUSTED_INSTRUCTION}\n\nTranscript:\n${params.transcript}\n\nAnalyze the observable argument structure, not which side of the topic is "correct". Judge only what is argued and shown: identical content earns identical treatment regardless of which label (A or B) speaks it, and length, repetition, formatting, fluency or confident tone are not argument quality. Named sources, institutions and statistics count only where the argument makes the evidence usable (mechanism, figure, context); authoritative-sounding references without usable content are noise, never strength. Return a faithful argGraph with nodes (c1,e1,k1,r1,i1, text <=18 words), edges, dropped arguments, contradictions, concessions, fallacies, evidenceStats, and impactComparison. Every cited/strong evidence node MUST include a citation object with a named source; never invent arguments or citations not present in the transcript. Also return a short rationale citing specific graph moments. Numeric scores and winner are computed by the application from the graph and must not be estimated here.`,
   });
 
   return finalizePvpAssessment(extracted, { extractionSource: "llm" });

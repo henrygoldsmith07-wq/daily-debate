@@ -56,11 +56,32 @@ export default async function HistoryPage() {
   const timeZone = normalizeIanaTimeZone(profileRes.data?.timezone);
   const soloDebates = soloRes.data ?? [];
   const pvpMatches = pvpRes.data ?? [];
+  // A failed read must not look like an empty history. Previously a DB error
+  // produced `[]`, which rendered the same "No solo debates yet" empty state as
+  // a genuine first visit — indistinguishable data loss.
+  const loadError = soloRes.error ?? pvpRes.error ?? profileRes.error ?? null;
   const topicIds = [...new Set([...soloDebates, ...pvpMatches].map((row) => row.topic_id))];
   const topicTitles = new Map<string, string>();
   if (topicIds.length) {
     const { data: topics } = await db.from("daily_topics").select("id, title").in("id", topicIds);
     for (const t of topics ?? []) topicTitles.set(t.id, t.title);
+  }
+
+  if (loadError) {
+    return (
+      <AppShell width="narrow">
+        <PageHeader eyebrow="Your practice" title="History" description="Your solo and PvP debate records" />
+        <div className="surface-card p-5" role="alert">
+          <p className="text-sm font-semibold text-[var(--bad)]">History could not be loaded</p>
+          <p className="mt-1 text-sm text-ink3">
+            Your debates are safe — this is a temporary read problem. Reload to try again.
+          </p>
+          <Link href="/history" className="btn btn-ghost mt-3 px-3 py-1.5 text-xs">
+            Reload history
+          </Link>
+        </div>
+      </AppShell>
+    );
   }
 
   return (
@@ -83,7 +104,18 @@ export default async function HistoryPage() {
           <span className="section-heading-note">Against the AI opponent</span>
         </div>
         {soloDebates.length === 0 ? (
-          <p className="text-sm text-ink3">No solo debates yet.</p>
+          /* Matches the app's own SignedOut standard: a card with a reason and
+             a next action, not a bare sentence. A dead end here is the difference
+             between a first-time user finding the debate button and leaving. */
+          <div className="surface-card flex flex-col items-start gap-2 p-5">
+            <p className="font-semibold">Your first solo debate is waiting</p>
+            <p className="text-sm text-ink3">
+              Finish a debate and it appears here with its performance, XP and the weakness worth repairing.
+            </p>
+            <Link href="/" className="btn btn-primary mt-1 px-4 py-2 text-sm">
+              Start today&apos;s debate
+            </Link>
+          </div>
         ) : (
           soloDebates.map((d) => {
             const performance = d.performance_score;
@@ -124,7 +156,15 @@ export default async function HistoryPage() {
           <span className="section-heading-note">Judged head-to-head</span>
         </div>
         {pvpMatches.length === 0 ? (
-          <p className="text-sm text-ink3">No PvP matches yet.</p>
+          <div className="surface-card flex flex-col items-start gap-2 p-5">
+            <p className="font-semibold">No player-vs-player matches yet</p>
+            <p className="text-sm text-ink3">
+              Challenge a friend to argue today&apos;s motion, or join the queue when PvP is open.
+            </p>
+            <Link href="/" className="btn btn-ghost mt-1 px-4 py-2 text-sm">
+              Back to today
+            </Link>
+          </div>
         ) : (
           pvpMatches.map((m) => {
             const verdict = m.judge_verdict as PvpVerdict | null;

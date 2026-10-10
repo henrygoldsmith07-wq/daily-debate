@@ -211,7 +211,7 @@ export default function CorpusAdmin() {
               <p className="mt-1.5 text-xs text-ink3">
                 {stage.ratingsOnQualifying} ratings on qualifying debates · {stage.missing}
                 {stage.balancedStrata && stage.balancedStrata.state === "not-computable" && (
-                  <span className="text-amber-600"> ({stage.balancedStrata.detail})</span>
+                  <span className="text-[var(--review)]"> ({stage.balancedStrata.detail})</span>
                 )}
               </p>
             </li>
@@ -265,7 +265,7 @@ export default function CorpusAdmin() {
           <Stat label="Corrected ratings (audited)" value={report.correctedRatings} />
         </div>
         {!report.humanValidation.groundTruth.ready && (
-          <p className="mt-1 text-xs text-amber-700" role="note">
+          <p className="mt-1 text-xs text-[var(--review)]" role="note">
             Not yet human ground truth — {report.humanValidation.groundTruth.reasons.join("; ")}.
           </p>
         )}
@@ -274,7 +274,7 @@ export default function CorpusAdmin() {
           {report.population.cellsNeedingCoverage.length ? (
             <div className="flex flex-wrap gap-1">
               {report.population.cellsNeedingCoverage.map((c) => (
-                <span key={c} className="rounded-full bg-surface-2 px-2 py-0.5 text-xs tabular text-amber-600">
+                <span key={c} className="rounded-full bg-surface-2 px-2 py-0.5 text-xs tabular text-[var(--review)]">
                   {c}
                 </span>
               ))}
@@ -340,7 +340,7 @@ export default function CorpusAdmin() {
               {Object.entries(report.perDimensionIcc).map(([key, icc]) => (
                 <tr key={key} className="border-t border-[var(--rule)]">
                   <td className="py-1 pr-2">{key}</td>
-                  <td className={`py-1 ${icc !== null && icc < 0.5 ? "text-amber-600" : ""}`}>{icc ?? "—"}</td>
+                  <td className={`py-1 ${icc !== null && icc < 0.5 ? "text-[var(--review)]" : ""}`}>{icc ?? "—"}</td>
                 </tr>
               ))}
             </tbody>

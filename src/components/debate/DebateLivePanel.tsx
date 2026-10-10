@@ -74,7 +74,11 @@ export function DebateLivePanel({
   return (
     <div className="flex flex-1 flex-col gap-4">
       <div>
-        <p className="text-xs uppercase tracking-wide text-ink3">{topic.title}</p>
+        {/* The debate room is the core screen, so it carries the page's h1.
+            It was previously a <p>, which left the single most important screen
+            with no document heading at all — a WCAG 1.3.1/2.4.6 failure and the
+            reason a screen-reader user could not orient themselves here. */}
+        <h1 className="text-sm font-medium text-ink2">{topic.title}</h1>
         <p className="text-sm text-ink3">{topic.prompt}</p>
       </div>
       <div className="flex items-center justify-between gap-3">
