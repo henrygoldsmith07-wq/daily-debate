@@ -4,7 +4,7 @@ import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types
 import { finalizePvpAssessment } from "./observableAssessment";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
 import { isValidJudgeExtraction } from "./aiSchema";
-import { ensureSpendWithinCap } from "./spendCap";
+import { ensureSpendWithinCap, reserveSpendCall, SPEND_RESERVATION_FALLBACK_USD } from "./spendCap";
 import { e2eMockAiEnabled, mockPvpJudge } from "./aiE2eMock";
 import type { ArgumentRoute } from "./argumentTaxonomy";
 import { renderUntrusted, renderUntrustedTranscript, UNTRUSTED_INSTRUCTION } from "./untrustedContent";
@@ -43,6 +43,11 @@ async function createWithTelemetry(
 ): Promise<Anthropic.Message> {
   // Durable daily spend cap: explicit SpendCapReachedError before any call.
   await ensureSpendWithinCap();
+  // The durable meter counts completed calls, so concurrent requests all read
+  // the same pre-call total. Reserving this call's declared charge makes a
+  // burst visible to the very next caller and pushes the effective total over
+  // the cap at the point the overshoot would begin.
+  const releaseReservation = reserveSpendCall(SPEND_RESERVATION_FALLBACK_USD);
   const anthropic = getClient();
   const startedAt = Date.now();
   try {
@@ -80,6 +85,10 @@ async function createWithTelemetry(
       error: classified.sanitized,
     });
     throw error;
+  } finally {
+    // Always released, success or failure: a leaked reservation would keep
+    // charging the cap for a call that already finished.
+    releaseReservation();
   }
 }
 

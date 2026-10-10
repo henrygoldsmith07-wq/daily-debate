@@ -22,7 +22,7 @@ import { finalizePvpAssessment } from "./observableAssessment";
 import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
 import { isValidJudgeExtraction } from "./aiSchema";
-import { ensureSpendWithinCap } from "./spendCap";
+import { ensureSpendWithinCap, reserveSpendCall, SPEND_RESERVATION_FALLBACK_USD } from "./spendCap";
 import type { ArgumentRoute } from "./argumentTaxonomy";
 import { renderUntrusted, renderUntrustedTranscript, UNTRUSTED_INSTRUCTION } from "./untrustedContent";
 
@@ -459,20 +459,30 @@ async function chatJson<T>({ instruction, schema, maxTokens = 2_000, operation =
   // Durable daily spend cap: explicit SpendCapReachedError when today's
   // metered spend is exhausted (callers degrade visibly, never silently).
   await ensureSpendWithinCap();
-  const key = apiKey();
-  const deadline = Date.now() + RETRY_BUDGET_MS;
-  const chain = modelChain();
-  const options: ResolvedChatOptions = { instruction, schema, maxTokens, operation, validate };
-  const failures: string[] = [];
+  // Reserve this request's declared charge for the duration of the retry loop.
+  // The loop can make several attempts, so a flat reservation per chatJson
+  // call under-charges; the retry budget is bounded (RETRY_BUDGET_MS), and the
+  // durable meter still catches the total. It closes the burst hole without
+  // needing a per-attempt price table the providers do not report.
+  const releaseReservation = reserveSpendCall(SPEND_RESERVATION_FALLBACK_USD);
+  try {
+    const key = apiKey();
+    const deadline = Date.now() + RETRY_BUDGET_MS;
+    const chain = modelChain();
+    const options: ResolvedChatOptions = { instruction, schema, maxTokens, operation, validate };
+    const failures: string[] = [];
 
-  for (const [index, m] of chain.entries()) {
-    const result = await tryModel<T>(m, options, key, deadline, attemptsFor(index, chain.length));
-    if (result.ok) return result.value;
-    failures.push(result.error);
-    if (Date.now() >= deadline) break;
+    for (const [index, m] of chain.entries()) {
+      const result = await tryModel<T>(m, options, key, deadline, attemptsFor(index, chain.length));
+      if (result.ok) return result.value;
+      failures.push(result.error);
+      if (Date.now() >= deadline) break;
+    }
+
+    throw new Error(`OpenRouter request failed. Tried ${chain.length}: ${failures.join(" | ")}`);
+  } finally {
+    releaseReservation();
   }
-
-  throw new Error(`OpenRouter request failed. Tried ${chain.length}: ${failures.join(" | ")}`);
 }
 
 // --- Daily topic -----------------------------------------------------------

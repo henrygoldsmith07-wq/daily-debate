@@ -17,6 +17,19 @@
 //  * Unit tests (NODE_ENV=test) never touch a database unless a meter is
 //    injected.
 //
+// Concurrency: the durable meter only counts COMPLETED calls, so N
+// simultaneous requests all read the same pre-call total and all pass. The
+// in-flight reservation below closes most of that hole within one instance:
+// each caller adds a declared charge for its own call to the effective total,
+// so a burst that would overshoot is refused at the point it starts.
+//
+// This is a per-process reservation, not a distributed one — on serverless
+// each instance reserves independently, so it bounds the burst of a single
+// warm instance rather than the whole fleet. It is a strict improvement over
+// no reservation and is documented as such rather than presented as a solved
+// problem. A reservation is always released (including on throw) and carries a
+// TTL so a crashed caller can never wedge the cap shut.
+
 // Env:
 //  * AI_DAILY_SPEND_CAP_USD   default 10; "off" disables the cap entirely;
 //                             0 blocks every paid call (legitimate use: hold
@@ -121,6 +134,61 @@ async function defaultMeter(): Promise<SpendMeterTotals> {
 }
 
 /**
+ * Declared charge used for an in-flight reservation on providers that report no
+ * per-call cost (Anthropic is the pinned default). It matches the default
+ * uncosted-call assumption, so a reservation is not more pessimistic than the
+ * durable meter will eventually charge for the same call.
+ */
+export const SPEND_RESERVATION_FALLBACK_USD = 0.02;
+
+/**
+ * In-flight spend reservations for this process.
+ *
+ * Each entry is the declared charge for a call that has started but not yet
+ * finished (and therefore has not reached the durable meter). Entries expire on
+ * a TTL so a crashed or never-settled caller cannot wedge the cap shut.
+ */
+interface SpendReservation {
+  amountUsd: number;
+  expiresAtMs: number;
+}
+
+const RESERVATION_TTL_MS = 10 * 60 * 1000;
+const reservations: SpendReservation[] = [];
+
+/** Current in-flight reservation total, after sweeping expired entries. */
+export function reservedSpendUsd(nowMs: number = Date.now()): number {
+  for (let i = reservations.length - 1; i >= 0; i -= 1) {
+    if (reservations[i].expiresAtMs <= nowMs) reservations.splice(i, 1);
+  }
+  return reservations.reduce((sum, r) => sum + r.amountUsd, 0);
+}
+
+/**
+ * Reserve a declared charge for an in-flight call and return its release.
+ *
+ * The caller MUST call the returned function exactly once — conventionally in a
+ * `finally` — so the reservation is removed whether the call succeeds, fails or
+ * throws. Never releasing would eventually trip the cap for later callers.
+ */
+export function reserveSpendCall(amountUsd: number): () => void {
+  const entry: SpendReservation = { amountUsd, expiresAtMs: Date.now() + RESERVATION_TTL_MS };
+  reservations.push(entry);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const index = reservations.indexOf(entry);
+    if (index >= 0) reservations.splice(index, 1);
+  };
+}
+
+/** Test seam: forget every outstanding reservation. */
+export function __clearSpendReservationsForTests(): void {
+  reservations.length = 0;
+}
+
+/**
  * Throw SpendCapReachedError when today's durable spend is at or over the
  * cap. Resolves (with a warning) when the meter cannot be read.
  */
@@ -149,8 +217,12 @@ export async function ensureSpendWithinCap(
   }
 
   const spend = estimatedSpendUsd(totals, uncostedCallUsd);
-  if (spend >= capUsd) {
-    throw new SpendCapReachedError(spendCapMessage(spend, capUsd));
+  // Add in-flight reservations: the durable meter cannot see calls that have
+  // started but not finished, so without this N concurrent callers each read
+  // the same pre-call total and all pass.
+  const available = spend + reservedSpendUsd();
+  if (available >= capUsd) {
+    throw new SpendCapReachedError(spendCapMessage(available, capUsd));
   }
 }
 
