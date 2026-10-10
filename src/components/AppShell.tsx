@@ -3,6 +3,7 @@ import { signOut } from "@/app/login/actions";
 import { pointsIntoLevel, POINTS_PER_LEVEL } from "@/lib/gamification";
 import SideNav from "./SideNav";
 import MobileNav from "./MobileNav";
+import ReaderPreferences from "./ReaderPreferences";
 import LegalLinks from "./LegalLinks";
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 
@@ -131,6 +132,7 @@ export default async function AppShell({
             />
           )}
           {signOutButton}
+          <ReaderPreferences />
           <LegalLinks className="px-3 pb-1 text-[10px] text-ink3" />
         </div>
       </aside>
@@ -164,6 +166,7 @@ export default async function AppShell({
               )}
               {signOutButton}
               <LegalLinks />
+              <ReaderPreferences />
             </>
           }
         />

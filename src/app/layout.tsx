@@ -33,6 +33,18 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+      <head>
+        {/* Apply stored reader preferences before first paint. Without this, a
+            reader who asked for larger text or high contrast sees one flash of
+            the default rendering on every navigation. `beforeInteractive`
+            runs before React hydrates; the class names match
+            le-studio.css's opt-in accessibility blocks. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var raw=localStorage.getItem("daily-debate:reader-preferences");if(!raw)return;var k=["large-text","dyslexia","high-contrast","reduce-motion"];var v=JSON.parse(raw);if(!Array.isArray(v))return;var h=document.documentElement;for(var i=0;i<k.length;i++){if(v.indexOf(k[i])!==-1)h.classList.add(k[i]);}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

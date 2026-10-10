@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import NavIcon from "./NavIcon";
-import { visibleNavSections, visiblePrimaryNavItems, isActivePath } from "@/lib/nav";
+import { visibleNavSections, visiblePrimaryNavItems, activeNavItem } from "@/lib/nav";
 
 /**
  * Small-screen navigation: a fixed bottom tab bar for the screens people open
@@ -64,7 +64,11 @@ export default function MobileNav({ sheetFooter }: { sheetFooter?: React.ReactNo
   }, [sheetOpen]);
 
   // "More" counts as active whenever the open screen isn't one of the tabs.
-  const onSecondaryScreen = !visiblePrimaryNavItems().some((item) => isActivePath(pathname, item.href));
+  // Derived from the same section ownership as the sidebar, so a screen with no
+  // tab of its own (the debate room) resolves to its owning section rather than
+  // leaving nothing selected.
+  const activeHref = activeNavItem(pathname)?.href;
+  const onSecondaryScreen = !visiblePrimaryNavItems().some((item) => item.href === activeHref);
 
   return (
     <>
@@ -93,8 +97,8 @@ export default function MobileNav({ sheetFooter }: { sheetFooter?: React.ReactNo
                     <Link
                       href={item.href}
                       onClick={closeSheet}
-                      aria-current={isActivePath(pathname, item.href) ? "page" : undefined}
-                      className={`app-sheet-link${isActivePath(pathname, item.href) ? " active" : ""}`}
+                      aria-current={activeHref === item.href ? "page" : undefined}
+                      className={`app-sheet-link${activeHref === item.href ? " active" : ""}`}
                     >
                       <NavIcon name={item.icon} className="app-nav-icon" />
                       <span>
@@ -113,7 +117,7 @@ export default function MobileNav({ sheetFooter }: { sheetFooter?: React.ReactNo
 
       <nav className="app-tabbar elev-nav" aria-label="Primary">
         {visiblePrimaryNavItems().map((item) => {
-          const active = isActivePath(pathname, item.href);
+          const active = activeHref === item.href;
           return (
             <Link
               key={item.href}

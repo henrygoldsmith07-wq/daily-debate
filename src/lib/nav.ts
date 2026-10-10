@@ -148,7 +148,33 @@ export function isActivePath(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** The nav entry a path belongs to, including routes that are not in the nav. */
+/**
+ * Routes that carry no nav entry of their own but still belong to a section.
+ *
+ * `/debate/<id>` is reached from and returns to Today's motion, and
+ * `/challenge/<code>` exists to put someone into a match on that motion. Without
+ * this map, both screens left the navigation with nothing selected — the
+ * sidebar and the tab bar went visually dead on the screen users spend the most
+ * time on, and a screen-reader user lost the only "where am I" signal.
+ */
+const ROUTE_OWNER_HREF: Record<string, string> = {
+  debate: "/",
+  challenge: "/",
+};
+
+/**
+ * The nav entry a path belongs to, including routes that are not in the nav.
+ * Prefers an exact/ancestor nav match; otherwise falls back to the owning
+ * section above. Returns undefined only for screens that genuinely belong to no
+ * section (auth, admin, legal).
+ */
 export function activeNavItem(pathname: string): NavItem | undefined {
-  return NAV_ITEMS.find((item) => isActivePath(pathname, item.href));
+  const direct = NAV_ITEMS.find((item) => isActivePath(pathname, item.href));
+  if (direct) return direct;
+  for (const [prefix, href] of Object.entries(ROUTE_OWNER_HREF)) {
+    if (pathname === `/${prefix}` || pathname.startsWith(`/${prefix}/`)) {
+      return NAV_ITEMS.find((item) => item.href === href);
+    }
+  }
+  return undefined;
 }
