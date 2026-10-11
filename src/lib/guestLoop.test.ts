@@ -47,6 +47,20 @@ describe("parseGuestLoopSummary", () => {
   it("drops payloads over the wire-size cap", () => {
     expect(parseGuestLoopSummary("x".repeat(4001))).toBeNull();
   });
+
+  it("keeps a demonstrated drill distinct from an unobserved transfer", () => {
+    // Regression: the client once wrote `repairSucceeded` from the retest
+    // reading, so a good drill whose move did not reappear under pressure was
+    // stored as a failed repair. The drill outcome and the transfer reading
+    // must be able to disagree — that disagreement is the honest record.
+    const drillGoodTransferMissed = {
+      ...valid,
+      repairState: "repair_demonstrated",
+      repairSucceeded: true,
+      retestOutcome: "not-observed",
+    };
+    expect(parseGuestLoopSummary(drillGoodTransferMissed)).toEqual(drillGoodTransferMissed);
+  });
 });
 
 describe("guest_context write-failure classification (schema-lag tolerance)", () => {

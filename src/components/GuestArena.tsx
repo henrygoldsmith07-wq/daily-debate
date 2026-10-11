@@ -705,15 +705,22 @@ export default function GuestArena() {
     // signup form so an account picks up where the guest left off. Best
     // effort — private browsing may deny storage; the flow still finishes.
     const assessment = assessGuestPractice(responses, motion.rounds.map((round) => round.opponent));
+    // `demonstrated` is the RETEST reading (transfer under pressure), not the
+    // drill reading. A successful repair that does not reappear under the new
+    // challenge is a completed repair with unobserved transfer — it must not
+    // be recorded as a failed repair. The two outcomes stay separate so the
+    // carry-through never misreports a good drill as a bad one.
+    const drillSucceeded = !!repair && repair.succeeded;
     const summary: GuestLoopSummary = {
       motion: motion.motion,
       weaknessKind: assessment.weakness.kind,
       weaknessLabel: assessment.weakness.label,
-      repairState: repair ? (demonstrated ? "repair_demonstrated" : "partially_repaired") : "needs_another_pass",
-      // `demonstrated` is the retest reading, not the drill reading: a
-      // successful repair that does not reappear under the new challenge is a
-      // completed repair with an unobserved transfer, not a demonstration.
-      repairSucceeded: !!repair && demonstrated,
+      repairState: !repair
+        ? "needs_another_pass"
+        : drillSucceeded
+          ? "repair_demonstrated"
+          : "partially_repaired",
+      repairSucceeded: drillSucceeded,
       retestOutcome: demonstrated ? "observed" : "not-observed",
       completedAt: new Date().toISOString(),
     };
