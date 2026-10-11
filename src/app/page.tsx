@@ -18,8 +18,10 @@ import { isDatabaseConfigured } from "@/lib/backend/env";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { asRepairAttemptLite, latestUnfinishedRepair } from "@/lib/repairResume";
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
+import { getGuestContext } from "@/lib/guestContextServer";
 import { resolvePracticeMotion, type DueRetest } from "@/lib/practiceMotion";
 import { pickPriority } from "@/lib/dailyFocus";
+import { canonicalSkillKey } from "@/lib/skillTaxonomy";
 import { dateKeyInTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
@@ -146,6 +148,21 @@ export default async function DashboardPage() {
 
   const drillOutcomes = coachingContext.drillOutcomes;
 
+  // Guest practice carried through signup. Shown ONLY until this account has
+  // its own completed debate: once real observed evidence exists, a single
+  // unauthenticated guest rep is no longer the most useful thing to lead with.
+  // It never enters the ledger or a score — see guestContextServer.ts.
+  const guestContext = previousDebate ? null : await getGuestContext(user.id);
+  const guestSkillKey = guestContext ? canonicalSkillKey(guestContext.weaknessKind) : null;
+  const guestCarryover = guestContext && guestSkillKey
+    ? {
+        label: SKILL_DIMENSIONS[guestSkillKey].label,
+        motion: guestContext.motion,
+        repaired: guestContext.repairState === "repair_demonstrated",
+        observed: guestContext.retestOutcome === "observed",
+      }
+    : null;
+
   let previousDebateTitle: string | null = null;
   if (previousDebate?.topic_id) {
     const { data: previousTopic } = await db
@@ -270,6 +287,36 @@ export default async function DashboardPage() {
           )
         }
       />
+
+      {/* ── Carried over from guest practice: why this account started non-empty ── */}
+      {guestCarryover && (
+        <section
+          className="surface-card p-4"
+          aria-labelledby="guest-carryover-heading"
+          data-testid="guest-carryover"
+        >
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">
+            Carried over from guest practice
+          </p>
+          <h2 id="guest-carryover-heading" className="mt-1 text-base font-semibold">
+            Your first rep starts from {guestCarryover.label.toLowerCase()}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-ink2">
+            Before signing up you practised {guestCarryover.motion ? `“${guestCarryover.motion}”` : "a motion"} and
+            the loop flagged <strong>{guestCarryover.label}</strong> as the move to work on.
+            {guestCarryover.repaired
+              ? guestCarryover.observed
+                ? " You repaired it and it showed up again under pressure — so today's debate checks whether that holds without the prompt."
+                : " You repaired it in the rewrite, though it did not reappear in the retest round — so it is still the thing to watch."
+              : " You have not repaired it yet, so it stays today's focus."}
+          </p>
+          <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink3">
+            A guest rep is one local practice run, not measured evidence — it is not counted in your
+            skill scores. It only decides what today&apos;s debate watches for; your own completed
+            debates are what build the profile.
+          </p>
+        </section>
+      )}
 
       {/* ── Today's training target: what to practise, why, and what we'll watch ── */}
       {learnerModel.nextPractice && (
