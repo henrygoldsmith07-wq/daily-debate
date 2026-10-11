@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpsHealthReport } from "./opsHealth";
 
 // The probe route must stay a thin, non-sensitive pass-through: this test
@@ -155,8 +155,19 @@ describe("GET /api/health (route contract)", () => {
     loadOpsHealth.mockReset();
   });
 
+  // The route module is compiled on first use (the Next route plus its
+  // dependency tree). Importing it inside each test body put that cost in the
+  // first test's 5s default timeout, and under full-suite CPU contention it
+  // went over — the file failed on loaded runs while passing in isolation and
+  // on an immediate re-run, which is what made it look like a mystery flake.
+  // Importing it once here with an explicit budget moves the cost out of the
+  // assertions. The mocks above are hoisted, so they still apply.
+  let GET: (request: Request) => Promise<Response>;
+  beforeAll(async () => {
+    ({ GET } = await import("../app/api/health/route"));
+  }, 30_000);
+
   it("serves the derived state with no-store", async () => {
-    const { GET } = await import("../app/api/health/route");
     loadOpsHealth.mockResolvedValue(report());
     const res = await GET(new Request("https://dailydebate.app/api/health"));
     expect(res.status).toBe(200);
@@ -183,7 +194,6 @@ describe("GET /api/health (route contract)", () => {
   });
 
   it("degrades to an explicit unknown 503 when the report fails — never 500 with detail", async () => {
-    const { GET } = await import("../app/api/health/route");
     loadOpsHealth.mockRejectedValue(new Error("secret internals"));
     const res = await GET(new Request("https://dailydebate.app/api/health"));
     expect(res.status).toBe(503);
@@ -197,7 +207,6 @@ describe("GET /api/health (route contract)", () => {
     // One stable public contract: the 503 branch must carry every key of the
     // 200 branch (same proof names, no legacy keys like idempotenceRerun),
     // and vice versa. A new report field must flow into BOTH or fail here.
-    const { GET } = await import("../app/api/health/route");
     loadOpsHealth.mockResolvedValue(report());
     const okRes = await GET(new Request("https://dailydebate.app/api/health"));
     const okBody = (await okRes.json()) as Record<string, unknown>;
