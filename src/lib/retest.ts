@@ -18,7 +18,14 @@
 // "an opportunity existed". Pure; routes persist.
 
 import type { ArgGraph, Owner } from "./argGraph";
-import { countWeaknessesForSide, debateOpportunities, hasOpportunity, weaknessKindsFor, type DebateWeaknessRow } from "./repairEffectiveness";
+import {
+  NOT_CURRENTLY_MEASURABLE_KINDS,
+  countWeaknessesForSide,
+  debateOpportunities,
+  hasOpportunity,
+  weaknessKindsFor,
+  type DebateWeaknessRow,
+} from "./repairEffectiveness";
 import { isRepairKind, repairStateFromScore, type RepairKind, type RepairState } from "./argumentRepair";
 
 export type { RepairState, RepairKind };
@@ -97,19 +104,30 @@ export const WEAKNESS_CONSEQUENCE: Record<string, string> = {
   logic: "A skipped reasoning step is exactly where an opponent inserts their counterexample.",
   impact: "A point that never says what changes hands the weighing to the other side.",
   structure: "A contradiction or dropped thread gives the other side a free win they didn't have to earn.",
-  clarity: "When the claim and its reason blur together, neither gets credit.",
+  // The `clarity` metric is the turn-projection engagement rate, so the
+  // consequence describes an unanswered opponent move — not claim wording.
+  clarity: "A move the opponent made that you never answered is a point they scored uncontested that round.",
 };
 
 /**
  * Was the repaired weakness absent in the retest? Reads the same canonical
  * weakness counters every other layer uses (side-scoped to the user).
+ *
+ * Returns `null`, not `false`, for a repair kind that has no deterministic
+ * detector (`countWeaknessesForSide` hard-codes those to 0). A caller that
+ * reads `false` as "the weakness was absent" would report the single most
+ * favourable retest outcome — "skill observed" — for a skill that was never
+ * measured at all. `classifyRepair` already refuses to score these kinds as
+ * "not-currently-measurable"; the retest path must hold the same line rather
+ * than silently defaulting to success.
  */
 export function weaknessPresentIn(
   graph: ArgGraph,
   owner: Owner,
   repairKind: string,
-): boolean {
+): boolean | null {
   if (!isRepairKind(repairKind)) return false;
+  if (NOT_CURRENTLY_MEASURABLE_KINDS.has(repairKind)) return null;
   const kinds = weaknessKindsFor(repairKind);
   const counts = countWeaknessesForSide(graph, owner);
   return kinds.some((k) => (counts[k] ?? 0) > 0);
@@ -131,9 +149,10 @@ export function retestOutcomeFor(
 ): RetestOutcome {
   if (!hasOpportunity(repair.target_kind, retest)) return "no-valid-opportunity";
   if (opts.format === "sprint") return "not-enough-evidence";
-  return weaknessPresentIn(graph, owner, repair.target_kind)
-    ? "skill-not-observed"
-    : "skill-observed";
+  const present = weaknessPresentIn(graph, owner, repair.target_kind);
+  // An unmeasurable kind says nothing either way — never "observed".
+  if (present === null) return "not-enough-evidence";
+  return present ? "skill-not-observed" : "skill-observed";
 }
 
 export interface RetestNarrative {

@@ -112,9 +112,26 @@ describe("retestOutcomeFor", () => {
       "skill-observed",
     );
   });
+
+  // A kind with no deterministic detector is hard-coded to 0 by
+  // countWeaknessesForSide, so reading that 0 as "the weakness was absent"
+  // reports the single most favourable outcome for a skill nobody measured.
+  it("never reports skill-observed for a kind with no deterministic detector", () => {
+    const g = graphOf([claim("a1", "a"), claim("ai1", "ai")], [], ["a1", "ai1"]);
+    expect(
+      retestOutcomeFor({ target_kind: "clarity" }, row({ clarity: 0 }, { majorClaims: 1, opponentMoves: 1 }), g, "a"),
+    ).toBe("not-enough-evidence");
+  });
 });
 
 describe("weaknessPresentIn", () => {
+  // The three-valued return is the fix: `false` means "measured and absent",
+  // `null` means "not measurable". Collapsing them turns an unmeasured skill
+  // into a confirmed success.
+  it("returns null (not false) for a kind with no deterministic detector", () => {
+    const g = graphOf([claim("a1", "a"), claim("ai1", "ai")], [], ["a1", "ai1"]);
+    expect(weaknessPresentIn(g, "a", "clarity")).toBeNull();
+  });
   it("is side-scoped: opponent failures never count against the user", () => {
     const g = graphOf(
       [claim("a1", "a"), evidence("e1", "a"), claim("ai1", "ai")],
