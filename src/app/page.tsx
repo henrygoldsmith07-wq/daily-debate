@@ -8,7 +8,7 @@ import PageViewEvent from "@/components/PageViewEvent";
 import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import SkillProfileBars from "@/components/SkillProfileBars";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
-import { buildCoachingGoal, type CoachingSnapshot } from "@/lib/coachingGoal";
+import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
 import { buildLearnerModel } from "@/lib/learnerModel";
@@ -20,6 +20,7 @@ import { asRepairAttemptLite, latestUnfinishedRepair } from "@/lib/repairResume"
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 import { resolvePracticeMotion, type DueRetest } from "@/lib/practiceMotion";
 import { pickPriority } from "@/lib/dailyFocus";
+import { dateKeyInTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
 
@@ -80,7 +81,17 @@ export default async function DashboardPage() {
     userId: user.id,
     shared: sharedTopic,
     dueRetest,
-    focus: null,
+    // When no retest is due, steer motion personalisation toward today's coached
+    // focus so the motion still surfaces the weakest skill (agrees with
+    // CoachToday/Progress; buildCoachingGoal uses the same selector). The retest
+    // branch above already retargets the motion to a different topic, so this
+    // only affects ordinary practice days. Computed from the ledger + drill
+    // outcomes (both already loaded) so it precedes the motion selection.
+    focus: pickFocusDimension(
+      coachingContext.ledger?.points ?? [],
+      coachingContext.drillOutcomes,
+      coachingContext.selectedRetest?.dimension ?? null,
+   ),
   });
   const topic = motion.topic;
 
@@ -161,6 +172,27 @@ export default async function DashboardPage() {
     drillOutcomes,
     pendingRetest?.dimension ?? null,
   );
+
+  // Today's open drill assignment (coach/today owns creation/retargeting; the
+  // dashboard only reads the row to surface priority #3 — an unattempted drill
+  // above today's debate. Degrades to null on any DB error so a transient read
+  // failure never hides the debate, and never invents a drill for another
+  // dimension.
+  let openDrill: { title: string } | null = null;
+  try {
+    const userTz = profile?.timezone ?? "UTC";
+    const todayKey = dateKeyInTimeZone(userTz);
+    const { data: openRow } = await db
+      .from("drill_assignments")
+      .select("title")
+      .eq("user_id", user.id)
+      .eq("assigned_date", todayKey)
+      .eq("status", "open")
+      .maybeSingle();
+    openDrill = openRow ? { title: openRow.title } : null;
+  } catch {
+    openDrill = null;
+  }
   // Canonical learner model — the same intelligence that drives Progress, so
   // Today leads with what to practise and why rather than a wall of cards.
   // Built from the same stored debates/repairs; a repair is practice, not mastery.
@@ -210,7 +242,7 @@ export default async function DashboardPage() {
         }
       : null,
     dueRetest: motion.servesRetest && pendingRetest ? { label: goal?.dimension ? pendingRetestLabel(goal.dimension) : "the repaired skill", attemptedAt: pendingRetest.attemptedAt } : null,
-    openDrill: null,
+    openDrill,
     debateAvailable: !activeDebate,
   });
 

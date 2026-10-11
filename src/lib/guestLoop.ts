@@ -12,6 +12,12 @@ export interface GuestLoopSummary {
   weaknessKind: string;
   weaknessLabel: string;
   repairState: string;
+  /**
+   * Whether the repair DRILL itself succeeded — never conflated with the
+   * retest reading. A demonstrated drill whose move does not reappear under
+   * pressure is `repairSucceeded: true` with `retestOutcome: "not-observed"`,
+   * not a failed repair.
+   */
   repairSucceeded: boolean;
   retestOutcome: "observed" | "not-observed";
   completedAt: string;

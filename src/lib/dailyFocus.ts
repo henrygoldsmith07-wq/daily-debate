@@ -108,7 +108,7 @@ export function pickPriority(input: PriorityInputs): PriorityAction | null {
       title: `Today's drill: ${input.openDrill.title}`,
       detail: "A short exercise on your current training focus. About three minutes.",
       action: "Open the drill",
-      href: "/",
+      href: "/progress#coach",
     };
   }
   if (input.debateAvailable) {
