@@ -34,6 +34,16 @@ export interface PriorityInputs {
   /** Today's drill assignment, when unattempted. */
   openDrill: {
     title: string;
+    /**
+     * Drill minutes and the exact prompt, when the caller holds the full
+     * assignment row. Optional so existing synthetic/test inputs keep the
+     * label-only detail; when present the dashboard can render the drill
+     * inline instead of sending the user elsewhere first.
+     */
+    minutes?: number;
+    prompt?: string;
+    /** Assignment id, when the caller wants the attempt to submit inline. */
+    assignmentId?: string;
   } | null;
   /** Whether today's debate still awaits the user. */
   debateAvailable: boolean;
@@ -103,10 +113,15 @@ export function pickPriority(input: PriorityInputs): PriorityAction | null {
     };
   }
   if (input.openDrill) {
+    const minutes = input.openDrill.minutes;
+    const detail =
+      typeof minutes === "number" && Number.isFinite(minutes) && minutes > 0
+        ? `A short exercise on your current training focus. About ${minutes} minute${minutes === 1 ? "" : "s"} — you can do it right here.`
+        : "A short exercise on your current training focus. About three minutes.";
     return {
       kind: "drill",
       title: `Today's drill: ${input.openDrill.title}`,
-      detail: "A short exercise on your current training focus. About three minutes.",
+      detail,
       action: "Open the drill",
       href: "/progress#coach",
     };
