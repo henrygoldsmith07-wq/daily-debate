@@ -157,6 +157,28 @@ describe("argument repair targets", () => {
         "name the opposing move you are answering",
       );
     });
+
+    // The e2e sprint-repair-loop spec reads the repair kind and source text
+    // off the live panel and submits this fixture. Pinning it here means a
+    // rubric change that breaks the spec fails in the unit suite instead of a
+    // four-minute CI run — which is exactly how the readability misalignment
+    // was found.
+    it("accepts the fixture the sprint-repair-loop e2e spec submits for clarity", () => {
+      const fixture =
+        "Their claim that storage costs make solar unaffordable assumes the upgrade happens in a single year, which a phased rollout disproves, so the objection does not settle whether household bills fall.";
+      const result = scoreRepair(
+        {
+          kind: "clarity",
+          label: "Engagement opportunity",
+          title: "Answer the move they made",
+          prompt: "",
+          sourceText: "Grid reliability requires storage investment, which impacts total cost.",
+        },
+        fixture,
+      );
+      expect(result.state).toBe("repair_demonstrated");
+      expect(result.score).toBeGreaterThanOrEqual(60);
+    });
   });
 
   it("an invalid answer (self-target) does not hide the unanswered opposing move", () => {

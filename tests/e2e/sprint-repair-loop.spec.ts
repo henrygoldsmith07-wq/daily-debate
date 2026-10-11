@@ -14,7 +14,13 @@ function demonstratedRepair(kind: string, sourceText: string): string {
     case "structure":
       return "The two claims can both hold under one condition: costs fall for households when storage investment is spread over time. That distinction resolves the tension because the timing of the cost changes who bears it.";
     case "clarity":
-      return "Lower generation costs can reduce household bills. This matters because families face less recurring cost when those savings are passed through by suppliers.";
+      // The `clarity` repair kind is ENGAGEMENT: the rewrite must name the
+      // opposing move and explain why the answer follows. The previous
+      // fixture here was a readability rewrite (two short sentences with no
+      // reference to the opposing move), which only passed because the rubric
+      // scored sentence length. It now demonstrates the move the metric
+      // actually measures.
+      return "Their claim that storage costs make solar unaffordable assumes the upgrade happens in a single year, which a phased rollout disproves, so the objection does not settle whether household bills fall.";
     default:
       throw new Error(`Unexpected repair kind: ${kind}`);
   }
