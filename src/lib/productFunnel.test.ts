@@ -598,6 +598,100 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     expect(funnel.opportunitiesBeforeRecurrence.median).toBe(0);
   });
 
+  it("labels detector-less repair kinds unmeasurable and keeps them out of recurrence rates", () => {
+    // Clarity has NO deterministic weakness detector (countWeaknessesForSide
+    // always returns clarity: 0), so a clarity repair's recurrence flags would
+    // be structural defaults. The row stays visible, but it must never enter
+    // a recurrence denominator and silently deflate the rate.
+    const repairs = [repair("u1", "d0", "clarity", T0)];
+    const debates = [debateRow("u1", "d1", "2026-06-04T12:00:00Z", { clarity: 0 })];
+    const retests = [retestRow(repairs[0], "d1", "2026-06-04T12:00:00Z")];
+    const rows = buildRepairOutcomeRows(repairs, debates, [], retests);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].measurable).toBe(false);
+    // Null, not false: a clarity repair has no deterministic weakness detector,
+    // so there is no reading to record — `false` would claim a measured
+    // non-recurrence that was never measured. This is the honesty guard the
+    // field's own documentation promises ("unmeasurable rows stay null"), and
+    // it is what keeps the row out of every recurrence denominator below.
+    expect(rows[0].firstRetestRecurred).toBeNull();
+
+    const funnel = buildRepairOutcomeFunnel(repairs, debates, [], { now: NOW2, minSample: 1, retests });
+    expect(funnel.firstRetestRecurrence.numerator).toBe(0);
+    expect(funnel.firstRetestRecurrence.denominator).toBe(0);
+    expect(funnel.retestTiming.prompted.repairs).toBe(0);
+    expect(funnel.retestTiming.prompted.rate).toBeNull();
+  });
+
+  it("compares prompted and incidental retest timing with per-arm sample gates", () => {
+    // 3 prompted repairs (explicit durable retest assignment) vs 3 incidental
+    // ones (no assignment; measured only through ordinary follow-up debates).
+    const promptedRepairs = [1, 2, 3].map((n) => repair(`p${n}`, `d0-p${n}`, "rebuttal", T0));
+    const incidentalRepairs = [1, 2, 3].map((n) => repair(`i${n}`, `d0-i${n}`, "rebuttal", T0));
+    const debates = [
+      ...promptedRepairs.map((_, idx) =>
+        // Prompted arm: weakness back for one of the three on day 1.
+        debateRow(`p${idx + 1}`, `rp${idx + 1}`, "2026-06-02T12:00:00Z", { rebuttal: idx === 0 ? 1 : 0 }),
+      ),
+      ...incidentalRepairs.map((_, idx) =>
+        // Incidental arm: the follow-up debate arrives 9 days later (vs 1).
+        debateRow(`i${idx + 1}`, `ri${idx + 1}`, "2026-06-10T12:00:00Z", { rebuttal: idx === 0 ? 1 : 0 }),
+      ),
+    ];
+    const retests = promptedRepairs.map((r, idx) =>
+      retestRow(r, `rp${idx + 1}`, "2026-06-02T12:00:00Z"),
+    );
+
+    const rows = buildRepairOutcomeRows([...promptedRepairs, ...incidentalRepairs], debates, [], retests);
+    const prompted = rows.filter((r) => r.userId.startsWith("p"));
+    const incidental = rows.filter((r) => r.userId.startsWith("i"));
+    expect(prompted.every((r) => r.measurable)).toBe(true);
+    expect(incidental.every((r) => r.hasAssignment === false)).toBe(true);
+    expect(incidental.every((r) => r.firstRetestDebateId === null)).toBe(true);
+    // The incidental row measures recurrence through its own follow-up field.
+    expect(incidental[0].incidentalRecurred).toBe(true);
+    expect(incidental[0].incidentalDaysToFirstEligible).toBe(9);
+    // Prompted rows carry daysToRetest; incidental rows don't get a retest.
+    expect(prompted[0].daysToRetest).toBe(1);
+    expect(incidental[0].daysToRetest).toBeNull();
+
+    const funnel = buildRepairOutcomeFunnel(
+      [...promptedRepairs, ...incidentalRepairs],
+      debates,
+      [],
+      { now: NOW2, minSample: 3, retests },
+    );
+    expect(funnel.retestTiming.prompted.repairs).toBe(3);
+    expect(funnel.retestTiming.prompted.measured).toBe(3);
+    expect(funnel.retestTiming.prompted.recurred).toBe(1);
+    expect(funnel.retestTiming.prompted.medianDaysToRetest).toBe(1);
+    expect(funnel.retestTiming.prompted.rate).toBeCloseTo(1 / 3, 3);
+    expect(funnel.retestTiming.incidental.repairs).toBe(3);
+    expect(funnel.retestTiming.incidental.measured).toBe(3);
+    expect(funnel.retestTiming.incidental.recurred).toBe(1);
+    expect(funnel.retestTiming.incidental.medianDaysToRetest).toBe(9);
+    expect(funnel.retestTiming.incidental.rate).toBeCloseTo(1 / 3, 3);
+    expect(funnel.retestTiming.note).toMatch(/Observational arm comparison/);
+  });
+
+  it("reports no one-armed retest-timing rate when an arm is below sample", () => {
+    const promptedRepairs = [1, 2].map((n) => repair(`p${n}`, `d0-p${n}`, "rebuttal", T0));
+    const debates = promptedRepairs.map((_, idx) =>
+      debateRow(`p${idx + 1}`, `rp${idx + 1}`, "2026-06-02T12:00:00Z", { rebuttal: 0 }),
+    );
+    const retests = promptedRepairs.map((r, idx) => retestRow(r, `rp${idx + 1}`, "2026-06-02T12:00:00Z"));
+    const funnel = buildRepairOutcomeFunnel(promptedRepairs, debates, [], {
+      now: NOW2,
+      minSample: 3,
+      retests,
+    });
+    expect(funnel.retestTiming.prompted.measured).toBe(2);
+    expect(funnel.retestTiming.prompted.rate).toBeNull();
+    expect(funnel.retestTiming.incidental.measured).toBe(0);
+    expect(funnel.retestTiming.incidental.rate).toBeNull();
+    expect(funnel.retestTiming.note).toMatch(/not yet comparable/);
+  });
+
   it("marks repairs with no later eligible debate as pending (never as clean)", () => {
     const repairs = [repair("u1", "d0", "rebuttal", T0)];
     const debates = [debateRow("u1", "d0", "2026-05-31T12:00:00Z", { rebuttal: 1 })];

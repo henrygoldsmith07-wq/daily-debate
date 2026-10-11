@@ -8,6 +8,7 @@
 import {
   collapseRepairAttempts,
   hasOpportunity,
+  NOT_CURRENTLY_MEASURABLE_KINDS,
   weaknessKindsFor,
   type DebateWeaknessRow,
   type RepairRetestAnalyticsRow,
@@ -796,6 +797,12 @@ export interface RepairOutcomeRow {
   createdAt: string;
   /** A repair_started event exists for the same user+debate at/before completion. */
   accepted: boolean;
+  /**
+   * False when this repair kind has no deterministic weakness detector
+   * (clarity today): its "recurrence" readings are structural defaults, so
+   * the row is counted but excluded from every recurrence rate.
+   */
+  measurable: boolean;
   /** Whole days from first successful repair to the explicit durable retest. */
   daysToRetest: number | null;
   firstRetestDebateId: string | null;
@@ -818,6 +825,18 @@ export interface RepairOutcomeRow {
   recurredWithinFirstThree: boolean | null;
   /** Eligible later debates (the retest denominator for this repair). */
   eligibleRetests: number;
+  /** True when a durable assignment was created for this repair (prompted). */
+  hasAssignment: boolean;
+  /** Eligible ordinary later debates (no deliberate assignment at all). */
+  incidentalExposure: number;
+  /**
+   * Recurrence in the first incidental exposure, or null if none or if the
+   * repair kind is not measurable (clarity). Prompted rows stay null: a
+   * deliberate retest is measured through firstRetestRecurred instead.
+   */
+  incidentalRecurred: boolean | null;
+  /** Days to the first incidental eligible debate; null when none/measurable. */
+  incidentalDaysToFirstEligible: number | null;
 }
 
 export interface RepairOutcomeFunnel {
@@ -859,6 +878,32 @@ export interface RepairOutcomeFunnel {
   opportunitiesBeforeRecurrence: { median: number | null };
   /** D1/D7/D30 return anchored at each user's first repair (not first activity). */
   postRepairReturn: { d1: ReturnRate; d7: ReturnRate; d30: ReturnRate };
+  /**
+   * Prompted vs incidental retest timing (observational, both arms sample-
+   * gated separately). Prompted = the repair has an explicit durable
+   * repair_retests assignment; incidental = successful repairs whose later
+   * exposure came from ordinary debates. The recurrence comparison is only
+   * meaningful when both arms are measurable, so the rate is null unless
+   * each arm independently clears the sample floor — a one-armed number
+   * would invite exactly the causal reading this report forbids.
+   */
+  retestTiming: {
+    prompted: {
+      repairs: number;
+      measured: number;
+      recurred: number;
+      medianDaysToRetest: number | null;
+      rate: number | null;
+    };
+    incidental: {
+      repairs: number;
+      measured: number;
+      recurred: number;
+      medianDaysToRetest: number | null;
+      rate: number | null;
+    };
+    note: string;
+  };
   note: string;
 }
 
@@ -949,9 +994,14 @@ export function buildRepairOutcomeRows(
   for (const list of retestsByRepair.values()) {
     list.sort((a, b) => Date.parse(a.completed_at!) - Date.parse(b.completed_at!));
   }
+  // Every durable assignment (completed or still open) — the basis for the
+  // prompted-vs-incidental arm split below. A pending assignment keeps the
+  // repair out of the incidental arm rather than mislabelling it.
+  const assignedRepairIds = new Set(retests.map((r) => r.repair_result_id));
 
   return episodes.map((repair) => {
     const kinds = weaknessKindsFor(repair.target_kind);
+    const measurable = !NOT_CURRENTLY_MEASURABLE_KINDS.has(repair.target_kind);
     const repairedAtIso = repair.firstSuccessAt!;
     const repairedAt = Date.parse(repairedAtIso);
     const accepted = starts.some(
@@ -961,6 +1011,9 @@ export function buildRepairOutcomeRows(
         Date.parse(e.created_at) <= repairedAt,
     );
     const deliberate = retestsByRepair.get(repair.successfulRepairResultId!)?.[0] ?? null;
+    // Whether a durable assignment (completed or pending) was ever created for
+    // this repair — drives the prompted-vs-incidental arm split below.
+    const hasAssignment = assignedRepairIds.has(repair.successfulRepairResultId!);
     const first = deliberate
       ? (byUser.get(repair.user_id) ?? []).find((d) => d.debateId === deliberate.assigned_debate_id) ?? null
       : null;
@@ -974,16 +1027,30 @@ export function buildRepairOutcomeRows(
           .filter((d) => d.debateId !== repair.debate_id && d.debateId !== deliberate?.assigned_debate_id)
           .filter((d) => Date.parse(d.completedAt) > deliberateCompletedAt)
           .filter((d) => hasOpportunity(repair.target_kind, d));
-    const firstMeasurable = !!first && hasOpportunity(repair.target_kind, first);
+    const firstMeasurable = !!first && measurable && hasOpportunity(repair.target_kind, first);
     const exposure = firstMeasurable ? [first, ...followups] : [];
     const retestRecurrences = exposure.map((d) => weaknessPresent(d.kinds, kinds));
     const recurrenceIdx = retestRecurrences.indexOf(true);
+    // Incidental arm: this repair never received a durable assignment, so its
+    // only recurrence signal is ordinary opportunity-bearing debates that
+    // arrived AFTER the repair. This never borrows a deliberate assignment —
+    // a repair with a pending assignment stays out of the incidental arm
+    // (it lives in the pending bucket, which is honest, not clean).
+    const incidental = !hasAssignment
+      ? (byUser.get(repair.user_id) ?? [])
+          .filter((d) => d.debateId !== repair.debate_id)
+          .filter((d) => Date.parse(d.completedAt) > repairedAt)
+          .filter((d) => hasOpportunity(repair.target_kind, d))
+      : [];
+    const incidentalRecurred = incidental.length > 0 ? weaknessPresent(incidental[0].kinds, kinds) : null;
     return {
       userId: repair.user_id,
       debateId: repair.debate_id,
       targetKind: repair.target_kind,
       createdAt: repairedAtIso,
       accepted,
+      measurable,
+      hasAssignment,
       daysToRetest: deliberate?.completed_at
         ? Math.floor((Date.parse(deliberate.completed_at) - repairedAt) / 86_400_000)
         : null,
@@ -999,6 +1066,15 @@ export function buildRepairOutcomeRows(
       retestsAfterFirst: Math.max(0, exposure.length - 1),
       recurredWithinFirstThree: exposure.length >= 3 ? retestRecurrences.slice(0, 3).some(Boolean) : null,
       eligibleRetests: exposure.length,
+      // Incidental-exposure fields: populated only for repairs with no durable
+      // assignment. measurable gates the recurrence flag — a non-measurable
+      // kind (clarity) never produces an incidental recurrence reading.
+      incidentalExposure: incidental.length,
+      incidentalRecurred: measurable ? incidentalRecurred : null,
+      incidentalDaysToFirstEligible:
+        incidental.length > 0 && measurable
+          ? Math.floor((Date.parse(incidental[0]!.completedAt) - repairedAt) / 86_400_000)
+          : null,
     };
   });
 }
@@ -1017,7 +1093,11 @@ export function buildRepairOutcomeFunnel(
   );
   const rows = buildRepairOutcomeRows(repairs, debates, events, opts.retests ?? []);
   const withRetest = rows.filter((r) => r.firstRetestDebateId !== null);
-  const measuredFirstRetests = withRetest.filter((r) => r.firstRetestRecurred !== null);
+  // Measurable = has a deterministic weakness detector (clarity does not). A
+  // clarity repair's "recurrence" reading is a structural default (the detector
+  // always returns 0), so clarity never enters a recurrence denominator — it is
+  // counted and reported elsewhere, just never as a false "no recurrence".
+  const measuredFirstRetests = withRetest.filter((r) => r.firstRetestRecurred !== null && r.measurable);
   const medianDaysToRetest = medianNumbers(withRetest.map((r) => r.daysToRetest as number));
   const starts = events.filter((e) => e.name === "repair_started" && e.debate_id);
   const acceptedCount = attemptedEpisodes.filter((repair) =>
@@ -1053,6 +1133,38 @@ export function buildRepairOutcomeFunnel(
   for (const r of sortedRepairs) {
     if (!anchors.has(r.user_id)) anchors.set(r.user_id, r.firstSuccessAt!);
   }
+
+  // Prompted vs incidental retest timing. The arm split is the DURABLE
+  // assignment: a deliberate repair_retests row means the product prompted
+  // this retest; a repair with NO assignment at all is measured only through
+  // its ordinary follow-up debates (incidental). Repairs with a pending or
+  // unobservable assignment are neither — they stay in the pending bucket,
+  // which is honest rather than forcing them into an arm. Measurable rows only:
+  // clarity carries no deterministic detector, so its recurrence flags are
+  // structural defaults and would fabricate an arm rate.
+  const timingRows = rows.filter((r) => r.measurable);
+  // Prompted arm = measurable repairs with an explicit durable assignment whose
+  // retest produced observable weakness evidence (the primary recurrence gate).
+  const promptArm = timingRows.filter((r) => r.hasAssignment && r.firstRetestDebateId !== null && r.firstRetestRecurred !== null);
+  const promptMeasured = promptArm;
+  const promptRecurred = promptMeasured.filter((r) => r.firstRetestRecurred).length;
+  // Incidental arm = measurable repairs with NO assignment; only those whose
+  // first eligible follow-up debate can actually show a weakness count.
+  const incidentalArm = timingRows.filter((r) => !r.hasAssignment && r.incidentalRecurred !== null);
+  const incidentalMeasured = incidentalArm;
+  const incidentalRecurredCount = incidentalMeasured.filter((r) => r.incidentalRecurred).length;
+  const promptRate =
+    promptMeasured.length >= minSample && promptMeasured.length > 0
+      ? +(promptRecurred / promptMeasured.length).toFixed(3)
+      : null;
+  const incidentalRate =
+    incidentalMeasured.length >= minSample && incidentalMeasured.length > 0
+      ? +(incidentalRecurredCount / incidentalMeasured.length).toFixed(3)
+      : null;
+  const bothArmsMeasurable = promptRate !== null && incidentalRate !== null;
+  const timingNote = bothArmsMeasurable
+    ? "Observational arm comparison — users who follow the prompted retest may simply be more engaged; treat any gap as a hypothesis, not an effect."
+    : `not yet comparable — prompted arm ${promptMeasured.length} measured, incidental arm ${incidentalMeasured.length} measured (each needs ${minSample}). No one-armed rate is reported.`;
 
   return {
     attempts: repairs.length,
@@ -1113,6 +1225,25 @@ export function buildRepairOutcomeFunnel(
       d1: returnRateAfterAnchor(events, anchors, 1, now, minSample),
       d7: returnRateAfterAnchor(events, anchors, 7, now, minSample),
       d30: returnRateAfterAnchor(events, anchors, 30, now, minSample),
+    },
+    retestTiming: {
+      prompted: {
+        repairs: promptArm.length,
+        measured: promptMeasured.length,
+        recurred: promptRecurred,
+        medianDaysToRetest: medianNumbers(promptMeasured.map((r) => r.daysToRetest as number)),
+        rate: promptRate,
+      },
+      incidental: {
+        repairs: incidentalArm.length,
+        measured: incidentalMeasured.length,
+        recurred: incidentalRecurredCount,
+        medianDaysToRetest: medianNumbers(
+          incidentalMeasured.map((r) => r.incidentalDaysToFirstEligible as number),
+        ),
+        rate: incidentalRate,
+      },
+      note: timingNote,
     },
     note: "Observational only — users who complete repairs differ from those who don't. Failed-only repair episodes remain attempt/conversion history and never enter effectiveness denominators. Successful episodes are anchored at their first successful rewrite, and the primary retest is the explicit durable repair_retests assignment. Later opportunity-bearing debates are follow-up exposure only. Recurrence density and fixed-window measures remain opportunity-adjusted, and never-recurred repairs are censored rather than assumed clean.",
   };

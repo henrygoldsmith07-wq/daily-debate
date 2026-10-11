@@ -46,8 +46,12 @@ features, new surfaces, or claims.
 ## Active backlog (serves the loop only)
 
 - **Retest timing.** The repair → deliberate-retest hand-off exists; make the
-  retest land when the user is likely to act on it (day 1, not day 14), and
-  measure whether prompted retests beat incidental ones.
+  retest land when the user is likely to act on it (day 1, not day 14). The
+  prompted-vs-incidental comparison is now tracked in the `/analytics` repair
+  loop ("Retest timing: prompted vs incidental") — prompted retests (explicit
+  durable `repair_retests` assignment) vs incidental exposure (ordinary follow-up
+  debates when no assignment exists); both arms are sample-gated and reported as
+  observational association only. Day-1 retargeting remains the product lever.
 - **Coach focus steering.** Repair outcomes already persist; let the next
   debate's focus and the drill assignment consume them explicitly, then
   measure the repair → retest → recurrence chain the analytics page tracks.
