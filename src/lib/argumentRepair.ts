@@ -1,6 +1,8 @@
 import type { ArgGraph, ArgNode, Fallacy } from "./argGraph";
 import type { ArgumentRole } from "./argumentTaxonomy";
 import { unansweredOpportunitiesBy } from "./opportunity";
+import { engagementOpportunitiesFor, addressedTargetIds } from "./observableAssessment";
+import { readEngagementSignals } from "./engagementSignals";
 
 export const REPAIR_KINDS = [
   "evidence",
@@ -67,7 +69,6 @@ export function repairPathForRole(role: ArgumentRole): StructuralRepairPath {
 const CONTRASTIVE_RE = /\b(however|but|although|while|even if|yet|conversely|on the contrary)\b/i;
 const REASONING_RE = /\b(because|therefore|so|means|leads to|results in|as a result|since)\b/i;
 const WEIGHING_RE = /\b(outweighs?|more important|matters more|bigger (?:deal|impact)|higher stakes|more likely|less likely)\b/i;
-const SOURCE_RE = /\b(according to|study|studies|data|report|survey|research|analysis|finds?|shows?|\d{2,}%|\$\d|Pew|NREL|Lazard|OECD|NIST|WHO|Reuters|Nature|Brookings|IMF|IEA)\b/i;
 const NAMED_SOURCE_RE = /\b(Pew(?: Research Center)?|NREL|Lazard|OECD|NIST|WHO|Reuters|Nature|Brookings|IMF|IEA|World Bank|NASA|NOAA|AP(?: News)?)\b|\b[Aa]ccording to\s+[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,4}\b|\b[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,4}\s+(?:study|report|research|survey|data)\b/;
 const FACTUAL_DETAIL_RE = /(?:\b\d+(?:\.\d+)?%?\b|\$\s?\d|\b(?:19|20)\d{2}\b|\b(?:rose|fell|increased|decreased|reduced|grew|declined|found|reported|estimated)\b)/i;
 const ABSOLUTE_RE = /\b(always|never|everyone knows|obviously|definitely|proves|guarantees)\b/i;
@@ -185,13 +186,37 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
     }
   }
 
+  // ENGAGEMENT repair target: a round where the opponent made a move the user
+  // never engaged. This is deliberately broader than the rebuttal target
+  // above — engagement counts claim/counterclaim AND impact moves, per round —
+  // so it still finds material after rebuttal has taken the unanswered claims
+  // (typically a weighing move the user never answered). Both read the same
+  // graph helpers the engagement metric uses, so the offered exercise trains
+  // exactly the behaviour the score rewards. Falls back to the learner's own
+  // longest claim when the debate offered nothing to engage with.
+  const engagementGap = engagementOpportunitiesFor(graph, "a").find(
+    (node) => !addressedTargetIds(graph, "a").has(node.id),
+  );
+  if (engagementGap) {
+    return {
+      kind: "clarity",
+      label: "Engagement opportunity",
+      title: "Answer the move they made",
+      prompt:
+        "Name the opposing move this debate left unanswered, then answer it: state what it claims, test its key assumption, and explain why your position still holds. Add nothing of your own until that move is answered.",
+      sourceText: engagementGap.text,
+      sourceNodeId: engagementGap.id,
+    };
+  }
+
   const longest = [...own].sort((a, b) => b.text.length - a.text.length)[0] ?? firstOwnClaim(graph);
   if (!longest) return null;
   return {
     kind: "clarity",
     label: "Engagement opportunity",
-    title: "Make the move easier to follow",
-    prompt: "Rewrite this as two short sentences: one clear claim, then the reason or evidence that supports it.",
+    title: "Answer the move they made",
+    prompt:
+      "Take the opponent's last move and answer it before anything else: name what they claimed, test the assumption it rests on, and say why your answer follows. Keep your own claim for the sentence after.",
     sourceText: longest.text,
     sourceNodeId: longest.id,
   };
@@ -265,10 +290,6 @@ export function repairForArgumentRole(
   return base;
 }
 
-function sentenceCount(text: string): number {
-  return text.split(/[.!?]+/).map((part) => part.trim()).filter(Boolean).length;
-}
-
 function normalised(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -315,14 +336,6 @@ function hasTwoComparedOutcomes(text: string): boolean {
   return leftOnly && rightOnly;
 }
 
-function sentenceWordCounts(text: string): number[] {
-  return text
-    .split(/[.!?]+/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => part.split(/\s+/).filter(Boolean).length);
-}
-
 function finishRepairScore(score: number, signals: string[], complete: boolean): RepairScore {
   const bounded = Math.min(100, complete ? score : Math.min(score, 59));
   return { score: bounded, signals, state: repairStateFromScore(bounded) };
@@ -336,7 +349,6 @@ export function scoreRepair(target: RepairTarget, text: string): RepairScore {
 
   let score = 0;
   const words = clean.match(/[A-Za-z0-9']+/g)?.length ?? 0;
-  const sentences = sentenceCount(clean);
   const reasoningBridge = hasReasoningBridge(clean);
   const changedReasoning = addedSubstantiveTokens(target.sourceText, clean) >= 3;
   const keywordStuffed = looksKeywordStuffed(clean);
@@ -453,22 +465,25 @@ export function scoreRepair(target: RepairTarget, text: string): RepairScore {
       break;
     }
     case "clarity": {
-      const lengths = sentenceWordCounts(clean);
-      const focused = sentences >= 2 && lengths.every((length) => length >= 3 && length <= 24);
-      const supportRelation = reasoningBridge || SOURCE_RE.test(clean);
-      if (focused) {
+      // The `clarity` repair kind IS the engagement dimension: the rewrite must
+      // answer the opposing move, not restate the learner's own claim in
+      // tidier sentences. The old rule scored sentence word-counts (3–24
+      // words), which measures readability — a signal no product metric
+      // observes, so a passing rewrite never moved the engagement score.
+      const { namesMove, explainsAnswer } = readEngagementSignals(clean);
+      if (namesMove) {
         score += 35;
-        signals.push("separates the move into focused sentences");
+        signals.push("names the opposing move");
       } else {
-        signals.push("use a focused claim sentence and a separate supporting sentence");
+        signals.push("name the opposing move you are answering");
       }
-      if (supportRelation) {
+      if (explainsAnswer) {
         score += 35;
-        signals.push("makes the support for the claim explicit");
+        signals.push("explains why your answer follows");
       } else {
-        signals.push("make the second sentence explain or evidence the first");
+        signals.push("explain why your answer to that move follows");
       }
-      complete = focused && supportRelation && changedReasoning && !keywordStuffed;
+      complete = namesMove && explainsAnswer && changedReasoning && !keywordStuffed;
       break;
     }
   }

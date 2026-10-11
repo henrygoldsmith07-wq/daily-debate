@@ -11,6 +11,7 @@ import {
   type MetricKey,
 } from "./skillLedger";
 import { classifyFallacies } from "./graphEnrichers";
+import { readEngagementSignals } from "./engagementSignals";
 
 export type CoachDimension =
   | "evidence"
@@ -243,9 +244,25 @@ export const DRILL_LIBRARY: Record<CoachDimension, DrillTemplate[]> = {
     { minutes: 2, title: "Fallacy surgery", prompt: "Rewrite this without the fallacy: 'Everyone knows nuclear is dangerous, so we should ban it.' Keep the same conclusion using a causal claim plus evidence." },
     { minutes: 5, title: "Assumption hunt", prompt: "Write an argument for cheaper public transport, naming its single most vulnerable hidden assumption and defending it in one sentence." },
   ],
+  // Engagement drills: answer the move the opponent actually made, on the
+  // round they made it, before adding anything of your own. That is exactly
+  // what the `clarity` metric measures (the per-round argumentResponses rate).
+  // The old drills here trained sentence-length readability, which no metric
+  // observes — so the drill could never move the score it was meant to train,
+  // and selectFocus then hard-skipped the dimension as non-producing.
   clarity: [
-    { minutes: 2, title: "Half the words", prompt: "Rewrite your longest sentence from your last debate in half the words without losing the claim or the evidence citation." },
-    { minutes: 3, title: "One-idea lines", prompt: "Explain a policy you support in exactly three short sentences: claim, mechanism, impact. No sentence over twenty words." },
+    {
+      minutes: 2,
+      title: "Answer the round",
+      prompt:
+        "Your opponent has just argued: \"Tutoring outperforms class-size reduction per dollar, so smaller classes are a poor use of funds.\" Write two sentences that answer THAT move first — name what they claimed and why it does not settle the question — before adding anything of your own.",
+    },
+    {
+      minutes: 3,
+      title: "One round, one move",
+      prompt:
+        "Write the opponent's strongest move from your last debate as one sentence. Then answer it in two: name the assumption it rests on, and say why your position still holds. Do not introduce a new claim of your own until that move is answered.",
+    },
   ],
   impact: [
     { minutes: 2, title: "Weigh it", prompt: "Two impacts: household cost savings vs grid reliability risk. Write one sentence saying which matters more and WHY, with an explicit comparison word." },
@@ -315,9 +332,14 @@ export function scoreAttempt(dim: CoachDimension, text: string): AttemptScore {
     rebuttal: () => (/targets?|their (?:claim|mechanism|assumption)|restating/i.test(text) ? 25 : 0),
     logic: () => (classifyFallacies(text).length === 0 ? 25 : 0),
     clarity: () => {
-      const sentences = text.split(/[.!?]+/).filter((s) => s.trim());
-      const longOnes = sentences.filter((s) => (s.match(/\S+/g) ?? []).length > 22).length;
-      return sentences.length >= 2 && longOnes === 0 ? 25 : 0;
+      // Engagement: the response answers the move the opponent actually made.
+      // The drill supplies that move, so the bonus looks for the two things
+      // that make an answer — an explicit reference to the opposing move, and
+      // a marker explaining why the answer follows. The old rule awarded the
+      // bonus for short sentences, which measured readability and rewarded
+      // exactly the wrong behaviour for this dimension.
+      const { engaged } = readEngagementSignals(text);
+      return engaged ? 25 : 0;
     },
     impact: () => (WEIGHING_RE.test(text) ? 25 : 0),
     steelmanning: () => (/\b(?:even if|granting|strongest version|concede)/i.test(text) ? 25 : 0),
@@ -327,6 +349,18 @@ export function scoreAttempt(dim: CoachDimension, text: string): AttemptScore {
   const bonus = dimBonus[dim]();
   score += bonus;
   if (bonus > 0) signals.push(`${DIMENSION_LABELS[dim]} move present`);
+  // Engagement is the one dimension whose bonus depends on two separate
+  // signals, so report which half was missing rather than a bare absence.
+  if (dim === "clarity" && bonus === 0) {
+    const { namesMove, explainsAnswer } = readEngagementSignals(text);
+    signals.push(
+      namesMove
+        ? "now explain why your answer to that move follows"
+        : explainsAnswer
+          ? "name the opposing move you are answering"
+          : "name the opposing move, then explain why your answer follows",
+    );
+  }
 
   void WEASEL_FREE_OK;
   return { score: Math.min(100, score), signals };
