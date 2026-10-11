@@ -82,6 +82,105 @@ describe("argument repair targets", () => {
     expect(target?.kind).not.toBe("rebuttal");
   });
 
+  // REGRESSION: the `clarity` repair kind is the ENGAGEMENT dimension. Its
+  // target used to be the user's LONGEST own claim and its rubric scored
+  // sentence word-counts, so the exercise trained readability — a signal no
+  // metric observes — and could never move the engagement score it targeted.
+  describe("clarity/Engagement repair", () => {
+    it("offers an unanswered opposing move rather than the learner's longest claim", () => {
+      // ai1 is an IMPACT move, so it is an engagement opportunity but NOT a
+      // canonical rebuttal opportunity: rebuttal cannot claim it. The learner
+      // made their own impact move (a2), so the impact branch does not fire
+      // either — leaving exactly the weighing move they never answered.
+      const target = pickRepairTarget(graph({
+        nodes: [
+          { id: "a1", kind: "claim", owner: "a", text: "The policy improves access.", round: 1 },
+          { id: "ai1", kind: "impact", owner: "ai", text: "The policy's costs outweigh its benefits overall.", round: 1 },
+          { id: "a2", kind: "impact", owner: "a", text: "The policy's benefits outweigh its costs for families.", round: 2 },
+        ],
+      }));
+      expect(target?.kind).toBe("clarity");
+      expect(target?.sourceNodeId).toBe("ai1");
+      expect(target?.prompt).toMatch(/opposing move|answer it/i);
+    });
+
+    it("falls back to the learner's own claim when there is nothing to engage", () => {
+      // The learner made their own impact move (so the impact branch is
+      // skipped) and the opponent left no engagement material at all.
+      const target = pickRepairTarget(graph({
+        nodes: [
+          { id: "a1", kind: "claim", owner: "a", text: "The policy improves access for families currently excluded from services.", round: 1 },
+          { id: "a2", kind: "impact", owner: "a", text: "So it matters.", round: 2 },
+        ],
+      }));
+      expect(target?.kind).toBe("clarity");
+      expect(target?.sourceText).toBe("The policy improves access for families currently excluded from services.");
+    });
+
+    it("scores naming and answering the move, not rewriting it shorter", () => {
+      const target = {
+        kind: "clarity" as const,
+        label: "Engagement opportunity",
+        title: "Answer the move they made",
+        prompt: "",
+        sourceText: "The policy's costs outweigh its benefits overall.",
+      };
+
+      // Answers the opposing move and says why the answer follows.
+      const engaged = scoreRepair(
+        target,
+        "Their claim that costs outweigh benefits assumes the transition cost is permanent, which the targeted-grant schedule disproves, so the weighing does not settle the question.",
+      );
+      expect(engaged.signals).toContain("names the opposing move");
+      expect(engaged.signals).toContain("explains why your answer follows");
+      expect(engaged.score).toBeGreaterThanOrEqual(70);
+
+      // Tidier and SHORTER, but engages nothing: the old rubric passed this.
+      const tidy = scoreRepair(target, "Costs are real. Benefits are larger. The policy is good.");
+      expect(tidy.signals).not.toContain("names the opposing move");
+      expect(tidy.score).toBeLessThan(60);
+      expect(tidy.state).not.toBe("repair_demonstrated");
+    });
+
+    it("coaches which half of the engagement move is missing", () => {
+      const target = {
+        kind: "clarity" as const,
+        label: "Engagement opportunity",
+        title: "Answer the move they made",
+        prompt: "",
+        sourceText: "The policy's costs outweigh its benefits overall.",
+      };
+      expect(scoreRepair(target, "Their claim is the one under discussion here today.").signals).toContain(
+        "explain why your answer to that move follows",
+      );
+      expect(scoreRepair(target, "Benefits are larger because access improves outcomes for families.").signals).toContain(
+        "name the opposing move you are answering",
+      );
+    });
+
+    // The e2e sprint-repair-loop spec reads the repair kind and source text
+    // off the live panel and submits this fixture. Pinning it here means a
+    // rubric change that breaks the spec fails in the unit suite instead of a
+    // four-minute CI run — which is exactly how the readability misalignment
+    // was found.
+    it("accepts the fixture the sprint-repair-loop e2e spec submits for clarity", () => {
+      const fixture =
+        "Their claim that storage costs make solar unaffordable assumes the upgrade happens in a single year, which a phased rollout disproves, so the objection does not settle whether household bills fall.";
+      const result = scoreRepair(
+        {
+          kind: "clarity",
+          label: "Engagement opportunity",
+          title: "Answer the move they made",
+          prompt: "",
+          sourceText: "Grid reliability requires storage investment, which impacts total cost.",
+        },
+        fixture,
+      );
+      expect(result.state).toBe("repair_demonstrated");
+      expect(result.score).toBeGreaterThanOrEqual(60);
+    });
+  });
+
   it("an invalid answer (self-target) does not hide the unanswered opposing move", () => {
     // The user's rebuttal targets their own claim: the canonical rule
     // ignores it, so ai1 stays an unanswered eligible opportunity.

@@ -6,6 +6,7 @@ import {
   scoreAttempt,
   movementAround,
   COACH_DIMENSIONS,
+  DRILL_LIBRARY,
 } from "./adaptiveCoach";
 import type { SkillMetricPoint } from "./skillLedger";
 
@@ -170,6 +171,50 @@ describe("scoreAttempt rubric", () => {
     const a = scoreAttempt("rebuttal", "Even if their mechanism holds, targeting the assumption directly shows the conclusion fails.");
     const b = scoreAttempt("rebuttal", "Even if their mechanism holds, targeting the assumption directly shows the conclusion fails.");
     expect(a).toEqual(b);
+  });
+
+  // REGRESSION: the `clarity` dimension is ENGAGEMENT (the per-round
+  // argumentResponses rate — did the side answer the opponent's move on the
+  // round it was made). Its drill bonus used to award points for short
+  // sentences, so a genuinely engaging response scored 15 while a brief
+  // non-engaging one scored 35 — the drill rewarded the opposite of the
+  // behaviour the metric measures, and could never move the score.
+  describe("clarity/Engagement alignment", () => {
+    const engaging =
+      "Their claim that tutoring always outperforms class-size reduction assumes a fixed per-pupil budget, which is not what the STAR trial tested, so the comparison does not hold for a district that can fund both.";
+    const shortButNotEngaging = "I support smaller classes. They cost a lot. That is my view.";
+
+    it("ranks an engaging response above a merely short one", () => {
+      expect(scoreAttempt("clarity", engaging).score).toBeGreaterThan(
+        scoreAttempt("clarity", shortButNotEngaging).score,
+      );
+    });
+
+    it("awards the dimension bonus only when the opposing move is named and answered", () => {
+      expect(scoreAttempt("clarity", engaging).signals).toContain("Engagement move present");
+      expect(scoreAttempt("clarity", shortButNotEngaging).signals).not.toContain("Engagement move present");
+    });
+
+    it("coaches which half is missing rather than reporting a bare absence", () => {
+      // Names the move but never says why the answer follows.
+      expect(scoreAttempt("clarity", "Their claim about tutoring is the one I address here now.").signals).toContain(
+        "now explain why your answer to that move follows",
+      );
+      // Explains an answer but never says which move it answers.
+      expect(scoreAttempt("clarity", "Costs fall because scale improves outcomes for every pupil.").signals).toContain(
+        "name the opposing move you are answering",
+      );
+    });
+
+    it("drills teach answering the opponent's move, not rewriting for length", () => {
+      for (const drill of DRILL_LIBRARY.clarity) {
+        const text = `${drill.title} ${drill.prompt}`.toLowerCase();
+        expect(text).toMatch(/opponent|opposing/);
+        // No sentence-length instruction may survive: that is the readability
+        // behaviour the metric does not observe.
+        expect(text).not.toMatch(/half the words|short sentences|twenty words|no sentence over/);
+      }
+    });
   });
 });
 
