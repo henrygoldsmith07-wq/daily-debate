@@ -209,7 +209,7 @@ export default async function DashboardPage() {
           nextCue: unfinishedRepair.nextCue,
         }
       : null,
-    dueRetest: motion.servesRetest && pendingRetest ? { label: goal?.dimension ? pendingRetestLabel(goal.dimension) : "the repaired skill" } : null,
+    dueRetest: motion.servesRetest && pendingRetest ? { label: goal?.dimension ? pendingRetestLabel(goal.dimension) : "the repaired skill", attemptedAt: pendingRetest.attemptedAt } : null,
     openDrill: null,
     debateAvailable: !activeDebate,
   });

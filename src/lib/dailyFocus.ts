@@ -22,6 +22,14 @@ export interface PriorityInputs {
   /** A successful repair whose deliberate retest is due on a different topic. */
   dueRetest: {
     label: string;
+    /**
+     * When the repaired rewrite was completed (the repair_results.created_at the
+     * retest anchors to). Optional: when present, the priority detail can say how
+     * long the retest has been waiting so the nudge is auditable rather than
+     * arbitrary. Callers that omit it (e.g. synthetic test inputs) get the
+     * existing label-only detail, unchanged.
+     */
+    attemptedAt?: string | null;
   } | null;
   /** Today's drill assignment, when unattempted. */
   openDrill: {
@@ -44,6 +52,26 @@ export interface PriorityAction {
 }
 
 /**
+ * Whole calendar days between a repair's completion and "today", in the caller's
+ * local calendar frame. Used only to make a due retest nudge auditable
+ * ("repaired N days ago") — never to gate or delay selection, so an unparseable
+ * timestamp degrades to the label-only detail rather than misnudging.
+ *
+ * Returns -1 when no attempt timestamp was supplied (callers that build
+ * synthetic inputs) so the caller can fall back to the generic detail line.
+ */
+export function retestAgeDays(attemptedAt: string | null | undefined): number {
+  if (!attemptedAt) return -1;
+  const anchor = Date.parse(attemptedAt);
+  if (!Number.isFinite(anchor)) return -1;
+  const then = new Date(anchor);
+  const now = new Date();
+  const dayDiff = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.round((dayDiff(now).getTime() - dayDiff(then).getTime()) / msPerDay);
+}
+
+/**
  * The single highest-priority unfinished action, or null when there is
  * nothing to continue (the user simply debates today).
  */
@@ -62,11 +90,14 @@ export function pickPriority(input: PriorityInputs): PriorityAction | null {
     };
   }
   if (input.dueRetest) {
+    const age = retestAgeDays(input.dueRetest.attemptedAt);
+    const detail = age >= 0
+      ? `You repaired this skill ${age} day${age === 1 ? "" : "s"} ago. Today's goal is to see whether it shows up naturally, on a different motion.`
+      : "You repaired this skill in an earlier debate. Today's goal is to see whether it shows up naturally, on a different motion.";
     return {
       kind: "retest",
       title: `Retest: ${input.dueRetest.label.toLowerCase()} is due`,
-      detail:
-        "You repaired this skill in an earlier debate. Today's goal is to see whether it shows up naturally, on a different motion.",
+      detail,
       action: "Start today's retest",
       href: "/",
     };
