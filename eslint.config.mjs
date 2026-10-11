@@ -26,7 +26,15 @@ const eslintConfig = defineConfig([
     "*.tsbuildinfo",
     // Everything at the top level is assumed to be somebody else's checkout
     // until this project claims it below.
+    //
+    // `*/` matches top-level DIRECTORIES only, so it left loose files at the
+    // repo root linted — a stray scratch script (`_probe.cjs`, `_check.mjs`)
+    // then failed `npm run lint -- --max-warnings 0` and turned the project's
+    // own gate into a "did someone leave a note on the table" gate. `*.*`
+    // closes that gap; the root config files this project owns are re-admitted
+    // at the bottom of this list.
     "*/",
+    "*.*",
     // ...and this project claims exactly these.
     "!.github/**",
     "!config/**",
@@ -37,6 +45,12 @@ const eslintConfig = defineConfig([
     "!scripts/**",
     "!src/**",
     "!tests/**",
+    // Root config files this project owns and does want linted.
+    "!eslint.config.mjs",
+    "!next.config.ts",
+    "!playwright.config.ts",
+    "!postcss.config.mjs",
+    "!vitest.config.mts",
   ]),
 ]);
 

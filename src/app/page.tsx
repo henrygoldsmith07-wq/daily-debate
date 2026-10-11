@@ -14,12 +14,16 @@ import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
 import { buildLearnerModel } from "@/lib/learnerModel";
 import { buildLoopThread } from "@/lib/loopThread";
 import LoopThread from "@/components/LoopThread";
+import ClearGuestLoopHandoff from "@/components/ClearGuestLoopHandoff";
+import InlineDrillAttempt from "@/components/InlineDrillAttempt";
 import { isDatabaseConfigured } from "@/lib/backend/env";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { asRepairAttemptLite, latestUnfinishedRepair } from "@/lib/repairResume";
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
+import { getGuestContext } from "@/lib/guestContextServer";
 import { resolvePracticeMotion, type DueRetest } from "@/lib/practiceMotion";
 import { pickPriority } from "@/lib/dailyFocus";
+import { canonicalSkillKey } from "@/lib/skillTaxonomy";
 import { dateKeyInTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
@@ -95,7 +99,7 @@ export default async function DashboardPage() {
   });
   const topic = motion.topic;
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }] =
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, openDrillRow] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -121,6 +125,36 @@ export default async function DashboardPage() {
         .order("completed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      // Today's open drill assignment (coach/today owns creation/retargeting;
+      // the dashboard only reads the row to surface priority #3 — an
+      // unattempted drill above today's debate, with its prompt rendered
+      // inline so completing it needs no navigation). Runs in parallel with
+      // the other reads instead of a second sequential await (loop latency:
+      // every extra round-trip delays first paint). Degrades to null on any
+      // DB error so a transient read failure never hides the debate, and
+      // never invents a drill for another dimension.
+      (async () => {
+        try {
+          const profileRow = await getProfileSummary(user.id);
+          const { data: openRow } = await db
+            .from("drill_assignments")
+            .select("id, title, minutes, prompt")
+            .eq("user_id", user.id)
+            .eq("assigned_date", dateKeyInTimeZone(profileRow?.timezone ?? "UTC"))
+            .eq("status", "open")
+            .maybeSingle();
+          return openRow
+            ? {
+                id: openRow.id,
+                title: openRow.title,
+                minutes: typeof openRow.minutes === "number" ? openRow.minutes : null,
+                prompt: typeof openRow.prompt === "string" ? openRow.prompt : null,
+              }
+            : null;
+        } catch {
+          return null;
+        }
+      })(),
     ]);
   const ledger = coachingContext.ledger;
   const { data: repairAttempts } = await db
@@ -145,6 +179,21 @@ export default async function DashboardPage() {
   );
 
   const drillOutcomes = coachingContext.drillOutcomes;
+
+  // Guest practice carried through signup. Shown ONLY until this account has
+  // its own completed debate: once real observed evidence exists, a single
+  // unauthenticated guest rep is no longer the most useful thing to lead with.
+  // It never enters the ledger or a score — see guestContextServer.ts.
+  const guestContext = previousDebate ? null : await getGuestContext(user.id);
+  const guestSkillKey = guestContext ? canonicalSkillKey(guestContext.weaknessKind) : null;
+  const guestCarryover = guestContext && guestSkillKey
+    ? {
+        label: SKILL_DIMENSIONS[guestSkillKey].label,
+        motion: guestContext.motion,
+        repaired: guestContext.repairState === "repair_demonstrated",
+        observed: guestContext.retestOutcome === "observed",
+      }
+    : null;
 
   let previousDebateTitle: string | null = null;
   if (previousDebate?.topic_id) {
@@ -173,26 +222,16 @@ export default async function DashboardPage() {
     pendingRetest?.dimension ?? null,
   );
 
-  // Today's open drill assignment (coach/today owns creation/retargeting; the
-  // dashboard only reads the row to surface priority #3 — an unattempted drill
-  // above today's debate. Degrades to null on any DB error so a transient read
-  // failure never hides the debate, and never invents a drill for another
-  // dimension.
-  let openDrill: { title: string } | null = null;
-  try {
-    const userTz = profile?.timezone ?? "UTC";
-    const todayKey = dateKeyInTimeZone(userTz);
-    const { data: openRow } = await db
-      .from("drill_assignments")
-      .select("title")
-      .eq("user_id", user.id)
-      .eq("assigned_date", todayKey)
-      .eq("status", "open")
-      .maybeSingle();
-    openDrill = openRow ? { title: openRow.title } : null;
-  } catch {
-    openDrill = null;
-  }
+  // The open-drill row was loaded in the parallel block above (loop latency:
+  // no second sequential await on the dashboard's critical path).
+  const openDrill = openDrillRow
+    ? {
+        title: openDrillRow.title,
+        ...(openDrillRow.minutes !== null ? { minutes: openDrillRow.minutes } : {}),
+        ...(openDrillRow.prompt !== null ? { prompt: openDrillRow.prompt } : {}),
+        assignmentId: openDrillRow.id,
+      }
+    : null;
   // Canonical learner model — the same intelligence that drives Progress, so
   // Today leads with what to practise and why rather than a wall of cards.
   // Built from the same stored debates/repairs; a repair is practice, not mastery.
@@ -271,6 +310,39 @@ export default async function DashboardPage() {
         }
       />
 
+      {/* ── Carried over from guest practice: why this account started non-empty ── */}
+      {guestCarryover && (
+        <section
+          className="surface-card p-4"
+          aria-labelledby="guest-carryover-heading"
+          data-testid="guest-carryover"
+        >
+          {/* The server has already read this summary off the profile, so the
+              browser copy is spent and can be dropped. */}
+          <ClearGuestLoopHandoff />
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">
+            Carried over from guest practice
+          </p>
+          <h2 id="guest-carryover-heading" className="mt-1 text-base font-semibold">
+            Your first rep starts from {guestCarryover.label.toLowerCase()}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-ink2">
+            Before signing up you practised {guestCarryover.motion ? `“${guestCarryover.motion}”` : "a motion"} and
+            the loop flagged <strong>{guestCarryover.label}</strong> as the move to work on.
+            {guestCarryover.repaired
+              ? guestCarryover.observed
+                ? " You repaired it and it showed up again under pressure — so today's debate checks whether that holds without the prompt."
+                : " You repaired it in the rewrite, though it did not reappear in the retest round — so it is still the thing to watch."
+              : " You have not repaired it yet, so it stays today's focus."}
+          </p>
+          <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink3">
+            A guest rep is one local practice run, not measured evidence — it is not counted in your
+            skill scores. It only decides what today&apos;s debate watches for; your own completed
+            debates are what build the profile.
+          </p>
+        </section>
+      )}
+
       {/* ── Today's training target: what to practise, why, and what we'll watch ── */}
       {learnerModel.nextPractice && (
         <section
@@ -330,7 +402,7 @@ export default async function DashboardPage() {
       {/* ── Continue training: the single highest-priority unfinished action ── */}
       {priority && priority.kind !== "debate" && (
         <section
-          className="surface-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+          className="surface-card flex flex-col gap-3 p-4"
           aria-labelledby="continue-training-heading"
           data-testid="continue-training"
         >
@@ -341,13 +413,34 @@ export default async function DashboardPage() {
             </h2>
             <p className="mt-1 text-sm leading-6 text-ink3">{priority.detail}</p>
           </div>
-          <Link
-            href={priority.href}
-            className="btn btn-primary shrink-0 px-4 py-2 text-center text-sm"
-            data-testid={`priority-${priority.kind}`}
-          >
-            {priority.action} →
-          </Link>
+          {/* The drill prompt renders inline so completing today's drill needs
+              no navigation hop — the loop's smallest complete step stays on
+              the page the learner already opened. Only the assigned, still
+              open drill shows this; the server recomputes everything on
+              submit, so the form cannot score a drill the coach did not
+              assign today. */}
+          {priority.kind === "drill" && openDrill?.prompt && openDrill.assignmentId ? (
+            <>
+              <p className="rounded-lg border border-[var(--rule)] bg-surface-2 p-4 text-sm leading-relaxed">
+                {openDrill.prompt}
+              </p>
+              <InlineDrillAttempt assignmentId={openDrill.assignmentId} />
+              <Link
+                href={priority.href}
+                className="self-start text-xs font-medium text-ink3 underline underline-offset-2 hover:text-ink"
+              >
+                {priority.action} on Progress →
+              </Link>
+            </>
+          ) : (
+            <Link
+              href={priority.href}
+              className="btn btn-primary shrink-0 self-start px-4 py-2 text-center text-sm sm:self-auto"
+              data-testid={`priority-${priority.kind}`}
+            >
+              {priority.action} →
+            </Link>
+          )}
         </section>
       )}
 
