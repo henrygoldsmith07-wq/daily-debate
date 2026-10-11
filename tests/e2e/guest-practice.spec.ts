@@ -109,4 +109,25 @@ test.describe("guest practice honesty", () => {
 
     await expect(page.getByTestId("guest-repair-feedback")).toContainText("Not there yet");
   });
+
+  // Guards the home-page empty state PR (fix/home-empty-state-teach-skills):
+  // before a guest has completed any debates, the dashboard's skill-profile card
+  // must not just say "complete a debate" — it must teach the canonical 7 skills
+  // so first value arrives before there is data to measure. This pins the
+  // taxonomy source (skillTaxonomy.SKILL_DIMENSIONS) to the rendered empty state,
+  // so a regression that drops the import or reorders the dimensions fails here.
+  test("home teaches the 7 skills before any debate is completed", async ({ page }) => {
+    await page.clock.setFixedTime(new Date(PINNED_GUEST_DAY));
+    await page.goto("/");
+
+    // Guest has no profile, so skillProfile is null and the empty state renders.
+    await expect(page.getByText("Complete a debate to start seeing")).toBeVisible();
+    await expect(page.getByText("here is what each skill tracks")).toBeVisible();
+
+    for (const label of ["Evidence", "Rebuttal", "Logic", "Engagement", "Impact", "Steelmanning", "Structure"]) {
+      await expect(page.getByText(label, { exact: false })).toBeVisible();
+    }
+    // Honesty-safe: the empty state teaches skill *names*, never metric numbers.
+    await expect(page.locator("article.home-secondary-card")).not.toHaveText(/\d+\s*(debates|points|score)/i);
+  });
 });
