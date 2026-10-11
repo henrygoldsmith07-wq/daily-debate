@@ -215,6 +215,27 @@ describe("scoreAttempt rubric", () => {
         expect(text).not.toMatch(/half the words|short sentences|twenty words|no sentence over/);
       }
     });
+
+    // The generic contrastive signal awards 15 points for any "however/but".
+    // For Engagement that conjunction engages nothing, so awarding it (and
+    // labelling it "engages the opposing move") contradicted the dimension's
+    // own coaching and over-rewarded a response that named no move at all.
+    it("does not claim the opposing move was engaged from a bare contrastive conjunction", () => {
+      const bare = scoreAttempt("clarity", "However, the policy is better overall for everyone.");
+      expect(bare.signals).not.toContain("engages the opposing move");
+      expect(bare.score).toBeLessThan(scoreAttempt("clarity", "However, their claim assumes a fixed budget, which the phased rollout disproves, so it does not settle the question.").score);
+    });
+
+    it("keeps the generic contrastive signal for the other dimensions", () => {
+      // Rebuttal legitimately accepts a contrastive move as part of its bonus;
+      // only Engagement's definition is stricter.
+      expect(scoreAttempt("rebuttal", "However, their mechanism does not hold here.").signals).toContain(
+        "engages the opposing move",
+      );
+      expect(scoreAttempt("impact", "However, the bigger impact matters more for the decision.").signals).toContain(
+        "engages the opposing move",
+      );
+    });
   });
 });
 

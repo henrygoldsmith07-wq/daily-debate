@@ -69,19 +69,12 @@ export function swapPrestige(t: string): string {
   if (known.test(t)) return t.replace(known, "MyBlog");
   return t.replace("Player A", "Player A (citing MyBlog)");
 }
-export function injectPrestige(t: string): string {
-  return t.replace("Player A", "Player A (citing Nature, Pew Research Center and NREL)");
-}
 export function addIdeologicalFraming(t: string, leaning: "left" | "right" = "left"): string {
   const prefix = leaning === "left" ? "[Equity framing] " : "[Liberty framing] ";
   return t
     .split("\n")
     .map((l) => prefix + l)
     .join("\n");
-}
-export function shuffleRounds(t: string): string {
-  const lines = t.split("\n");
-  return [...lines].sort(() => 0).join("\n"); // placeholder: caller should interleave-by-round instead
 }
 export function normalizeWhitespace(t: string): string {
   return t.replaceAll("  ", " ").trim();
