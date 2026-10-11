@@ -101,8 +101,8 @@ test.describe("pvp + history surfaces", () => {
         }
       }
       const done =
-        (await a.getByText(/too close to call|won|opponent won/i).first().isVisible().catch(() => false)) ||
-        (await b.getByText(/too close to call|won|opponent won/i).first().isVisible().catch(() => false));
+        (await a.getByText(/too close to call|won|judge outcome/i).first().isVisible().catch(() => false)) ||
+        (await b.getByText(/too close to call|won|judge outcome/i).first().isVisible().catch(() => false));
       if (done) break;
     }
 

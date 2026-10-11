@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/backend/server";
 import AppShell from "@/components/AppShell";
 import PvpRoom from "@/components/PvpRoom";
+import { loadJudgeValidation } from "@/lib/judgeValidationServer";
 import type { PvpMatch, PvpTurn } from "@/lib/types";
 
 export default async function PvpMatchPage({ params }: { params: Promise<{ matchId: string }> }) {
@@ -30,6 +31,12 @@ export default async function PvpMatchPage({ params }: { params: Promise<{ match
     db.from("profiles").select("id, username").eq("id", match.player_b).single(),
   ]);
 
+  // Judge-validation state for the verdict surface, so the result screen can
+  // label this match's outcome as what it actually is. The verdict judge has
+  // not cleared the validation gates (docs/latest-judge-benchmark.json), so
+  // PvP may not present win/loss framing here.
+  const judgeValidation = loadJudgeValidation();
+
   return (
     <AppShell width="narrow">
       <PvpRoom
@@ -39,6 +46,7 @@ export default async function PvpMatchPage({ params }: { params: Promise<{ match
         currentUserId={user.id}
         playerAName={playerAProfile?.username ?? "Player A"}
         playerBName={playerBProfile?.username ?? "Player B"}
+        pvpValidation={judgeValidation.surfaces["pvp-verdict"]}
       />
     </AppShell>
   );

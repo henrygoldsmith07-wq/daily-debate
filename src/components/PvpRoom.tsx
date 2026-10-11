@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import MessageComposer, { type ComposerSubmitData } from "./MessageComposer";
 import { VerdictExplainPanel } from "./ArgGraphView";
+import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
 import type { PvpMatch, PvpTurn, PvpVerdict } from "@/lib/types";
 import { TURN_ABANDON_MINUTES } from "@/lib/types";
+import { allowsCompetitiveClaims, type SurfaceValidation } from "@/lib/judgeValidation";
 
 export default function PvpRoom({
   match: initialMatch,
@@ -14,6 +16,7 @@ export default function PvpRoom({
   currentUserId,
   playerAName,
   playerBName,
+  pvpValidation,
 }: {
   match: PvpMatch;
   topic: { title: string; prompt: string };
@@ -21,6 +24,12 @@ export default function PvpRoom({
   currentUserId: string;
   playerAName: string;
   playerBName: string;
+  /**
+   * Judge-validation state for the verdict surface, computed server-side from
+   * the published benchmark artifact. Null only when the artifact could not
+   * be read at all — which is `unknown`, never a pass.
+   */
+  pvpValidation: SurfaceValidation | null;
 }) {
   const [match, setMatch] = useState(initialMatch);
   const [turns, setTurns] = useState(initialTurns);
@@ -114,6 +123,20 @@ export default function PvpRoom({
   const mySide = isPlayerA ? match.player_a_side : match.player_a_side === "for" ? "against" : "for";
   const myTurn = match.status === "active" && match.current_turn_player === currentUserId;
   const nameFor = (playerId: string) => (playerId === match.player_a ? playerAName : playerBName);
+  // Whether this match's judge is cleared to present result/win framing.
+  // `null` (unreadable artifact) is `unknown`, which is explicitly NOT a pass,
+  // so an unreadable benchmark can never unlock competitive claims.
+  const competitiveClaimsAllowed = pvpValidation !== null && allowsCompetitiveClaims(pvpValidation);
+  // The headlined outcome and its attribution. A forfeit is a recorded
+  // structural outcome (insufficient_evidence verdict), never a judgement.
+  const outcome = framePvpOutcome({
+    winnerId: match.winner_id,
+    currentUserId,
+    nameFor,
+    competitiveClaimsAllowed,
+    isForfeit: verdict?.scoreStatus === "insufficient_evidence" && verdict.isTie !== true,
+    isTie: verdict?.isTie === true,
+  });
 
   async function submitTurn(submitData: ComposerSubmitData) {
     setSending(true);
@@ -261,24 +284,38 @@ export default function PvpRoom({
               );
             })()}
             <div className="flex items-baseline gap-3">
-              <h2 className="text-lg font-semibold">
-                {match.winner_id === null
-                  ? verdict?.isTie ? "Too close to call" : "Tie"
-                  : match.winner_id === currentUserId ? "You won" : "Opponent won"}
-              </h2>
+              <h2 className="text-lg font-semibold">{outcome.headline}</h2>
               {verdict && verdict.scoreStatus !== "insufficient_evidence" && (
                 <span className="tabular text-sm text-ink3">
                   {verdict.playerAScore}–{verdict.playerBScore}
                 </span>
               )}
             </div>
+
+            {/* Honest outcome framing.
+                *
+                "You won" asserts a real competitive result. The judge that
+                scores PvP has NOT cleared the validation gates (see
+                docs/latest-judge-benchmark.json and config/judge-gates.json),
+                so an outcome here is the judge's reading of one debate, not a
+                win. The decision lives in pvpOutcomeFraming.ts so the wording
+                contract is pinned by tests; this screen only renders it. */}
+            {outcome.attribution && <p className="text-sm text-ink2">{outcome.attribution}</p>}
+            {!competitiveClaimsAllowed && (
+              <p className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink3" data-testid="pvp-claims-withheld">
+                {pvpValidation?.claim ??
+                  "Competitive framing is withheld: no judge currently clears the validation gates, so this outcome is practice feedback rather than a result."}
+                {pvpValidation?.reason && ` ${pvpValidation.reason}`}
+              </p>
+            )}
+
             {!verdict && <p className="text-sm text-ink3">Awaiting judge verdict…</p>}
             <div className="flex gap-3 pt-2">
               <Link href="/pvp" className="btn btn-primary px-4 py-2 text-sm">Find another match</Link>
               <Link href="/leaderboard" className="btn btn-ghost px-4 py-2 text-sm">Leaderboard</Link>
             </div>
           </div>
-          {verdict && <VerdictExplainPanel verdict={verdict} playerAName={playerAName} playerBName={playerBName} />}
+          {verdict && <VerdictExplainPanel verdict={verdict} playerAName={playerAName} playerBName={playerBName} competitiveClaimsAllowed={competitiveClaimsAllowed} />}
         </div>
       )}
     </div>
