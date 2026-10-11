@@ -109,4 +109,31 @@ test.describe("guest practice honesty", () => {
 
     await expect(page.getByTestId("guest-repair-feedback")).toContainText("Not there yet");
   });
+
+  // Guards fix/home-empty-state-teach-skills: before a guest has completed any
+  // debates, the guest home must teach the canonical 7 skills (not just invite a
+  // sign-up) so first value arrives before there is data to measure. This pins
+  // the taxonomy source (skillTaxonomy.SKILL_DIMENSIONS/SKILL_ORDER) to the
+  // rendered home: a regression that drops the import, reorders the dimensions,
+  // or moves the teaching behind an auth gate fails here.
+  test("home teaches the 7 skills before any debate is completed", async ({ page }) => {
+    await page.clock.setFixedTime(new Date(PINNED_GUEST_DAY));
+    await page.goto("/");
+
+    // Guests land on GuestArena (not the authenticated dashboard), so the teaching
+    // lives on the guest home itself. Headings and the framing sentence are matched
+    // as substrings because they span sibling text nodes / child spans.
+    await expect(page.getByRole("heading", { name: /What this practice measures/i })).toBeVisible();
+    await expect(page.getByText("seven reasoning skills", { exact: false })).toBeVisible();
+    await expect(page.getByText("never a metric number", { exact: false })).toBeVisible();
+
+    for (const label of ["Evidence", "Rebuttal", "Logic", "Engagement", "Impact", "Steelmanning", "Structure"]) {
+      await expect(page.getByText(label, { exact: false })).toBeVisible();
+    }
+    // Honesty-safe: the guest home teaches skill *names* with plain-language
+    // descriptions, never metric numbers, ratings, or "you are X%" claims.
+    const skillsSection = page.locator("#guest-skills");
+    await expect(skillsSection).toBeVisible();
+    await expect(skillsSection).not.toHaveText(/\d+\s*(debates|points|score|rating|%)/i);
+  });
 });

@@ -10,6 +10,7 @@ import SkillProfileBars from "@/components/SkillProfileBars";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
+import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
 import { buildLearnerModel } from "@/lib/learnerModel";
 import { buildLoopThread } from "@/lib/loopThread";
 import LoopThread from "@/components/LoopThread";
@@ -208,7 +209,7 @@ export default async function DashboardPage() {
           nextCue: unfinishedRepair.nextCue,
         }
       : null,
-    dueRetest: motion.servesRetest && pendingRetest ? { label: goal?.dimension ? pendingRetestLabel(goal.dimension) : "the repaired skill" } : null,
+    dueRetest: motion.servesRetest && pendingRetest ? { label: goal?.dimension ? pendingRetestLabel(goal.dimension) : "the repaired skill", attemptedAt: pendingRetest.attemptedAt } : null,
     openDrill: null,
     debateAvailable: !activeDebate,
   });
@@ -344,7 +345,11 @@ export default async function DashboardPage() {
                 <SkillProfileBars profile={skillProfile} />
               </div>
             ) : (
-              <p>Complete a debate to start seeing your reasoning strengths and gaps.</p>
+              <p>
+                Complete a debate to start seeing your reasoning strengths and gaps. Until then, here is what each
+                skill tracks so you know what to practise:{" "}
+                {SKILL_ORDER.map((k) => `${SKILL_DIMENSIONS[k].label} — ${SKILL_DIMENSIONS[k].skill}`).join(", ")}.
+              </p>
             )}
             <Link href="/progress" className="home-secondary-action">
               Open progress →

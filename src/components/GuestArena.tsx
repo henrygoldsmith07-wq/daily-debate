@@ -13,6 +13,7 @@ import {
   type GuestSkill,
 } from "@/lib/guestAssessment";
 import { guestMotionForDay, type GuestMotion } from "@/lib/guestMotions";
+import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
 import {
   encodeGuestLoopSummary,
   GUEST_LOOP_STORAGE_KEY,
@@ -125,6 +126,27 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
                 </p>
               </div>
             </div>
+          </section>
+
+          <section aria-labelledby="guest-skills">
+            <div className="section-heading">
+              <h2 id="guest-skills">What this practice measures</h2>
+            </div>
+            <p className="mt-1 max-w-none text-ink2">
+              Each round is scored on the same seven reasoning skills the full product tracks. Guest practice
+              reports one observed weakness and one observable strength — never a metric number or a rating — so
+              you can see what to work on before you decide whether to keep your progress.
+            </p>
+            <ol className="mt-4 grid gap-3 sm:grid-cols-2">
+              {SKILL_ORDER.map((k) => (
+                <li key={k} className="surface-card p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink3">
+                    {SKILL_DIMENSIONS[k].label}
+                  </p>
+                  <p className="mt-1 text-sm text-ink2">{SKILL_DIMENSIONS[k].skill}</p>
+                </li>
+              ))}
+            </ol>
           </section>
 
           <section aria-labelledby="guest-loop">
