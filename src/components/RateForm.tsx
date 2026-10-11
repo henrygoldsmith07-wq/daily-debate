@@ -112,6 +112,17 @@ export default function RateForm() {
 
   async function submit() {
     if (!item) return;
+    // The server refuses a rating that scored no dimension on a side: without
+    // it, completeScores would fill every dimension with the neutral fallback
+    // and store a rating that looks fully scored when nothing was. Catch it
+    // here so the rater is told what to do rather than hitting a 400.
+    const missingSides: string[] = [];
+    if (!Object.keys(scoresA).length) missingSides.push("Side A");
+    if (!Object.keys(scoresB).length) missingSides.push("Side B");
+    if (missingSides.length) {
+      setError(`Score at least one dimension for ${missingSides.join(" and ")} before submitting.`);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -222,6 +233,10 @@ export default function RateForm() {
             <button type="button" onClick={submit} disabled={submitting} className="btn btn-primary px-4 py-2 text-sm disabled:opacity-40">
               {submitting ? "Submitting…" : "Submit & rate next"}
             </button>
+            <p className="text-[11px] leading-4 text-ink3">
+              Score at least one dimension per side. Dimensions you leave blank are filled with a neutral value at
+              analysis time, so a rating with no scores would record a neutral claim you never made.
+            </p>
           </div>
         </div>
       )}

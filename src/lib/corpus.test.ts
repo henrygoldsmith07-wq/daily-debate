@@ -81,6 +81,28 @@ describe("rating validation", () => {
     expect(validateRating({ ...good, rationale: "x".repeat(1001) })).toHaveLength(1);
     expect(validateRating(null)).toEqual(["body must be an object"]);
   });
+
+  // A winner-only submission used to pass validation, and completeScores then
+  // filled every dimension with the neutral fallback — so the stored rating
+  // looked like a full 12-dimension neutral rating when the rater had rated
+  // nothing. Those invented numbers feed the inter-rater reliability matrix
+  // that gates judge validation, and ratings are append-once, so a
+  // contaminated row can never be cleaned up. It has to be refused instead.
+  it("refuses a rating that scored no dimension on a side", () => {
+    expect(validateRating({ ...good, scores_a: {} })).toContain("scores_a must assign 1-5 to rubric dimensions");
+    expect(validateRating({ ...good, scores_b: {} })).toContain("scores_b must assign 1-5 to rubric dimensions");
+    // Both sides empty is the worst case: an entirely fabricated neutral rating.
+    expect(validateRating({ ...good, scores_a: {}, scores_b: {} })).toHaveLength(2);
+  });
+
+  it("still accepts a partial rating that scored at least one dimension per side", () => {
+    // `good` already has a one-dimension scores_b; drop dimensions from a,
+    // never below one.
+    expect(validateRating({ ...good, scores_a: { relevance: 1 } })).toEqual([]);
+    expect(
+      validateRating({ ...good, scores_a: { evidenceQuality: 3, sourceQuality: 2 }, scores_b: { reasoning: 4 } }),
+    ).toEqual([]);
+  });
 });
 
 describe("completeScores", () => {
