@@ -765,6 +765,62 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     expect(funnel.postRepairReturn.d30.eligibleUsers).toBe(1);
   });
 
+  it("splits post-repair D7 return by arm with per-arm sample gates, never pooling", () => {
+    // 3 users whose first repairs got a durable assignment (prompted arm),
+    // 3 whose first repairs had no assignment (incidental arm). Nobody returned on day 7.
+    // The honest read is "not comparable" at the shared sample floor for D7.
+    const promptedRepairs = [1, 2, 3].map((n) => repair(`u${n}`, `p${n}`, "rebuttal", T0));
+    const incidentalRepairs = [4, 5, 6].map((n) => repair(`u${n}`, `i${n}`, "rebuttal", T0));
+    const debates = [
+      // Prompted reps: an assigned observable follow-up arrives day 1.
+      ...promptedRepairs.map((r, idx) => debateRow(`u${idx + 1}`, `p1-${idx + 1}`, "2026-06-02T12:00:00Z", { rebuttal: 0 })),
+      // Incidental reps: an ordinary follow-up with opportunity, also day 1.
+      ...incidentalRepairs.map((r, idx) => debateRow(`u${idx + 4}`, `i1-${idx + 1}`, "2026-06-02T12:00:00Z", { rebuttal: 0 })),
+    ];
+    const retests = promptedRepairs.map((r, idx) => retestRow(r, `p1-${idx + 1}`, "2026-06-02T12:00:00Z"));
+    // No day-7 events for anyone — both D7 rates should be 0 but still counted.
+    const events = [
+      ...promptedRepairs.map((r) => ev(r.user_id, "repair_completed", T0, r.debate_id)),
+      ...incidentalRepairs.map((r) => ev(r.user_id, "repair_completed", T0, r.debate_id)),
+    ];
+    const funnel = buildRepairOutcomeFunnel([...promptedRepairs, ...incidentalRepairs], debates, events, {
+      now: NOW2,
+      minSample: 3,
+      retests,
+    });
+    expect(funnel.postRepairReturnByArm.prompted.d7.eligibleUsers).toBe(3);
+    expect(funnel.postRepairReturnByArm.prompted.d7.returnedUsers).toBe(0);
+    expect(funnel.postRepairReturnByArm.prompted.d7.rate).toBe(0);
+    expect(funnel.postRepairReturnByArm.incidental.d7.eligibleUsers).toBe(3);
+    expect(funnel.postRepairReturnByArm.incidental.d7.returnedUsers).toBe(0);
+    expect(funnel.postRepairReturnByArm.incidental.d7.rate).toBe(0);
+    // Comparable but honest: the pooled D1 stays at the same anchors.
+    expect(funnel.postRepairReturn.d1.eligibleUsers).toBe(6);
+  });
+
+  it("refuses a pooled D7 claim when an arm is below the sample floor", () => {
+    const promptedRepairs = [1, 2].map((n) => repair(`u${n}`, `p${n}`, "rebuttal", T0));
+    const incidentalRepairs = [3].map((n) => repair(`u${n}`, `i${n}`, "rebuttal", T0));
+    const debates = [
+      ...promptedRepairs.map((r, idx) => debateRow(`u${idx + 1}`, `p1-${idx + 1}`, "2026-06-02T12:00:00Z", { rebuttal: 0 })),
+      ...incidentalRepairs.map((_, idx) => debateRow(`u${idx + 3}`, `i1-${idx + 1}`, "2026-06-02T12:00:00Z", { rebuttal: 0 })),
+    ];
+    const retests = promptedRepairs.map((r, idx) => retestRow(r, `p1-${idx + 1}`, "2026-06-02T12:00:00Z"));
+    const events = [...promptedRepairs, ...incidentalRepairs].map((r) => ev(r.user_id, "repair_completed", T0, r.debate_id));
+    const funnel = buildRepairOutcomeFunnel([...promptedRepairs, ...incidentalRepairs], debates, events, {
+      now: NOW2,
+      minSample: 3,
+      retests,
+    });
+    // Only 2 prompted anchors and 1 incidental — both below floor independently.
+    expect(funnel.postRepairReturnByArm.prompted.d7.eligibleUsers).toBe(2);
+    expect(funnel.postRepairReturnByArm.prompted.d7.rate).toBeNull();
+    expect(funnel.postRepairReturnByArm.incidental.d7.eligibleUsers).toBe(1);
+    expect(funnel.postRepairReturnByArm.incidental.d7.rate).toBeNull();
+    // The note names the floor rather than reporting a one-armed rate.
+    expect(funnel.postRepairReturnByArm.note).toMatch(/not yet comparable/);
+  });
+
   it("returnRateAfterAnchor counts only full windows as eligible", () => {
     const events = [
       ev("u1", "daily_viewed", "2026-06-02T09:00:00Z"),

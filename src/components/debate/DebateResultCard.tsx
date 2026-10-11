@@ -289,6 +289,16 @@ export function DebateResultCard({
                   deterministic story above.
                 </p>
               )}
+              {snapshot?.uncertainty && snapshot.uncertainty.length > 0 && (
+                <div className="rounded-lg border border-[var(--review)]/30 bg-[var(--review-soft)] px-4 py-3" data-testid="result-uncertainty">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--review)]">About this read</p>
+                  <ul className="mt-1 list-inside list-disc text-xs leading-5 text-ink3">
+                    {snapshot.uncertainty.map((u) => (
+                      <li key={u}>{u}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {view.argGraph && (
                 <>
                   <ArgGraphInline graph={view.argGraph} playerAName="You" playerBName="AI opponent" />
