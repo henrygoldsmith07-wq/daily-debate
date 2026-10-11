@@ -158,15 +158,27 @@ export interface RatingPayload {
 
 function validScores(scores: unknown): scores is Partial<SideScores> {
   if (typeof scores !== "object" || scores === null) return false;
+  let scored = 0;
   for (const dim of EVAL_DIMENSIONS) {
     const v = (scores as Record<string, unknown>)[dim];
     if (v === undefined) continue; // missing dims fall back at analysis time
     if (typeof v !== "number" || !Number.isFinite(v) || v < 1 || v > 5) return false;
+    scored += 1;
   }
-  return true;
+  return scored > 0;
 }
 
-/** Returns a list of problems; empty means the payload is acceptable. */
+/**
+ * Returns a list of problems; empty means the payload is acceptable.
+ *
+ * Note the `validScores` floor of one dimension per side: `completeScores`
+ * fills the rest with a neutral fallback at analysis time, which is right for
+ * a rater who scored some dimensions and left others blank. Without the floor
+ * a winner-only submission would be stored as a full neutral 3 across every
+ * dimension, and those invented numbers would feed the inter-rater reliability
+ * matrix that gates judge validation. Ratings are append-once, so a
+ * contaminated row cannot be cleaned up afterwards — it has to be refused.
+ */
 export function validateRating(body: unknown): string[] {
   const errors: string[] = [];
   const b = body as RatingPayload | null;
