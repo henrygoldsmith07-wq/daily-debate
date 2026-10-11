@@ -49,6 +49,12 @@ export interface ResultSnapshot {
   evidenceNodeCount: number;
   /** Repeated-weakness signal for the main weakness's kind. */
   recurrence: { count: number; label: string | null };
+  /**
+   * Honest uncertainty about the measurement itself — LLM-extracted-graph
+   * caveat, graph validation issues, missing-graph notice. Forwarded from the
+   * ObservableAssessment the graph came from; empty when every check passed.
+   */
+  uncertainty: string[];
 }
 
 function ownClaims(graph: ArgGraph): ArgNode[] {
@@ -121,6 +127,7 @@ export function buildResultSnapshot(
     honesty,
     evidenceNodeCount: 0,
     recurrence: { count: 0, label: null },
+    uncertainty: [],
   };
   if (!assessment?.graph) return base;
 
@@ -239,5 +246,6 @@ export function buildResultSnapshot(
     goalOutcome,
     evidenceNodeCount: evidence.length + graph.edges.length,
     recurrence,
+    uncertainty: [...(assessment.uncertainty ?? [])],
   };
 }

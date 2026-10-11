@@ -879,6 +879,18 @@ export interface RepairOutcomeFunnel {
   /** D1/D7/D30 return anchored at each user's first repair (not first activity). */
   postRepairReturn: { d1: ReturnRate; d7: ReturnRate; d30: ReturnRate };
   /**
+   * Post-repair return split by which arm the user's FIRST repair ended in.
+   * Observational: a user whose first repair got a deliberate assignment may
+   * return more (or less) than one whose repair relied on incidental exposure,
+   * but the assignment itself was the product of their engagement, not the
+   * cause of it. Each arm is sample-gated identically to `postRepairReturn`.
+   */
+  postRepairReturnByArm: {
+    prompted: { d1: ReturnRate; d7: ReturnRate; d30: ReturnRate };
+    incidental: { d1: ReturnRate; d7: ReturnRate; d30: ReturnRate };
+    note: string;
+  };
+  /**
    * Prompted vs incidental retest timing (observational, both arms sample-
    * gated separately). Prompted = the repair has an explicit durable
    * repair_retests assignment; incidental = successful repairs whose later
@@ -1166,6 +1178,33 @@ export function buildRepairOutcomeFunnel(
     ? "Observational arm comparison — users who follow the prompted retest may simply be more engaged; treat any gap as a hypothesis, not an effect."
     : `not yet comparable — prompted arm ${promptMeasured.length} measured, incidental arm ${incidentalMeasured.length} measured (each needs ${minSample}). No one-armed rate is reported.`;
 
+  // Post-repair return BY ARM: anchors are users at their first repair; the arm
+  // is that repair's class. A user whose first repair got a durable assignment
+  // is "prompted"; one whose first repair had no assignment is "incidental".
+  // Both arms are sample-gated identically to postRepairReturn, and the note
+  // makes the causal-reading refusal explicit.
+  const promptedAnchors = new Map<string, string>();
+  const incidentalAnchors = new Map<string, string>();
+  for (const [userId, anchorIso] of anchors) {
+    const firstRow = rows.find((r) => r.userId === userId && r.createdAt === anchorIso);
+    if (!firstRow?.measurable) continue;
+    (firstRow.hasAssignment ? promptedAnchors : incidentalAnchors).set(userId, anchorIso);
+  }
+  const promptReturn = {
+    d1: returnRateAfterAnchor(events, promptedAnchors, 1, now, minSample),
+    d7: returnRateAfterAnchor(events, promptedAnchors, 7, now, minSample),
+    d30: returnRateAfterAnchor(events, promptedAnchors, 30, now, minSample),
+  };
+  const incidentalReturn = {
+    d1: returnRateAfterAnchor(events, incidentalAnchors, 1, now, minSample),
+    d7: returnRateAfterAnchor(events, incidentalAnchors, 7, now, minSample),
+    d30: returnRateAfterAnchor(events, incidentalAnchors, 30, now, minSample),
+  };
+  const returnNote =
+    promptReturn.d7.rate === null || incidentalReturn.d7.rate === null
+      ? `not yet comparable — prompted arm ${promptedAnchors.size} user${promptedAnchors.size === 1 ? "" : "s"}, incidental arm ${incidentalAnchors.size} user${incidentalAnchors.size === 1 ? "" : "s"} (each needs ${minSample} eligible). No arm-vs-arm D7 rate is claimed.`
+      : "Observational cross-arm return — users whose first repair was prompted may simply be the more engaged users; treat any gap as a hypothesis about the prompt, not proof it caused the return.";
+
   return {
     attempts: repairs.length,
     repairs: rows.length,
@@ -1225,6 +1264,11 @@ export function buildRepairOutcomeFunnel(
       d1: returnRateAfterAnchor(events, anchors, 1, now, minSample),
       d7: returnRateAfterAnchor(events, anchors, 7, now, minSample),
       d30: returnRateAfterAnchor(events, anchors, 30, now, minSample),
+    },
+    postRepairReturnByArm: {
+      prompted: promptReturn,
+      incidental: incidentalReturn,
+      note: returnNote,
     },
     retestTiming: {
       prompted: {

@@ -125,6 +125,23 @@ describe("buildResultSnapshot", () => {
     expect(snapshot.recurrence.count).toBe(0);
     expect(snapshot.recurrence.label).toBeNull();
   });
+
+  it("forwards the assessment's uncertainty lines so the result screen can name them", () => {
+    // The pure snapshot builder never invents uncertainty — it mirrors the
+    // assessment's own honest list, so a learner-ready "About this read"
+    // block on the result card can surface the same caveats PvP already shows.
+    const assessment = assess(SUPPORTED_GRAPH);
+    const snapshot = buildResultSnapshot(
+      { ...assessment, uncertainty: ["Argument graph was extracted by an LLM; graph facts were not independently verified."] },
+      { format: "full" },
+    );
+    expect(snapshot.uncertainty).toEqual([
+      "Argument graph was extracted by an LLM; graph facts were not independently verified.",
+    ]);
+    const defaultSnapshot = buildResultSnapshot(assessment, { format: "full" });
+    expect(defaultSnapshot.uncertainty).toEqual([]);
+    expect(buildResultSnapshot(null, { format: "sprint" }).uncertainty).toEqual([]);
+  });
 });
 
 describe("graph turn helpers used by the snapshot", () => {

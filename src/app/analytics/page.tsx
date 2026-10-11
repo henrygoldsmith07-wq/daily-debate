@@ -5,6 +5,7 @@ import { loadFunnelData } from "@/lib/productFunnelServer";
 import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, FUNNEL_MIN_SAMPLE } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
+import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
 
 export const dynamic = "force-dynamic";
@@ -272,6 +273,59 @@ export default async function AnalyticsPage() {
         </section>
       )}
 
+      {/* Latency budgets at the loop-decision moment — the p95 the learner is
+          timed against on a solo turn, and the p95 they wait on at finish.
+          assessLatencyBudgets carries an explicit state per budget (ok /
+          over-budget / insufficient-data / unmeasured) and names the degraded
+          behaviour users experience, so a breach and a too-small sample never
+          both render as "fine". */}
+      {(() => {
+        const budgets = assessLatencyBudgets({
+          stats: aiOps?.byOperation.map((op) => ({
+            operation: op.operation,
+            calls: op.calls,
+            errors: op.errors,
+            errorRate: op.errorRate,
+            avgLatencyMs: op.avgLatencyMs,
+            p95LatencyMs: op.p95LatencyMs,
+            byCategory: op.byCategory,
+            note: op.note,
+          })) ?? [],
+          generatedAt: aiOps?.generatedAt ?? new Date().toISOString(),
+        });
+        return (
+          <section className="surface-card p-5" aria-labelledby="latency-heading">
+            <h2 id="latency-heading" className="text-sm font-semibold">Loop latency at the decision moment</h2>
+            <p className="mt-1 text-xs text-ink3">{budgets.note}</p>
+            <ul className="mt-3 flex flex-col gap-2 text-xs">
+              {budgets.assessments.map((a) => (
+                <li key={a.operation} className="flex flex-col gap-0.5 border-b border-[var(--rule)] pb-2 last:border-0">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-medium">{a.label}</span>
+                    <span
+                      className={
+                        a.state === "ok"
+                          ? "text-[var(--success)]"
+                          : a.state === "over-budget"
+                            ? "text-[var(--danger)]"
+                            : "text-ink3"
+                      }
+                    >
+                      {a.state === "ok" && `✓ within budget — p95 ${a.measuredP95Ms}ms of ${a.budgetMs}ms`}
+                      {a.state === "over-budget" && `⚠ over budget — p95 ${a.measuredP95Ms}ms vs ${a.budgetMs}ms`}
+                      {a.state === "insufficient-data" && `— not yet measured`}
+                      {a.state === "unmeasured" && `— no calls in window`}
+                    </span>
+                  </div>
+                  <p className="text-ink3">{a.note}</p>
+                  <p className="text-ink3">When this happens: {a.degradedBehaviour}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })()}
+
       <section className="surface-card p-5" aria-labelledby="repair-heading">
         <h2 id="repair-heading" className="text-sm font-semibold">Does repair work?</h2>
         <p className="mt-1 text-xs text-ink3">{effectiveness.honestyNote}</p>
@@ -354,6 +408,46 @@ export default async function AnalyticsPage() {
           {trainingLoop.opportunitiesBeforeRecurrence.median ?? "—"} measured opportunities before the first recurrence.
           The follow-up and fixed-exposure measures add to the denominator with exposure, so more later debates never imply a worse outcome.
         </p>
+
+        <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink3">Retest timing: prompted vs incidental</h3>
+        <p className="mt-1 text-xs text-ink3">{trainingLoop.retestTiming.note}</p>
+        <p className="mt-2 text-xs text-ink3">
+          Prompted arm: {trainingLoop.retestTiming.prompted.repairs} repair{trainingLoop.retestTiming.prompted.repairs === 1 ? "" : "s"} with an explicit
+          retest assignment · {trainingLoop.retestTiming.prompted.measured} measured · {trainingLoop.retestTiming.prompted.recurred} recurred ·{" "}
+          median {trainingLoop.retestTiming.prompted.medianDaysToRetest ?? "—"} day{trainingLoop.retestTiming.prompted.medianDaysToRetest === 1 ? "" : "s"} to retest ·
+          recurrence {trainingLoop.retestTiming.prompted.rate === null ? "—" : pct(trainingLoop.retestTiming.prompted.rate)}.
+          Incidental arm: {trainingLoop.retestTiming.incidental.repairs} repair{trainingLoop.retestTiming.incidental.repairs === 1 ? "" : "s"} measured only
+          through ordinary follow-up debates · {trainingLoop.retestTiming.incidental.measured} measured ·{" "}
+          {trainingLoop.retestTiming.incidental.recurred} recurred · recurrence{" "}
+          {trainingLoop.retestTiming.incidental.rate === null ? "—" : pct(trainingLoop.retestTiming.incidental.rate)}.
+        </p>
+
+        <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink3">Does the prompt bring them back? D1/D7/D30 post-repair return by arm</h3>
+        <p className="mt-1 text-xs text-ink3">{trainingLoop.postRepairReturnByArm.note}</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2 text-xs">
+          <div className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
+            <p className="font-semibold text-ink">Prompted first repair</p>
+            <p className="mt-1 text-ink3">
+              D1 {trainingLoop.postRepairReturnByArm.prompted.d1.rate === null ? "—" : pct(trainingLoop.postRepairReturnByArm.prompted.d1.rate)} ·
+              D7 {trainingLoop.postRepairReturnByArm.prompted.d7.rate === null ? "—" : pct(trainingLoop.postRepairReturnByArm.prompted.d7.rate)} ·
+              D30 {trainingLoop.postRepairReturnByArm.prompted.d30.rate === null ? "—" : pct(trainingLoop.postRepairReturnByArm.prompted.d30.rate)}
+            </p>
+            <p className="mt-1 text-[11px] text-ink3">
+              {trainingLoop.postRepairReturnByArm.prompted.d7.eligibleUsers} eligible at day 7 · {trainingLoop.postRepairReturnByArm.prompted.d7.pendingUsers} still pending
+            </p>
+          </div>
+          <div className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
+            <p className="font-semibold text-ink">Incidental first repair</p>
+            <p className="mt-1 text-ink3">
+              D1 {trainingLoop.postRepairReturnByArm.incidental.d1.rate === null ? "—" : pct(trainingLoop.postRepairReturnByArm.incidental.d1.rate)} ·
+              D7 {trainingLoop.postRepairReturnByArm.incidental.d7.rate === null ? "—" : pct(trainingLoop.postRepairReturnByArm.incidental.d7.rate)} ·
+              D30 {trainingLoop.postRepairReturnByArm.incidental.d30.rate === null ? "—" : pct(trainingLoop.postRepairReturnByArm.incidental.d30.rate)}
+            </p>
+            <p className="mt-1 text-[11px] text-ink3">
+              {trainingLoop.postRepairReturnByArm.incidental.d7.eligibleUsers} eligible at day 7 · {trainingLoop.postRepairReturnByArm.incidental.d7.pendingUsers} still pending
+            </p>
+          </div>
+        </div>
       </section>
 
       <p className="text-xs text-ink3">
