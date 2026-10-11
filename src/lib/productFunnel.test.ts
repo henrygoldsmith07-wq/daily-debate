@@ -609,7 +609,12 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     const rows = buildRepairOutcomeRows(repairs, debates, [], retests);
     expect(rows).toHaveLength(1);
     expect(rows[0].measurable).toBe(false);
-    expect(rows[0].firstRetestRecurred).toBe(false); // recorded, but not evidence
+    // Null, not false: a clarity repair has no deterministic weakness detector,
+    // so there is no reading to record — `false` would claim a measured
+    // non-recurrence that was never measured. This is the honesty guard the
+    // field's own documentation promises ("unmeasurable rows stay null"), and
+    // it is what keeps the row out of every recurrence denominator below.
+    expect(rows[0].firstRetestRecurred).toBeNull();
 
     const funnel = buildRepairOutcomeFunnel(repairs, debates, [], { now: NOW2, minSample: 1, retests });
     expect(funnel.firstRetestRecurrence.numerator).toBe(0);
