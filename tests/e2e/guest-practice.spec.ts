@@ -121,8 +121,10 @@ test.describe("guest practice honesty", () => {
     await page.goto("/");
 
     // Guest has no profile, so skillProfile is null and the empty state renders.
-    await expect(page.getByText("Complete a debate to start seeing")).toBeVisible();
-    await expect(page.getByText("here is what each skill tracks")).toBeVisible();
+    // These phrases live in a single explanatory sentence, so match as substrings
+    // (Playwright exact=true requires the whole element text to equal the query).
+    await expect(page.getByText("Complete a debate to start seeing", { exact: false })).toBeVisible();
+    await expect(page.getByText("here is what each skill tracks", { exact: false })).toBeVisible();
 
     for (const label of ["Evidence", "Rebuttal", "Logic", "Engagement", "Impact", "Steelmanning", "Structure"]) {
       await expect(page.getByText(label, { exact: false })).toBeVisible();
