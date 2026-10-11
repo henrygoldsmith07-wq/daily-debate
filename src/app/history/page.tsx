@@ -5,6 +5,9 @@ import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
 import type { PvpVerdict } from "@/lib/types";
 import { normalizeIanaTimeZone } from "@/lib/timeZone";
+import { loadJudgeValidation } from "@/lib/judgeValidationServer";
+import { allowsCompetitiveClaims } from "@/lib/judgeValidation";
+import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +59,11 @@ export default async function HistoryPage() {
   const timeZone = normalizeIanaTimeZone(profileRes.data?.timezone);
   const soloDebates = soloRes.data ?? [];
   const pvpMatches = pvpRes.data ?? [];
+  // The single gate that unlocks won/lost framing anywhere in the product.
+  // Computed once per render from the published benchmark artifact, so the
+  // history list and the result screen can never disagree.
+  const pvpValidation = loadJudgeValidation().surfaces["pvp-verdict"];
+  const competitiveClaimsAllowed = allowsCompetitiveClaims(pvpValidation);
   // A failed read must not look like an empty history. Previously a DB error
   // produced `[]`, which rendered the same "No solo debates yet" empty state as
   // a genuine first visit — indistinguishable data loss.
@@ -168,16 +176,30 @@ export default async function HistoryPage() {
         ) : (
           pvpMatches.map((m) => {
             const verdict = m.judge_verdict as PvpVerdict | null;
+            // Only a judge that cleared every validation gate unlocks
+            // won/lost framing anywhere in the product — the same gate the
+            // result screen reads, applied to this list too.
+            const framed = framePvpOutcome({
+              winnerId: m.winner_id,
+              currentUserId: user.id,
+              nameFor: () => "Opponent",
+              competitiveClaimsAllowed,
+              isForfeit: verdict?.scoreStatus === "insufficient_evidence" && verdict.isTie !== true,
+              isTie: verdict?.isTie === true,
+            });
+            // A one-line list label. The row is too narrow for the full
+            // attribution sentence (that lives on the match page), so the
+            // judge-scored reading keeps who it favoured and drops the
+            // justification. "won"/"lost" only ever appear once a benchmarked
+            // model has cleared every gate.
             const outcome =
               m.status !== "completed"
                 ? "in progress"
-                : !verdict || verdict.scoreStatus === "insufficient_evidence"
-                  ? "no confident verdict"
-                  : m.winner_id === null
-                    ? "too close to call"
-                    : m.winner_id === user.id
-                      ? "won"
-                      : "lost";
+                : framed.attribution
+                  ? m.winner_id === user.id
+                    ? "judge scored · for you"
+                    : "judge scored · for opponent"
+                  : framed.headline;
             return (
               <Link
                 key={m.id}
@@ -191,7 +213,11 @@ export default async function HistoryPage() {
                 <span className="shrink-0 text-right">
                   <span
                     className={`tabular font-medium ${
-                      outcome === "won" ? "text-[var(--accent)]" : outcome === "lost" ? "text-[var(--bad)]" : ""
+                      outcome === "You won"
+                        ? "text-[var(--accent)]"
+                        : !competitiveClaimsAllowed || outcome === "in progress"
+                          ? ""
+                          : "text-[var(--bad)]"
                     }`}
                   >
                     {outcome}

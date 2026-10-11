@@ -124,7 +124,8 @@ export default function PvpLobby() {
         <>
           <p className="text-sm text-ink3">
             You&apos;ll be randomly assigned a side and take turns arguing. After {PVP_ROUNDS} rounds each, an AI judge
-            scores the match and declares a winner.
+            reads both cases and reports how it scored the debate. The judge has not cleared validation gates yet, so
+            treat the outcome as practice feedback rather than a result.
           </p>
           <button type="button" onClick={findOpponent} className="btn btn-primary px-6 py-2.5 text-sm">
             Find an opponent

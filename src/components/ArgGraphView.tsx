@@ -32,14 +32,32 @@ function nodesByRound(nodes: ArgNode[]) {
   return [...map.entries()].sort(([a], [b]) => a - b);
 }
 
-export function VerdictExplainPanel({ verdict, playerAName, playerBName }: { verdict: PvpVerdict; playerAName: string; playerBName: string }) {
+export function VerdictExplainPanel({
+  verdict,
+  playerAName,
+  playerBName,
+  competitiveClaimsAllowed = true,
+}: {
+  verdict: PvpVerdict;
+  playerAName: string;
+  playerBName: string;
+  /**
+   * When the judge has not cleared the validation gates, the panel stops
+   * describing the outcome as a debate "won" — the same reading is presented
+   * as the judge's score of this debate. Set false by PvpRoom from the
+   * server-computed validation state.
+   */
+  competitiveClaimsAllowed?: boolean;
+}) {
   const g = verdict.argGraph;
   const deciding = verdict.decidingFactor ?? verdict.rationale;
 
   return (
     <div className="flex flex-col gap-5">
       <div className="surface-card p-5 flex flex-col gap-3">
-        <p className="text-xs uppercase tracking-wide text-ink3">Why the debate was won</p>
+        <p className="text-xs uppercase tracking-wide text-ink3">
+          {competitiveClaimsAllowed ? "Why the debate was won" : "How the judge read this debate"}
+        </p>
         <p className="text-sm leading-relaxed">{deciding}</p>
         <p className="text-xs text-ink3 tabular">
           {verdict.scoreStatus === "insufficient_evidence"
@@ -60,8 +78,8 @@ export function VerdictExplainPanel({ verdict, playerAName, playerBName }: { ver
         )}
         {verdict.breakdown && (
           <div className="grid grid-cols-2 gap-3 pt-2 text-xs">
-            <Breakdown label={playerAName} data={verdict.breakdown.a} winner={verdict.winner === "a"} />
-            <Breakdown label={playerBName} data={verdict.breakdown.b} winner={verdict.winner === "b"} />
+            <Breakdown label={playerAName} data={verdict.breakdown.a} winner={competitiveClaimsAllowed && verdict.winner === "a"} />
+            <Breakdown label={playerBName} data={verdict.breakdown.b} winner={competitiveClaimsAllowed && verdict.winner === "b"} />
           </div>
         )}
         {g?.impactComparison && (
