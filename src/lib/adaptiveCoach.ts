@@ -308,7 +308,15 @@ export function scoreAttempt(dim: CoachDimension, text: string): AttemptScore {
     score += 15;
     signals.push("substantive length");
   }
-  if (CONTRASTIVE_RE.test(text)) {
+  // Engagement is the one dimension where a bare contrastive conjunction is
+  // NOT engagement: "However, my policy is better" answers nothing. For that
+  // dimension the generic contrastive award and label are taken from the
+  // dimension's own definition, so the feedback can never tell a learner they
+  // engaged a move they never named while the coaching below asks them to name
+  // it. Every other dimension keeps the contrastive signal as-is.
+  const contrastiveEngages =
+    dim === "clarity" ? readEngagementSignals(text).namesMove : CONTRASTIVE_RE.test(text);
+  if (contrastiveEngages) {
     score += 15;
     signals.push("engages the opposing move");
   }
