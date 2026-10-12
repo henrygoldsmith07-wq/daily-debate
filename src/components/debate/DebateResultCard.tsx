@@ -164,6 +164,12 @@ export function DebateResultCard({
               Repair completed for this debate — your next debates test whether it stuck.
             </div>
           )}
+          {view.repaired && (
+            <p className="mt-1.5 text-xs text-ink3" data-testid="repair-next-step">
+              Tomorrow&rsquo;s deliberate retest is the product&rsquo;s part of the bargain: a different topic,
+              then a real read on whether the same weakness reappears when you argue under time pressure.
+            </p>
+          )}
 
           {/* Performance is length-normalized; XP remains cumulative reward volume. */}
           <div className="flex items-baseline gap-3 pt-1">
