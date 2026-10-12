@@ -99,7 +99,7 @@ export default async function DashboardPage() {
   });
   const topic = motion.topic;
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, { data: previousDebate }, openDrillRow] =
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, previousDebateBundle, openDrillRow] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -117,14 +117,30 @@ export default async function DashboardPage() {
         .eq("topic_id", topic.id)
         .order("created_at", { ascending: true })
         .limit(4),
-      db
-        .from("solo_debates")
-        .select("id, topic_id, side, total_score, performance_score, bonus_xp, round_count, created_at, completed_at, format, coaching")
-        .eq("user_id", user.id)
-        .eq("status", "completed")
-        .order("completed_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+      // Bundle previous-debate + its topic title + the guest-context fallback
+      // into ONE branch: the title lookup and the guest context both depend on
+      // previousDebate, so chaining them inside the branch keeps the page's
+      // critical path flat instead of adding two post-parallel sequential
+      // round-trips. (Loop latency: every extra await delays first paint.)
+      (async () => {
+        const { data: previousDebate } = await db
+          .from("solo_debates")
+          .select("id, topic_id, side, total_score, performance_score, bonus_xp, round_count, created_at, completed_at, format, coaching")
+          .eq("user_id", user.id)
+          .eq("status", "completed")
+          .order("completed_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const [topicResult, guestResult] = await Promise.all([
+          previousDebate?.topic_id
+            ? db.from("daily_topics").select("title").eq("id", previousDebate.topic_id).maybeSingle()
+            : Promise.resolve({ data: null }),
+          previousDebate
+            ? Promise.resolve(null)
+            : getGuestContext(user.id),
+        ]);
+        return { previousDebate, previousDebateTitle: topicResult.data?.title ?? null, guestContext: guestResult };
+      })(),
       // Today's open drill assignment (coach/today owns creation/retargeting;
       // the dashboard only reads the row to surface priority #3 — an
       // unattempted drill above today's debate, with its prompt rendered
@@ -156,6 +172,11 @@ export default async function DashboardPage() {
         }
       })(),
     ]);
+  // Unpack the previous-debate bundle fired inside the parallel block above.
+  const previousDebate = previousDebateBundle.previousDebate;
+  const previousDebateTitle = previousDebateBundle.previousDebateTitle;
+  const guestContext = previousDebateBundle.guestContext;
+
   const ledger = coachingContext.ledger;
   const { data: repairAttempts } = await db
     .from("repair_results")
@@ -184,7 +205,8 @@ export default async function DashboardPage() {
   // its own completed debate: once real observed evidence exists, a single
   // unauthenticated guest rep is no longer the most useful thing to lead with.
   // It never enters the ledger or a score — see guestContextServer.ts.
-  const guestContext = previousDebate ? null : await getGuestContext(user.id);
+  // (The guest context was loaded inside the previous-debate parallel branch
+  // above so the value is already resolved; only the short-circuit lives here.)
   const guestSkillKey = guestContext ? canonicalSkillKey(guestContext.weaknessKind) : null;
   const guestCarryover = guestContext && guestSkillKey
     ? {
@@ -194,16 +216,6 @@ export default async function DashboardPage() {
         observed: guestContext.retestOutcome === "observed",
       }
     : null;
-
-  let previousDebateTitle: string | null = null;
-  if (previousDebate?.topic_id) {
-    const { data: previousTopic } = await db
-      .from("daily_topics")
-      .select("title")
-      .eq("id", previousDebate.topic_id)
-      .maybeSingle();
-    previousDebateTitle = previousTopic?.title ?? null;
-  }
 
   const skillProfile = ledger ? computeSkillProfile(ledger.points) : null;
   // "Improving" needs more than a two-debate delta to be worth printing:
