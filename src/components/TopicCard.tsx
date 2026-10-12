@@ -219,7 +219,7 @@ export default function TopicCard({
               {starting === "sprint" ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-transparent" />
-                  Starting…
+                  Asking today&rsquo;s opponent…
                 </span>
               ) : (
                 <>Daily Sprint · three rounds, ~4 min <span aria-hidden="true">→</span></>
@@ -233,7 +233,7 @@ export default function TopicCard({
                 className="btn btn-ghost px-3 py-2 text-sm text-ink3 disabled:opacity-40"
                 data-testid="start-full"
               >
-                {starting === "full" ? "Starting…" : "Full debate · 5–12 rounds"}
+                {starting === "full" ? "Asking today's opponent…" : "Full debate · 5–12 rounds"}
               </button>
               {(["flash", "cross-examination", "socratic"] as const).map((format) => (
                 <button
@@ -251,10 +251,20 @@ export default function TopicCard({
                         : "The AI only asks questions — you build the whole case"
                   }
                 >
-                  {starting === format ? "Starting…" : `${formatLabelFor(format)} · ${formatEstimateLabel(format)}`}
+                  {starting === format ? "Asking today's opponent…" : `${formatLabelFor(format)} · ${formatEstimateLabel(format)}`}
                 </button>
               ))}
             </div>
+            {/* Loop-latency at the commitment moment: the first rep happens in
+                one shot — opening generation on the model can take seconds on
+                the shared free chain. Naming the work keeps a quiet wait from
+                reading as a hung click. No fresh spinner copy; this is the
+                only affordance the start button gets. */}
+            {starting !== null && (
+              <p className="text-[11px] leading-4 text-ink3" role="status">
+                Building your debate will take a few seconds — the AI is composing its opening argument.
+              </p>
+            )}
             <p className="home-start-note">
               Three focused rounds with directional feedback. Cross-examination and Socratic train probing and answer-building; Flash is one sharp exchange.
             </p>
