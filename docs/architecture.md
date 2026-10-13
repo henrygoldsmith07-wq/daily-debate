@@ -45,7 +45,7 @@ User-facing explanation (Today, result screen, Progress, DNA)
 | `productEvents.ts` | Allowlisted funnel events (silent on failure) |
 | `productFunnelServer.ts`, `aiOpsServer.ts` | Admin analytics loaders with explicit complete/partial/unavailable semantics; never convert read failure into zero activity |
 | `analytics/` | Funnel events, session funnel, retention/cohorts, repair outcomes and report assembly. `productFunnel.ts` is a barrel so the import path is unchanged. |
-| `opsHealth/` | One file per subsystem (core, topic, judge, database, app, evidence, report). `opsHealth.ts` is a barrel; I/O stays in `opsHealthServer.ts`. |
+| `opsHealth.ts` | Assessment functions for every operational subsystem (topic SLO, database, judge, app CI, human validation, training evidence), pure and unit-tested. I/O stays in `opsHealthServer.ts`. |
 | `components/debate/` | The solo debate room: `useDebateSession` (turns, submission, finish, recovery), `useResponseWindow` (server-authoritative timers), `useDebateSpeech`, plus the live and result views. `DebateRoom.tsx` only wires them together. |
 | `backend/*` | Owned Postgres/auth: sessions, query builder, rate limits |
 
