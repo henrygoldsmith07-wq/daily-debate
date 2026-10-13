@@ -508,6 +508,64 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     expect(fallbackOnly.proofs.aiGeneratedProductionSuccess).toBe(false);
   });
 
+  it("an unreadable topic_run_log never renders as 'not yet proven'", () => {
+    // A failed READ is not a claim about the pipeline's history. The three
+    // proofs that depend on durable columns must stay false (they were not
+    // observed), but the note must say unassessed — otherwise an outage in
+    // topic_run_log silently reports "this pipeline never proved idempotence",
+    // which is a factual claim we have no evidence for.
+    const s = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true,
+        telemetry: [],
+        telemetryReadable: false,
+        // The GitHub-derived witnesses carry no fingerprint columns, so they
+        // cannot satisfy these predicates even when they are present.
+        aiEvidence: { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, rowFingerprint: null, exactVerifiedAiTelemetry: false },
+      },
+      "2026-09-16T12:00:00Z",
+    );
+    expect(s.proofs.sameDateContentIdempotence).toBe(false);
+    expect(s.proofs.onTimeBeforeDeadline).toBe(false);
+    expect(s.proofs.aiGeneratedProductionSuccess).toBe(false);
+    expect(s.note).toMatch(/topic_run_log was unreadable/);
+    expect(s.note).toMatch(/unassessed rather than false/);
+  });
+
+  it("a readable-but-empty log reports the same proofs without the unassessed note", () => {
+    // The other half: an empty read IS a measurement, and nothing may soften
+    // the resulting false. Also proves the default (unset) is readable, so
+    // existing callers and the GitHub-witness merge path keep their meaning.
+    const s = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true,
+        telemetry: [],
+      },
+      "2026-09-16T12:00:00Z",
+    );
+    expect(s.proofs.sameDateContentIdempotence).toBe(false);
+    expect(s.note ?? "").not.toMatch(/unreadable/);
+  });
+
+  it("a readable log with real proofs still passes them all", () => {
+    // Readability must not weaken the true path: the gate is additive.
+    const fp = "e".repeat(64);
+    const s = assessTopicSlo(
+      {
+        runs: [], productionDbReadable: true, tomorrowReady: true,
+        telemetry: [
+          { event: "schedule", at: "2026-09-15T20:02:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-16", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "ai" },
+        ],
+        telemetryReadable: true,
+        aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, rowFingerprint: fp, exactVerifiedAiTelemetry: true },
+      },
+      "2026-09-15T23:00:00Z",
+    );
+    expect(s.proofs.aiGeneratedProductionSuccess).toBe(true);
+    expect(s.proofs.onTimeBeforeDeadline).toBe(true);
+    expect(s.note ?? "").not.toMatch(/unreadable/);
+  });
+
   it("longitudinal provider attempts aggregate by provider and model", () => {
     const s = assessTopicSlo(
       {

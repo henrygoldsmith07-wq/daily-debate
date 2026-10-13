@@ -381,8 +381,25 @@ export interface TopicSloInput {
    * null/undefined = unknown (older runs pre-verifier, or fetch failure).
    */
   latestRunVerified?: boolean | null;
-  /** Persisted per-run telemetry (topic_run_log); newest first or any order. */
+  /**
+   * Persisted per-run telemetry (topic_run_log); newest first or any order.
+   *
+   * `false` (the default when unset is `true`) means topic_run_log could not
+   * be READ in this request — which is a different fact from "was read and
+   * holds no rows". When the log is unreadable, the three proofs that depend
+   * on durable columns (fingerprint, deadline, real-AI identity) are reported
+   * as UNREADABLE instead of `false`, because a failed read must never render
+   * as "not yet proven" — the latter is a claim about the pipeline's history,
+   * the former a claim about this observer's access. Same shape as
+   * `durableProofs`: null means fall back, an object means authoritative.
+   */
   telemetry?: TopicRunTelemetryRow[];
+  /**
+   * Whether `telemetry` came from a successful topic_run_log read. The GitHub
+   * derived-witness merge never sets this: derived rows are a second witness
+   * for scheduler DELAY only, and cannot prove fingerprint/deadline/AI facts.
+   */
+  telemetryReadable?: boolean;
   /**
    * Real-AI end-to-end evidence for the aiGeneratedProductionSuccess proof:
    * an AI row with surviving non-empty sources plus ONE telemetry row that
@@ -627,9 +644,25 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
   // fingerprint, both attempts successful AND freshness-verified. NOTHING
   // else: coupling identity to generatorResult produced false negatives
   // ("generated" vs "verified" is an operational fact, not a content fact).
-  const verifiedSuccesses = telemetry.filter(
-    (r) => r.result === "success" && r.targetDate && r.freshnessOk === true && r.topicFingerprint,
-  );
+  //
+  // `telemetryReadable` distinguishes "this observer could not read
+  // topic_run_log" from "it read it and found nothing". An unreadable log
+  // must NOT compute a false `false` here: that renders a read failure as
+  // "this pipeline has never proven idempotence", which is a factual claim
+  // about the pipeline's history rather than about our access. The GitHub
+  // derived-witness rows carry no fingerprint/deadline columns, so they can
+  // never satisfy these predicates even when present.
+  const telemetryRead = input.telemetryReadable !== false;
+  let telemetryUnavailableNote: string | null = null;
+  if (!telemetryRead) {
+    telemetryUnavailableNote =
+      "topic_run_log was unreadable this request, so the fingerprint, deadline and real-AI proofs are unassessed rather than false — a failed read is not a claim about the pipeline's history.";
+  }
+  const verifiedSuccesses = telemetryRead
+    ? telemetry.filter(
+        (r) => r.result === "success" && r.targetDate && r.freshnessOk === true && r.topicFingerprint,
+      )
+    : [];
   const sameDateContentIdempotence = verifiedSuccesses.some((r1) =>
     verifiedSuccesses.some(
       (r2) =>
@@ -642,6 +675,7 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
   // On-time needs VERIFIED content completed before the actual deadline.
   const onTimeBeforeDeadline =
     input.tomorrowReady &&
+    telemetryRead &&
     telemetry.some(
       (r) => r.targetDate === tomorrowIso && r.completedBeforeDeadline === true && r.freshnessOk === true,
     );
@@ -651,7 +685,11 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
   // reports as ai-generated, successful and freshness-verified. Two separate
   // `some()` checks could be satisfied by DIFFERENT rows (an AI row plus a
   // fallback run's fingerprint match) — the single predicate closes that.
+  // The loader already refuses to build this evidence when the store is
+  // unreadable (it is only called under topicStoreReadable), but the
+  // telemetryReadable gate makes that explicit at the point of use.
   const aiGeneratedProductionSuccess =
+    telemetryRead &&
     aiEvidence?.aiRowPresent === true &&
     aiEvidence?.sourcesNonEmpty === true &&
     aiEvidence?.rowFingerprint != null &&
@@ -660,7 +698,11 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
   const scheduling = assessScheduling(telemetry);
   const providerSummary = summariseProviderAttempts(telemetry);
 
-  const notes = [availabilityNote, schedulerNote(scheduler, consecutiveScheduledFailures, scheduled, nowIso)].filter(Boolean);
+  const notes = [
+    availabilityNote,
+    telemetryUnavailableNote,
+    schedulerNote(scheduler, consecutiveScheduledFailures, scheduled, nowIso),
+  ].filter(Boolean);
   return {
     scheduler: {
       state: scheduler,

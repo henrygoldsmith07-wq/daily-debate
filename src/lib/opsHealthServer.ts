@@ -382,7 +382,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   // (migration 014) supplies scheduler-delay/availability telemetry; missing
   // table or unreadable rows degrade to "no telemetry", never to errors.
   const topicRuns = await fetchTopicGenerationRuns(token);
-  const dbTelemetry = await loadTopicRunTelemetry();
+  const { rows: dbTelemetry, readable: telemetryReadable } = await loadTopicRunTelemetry();
   // Durable proofs come from topic_run_log over its WHOLE table — an old
   // manual run must not fall outside an eight-run GitHub page and erase the
   // manual→scheduled fact. GitHub history stays the fallback when the DB
@@ -403,6 +403,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       productionDbReadable: topicStoreReadable,
       tomorrowReady: topic.tomorrowReady,
       telemetry,
+      telemetryReadable,
       aiEvidence,
       durableProofs,
     },
@@ -664,8 +665,14 @@ async function loadDurableProofFacts(): Promise<DurableProofFacts | null> {
  * derived, not stored: a run for target date T "hit the deadline" iff it
  * completed by T's date-boundary + SLO clock (03:00 UTC of the day the topic
  * serves - i.e. T 00:00 is when it becomes today; 03:00 is the hard cap).
+ *
+ * Returns `{ rows, readable }` rather than an array alone: an empty array on
+ * a read failure is indistinguishable from an empty table, and the proofs
+ * that read durable columns would then compute `false` and render a read
+ * failure as "this pipeline never proved X". `readable: false` lets the SLO
+ * report those proofs as unassessed instead.
  */
-async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
+async function loadTopicRunTelemetry(): Promise<{ rows: TopicRunTelemetryRow[]; readable: boolean }> {
   const parseAttempts = (raw: unknown): TopicRunTelemetryRow["providerAttempts"] => {
     if (raw === null || raw === undefined) return null;
     try {
@@ -745,7 +752,7 @@ async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
                 topic_fingerprint, provider_attempts
            FROM topic_run_log ORDER BY started_at DESC LIMIT 60`,
       );
-      return rows.map(mapRow);
+      return { rows: rows.map(mapRow), readable: true };
     } catch {
       // Pre-016 databases lack the fidelity columns — fall back to the
       // legacy shape so telemetry still loads instead of going dark.
@@ -761,10 +768,12 @@ async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
         `SELECT event, started_at, completed_at, delay_ms, target_date, result, freshness_ok
            FROM topic_run_log ORDER BY started_at DESC LIMIT 60`,
       );
-      return rows.map(mapRow);
+      return { rows: rows.map(mapRow), readable: true };
     }
   } catch {
-    return [];
+    // Unread. The rows stay empty, but the flag tells the SLO the difference
+    // between "no history" and "I could not look" — see loadTopicRunTelemetry.
+    return { rows: [], readable: false };
   }
 }
 
