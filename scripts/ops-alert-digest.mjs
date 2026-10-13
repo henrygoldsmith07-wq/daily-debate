@@ -286,7 +286,11 @@ async function main() {
 
   const decision = decideOpsAlert({
     runs,
-    telemetry: [],
+    // null, not []: this workflow deliberately carries no DATABASE_URL (see the
+    // header), so topic_run_log is never queried here. `[]` would claim a read
+    // that returned nothing; null says the measurement was not taken. The
+    // evidence line renders that distinction verbatim.
+    telemetry: null,
     availability,
     dbReadable,
     proofs,
