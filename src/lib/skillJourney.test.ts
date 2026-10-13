@@ -19,13 +19,19 @@ function repair(over: Partial<RepairRecord> = {}): RepairRecord {
   };
 }
 
-function debate(at: string, kinds: Record<string, number>, opponentMoves = 3, id = `d-${at}`): DebateWeaknessRow {
+function debate(
+  at: string,
+  kinds: Record<string, number>,
+  opponentMoves = 3,
+  id = `d-${at}`,
+  engagementRounds = 3,
+): DebateWeaknessRow {
   return {
     debateId: id,
     userId: "u1",
     completedAt: at,
     kinds,
-    opps: { majorClaims: 2, opponentMoves },
+    opps: { majorClaims: 2, opponentMoves, engagementRounds },
   };
 }
 

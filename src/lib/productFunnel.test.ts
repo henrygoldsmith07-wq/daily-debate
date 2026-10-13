@@ -416,13 +416,19 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     return { id: `${user}-${debate}-${kind}-${at}`, user_id: user, debate_id: debate, target_kind: kind, score: 80, succeeded: true, created_at: at };
   }
 
-  function debateRow(user: string, debate: string, at: string, kinds: Record<string, number>): DebateWeaknessRow {
+  function debateRow(
+    user: string,
+    debate: string,
+    at: string,
+    kinds: Record<string, number>,
+    opps?: { majorClaims: number; opponentMoves: number; engagementRounds: number },
+  ): DebateWeaknessRow {
     return {
       debateId: debate,
       userId: user,
       completedAt: at,
       kinds,
-      opps: { majorClaims: 2, opponentMoves: 2 },
+      opps: opps ?? { majorClaims: 2, opponentMoves: 2, engagementRounds: 2 },
     };
   }
 
@@ -598,29 +604,45 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     expect(funnel.opportunitiesBeforeRecurrence.median).toBe(0);
   });
 
-  it("labels detector-less repair kinds unmeasurable and keeps them out of recurrence rates", () => {
-    // Clarity has NO deterministic weakness detector (countWeaknessesForSide
-    // always returns clarity: 0), so a clarity repair's recurrence flags would
-    // be structural defaults. The row stays visible, but it must never enter
-    // a recurrence denominator and silently deflate the rate.
+  it("keeps measurable repair kinds honest through the same recurrence guards", () => {
+    // Clarity/Engagement used to be here as the detector-less kind. It now has
+    // a deterministic detector (unanswered engagement rounds), so it must be
+    // measured exactly like every other kind — and the guard that used to hold
+    // it out now has to hold it IN, with the same opportunity discipline.
     const repairs = [repair("u1", "d0", "clarity", T0)];
-    const debates = [debateRow("u1", "d1", "2026-06-04T12:00:00Z", { clarity: 0 })];
+    // The retest debate offers one engagement round and the weakness recurred.
+    const debates = [
+      debateRow("u1", "d1", "2026-06-04T12:00:00Z", { clarity: 1 }, { majorClaims: 1, opponentMoves: 1, engagementRounds: 1 }),
+    ];
     const retests = [retestRow(repairs[0], "d1", "2026-06-04T12:00:00Z")];
     const rows = buildRepairOutcomeRows(repairs, debates, [], retests);
     expect(rows).toHaveLength(1);
-    expect(rows[0].measurable).toBe(false);
-    // Null, not false: a clarity repair has no deterministic weakness detector,
-    // so there is no reading to record — `false` would claim a measured
-    // non-recurrence that was never measured. This is the honesty guard the
-    // field's own documentation promises ("unmeasurable rows stay null"), and
-    // it is what keeps the row out of every recurrence denominator below.
+    expect(rows[0].measurable).toBe(true);
+    expect(rows[0].firstRetestRecurred).toBe(true);
+
+    const funnel = buildRepairOutcomeFunnel(repairs, debates, [], { now: NOW2, minSample: 1, retests });
+    expect(funnel.firstRetestRecurrence.numerator).toBe(1);
+    expect(funnel.firstRetestRecurrence.denominator).toBe(1);
+    expect(funnel.retestTiming.prompted.repairs).toBe(1);
+  });
+
+  it("still refuses to read a missing engagement opportunity as non-recurrence", () => {
+    // The kind IS measurable now, so `measurable` is true — but the retest
+    // offered no engagement round, so there is no reading to record. The
+    // recurrence flag stays null and the row drops out of the denominator.
+    // `false` here would claim a measured non-recurrence that never happened.
+    const repairs = [repair("u1", "d0", "clarity", T0)];
+    const debates = [
+      debateRow("u1", "d1", "2026-06-04T12:00:00Z", { clarity: 0 }, { majorClaims: 1, opponentMoves: 0, engagementRounds: 0 }),
+    ];
+    const retests = [retestRow(repairs[0], "d1", "2026-06-04T12:00:00Z")];
+    const rows = buildRepairOutcomeRows(repairs, debates, [], retests);
+    expect(rows[0].measurable).toBe(true);
     expect(rows[0].firstRetestRecurred).toBeNull();
 
     const funnel = buildRepairOutcomeFunnel(repairs, debates, [], { now: NOW2, minSample: 1, retests });
     expect(funnel.firstRetestRecurrence.numerator).toBe(0);
     expect(funnel.firstRetestRecurrence.denominator).toBe(0);
-    expect(funnel.retestTiming.prompted.repairs).toBe(0);
-    expect(funnel.retestTiming.prompted.rate).toBeNull();
   });
 
   it("compares prompted and incidental retest timing with per-arm sample gates", () => {

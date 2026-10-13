@@ -33,6 +33,7 @@ function graphOf(nodes: ArgNode[], edges: ArgEdge[] = [], unsupportedClaimIds: s
 }
 
 const claim = (id: string, owner: "a" | "ai", round = 1): ArgNode => ({ id, kind: "claim", owner, round, text: "claim", targets: [] });
+const impact = (id: string, owner: "a" | "ai", round = 1): ArgNode => ({ id, kind: "impact", owner, round, text: "impact" });
 const evidence = (id: string, owner: "a" | "ai"): ArgNode => ({
   id,
   kind: "evidence",
@@ -66,7 +67,10 @@ describe("formativeCheck", () => {
 });
 
 describe("retestOutcomeFor", () => {
-  const row = (kinds: Record<string, number>, opps?: { majorClaims: number; opponentMoves: number }): DebateWeaknessRow => ({
+  const row = (
+    kinds: Record<string, number>,
+    opps?: { majorClaims: number; opponentMoves: number; engagementRounds: number },
+  ): DebateWeaknessRow => ({
     debateId: "retest-1",
     userId: "u1",
     completedAt: "2026-06-15T12:00:00Z",
@@ -76,7 +80,7 @@ describe("retestOutcomeFor", () => {
 
   it("returns no-valid-opportunity when the debate could not express the weakness", () => {
     const g = graphOf([claim("a1", "a")], [], ["a1"]);
-    expect(retestOutcomeFor({ target_kind: "rebuttal" }, row({ rebuttal: 0 }, { majorClaims: 1, opponentMoves: 0 }), g, "a")).toBe(
+    expect(retestOutcomeFor({ target_kind: "rebuttal" }, row({ rebuttal: 0 }, { majorClaims: 1, opponentMoves: 0, engagementRounds: 0 }), g, "a")).toBe(
       "no-valid-opportunity",
     );
   });
@@ -85,7 +89,7 @@ describe("retestOutcomeFor", () => {
     const g = graphOf([claim("a1", "a"), claim("ai1", "ai")], [], ["a1", "ai1"]);
     const outcome = retestOutcomeFor(
       { target_kind: "rebuttal" },
-      row({ rebuttal: 1, dropped: 1 }, { majorClaims: 1, opponentMoves: 1 }),
+      row({ rebuttal: 1, dropped: 1 }, { majorClaims: 1, opponentMoves: 1, engagementRounds: 0 }),
       g,
       "a",
       { format: "sprint" },
@@ -99,7 +103,7 @@ describe("retestOutcomeFor", () => {
     // answered, so it is an eligible opportunity under the canonical rules.
     const gMissed = graphOf([claim("a1", "a", 1), claim("ai1", "ai", 1), claim("a2", "a", 2)], [], ["a1", "a2", "ai1"]);
     expect(
-      retestOutcomeFor({ target_kind: "rebuttal" }, row({ rebuttal: 1, dropped: 1 }, { majorClaims: 1, opponentMoves: 1 }), gMissed, "a"),
+      retestOutcomeFor({ target_kind: "rebuttal" }, row({ rebuttal: 1, dropped: 1 }, { majorClaims: 1, opponentMoves: 1, engagementRounds: 0 }), gMissed, "a"),
     ).toBe("skill-not-observed");
 
     // Every claim supported by cited evidence → evidence weakness absent → observed.
@@ -108,30 +112,73 @@ describe("retestOutcomeFor", () => {
       [{ from: "e1", to: "a1", relation: "supports" }],
       [],
     );
-    expect(retestOutcomeFor({ target_kind: "evidence" }, row({ evidence: 0 }, { majorClaims: 1, opponentMoves: 0 }), gSolid, "a")).toBe(
+    expect(retestOutcomeFor({ target_kind: "evidence" }, row({ evidence: 0 }, { majorClaims: 1, opponentMoves: 0, engagementRounds: 0 }), gSolid, "a")).toBe(
       "skill-observed",
     );
   });
 
-  // A kind with no deterministic detector is hard-coded to 0 by
-  // countWeaknessesForSide, so reading that 0 as "the weakness was absent"
-  // reports the single most favourable outcome for a skill nobody measured.
-  it("never reports skill-observed for a kind with no deterministic detector", () => {
-    const g = graphOf([claim("a1", "a"), claim("ai1", "ai")], [], ["a1", "ai1"]);
-    expect(
-      retestOutcomeFor({ target_kind: "clarity" }, row({ clarity: 0 }, { majorClaims: 1, opponentMoves: 1 }), g, "a"),
-    ).toBe("not-enough-evidence");
+  // Clarity/Engagement is now DETERMINISTICALLY measurable: the detector reads
+  // the same round-level engagement coverage the `clarity` skill score reads
+  // (`engagementRoundsFor`). What it still refuses to do is read a clean
+  // reading as success when the debate offered nothing to engage — the
+  // opportunity gate comes first, so the kind can never be flattered.
+  describe("clarity/Engagement retests", () => {
+    it("reads a missed engagement round as skill-not-observed", () => {
+      // ai1 (impact, round 1) is an engagement move the user had a later turn to
+      // answer (a2, round 2) and never answered, so round 1 is unanswered.
+      const g = graphOf(
+        [claim("a1", "a", 1), impact("ai1", "ai", 1), claim("a2", "a", 2)],
+        [],
+        ["a1", "ai1", "a2"],
+      );
+      expect(
+        retestOutcomeFor(
+          { target_kind: "clarity" },
+          row({ clarity: 1 }, { majorClaims: 1, opponentMoves: 0, engagementRounds: 1 }),
+          g,
+          "a",
+        ),
+      ).toBe("skill-not-observed");
+    });
+
+    it("reads an engaged round as skill-observed", () => {
+      // The user's round-2 rebuttal answers the round-1 impact move, so no
+      // round is left unengaged.
+      const g = graphOf(
+        [claim("a1", "a", 1), impact("ai1", "ai", 1), claim("a2", "a", 2)],
+        [{ from: "a2", to: "ai1", relation: "counters" }],
+        ["a1", "ai1", "a2"],
+      );
+      expect(
+        retestOutcomeFor(
+          { target_kind: "clarity" },
+          row({ clarity: 0 }, { majorClaims: 1, opponentMoves: 0, engagementRounds: 1 }),
+          g,
+          "a",
+        ),
+      ).toBe("skill-observed");
+    });
+
+    it("withholds a verdict when the debate offered nothing to engage", () => {
+      // No engagement round at all: the user never had the chance, so the
+      // outcome is "no opportunity", never "observed".
+      const g = graphOf([claim("a1", "a"), claim("ai1", "ai")], [], ["a1", "ai1"]);
+      expect(
+        retestOutcomeFor(
+          { target_kind: "clarity" },
+          row({ clarity: 0 }, { majorClaims: 1, opponentMoves: 1, engagementRounds: 0 }),
+          g,
+          "a",
+        ),
+      ).toBe("no-valid-opportunity");
+    });
   });
 });
 
 describe("weaknessPresentIn", () => {
   // The three-valued return is the fix: `false` means "measured and absent",
   // `null` means "not measurable". Collapsing them turns an unmeasured skill
-  // into a confirmed success.
-  it("returns null (not false) for a kind with no deterministic detector", () => {
-    const g = graphOf([claim("a1", "a"), claim("ai1", "ai")], [], ["a1", "ai1"]);
-    expect(weaknessPresentIn(g, "a", "clarity")).toBeNull();
-  });
+  // into a confirmed success. No repair kind is in the unmeasurable set today.
   it("is side-scoped: opponent failures never count against the user", () => {
     const g = graphOf(
       [claim("a1", "a"), evidence("e1", "a"), claim("ai1", "ai")],
@@ -140,6 +187,19 @@ describe("weaknessPresentIn", () => {
     );
     expect(weaknessPresentIn(g, "a", "evidence")).toBe(false);
     expect(weaknessPresentIn(g, "ai", "evidence")).toBe(true);
+  });
+
+  it("reads clarity presence from the engagement rounds, not from wording", () => {
+    // Round 1 opened by an opponent impact move the user never answered.
+    const missed = graphOf([claim("a1", "a", 1), impact("ai1", "ai", 1), claim("a2", "a", 2)], [], ["a1", "ai1", "a2"]);
+    expect(weaknessPresentIn(missed, "a", "clarity")).toBe(true);
+    // Same graph, but the round-2 move answers it.
+    const answered = graphOf(
+      [claim("a1", "a", 1), impact("ai1", "ai", 1), claim("a2", "a", 2)],
+      [{ from: "a2", to: "ai1", relation: "counters" }],
+      ["a1", "ai1", "a2"],
+    );
+    expect(weaknessPresentIn(answered, "a", "clarity")).toBe(false);
   });
 });
 

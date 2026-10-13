@@ -211,6 +211,120 @@ export function unansweredOpportunitiesBy(graph: ArgGraph, owner: Owner): ArgNod
   return eligibleOpponentMoves(graph, owner).filter((m) => !missed.has(m.id));
 }
 
+/**
+ * The broader ENGAGEMENT opportunity set: any opponent argument move
+ * (claim/counterclaim/impact) the side had a later turn to engage with. This
+ * is the set behind the `clarity` skill (the per-round argumentResponses rate)
+ * and behind the `clarity` weakness detector — deliberately broader than
+ * canonical rebuttal coverage, which is why `ENGAGEMENT_KINDS` adds impact:
+ * a weighing move is not a per-argument rebuttal opportunity, but leaving it
+ * unanswered still costs the side an uncontested round.
+ *
+ * It lives here, next to `eligibleOpponentMoves`, because both are opportunity
+ * -set definitions and only this module sits below every consumer without
+ * importing any of them.
+ */
+export function engagementOpportunitiesFor(graph: ArgGraph, responder: Owner): ArgNode[] {
+  return graph.nodes.filter(
+    (node) =>
+      node.owner !== responder &&
+      ENGAGEMENT_KINDS.has(node.kind) &&
+      graph.nodes.some((candidate) => candidate.owner === responder && candidate.round > node.round),
+  );
+}
+
+export interface EngagementRoundCoverage {
+  /** Rounds where the opponent made an engagement move the side could answer. */
+  opportunityRounds: number;
+  /** Of those, rounds where the side validly answered at least one opportunity. */
+  respondedRounds: number;
+  /** Rounds with engagement material the side answered NONE of. */
+  unansweredRounds: number;
+  /** Exact trail: every engagement opportunity the side left unanswered. */
+  unansweredOpportunityIds: string[];
+}
+
+/**
+ * A response may be AImed at the opponent's WEIGHING (impact) move when the
+ * thing being measured is engagement.
+ *
+ * The canonical chain deliberately refuses impact targets: answering a
+ * weighing move is not rebutting an argument, and `OPPORTUNITY_KINDS` is what
+ * keeps rebuttal coverage and drop detection comparable. But engagement is the
+ * one measurement that has to see them — the coaching loop asks the learner to
+ * "answer the move they made", and when that move is a weighing comparison the
+ * answer must be observable, or the skill can never be demonstrated. Gating
+ * that reading here (rather than widening `isValidRebuttalTarget`) keeps every
+ * other consumer of the canonical rule untouched.
+ */
+export function isEngagementResponseTarget(
+  target: ArgNode,
+  responder: Owner,
+): boolean {
+  if (target.owner === responder) return false; // never a self-target
+  return ENGAGEMENT_KINDS.has(target.kind);
+}
+
+/**
+ * Engagement-scoped answers: the canonical answered set PLUS valid responses to
+ * the opponent's weighing moves. Structural only — a real answer edge/target to
+ * an opponent impact node, from the measured side, in an earlier round. No
+ * model judgement, no free-text reading.
+ */
+export function engagementAnsweredIds(graph: ArgGraph, owner: Owner): Set<string> {
+  const ids = userAnsweredIds(graph, owner);
+  for (const node of graph.nodes) {
+    if (node.owner !== owner || !RESPONSE_KINDS.has(node.kind)) continue;
+    for (const targetId of node.targets ?? []) {
+      const target = graph.nodes.find((n) => n.id === targetId);
+      if (!target) continue; // dangling id
+      if (target.round >= node.round) continue; // must strictly precede
+      if (!isEngagementResponseTarget(target, owner)) continue;
+      ids.add(target.id);
+    }
+  }
+  for (const edge of graph.edges) {
+    if (!ANSWER_RELATIONS.has(edge.relation)) continue;
+    const response = graph.nodes.find((n) => n.id === edge.from);
+    const target = graph.nodes.find((n) => n.id === edge.to);
+    if (!response || !target) continue;
+    if (response.owner !== owner || !RESPONSE_KINDS.has(response.kind)) continue;
+    if (target.round >= response.round) continue;
+    if (!isEngagementResponseTarget(target, owner)) continue;
+    ids.add(target.id);
+  }
+  return ids;
+}
+
+/**
+ * Per-round ENGAGEMENT coverage — the single definition behind BOTH the
+ * `clarity` skill metric (`argumentResponses`: did the side engage every
+ * opponent round?) and the `clarity` weakness detector (did it leave any round
+ * unengaged?).
+ *
+ * This is round-level by design, and it is the reason the two cannot drift:
+ * the metric says a round counts as responded when the side answered *any* of
+ * that round's opportunities, so the only weakness the metric can observe is a
+ * round where *nothing* was answered. A detector that fired on a partly-answered
+ * round would flag a weakness the score cannot see, and the retest would
+ * "improve" without the skill score moving.
+ */
+export function engagementRoundsFor(graph: ArgGraph, owner: Owner): EngagementRoundCoverage {
+  const opportunities = engagementOpportunitiesFor(graph, owner);
+  const answered = engagementAnsweredIds(graph, owner);
+  const rounds = [...new Set(opportunities.map((node) => node.round))].sort((a, b) => a - b);
+  const responded = rounds.filter((round) =>
+    opportunities.some((node) => node.round === round && answered.has(node.id)),
+  );
+  const unanswered = opportunities.filter((node) => !answered.has(node.id));
+  return {
+    opportunityRounds: rounds.length,
+    respondedRounds: responded.length,
+    unansweredRounds: rounds.length - responded.length,
+    unansweredOpportunityIds: unanswered.map((node) => node.id),
+  };
+}
+
 /** Fallacy tags attached to a side's own nodes (opponent fallacies excluded). */
 export function fallaciesOwnedBy(graph: ArgGraph, owner: Owner): FallacyTag[] {
   const ids = new Set(nodesOwnedBy(graph, owner).map((n) => n.id));
