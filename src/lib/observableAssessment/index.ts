@@ -58,11 +58,14 @@ export {
 } from "./graphEnrichment";
 
 export {
+  engagementAnsweredIds,
+  engagementOpportunitiesFor,
+} from "../opportunity";
+export {
   addressedTargetIds,
   buildSideFeatures,
   directRebuttalRefs,
   engineReport,
-  engagementOpportunitiesFor,
   impactHandling,
   supportLinks,
 } from "./features";

@@ -1,7 +1,7 @@
 import type { ArgGraph, ArgNode, Fallacy } from "./argGraph";
 import type { ArgumentRole } from "./argumentTaxonomy";
 import { unansweredOpportunitiesBy } from "./opportunity";
-import { engagementOpportunitiesFor, addressedTargetIds } from "./observableAssessment";
+import { engagementOpportunitiesFor, engagementAnsweredIds } from "./observableAssessment";
 import { readEngagementSignals } from "./engagementSignals";
 
 export const REPAIR_KINDS = [
@@ -192,10 +192,13 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
   // so it still finds material after rebuttal has taken the unanswered claims
   // (typically a weighing move the user never answered). Both read the same
   // graph helpers the engagement metric uses, so the offered exercise trains
-  // exactly the behaviour the score rewards. Falls back to the learner's own
-  // longest claim when the debate offered nothing to engage with.
+  // exactly the behaviour the score rewards — including the case where the move
+  // to answer is a weighing comparison, which `engagementAnsweredIds` (unlike
+  // the canonical rebuttal target rule) will credit as answered once the
+  // learner answers it. Falls back to the learner's own longest claim when the
+  // debate offered nothing to engage with.
   const engagementGap = engagementOpportunitiesFor(graph, "a").find(
-    (node) => !addressedTargetIds(graph, "a").has(node.id),
+    (node) => !engagementAnsweredIds(graph, "a").has(node.id),
   );
   if (engagementGap) {
     return {

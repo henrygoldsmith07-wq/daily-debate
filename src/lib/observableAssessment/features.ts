@@ -12,8 +12,8 @@ import type { ArgGraph, ArgNode, Owner } from "../argGraph";
 import { engineReport } from "../argumentEvaluation";
 import { classifyFallacies, detectConcessions, detectContradictions } from "../graphEnrichers";
 import {
-  ENGAGEMENT_KINDS,
   eligibleOpponentMoves,
+  engagementRoundsFor,
   isValidRebuttalTarget,
   rebuttalCoverageFor,
   unansweredOpportunitiesBy,
@@ -77,22 +77,6 @@ export function supportLinks(graph: ArgGraph): SupportLink[] {
  */
 export function addressedTargetIds(graph: ArgGraph, owner: Owner): Set<string> {
   return userAnsweredIds(graph, owner);
-}
-
-/**
- * Argument ENGAGEMENT opportunities - deliberately broader than canonical
- * rebuttal coverage: any opponent argument move (claim/counterclaim/impact)
- * the side had a later turn to engage with. This feeds the per-round
- * "argumentResponses" feature (did the side engage every opponent turn?) and
- * is NEVER exposed under the "rebuttalCoverage" name.
- */
-export function engagementOpportunitiesFor(graph: ArgGraph, responder: Owner): ArgNode[] {
-  return graph.nodes.filter(
-    (node) =>
-      node.owner !== responder &&
-      ENGAGEMENT_KINDS.has(node.kind) &&
-      graph.nodes.some((candidate) => candidate.owner === responder && candidate.round > node.round),
-  );
 }
 
 /** Evidence trail for the direct responses that genuinely targeted opponent moves. */
@@ -203,17 +187,20 @@ export function buildSideFeatures(
     ...rebuttalRefs,
   ];
 
-  // Argument ENGAGEMENT (broader than rebuttal coverage): per-round view of
-  // whether the side engaged any opponent argument move (claim/counterclaim/
-  // impact). A round counts as responded when any of its engagement
-  // opportunities was validly answered.
-  const engagementOpportunities = engagementOpportunitiesFor(graph, owner);
-  const responseTargets = addressedTargetIds(graph, owner);
-  const responseRounds = [...new Set(engagementOpportunities.map((node) => node.round))].sort((a, b) => a - b);
-  const respondedRounds = responseRounds.filter((roundNumber) =>
-    engagementOpportunities.some((node) => node.round === roundNumber && responseTargets.has(node.id)),
-  );
-  const argumentResponseRate = responseRounds.length ? respondedRounds.length / responseRounds.length : 0;
+/**
+ * Argument ENGAGEMENT coverage — read from the ONE definition in opportunity.ts
+ * (`engagementRoundsFor`), which is also what the `clarity` weakness detector
+ * and the `clarity` repair target selection read. The metric and the detector
+ * therefore cannot disagree about what "answered the round" means: a round
+ * counts as responded when the side validly answered at least one of that
+ * round's opportunities, and a response to a weighing move counts as answering
+ * it (engagement is the only reading that needs this — see
+ * `opportunity.isEngagementResponseTarget`).
+ */
+const engagement = engagementRoundsFor(graph, owner);
+const responseRounds = engagement.opportunityRounds;
+const respondedRounds = engagement.respondedRounds;
+const argumentResponseRate = responseRounds ? respondedRounds / responseRounds : 0;
 
   // OWN arguments the opponent never validly answered - the canonical mirror
   // of detectDropped (opportunity.ts): the opponent's unanswered-opportunity
@@ -289,10 +276,10 @@ export function buildSideFeatures(
       confidence,
     ),
     argumentResponses: feature(
-      { responded: respondedRounds.length, opportunities: responseRounds.length, rate: round(argumentResponseRate) },
+      { responded: respondedRounds, opportunities: responseRounds, rate: round(argumentResponseRate) },
       responseRefs.length ? responseRefs : graph.nodes.filter((node) => node.owner === opponent).map((node) => nodeRef(node, "No later response opportunity")),
       confidence,
-      responseRounds.length ? undefined : "insufficient_evidence",
+      responseRounds ? undefined : "insufficient_evidence",
     ),
     impactHandling: feature(round(impact.value), impact.evidence, confidence),
     confidentlyDetectableFallacies: feature(confidentFallacies.length, fallacyRefs.length ? fallacyRefs : claimEvidence, confidence),

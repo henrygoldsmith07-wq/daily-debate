@@ -10,9 +10,10 @@
 //   compared — no model opinion.
 // - Weakness counts are SIDE-SCOPED (the user's own nodes): an opponent's
 //   dropped arguments can never register as the user's weakness.
-// - A repair kind without a genuine deterministic weakness detector (clarity
-//   today) is "not currently measurable" — it can never enter the improved /
-//   unchanged / worse comparison by accident.
+// - A repair kind without a genuine deterministic weakness detector is
+//   "not currently measurable" — it can never enter the improved / unchanged /
+//   worse comparison by accident. No kind is in that set today; `clarity` used
+//   to be, until its detector (`engagementRoundsFor`) made it measurable.
 // - A repair is only comparable when the user actually has later debates that
 //   could express the weakness; otherwise it is "not yet measurable".
 // - Summary rates need REPAIR_MIN_MEASURABLE measurable repairs AND
@@ -25,7 +26,7 @@
 import type { ArgGraph, Owner } from "./argGraph";
 import { claimNodesOwnedBy } from "./argGraph";
 import type { RepairKind } from "./argumentRepair";
-import { eligibleOpponentMoves, unansweredOpportunitiesBy } from "./opportunity";
+import { engagementRoundsFor, eligibleOpponentMoves, unansweredOpportunitiesBy } from "./opportunity";
 
 export interface RepairRow {
   /** Present for persisted rows; optional in pure analytical fixtures. */
@@ -113,7 +114,7 @@ export interface DebateWeaknessRow {
   userId: string;
   completedAt: string;
   kinds: Record<string, number>;
-  opps?: { majorClaims: number; opponentMoves: number };
+  opps?: { majorClaims: number; opponentMoves: number; engagementRounds: number };
 }
 
 export type RepairOutcome =
@@ -186,8 +187,19 @@ export interface RetestStats {
  * argument graph. These repairs are hard-classified "not currently
  * measurable" and can never enter the improved/unchanged/worse comparison —
  * not even by accidentally comparing 0% vs 0%.
+ *
+ * Currently EMPTY, and that is a real change from before: `clarity` used to sit
+ * here because no detector existed. It now has one (`engagementRoundsFor`, the
+ * round-level view the `clarity` skill metric itself reads), so keeping it here
+ * would have been the dishonest option — it would report "not measurable" for
+ * behaviour the product's own score measures every turn.
+ *
+ * The machinery stays: a future kind without a detector goes in this set and is
+ * immediately excluded from rates, from `classifyRepair`, and from the retest
+ * outcome (see `weaknessPresentIn`, which returns `null` rather than `false`
+ * for members). An empty set is an assertion, not an omission.
  */
-export const NOT_CURRENTLY_MEASURABLE_KINDS: ReadonlySet<RepairKind> = new Set(["clarity"]);
+export const NOT_CURRENTLY_MEASURABLE_KINDS: ReadonlySet<RepairKind> = new Set();
 
 /**
  * Which observable weakness kinds a repair kind maps to. Every mapped kind
@@ -207,7 +219,17 @@ export const NOT_CURRENTLY_MEASURABLE_KINDS: ReadonlySet<RepairKind> = new Set([
  *                the user) ✓
  * - structure  → dropped-argument + self-contradiction detectors (opponent
  *                arguments unanswered + OWN contradictions) ✓
- * - clarity    → NO detector (subjective wording quality) — not measurable
+ * - clarity    → ENGAGEMENT detector: rounds where the opponent made an
+ *                engagement move (claim/counterclaim/impact) the side had a
+ *                later turn to answer, and the side answered NONE of that
+ *                round's moves (`engagementRoundsFor.unansweredRounds`). It is
+ *                the round-level failure of the same feature the `clarity`
+ *                skill score reads (`argumentResponses`), so the score and the
+ *                detector cannot disagree about what "answered the round"
+ *                means. Broader than the rebuttal detector because it also
+ *                counts weighing moves left unanswered; distinct from it
+ *                because a user can answer every claim and still leave every
+ *                impact move unengaged.
  */
 export function weaknessKindsFor(kind: RepairKind): string[] {
   switch (kind) {
@@ -231,12 +253,17 @@ export function weaknessKindsFor(kind: RepairKind): string[] {
  * user (or opponent) gave it a chance to express. Evidence/structure/logic/
  * impact weaknesses need the user to have made claims; rebuttal needs
  * ELIGIBLE opponent opportunities (canonical definition from
- * opportunity.ts) to answer.
+ * opportunity.ts) to answer; clarity needs a round where the opponent made an
+ * engagement move the user had a later turn to answer.
  */
-export function debateOpportunities(graph: ArgGraph, owner: Owner): { majorClaims: number; opponentMoves: number } {
+export function debateOpportunities(
+  graph: ArgGraph,
+  owner: Owner,
+): { majorClaims: number; opponentMoves: number; engagementRounds: number } {
   return {
     majorClaims: claimNodesOwnedBy(graph, owner).length,
     opponentMoves: eligibleOpponentMoves(graph, owner).length,
+    engagementRounds: engagementRoundsFor(graph, owner).opportunityRounds,
   };
 }
 
@@ -244,6 +271,10 @@ export function hasOpportunity(repairKind: string, debate: DebateWeaknessRow): b
   const opps = debate.opps;
   if (!opps) return false;
   if (repairKind === "rebuttal") return opps.opponentMoves > 0;
+  // Clarity needs engagement material: a round where the opponent made a move
+  // the user had a later turn to answer. Without one the user had no chance to
+  // engage, and an empty reading must never count as improvement.
+  if (repairKind === "clarity") return opps.engagementRounds > 0;
   // evidence, structure, logic, impact: need user claims to evaluate.
   return opps.majorClaims > 0;
 }
@@ -259,9 +290,7 @@ export function hasOpportunity(repairKind: string, debate: DebateWeaknessRow): b
  *   construction. An opponent ignoring the owner's argument is the opponent's
  *   miss and never appears here;
  * - impact: the owner made no impact move at all.
- * `clarity` is always 0 because no deterministic clarity detector exists;
- * clarity repairs are excluded from effectiveness measurement via
- * NOT_CURRENTLY_MEASURABLE_KINDS.
+ * - clarity: the owner left a whole round unengaged (see below).
  */
 export function countWeaknessesForSide(graph: ArgGraph, owner: Owner): Record<string, number> {
   const ownIds = new Set(graph.nodes.filter((n) => n.owner === owner).map((n) => n.id));
@@ -272,6 +301,12 @@ export function countWeaknessesForSide(graph: ArgGraph, owner: Owner): Record<st
   const unanswered = unansweredOpportunitiesBy(graph, owner).length;
   const contradictions = graph.contradictions.filter((c) => c.owner === owner).length;
   const ownImpacts = graph.nodes.filter((n) => n.owner === owner && n.kind === "impact").length;
+  // ENGAGEMENT weakness: a round where the opponent made a move the owner had
+  // a later turn to answer and the owner answered none of that round's moves.
+  // Read from opportunity.engagementRoundsFor — the same definition the
+  // `clarity` skill metric reads, so this detector can only fire on a weakness
+  // the score can actually see.
+  const unengagedRounds = engagementRoundsFor(graph, owner).unansweredRounds;
 
   return {
     // Unsupported claims the user made (evidence weakness).
@@ -280,8 +315,10 @@ export function countWeaknessesForSide(graph: ArgGraph, owner: Owner): Record<st
     rebuttal: unanswered > 0 ? 1 : 0,
     // Fallacies flagged on the user's own nodes.
     logic: graph.fallacies.filter((f) => ownIds.has(f.nodeId)).length,
-    // No deterministic detector — kept at 0 and excluded upstream.
-    clarity: 0,
+    // ENGAGEMENT failure: opponent moves the user left a whole round unanswered.
+    // Stored as a COUNT (like `dropped`), not a 0/1 flag, so the journey
+    // timeline can met = engagement rounds − unanswered rounds.
+    clarity: unengagedRounds,
     // Weakness present when the user made no explicit impact move at all.
     impact: ownImpacts === 0 ? 1 : 0,
     // Opponent arguments the user left unanswered (structure/rebuttal).

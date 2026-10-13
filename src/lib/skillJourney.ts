@@ -63,7 +63,7 @@ const KIND_TRIGGER_DETAIL: Record<string, string> = {
   logic: "reasoning shortcuts flagged in your own moves",
   impact: "arguments that never said why they matter",
   structure: "dropped threads or self-contradictions",
-  clarity: "moves where claim and reason blurred together",
+  clarity: "rounds where the opposing move went unanswered",
 };
 
 function stateSentence(met: number, opportunities: number, label: string): string {
@@ -87,8 +87,13 @@ export function journeyObservationsFor(
   return debates
     .filter((d) => hasOpportunity(kind, d))
     .map((d) => {
-      const opps = d.opps ?? { majorClaims: 0, opponentMoves: 0 };
-      const opportunities = kind === "rebuttal" ? opps.opponentMoves : opps.majorClaims;
+      const opps = d.opps ?? { majorClaims: 0, opponentMoves: 0, engagementRounds: 0 };
+      // Clarity's denominator is engagement ROUNDS, not own claims: the
+      // weakness is a round the opponent opened and the user left unanswered.
+      const opportunities =
+        kind === "rebuttal" ? opps.opponentMoves :
+        kind === "clarity" ? opps.engagementRounds :
+        opps.majorClaims;
       // The weakness counter is the unmet share: dropped/unsupported/etc.
       const unmet = Math.max(0, ...kinds.map((k) => d.kinds[k] ?? 0));
       const met = Math.max(0, Math.min(opportunities, opportunities - (kind === "rebuttal" ? (d.kinds.dropped ?? 0) : unmet)));
