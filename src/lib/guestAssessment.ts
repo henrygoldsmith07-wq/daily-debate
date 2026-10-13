@@ -1,5 +1,10 @@
 export type GuestSkill = "claim" | "reasoning" | "rebuttal" | "impact" | "evidence";
 
+// One definition of "names the opposing move", shared with the signed-in drill
+// and repair rubrics. Dependency-free by construction, so importing it here
+// keeps guest mode on-device and deterministic.
+import { NAMES_OPPOSING_MOVE_RE } from "./engagementSignals";
+
 export interface GuestResponseSignals {
   wordCount: number;
   sentenceCount: number;
@@ -59,8 +64,15 @@ const CLAIM =
   /\b(should|must|need(?:s)? to|ought to|is|are|will|would|better|worse|effective|harmful|beneficial|important|necessary|unnecessary)\b/i;
 const REASONING =
   /\b(because|since|therefore|so that|which means|this means|as a result|leads? to|results? in|causes?|by doing this)\b/i;
-const CONTRAST =
-  /\b(however|but|although|even if|while|yet|the objection|the concern|that argument|you say|the other side)\b/i;
+// Engaging the opposing move means REFERRING to it, not merely contrasting with
+// it. The bare conjunctions that used to sit here ("however", "but",
+// "although", "even if", "while", "yet") are exactly the false positive the
+// signed-in drill rubric had to be fixed for: with a single shared content word
+// from the opponent's message, "However, my policy is better" scored as
+// engaging the opposing point. The marker is now the shared one definition
+// (`NAMES_OPPOSING_MOVE_RE`), so a guest and an account are told they engaged a
+// move on the same evidence.
+const NAMES_OPPOSING_MOVE = NAMES_OPPOSING_MOVE_RE;
 const IMPACT =
   /\b(on balance|outweighs?|matters more|more important|less important|greater impact|bigger impact|trade-?off|compared with|compared to|whereas|overall)\b/i;
 const NAMED_EVIDENCE =
@@ -101,7 +113,10 @@ export function inspectGuestResponse(response: string, opponent: string): GuestR
     sentenceCount,
     hasClaim: substantive && CLAIM.test(response),
     hasReasoning: wordCount >= 10 && REASONING.test(response),
-    addressesOpponent: substantive && ((CONTRAST.test(response) && overlap >= 1) || overlap >= 3),
+    // Engagement requires either a reference to the opposing move itself, or
+    // heavy lexical overlap with what the opponent actually wrote (3+ content
+    // words). A single shared word plus "however" is neither.
+    addressesOpponent: substantive && (NAMES_OPPOSING_MOVE.test(response) || overlap >= 3),
     comparesImpacts: wordCount >= 12 && IMPACT.test(response) && REASONING.test(response),
     namesEvidence: wordCount >= 8 && NAMED_EVIDENCE.test(response),
   };
