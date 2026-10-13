@@ -331,7 +331,11 @@ export function decideOpsAlert(input) {
   // --- production proofs ---------------------------------------------------
   const proofs = input.proofs;
   if (!proofs) {
-    facts.push("proofs: unavailable (telemetry source missing)");
+    // proofs is `probe?.proofs ?? null`, so null means the PUBLIC HEALTH PROBE
+    // did not answer — not that a telemetry source is missing. Naming the wrong
+    // source sends an operator to the wrong subsystem, so say which witness
+    // went silent.
+    facts.push("proofs: unavailable (health probe did not answer)");
     if (severity === null) severity = "warning";
   } else {
     const missing = Object.entries(proofs).filter(([, v]) => !v).map(([k]) => k);

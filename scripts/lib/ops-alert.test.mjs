@@ -146,6 +146,10 @@ test("unavailable probe warns and never claims an unreadable store", () => {
   assert.equal(d.severity, "warning");
   assert.ok(d.facts.some((f) => f.includes("availability: state unknown")));
   assert.ok(d.facts.some((f) => f.includes("proofs: unavailable")));
+  // proofs is `probe?.proofs ?? null`, so the missing witness is the health
+  // probe. Naming "telemetry" here sent operators to the wrong subsystem.
+  assert.ok(d.facts.some((f) => f.includes("health probe did not answer")));
+  assert.ok(!d.facts.some((f) => f.includes("telemetry source missing")));
   assert.ok(!d.facts.some((f) => f.includes("UNREADABLE")));
 });
 
