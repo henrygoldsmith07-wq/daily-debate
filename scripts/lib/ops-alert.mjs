@@ -184,7 +184,11 @@ export function decideOpsNotification(input) {
 /**
  * @param {{
  *   runs: Array<{ event: string; status: string; conclusion: string | null; createdAt: string }>,
- *   telemetry: Array<{ event: string; at: string; result: string; targetDate: string | null; delayMs?: number | null }>,
+ *   // `null` = telemetry was NOT read in this workflow (the ops-alert digest
+ *   // deliberately carries no DATABASE_URL), `[]` = read and genuinely empty.
+ *   // The distinction is the whole point: a run that never queried the store
+ *   // must not report "0 rows", which reads as a measured zero.
+ *   telemetry: Array<{ event: string; at: string; result: string; targetDate: string | null; delayMs?: number | null }> | null,
  *   availability: { state: string; note?: string | null } | null,
  *   dbReadable: boolean,
  *   proofs: Record<string, boolean> | null,
@@ -327,7 +331,11 @@ export function decideOpsAlert(input) {
   // --- production proofs ---------------------------------------------------
   const proofs = input.proofs;
   if (!proofs) {
-    facts.push("proofs: unavailable (telemetry source missing)");
+    // proofs is `probe?.proofs ?? null`, so null means the PUBLIC HEALTH PROBE
+    // did not answer — not that a telemetry source is missing. Naming the wrong
+    // source sends an operator to the wrong subsystem, so say which witness
+    // went silent.
+    facts.push("proofs: unavailable (health probe did not answer)");
     if (severity === null) severity = "warning";
   } else {
     const missing = Object.entries(proofs).filter(([, v]) => !v).map(([k]) => k);
@@ -360,11 +368,18 @@ export function decideOpsAlert(input) {
   }
 
   if (!facts.length) return null;
+  // The evidence line must never claim a measurement that was not taken: a
+  // null telemetry source says so plainly instead of printing "0 rows", which
+  // reads as a measured empty store. `[]` still reports 0 because that IS a
+  // read that returned nothing.
+  const telemetryEvidence = input.telemetry == null
+    ? "telemetry not read in this workflow (no store credential here)"
+    : `${input.telemetry.length} telemetry row(s)`;
   return {
     alert: true,
     severity: severity ?? "warning",
     title: `Topic pipeline ops alert (${severity ?? "warning"})`,
     facts,
-    evidence: `assessed at ${now} over ${runs.length} workflow run(s) and ${(input.telemetry ?? []).length} telemetry row(s)`,
+    evidence: `assessed at ${now} over ${runs.length} workflow run(s) and ${telemetryEvidence}`,
   };
 }

@@ -100,6 +100,33 @@ test("unavailable sources (null sections) warn instead of passing silently", () 
   assert.ok(d.facts.length >= 3);
 });
 
+// --- evidence line: never claim a measurement that was not taken ----------
+
+test("a null telemetry source says so instead of reporting a measured zero", () => {
+  // The ops-alert digest deliberately carries no DATABASE_URL, so it never
+  // queries topic_run_log. Passing [] would render "0 telemetry row(s)", which
+  // reads as "we looked and the store was empty". null must render the truth.
+  const d = decideOpsAlert(healthy({ availability: null, proofs: null, telemetry: null }));
+  assert.ok(d);
+  assert.match(d.evidence, /telemetry not read in this workflow/);
+  assert.doesNotMatch(d.evidence, /0 telemetry row/);
+});
+
+test("a genuinely read-but-empty telemetry source still reports zero rows", () => {
+  // The other half of the distinction: [] IS a completed read that found
+  // nothing, so the measured zero stays.
+  const d = decideOpsAlert(healthy({ availability: null, proofs: null, telemetry: [] }));
+  assert.ok(d);
+  assert.match(d.evidence, /0 telemetry row\(s\)/);
+  assert.doesNotMatch(d.evidence, /telemetry not read/);
+});
+
+test("a populated telemetry source reports its true row count", () => {
+  const d = decideOpsAlert(healthy({ availability: null, proofs: null }));
+  assert.ok(d);
+  assert.match(d.evidence, /1 telemetry row\(s\)/);
+});
+
 test("stale scheduler (36h stall) warns", () => {
   const d = decideOpsAlert(healthy({
     runs: [{ event: "schedule", status: "completed", conclusion: "success", createdAt: "2026-09-14T00:00:00Z" }],
@@ -119,6 +146,10 @@ test("unavailable probe warns and never claims an unreadable store", () => {
   assert.equal(d.severity, "warning");
   assert.ok(d.facts.some((f) => f.includes("availability: state unknown")));
   assert.ok(d.facts.some((f) => f.includes("proofs: unavailable")));
+  // proofs is `probe?.proofs ?? null`, so the missing witness is the health
+  // probe. Naming "telemetry" here sent operators to the wrong subsystem.
+  assert.ok(d.facts.some((f) => f.includes("health probe did not answer")));
+  assert.ok(!d.facts.some((f) => f.includes("telemetry source missing")));
   assert.ok(!d.facts.some((f) => f.includes("UNREADABLE")));
 });
 
