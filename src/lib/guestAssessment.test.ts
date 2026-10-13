@@ -30,6 +30,36 @@ describe("inspectGuestResponse", () => {
     expect(signals.hasReasoning).toBe(false);
   });
 
+  // The engagement signal used to be `CONTRAST && overlap >= 1`, so any bare
+  // "however/but" plus one shared content word counted as engaging the opposing
+  // point — the guest was told they "directly engaged with the opposing point
+  // instead of talking past it" while answering nothing. The marker is now the
+  // shared `NAMES_OPPOSING_MOVE_RE` the signed-in drill and repair rubrics read,
+  // so the two can no longer disagree about what engaging a move looks like.
+  it("requires a reference to the opposing move, not a bare contrastive", () => {
+    const bare = inspectGuestResponse(
+      "However, the policy is better overall for every student in the country.",
+      OPPONENTS[1],
+    );
+    expect(bare.addressesOpponent).toBe(false);
+
+    const engaged = inspectGuestResponse(
+      "Their objection about accessibility fails because a blanket rule still allows documented exceptions, so the concern does not settle the policy.",
+      OPPONENTS[1],
+    );
+    expect(engaged.addressesOpponent).toBe(true);
+  });
+
+  it("still accepts heavy overlap with the opponent's actual words as engagement", () => {
+    // No explicit reference, but the response works through the opponent's own
+    // vocabulary — genuinely engaging their material.
+    const overlapping = inspectGuestResponse(
+      "A blanket rule punishing students who need a phone for accessibility, family care, or a safe trip home is the cost that makes the simple rule fail.",
+      OPPONENTS[1],
+    );
+    expect(overlapping.addressesOpponent).toBe(true);
+  });
+
   it("recognises a named source rather than the word evidence alone", () => {
     expect(
       inspectGuestResponse(
