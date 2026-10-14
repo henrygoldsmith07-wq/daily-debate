@@ -45,17 +45,6 @@ export function sophisticateWording(t: string): string {
   for (const [re, rep] of swaps) out = out.replace(re, rep);
   return out;
 }
-export function simplifyWording(t: string): string {
-  const swaps: Array<[RegExp, string]> = [
-    [/\beconomically advantageous\b/gi, "cheap"],
-    [/\bdemonstrates\b/gi, "shows"],
-    [/\bnecessitates\b/gi, "needs"],
-    [/\bsubstantial\b/gi, "big"],
-  ];
-  let out = t;
-  for (const [re, rep] of swaps) out = out.replace(re, rep);
-  return out;
-}
 export function addConfidenceHedge(t: string): string {
   return t.replaceAll("is", "is arguably");
 }

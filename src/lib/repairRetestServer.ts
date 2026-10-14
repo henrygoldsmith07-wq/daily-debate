@@ -87,48 +87,6 @@ export async function unresolvedRepairRetestAnchors(
   return anchors.filter((anchor) => !completed.has(anchor.repairResultId));
 }
 
-export async function assignRepairRetest(input: {
-  userId: string;
-  anchor: RepairRetestAnchor;
-  assignedDebateId: string;
-  assignedAt?: string;
-}): Promise<{ ok: true } | { ok: false; message: string }> {
-  const service = createServiceClient();
-  const assignedAt = input.assignedAt ?? new Date().toISOString();
-
-  // Roll older unfinished assignments forward so an abandoned debate from a
-  // previous topic cannot block this repair forever. The partial unique index
-  // remains the final concurrency guard for genuinely simultaneous starts.
-  const { error: rolloverError } = await service
-    .from("repair_retests")
-    .update({
-      completed_at: assignedAt,
-      observable: false,
-      demonstrated: null,
-      updated_at: assignedAt,
-    })
-    .eq("user_id", input.userId)
-    .eq("repair_result_id", input.anchor.repairResultId)
-    .is("completed_at", null);
-  if (rolloverError) return { ok: false, message: rolloverError.message };
-
-  const { data, error } = await service
-    .from("repair_retests")
-    .insert({
-      repair_result_id: input.anchor.repairResultId,
-      user_id: input.userId,
-      repair_debate_id: input.anchor.debateId,
-      target_kind: input.anchor.targetKind,
-      assigned_debate_id: input.assignedDebateId,
-      assigned_at: assignedAt,
-    })
-    .select("id")
-    .single();
-  return error || !data
-    ? { ok: false, message: error?.message ?? "repair retest assignment was not persisted" }
-    : { ok: true };
-}
-
 export async function completeRepairRetestAssignment(input: {
   userId: string;
   /** Optional only for pre-upgrade debate coaching; assignedDebateId remains unique. */

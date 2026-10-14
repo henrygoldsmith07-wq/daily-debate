@@ -21,7 +21,6 @@ import type { ArgGraph, Owner } from "./argGraph";
 import {
   NOT_CURRENTLY_MEASURABLE_KINDS,
   countWeaknessesForSide,
-  debateOpportunities,
   hasOpportunity,
   weaknessKindsFor,
   type DebateWeaknessRow,
@@ -244,21 +243,4 @@ export function pickPendingRetest(repairs: RepairRecord[]): RepairRecord | null 
     .filter((r) => r.succeeded && !r.retest_debate_id)
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
   return pending[0] ?? null;
-}
-
-/** Unfinished repair: a debate with a weakness but no completed repair. */
-export function pickUnfinishedRepair(
-  repairs: RepairRecord[],
-  debatesWithWeakness: Array<{ debate_id: string; kind: string; created_at: string }>,
-): { debateId: string; kind: string } | null {
-  const repairedDebates = new Set(repairs.map((r) => r.debate_id));
-  const open = debatesWithWeakness
-    .filter((d) => !repairedDebates.has(d.debate_id))
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-  return open[0] ? { debateId: open[0].debate_id, kind: open[0].kind } : null;
-}
-
-/** Opportunity volume for one completed debate (used by the retest verdict UI). */
-export function opportunityCounts(graph: ArgGraph, owner: Owner): { majorClaims: number; opponentMoves: number } {
-  return debateOpportunities(graph, owner);
 }
