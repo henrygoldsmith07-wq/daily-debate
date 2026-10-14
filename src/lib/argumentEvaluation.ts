@@ -194,10 +194,6 @@ export function specialisedArgumentChecks(
   return { evidence, rebuttal, question: roles.includes("question") };
 }
 
-// American spelling is the public name; keep the British spelling used by
-// the original comments as a compatibility alias for tests/callers.
-export const specializedArgumentChecks = specialisedArgumentChecks;
-
 function hasRole(roles: ReadonlyArray<ArgumentRole>, role: ArgumentRole): boolean {
   return roles.includes(role);
 }
