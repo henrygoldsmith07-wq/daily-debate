@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { gateBinomial, wilsonInterval, SAMPLE_GATES } from "./evidenceState";
 import { assignCorpusSplit, verifyManifest } from "./corpusSplit";
+// Hoisted out of the individual tests. Each of these was an
+// `await import(...)` inside an `it()` body, so the first test to reach a heavy
+// module paid its compile cost inside that test's 5s default timeout — under
+// full-suite CPU contention that went over and the file failed (it always
+// passed in isolation and on an immediate re-run, which is what made it look
+// like a mystery flake rather than a slow first import).
+import { makeFingerprint } from "./judgeVersioning";
+import { computeLoopStatuses } from "./coachLoop";
 
 // ── REGRESSION TESTS 1–2: sample gates + uncertainty ────────────────────────
 
@@ -95,7 +103,6 @@ describe("split policy integrity", () => {
 
 describe("evaluator version fingerprint", () => {
   it("R11: fingerprint captures provider/model/prompt/engine/schema/temp/ensemble", async () => {
-    const { makeFingerprint } = await import("./judgeVersioning");
     const fp = makeFingerprint("nvidia", "nemotron-3-ultra", { temperature: 0.7, ensemble: ["nvidia", "anthropic"] });
     expect(fp.provider).toBe("nvidia");
     expect(fp.model).toContain("nemotron");
@@ -115,7 +122,6 @@ describe("retention demands persistence", () => {
   }
 
   it("R15: immediate improvement without subsequent debates stays at improved_in_drill", async () => {
-    const { computeLoopStatuses } = await import("./coachLoop");
     const points = [pt(0, 0.4), pt(1, 0.45)];
     const assignments = [{
       id: "d1", dimension: "impact", assignedDate: "2026-01-02",
@@ -131,7 +137,6 @@ describe("retention demands persistence", () => {
   });
 
   it("R15b: improvement that regresses does NOT reach retained stage", async () => {
-    const { computeLoopStatuses } = await import("./coachLoop");
     const points = [
       pt(0, 0.5), pt(1, 0.8), // drill assigned around index 1
       pt(2, 0.85), // initial spike
