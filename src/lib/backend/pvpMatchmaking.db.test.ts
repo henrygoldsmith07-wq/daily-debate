@@ -60,11 +60,30 @@ async function todayTopicId(): Promise<string> {
 }
 
 async function resetMatchState() {
-  await pool.query("DELETE FROM pvp_turns");
-  await pool.query("DELETE FROM pvp_matches");
-  await pool.query("DELETE FROM pvp_queue");
-  await pool.query("DELETE FROM solo_debate_turns");
-  await pool.query("DELETE FROM solo_debates");
+  // SCOPED deletes only: every *.db.test.ts suite shares ONE disposable
+  // database across parallel vitest workers, so a bare `DELETE FROM
+  // pvp_matches` here would wipe another suite's mid-test rows (seen as
+  // accountErasure "expected 9 to be 11" and FK violations on
+  // challenge_invites_match_id_fkey in e2e). Every other DB suite already
+  // scopes by its own users; this file was the only one that did not.
+  const ids = [...userIds.values()];
+  if (!ids.length) return;
+  await pool.query(
+    "DELETE FROM pvp_turns WHERE match_id IN (SELECT id FROM pvp_matches WHERE player_a = ANY($1::uuid[]) OR player_b = ANY($1::uuid[]))",
+    [ids],
+  );
+  await pool.query("DELETE FROM pvp_matches WHERE player_a = ANY($1::uuid[]) OR player_b = ANY($1::uuid[])", [ids]);
+  await pool.query("DELETE FROM pvp_queue WHERE user_id = ANY($1::uuid[])", [ids]);
+  await pool.query(
+    "DELETE FROM solo_debate_turns WHERE debate_id IN (SELECT id FROM solo_debates WHERE user_id = ANY($1::uuid[]))",
+    [ids],
+  );
+  await pool.query("DELETE FROM solo_debates WHERE user_id = ANY($1::uuid[])", [ids]);
+}
+
+/** The file's own user ids for scoping assertions (same reason as above). */
+function ownIds(): string[] {
+  return ["inv-a@test.local", "inv-b@test.local", "inv-c@test.local"].map((e) => userIds.get(e)!);
 }
 
 d("atomic PvP matchmaking (migration 003)", () => {
@@ -102,7 +121,7 @@ d("atomic PvP matchmaking (migration 003)", () => {
     expect(match.status).toBe("active");
     expect(["for", "against"]).toContain(match.player_a_side);
 
-    const queue = await pool.query("SELECT * FROM pvp_queue");
+    const queue = await pool.query("SELECT * FROM pvp_queue WHERE user_id = ANY($1::uuid[])", [ownIds()]);
     expect(queue.rows).toHaveLength(0);
   });
 
@@ -156,14 +175,15 @@ d("atomic PvP matchmaking (migration 003)", () => {
       expect(joinA.rows.length + joinB.rows.length).toBe(1);
 
       const matches = await pool.query(
-        "SELECT * FROM pvp_matches WHERE status = 'active'",
+        "SELECT * FROM pvp_matches WHERE status = 'active' AND (player_a = ANY($1::uuid[]) OR player_b = ANY($1::uuid[]))",
+        [ownIds()],
       );
       expect(matches.rows).toHaveLength(1);
       expect([matches.rows[0].player_a, matches.rows[0].player_b].sort()).toEqual(
         [a, b].sort(),
       );
 
-      const queue = await pool.query("SELECT * FROM pvp_queue");
+      const queue = await pool.query("SELECT * FROM pvp_queue WHERE user_id = ANY($1::uuid[])", [ownIds()]);
       expect(queue.rows).toHaveLength(0);
     } finally {
       clientA.release();
@@ -188,7 +208,10 @@ d("atomic PvP matchmaking (migration 003)", () => {
       const winners = [...resultB.rows, ...resultC.rows];
       expect(winners).toHaveLength(1);
 
-      const matches = await pool.query("SELECT * FROM pvp_matches WHERE status = 'active'");
+      const matches = await pool.query(
+        "SELECT * FROM pvp_matches WHERE status = 'active' AND (player_a = ANY($1::uuid[]) OR player_b = ANY($1::uuid[]))",
+        [ownIds()],
+      );
       expect(matches.rows).toHaveLength(1);
       const m = matches.rows[0];
       expect([m.player_a, m.player_b].sort()).toEqual([a, winners[0].player_b].sort());
@@ -227,7 +250,10 @@ d("atomic PvP matchmaking (migration 003)", () => {
     );
     expect(claim.rows).toHaveLength(0);
 
-    const matches = await pool.query("SELECT * FROM pvp_matches WHERE status = 'active'");
+    const matches = await pool.query(
+      "SELECT * FROM pvp_matches WHERE status = 'active' AND (player_a = ANY($1::uuid[]) OR player_b = ANY($1::uuid[]))",
+      [ownIds()],
+    );
     expect(matches.rows).toHaveLength(1);
   });
 
@@ -277,7 +303,8 @@ d("atomic PvP matchmaking (migration 003)", () => {
     ).rejects.toThrow();
 
     const matches = await pool.query(
-      "SELECT * FROM pvp_matches WHERE status = 'active'",
+      "SELECT * FROM pvp_matches WHERE status = 'active' AND (player_a = ANY($1::uuid[]) OR player_b = ANY($1::uuid[]))",
+      [ownIds()],
     );
     expect(matches.rows).toHaveLength(1);
   });
