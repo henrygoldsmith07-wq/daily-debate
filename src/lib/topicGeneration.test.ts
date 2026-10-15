@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   checkConfig,
   modelTimeoutMs,
+  parseTargetDateArg,
   pickFallback,
   resolveTargetDate,
   runGeneration,
@@ -1159,5 +1160,39 @@ describe("resolveTargetDate (cycle-boundary rule)", () => {
   it("midday manual dispatches (15:00-23:59) target tomorrow", () => {
     expect(resolveTargetDate(new Date("2026-09-16T15:00:00Z"))).toBe("2026-09-17");
     expect(resolveTargetDate(new Date("2026-09-16T18:00:00Z"))).toBe("2026-09-17");
+  });
+});
+
+describe("parseTargetDateArg (explicit cycle pin)", () => {
+  it("returns null when the flag is absent so production keeps the wall-clock rule", () => {
+    expect(parseTargetDateArg([])).toBeNull();
+    expect(parseTargetDateArg(["--check-config"])).toBeNull();
+  });
+
+  it("accepts a well-formed calendar date", () => {
+    expect(parseTargetDateArg(["--target-date", "2026-10-20"])).toBe("2026-10-20");
+  });
+
+  it("rejects malformed and non-existent dates instead of writing them", () => {
+    // A regex alone accepts 2026-02-30; storing a topic on a date that does not
+    // exist would break the one-row-per-date invariant the pipeline relies on.
+    for (const bad of ["2026-02-30", "2026-13-01", "not-a-date", "2026-1-1", ""]) {
+      expect(parseTargetDateArg(["--target-date", bad])).toBe("invalid");
+    }
+    expect(parseTargetDateArg(["--target-date"])).toBe("invalid");
+  });
+
+  it("keeps both CI runs on ONE date across the 15:00 UTC boundary", () => {
+    // The regression this pins: run1 at 14:59:52 resolved 2026-10-14 while
+    // run2 at 15:00:01 resolved 2026-10-15, so run2 generated a new topic
+    // instead of reporting already-present and the gate failed on a PR that
+    // changed no pipeline code. Pinning the resolved date makes the
+    // idempotence assertion independent of the runner's start minute.
+    const beforeBoundary = new Date("2026-10-14T14:59:52Z");
+    const afterBoundary = new Date("2026-10-14T15:00:01Z");
+    expect(resolveTargetDate(beforeBoundary)).toBe("2026-10-14");
+    expect(resolveTargetDate(afterBoundary)).toBe("2026-10-15");
+    const pinned = resolveTargetDate(beforeBoundary);
+    expect(parseTargetDateArg(["--target-date", pinned])).toBe(pinned);
   });
 });

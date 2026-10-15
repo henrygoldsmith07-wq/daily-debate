@@ -154,6 +154,14 @@ function printHelp() {
       "",
       "  (no flags)     run the pipeline: AI candidates, else curated fallback;",
       "                   a valid stored topic is verified, never replaced (already-present)",
+      "  --target-date  pin the target date (YYYY-MM-DD) instead of deriving it from",
+      "                   the wall clock; used by the CI gate so two consecutive runs",
+      "                   cannot straddle the 15:00 UTC cycle boundary and target",
+      "                   different dates. Production runs omit it.",
+      "  --print-target-date",
+      "                 print the date the next run would target, then exit. Lets a",
+      "                   caller pin that exact date without reimplementing the",
+      "                   cycle rule in shell.",
       "  --check-config validate env + DB connectivity + required tables, no writes",
       "  --help         print this help",
       "",
@@ -334,7 +342,16 @@ export async function checkConfig(env = process.env, sqlFactory = createExecutor
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 
-if (isMainModule && !databaseUrl && !args.includes("--help") && !args.includes("--check-config")) {
+// `--print-target-date` and `--help` are pure local queries that must work
+// without a database (the CI gate reads the date before it has run migrations);
+// `--check-config` does its own DB validation and reports the failure itself.
+if (
+  isMainModule &&
+  !databaseUrl &&
+  !args.includes("--help") &&
+  !args.includes("--check-config") &&
+  !args.includes("--print-target-date")
+) {
   console.error("[generate-topics] outcome=config-failure: DATABASE_URL is required.");
   process.exit(1);
 }
@@ -905,6 +922,25 @@ export function resolveTargetDate(now) {
 }
 
 /**
+ * Parse an explicit `--target-date YYYY-MM-DD` pin.
+ *
+ * Returns the date string when valid, `null` when the flag is absent, and the
+ * sentinel "invalid" when the flag is present but malformed. Calendar validity
+ * is checked by round-tripping through Date: a regex alone would accept
+ * 2026-02-30, and writing a topic to a non-existent date would corrupt the
+ * one-row-per-date invariant the whole pipeline depends on.
+ */
+export function parseTargetDateArg(argv) {
+  const index = argv.indexOf("--target-date");
+  if (index === -1) return null;
+  const raw = argv[index + 1];
+  if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "invalid";
+  const parsed = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return "invalid";
+  return parsed.toISOString().slice(0, 10) === raw ? raw : "invalid";
+}
+
+/**
  * The generation pipeline, dependency-injected so every branch — AI success,
  * provider failure → fallback, already-present, repair, DB failure — is
  * testable against an in-memory query double.
@@ -935,7 +971,11 @@ export async function runGeneration(deps = {}) {
   const now = deps.now ?? new Date();
   const emit = deps.log ?? log;
 
-  const tomorrow = resolveTargetDate(now);
+  // `deps.targetDate` pins the cycle explicitly. Production never sets it, so
+  // the wall-clock cycle rule below stays the single source of truth. Tests and
+  // CI gates set it so two consecutive runs cannot land on opposite sides of
+  // the 15:00 UTC boundary and silently target different dates.
+  const tomorrow = deps.targetDate ?? resolveTargetDate(now);
   emit(`[generate-topics] Pre-generating for ${tomorrow}`);
 
   let recentTitles;
@@ -1244,7 +1284,20 @@ async function main() {
     return;
   }
 
-  const result = await runGeneration();
+  if (args.includes("--print-target-date")) {
+    // Prints only the date (no log noise on stdout) so a shell caller can
+    // capture it directly and pass it back as --target-date.
+    process.stdout.write(resolveTargetDate(new Date()) + "\n");
+    return;
+  }
+
+  const targetDate = parseTargetDateArg(args);
+  if (targetDate === "invalid") {
+    log("[generate-topics] --target-date requires a real calendar date in YYYY-MM-DD form");
+    process.exit(1);
+  }
+
+  const result = await runGeneration(targetDate ? { targetDate } : {});
   if (result.outcome === "db-failure") {
     log(`[generate-topics] outcome=db-failure (${result.stage}): ${result.error}`);
     process.exit(1);
