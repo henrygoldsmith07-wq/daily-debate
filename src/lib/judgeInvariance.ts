@@ -65,8 +65,22 @@ export function addIdeologicalFraming(t: string, leaning: "left" | "right" = "le
     .map((l) => prefix + l)
     .join("\n");
 }
+/**
+ * Whitespace/formatting invariance probe.
+ *
+ * Was `t.replaceAll("  ", " ").trim()`, INERT on every fixture: transcripts are
+ * newline-separated with single spaces, so there was no double space to collapse
+ * and no surrounding whitespace to trim. The judge received a byte-identical
+ * transcript and the result was published as "Whitespace normalisation",
+ * reporting endpoint sampling noise as formatting sensitivity. Collapsing runs
+ * of whitespace and folding newlines actually exercises the stated invariance.
+ * Kept 1:1 with scripts/lib/judge-transforms.mjs.
+ */
 export function normalizeWhitespace(t: string): string {
-  return t.replaceAll("  ", " ").trim();
+  return t
+    .replace(/[^\S\n]+/g, " ") // runs of spaces/tabs -> one space
+    .replace(/\s*\n\s*/g, " ") // fold newlines (and their indent) into a space
+    .trim();
 }
 
 // Hallucination probe: inject a fake institution name into transcript; judge must not treat it as grounded evidence
@@ -86,14 +100,25 @@ export interface InvarianceResult {
   detail: string;
 }
 
-// Deterministic mock for offline CI (same scoring as benchmarks.test.ts mock)
+/**
+ * Offline mock judge: deterministic and bias-free by construction, so a
+ * zero-flip reading here means the harness plumbing works, not that a real
+ * judge is unbiased.
+ *
+ * Attribution is per CLAUSE, not per physical line. This matters for the
+ * whitespace probe: it folds newlines, which legitimately merges two speakers
+ * onto one line. A line-based mock would then credit only the first speaker
+ * and read the layout change as a verdict flip — the mock measuring its own
+ * line-splitting while the probe is labelled as measuring the judge. Splitting
+ * on speaker markers first keeps the mock measuring what it claims to measure.
+ */
 function mockWinner(transcript: string): "a" | "b" | "tie" {
   let a = 0,
     b = 0;
-  for (const l of transcript.split("\n")) {
-    const owner = l.includes("Player A") ? "a" : l.includes("Player B") ? "b" : l.includes("Side X") ? "a" : l.includes("Side Y") ? "b" : null;
+  for (const clause of transcript.split(/(?=Player A)|(?=Player B)|(?=Side X)|(?=Side Y)/)) {
+    const owner = clause.includes("Player A") ? "a" : clause.includes("Player B") ? "b" : clause.includes("Side X") ? "a" : clause.includes("Side Y") ? "b" : null;
     if (!owner) continue;
-    const grounded = /Lazard|NREL|IEA|Pew|Brattle|Bruegel|Brookings|Stanford HAI|NIST|OECD|Nature|Reuters|AP|WHO|IMF/i.test(l) ? 1 : 0;
+    const grounded = /Lazard|NREL|IEA|Pew|Brattle|Bruegel|Brookings|Stanford HAI|NIST|OECD|Nature|Reuters|AP|WHO|IMF/i.test(clause) ? 1 : 0;
     if (grounded) {
       if (owner === "a") a++;
       else b++;
