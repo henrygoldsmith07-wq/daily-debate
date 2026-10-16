@@ -98,3 +98,22 @@ test("partial coverage is reported, never silently zero", () => {
     assert.ok(p.n > 0, `${p.id} must change at least one fixture`);
   }
 });
+
+test("whitespace-only layouts of one transcript collapse to the same string", () => {
+  // The old probe was `t.replaceAll("  ", " ").trim()`, which left a
+  // newline-separated, single-spaced fixture byte-identical. Two layouts that
+  // differ only by a double space, a tab run, and a newline-plus-indent must
+  // now both change, and must change into the same transcript.
+  const ws = PROBES.find((p) => p.id === "whitespace");
+  assert.ok(ws, "whitespace probe must exist");
+  const raw = FIXTURES.find((f) => f.transcript.includes("\n") && f.transcript.includes(" "));
+  assert.ok(raw, "need a representative newline-separated fixture");
+  const mutated = raw.transcript.replace(" ", "  ").replace("\n", "\n\t  ");
+  assert.notEqual(mutated, raw.transcript, "mutation must be whitespace-only and non-empty");
+
+  const normRaw = ws.fn(raw.transcript);
+  const normMutated = ws.fn(mutated);
+  assert.notEqual(normRaw, raw.transcript, "probe must change the raw fixture, not pass it through");
+  assert.notEqual(normMutated, mutated, "probe must change the mutated layout, not pass it through");
+  assert.equal(normRaw, normMutated);
+});
