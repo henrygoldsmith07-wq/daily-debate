@@ -132,6 +132,14 @@ export default async function ProgressPage() {
           title="Progress temporarily unavailable"
           description="Your saved debates are safe, but the coaching ledger could not be read right now. No zero or reset progress is being inferred."
         />
+        <div className="surface-card mt-4 p-5">
+          <p className="text-sm text-ink3">
+            This is usually a temporary read problem. Reload to try again.
+          </p>
+          <Link href="/progress" className="btn btn-ghost mt-3 px-3 py-1.5 text-xs">
+            Try again
+          </Link>
+        </div>
       </AppShell>
     );
   }

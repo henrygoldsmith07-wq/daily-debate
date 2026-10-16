@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/backend/server";
 import AppShell from "@/components/AppShell";
 import DebateRoom from "@/components/DebateRoom";
@@ -16,7 +16,12 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
   const {
     data: { user },
   } = await db.auth.getUser();
-  if (!user) notFound();
+  if (!user) {
+    // A signed-out visitor following a shared/bookmarked debate link is not
+    // looking at a deleted debate — send them to sign in and back, instead of
+    // a "doesn't exist" dead end. Unknown debates still 404 below.
+    redirect(`/login?reason=sign-in-required&next=${encodeURIComponent(`/debate/${debateId}`)}`);
+  }
 
   const { data: debate } = await db
     .from("solo_debates")

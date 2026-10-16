@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import MessageComposer from "../MessageComposer";
 import RoundProgress from "../RoundProgress";
 import ThinkingIndicator from "../ThinkingIndicator";
-import { MAX_ROUNDS, type SoloDebate } from "@/lib/types";
+import { type SoloDebate } from "@/lib/types";
 import type { DebateModeId } from "@/lib/debateModes";
 import { roundCapFor } from "@/lib/sprint";
 import { OPPONENT_PERSONAS } from "@/lib/opponentPersona";
@@ -225,7 +225,7 @@ export function DebateLivePanel({
 
       {status === "active" && !pending?.user_message && !composerVisible && (
         <p className="text-center text-sm text-ink3">
-          Round limit reached ({MAX_ROUNDS}). Finish the debate to get scored.
+          Round limit reached ({roundCapFor(debate.format)}). Finish the debate to get scored.
         </p>
       )}
 

@@ -106,7 +106,7 @@ export default function TopicCard({
       <div className="home-motion-heading">
         <div>
           <p className="home-motion-kicker">{retestMode ? "Today's retest motion" : "Today's motion"}</p>
-          <p className="home-motion-meta">{SPRINT_ROUNDS} focused rounds · about {SPRINT_ESTIMATE_MINUTES} minutes</p>
+          <p className="home-motion-meta">Sprint: {SPRINT_ROUNDS} focused rounds · about {SPRINT_ESTIMATE_MINUTES} minutes · more formats below</p>
         </div>
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">
           {topic.category ?? "Daily debate"}
