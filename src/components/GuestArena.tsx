@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import PageHeader from "./PageHeader";
 import {
   assessGuestPractice,
@@ -15,21 +15,55 @@ import {
 import { guestMotionForDay, type GuestMotion } from "@/lib/guestMotions";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
 import {
+  encodeGuestArenaProgress,
   encodeGuestLoopSummary,
+  GUEST_ARENA_STORAGE_KEY,
   GUEST_LOOP_STORAGE_KEY,
+  parseGuestArenaProgress,
   type GuestLoopSummary,
 } from "@/lib/guestLoop";
 import { SPRINT_ESTIMATE_MINUTES } from "@/lib/sprint";
+
+// Restore this tab's in-progress guest practice, if any. Runs at initial
+// render only (lazy initializer) so server HTML and the first client paint
+// agree — a reload resumes in one pass, no effect-driven cascading setters.
+// Stale motion day or corrupt cache degrades to defaults silently.
+function restoreArena(today: string): {
+  stage: Stage;
+  side: "for" | "against";
+  responses: string[];
+  repair: { kind: GuestSkill; label: string; text: string; succeeded: boolean } | null;
+  retestDemonstrated: boolean | null;
+} {
+  try {
+    const parsed = parseGuestArenaProgress(window.sessionStorage.getItem(GUEST_ARENA_STORAGE_KEY));
+    if (!parsed || parsed.motionDate !== today) throw new Error("stale or absent");
+    return {
+      stage: parsed.stage,
+      side: parsed.side,
+      responses: parsed.responses,
+      repair: parsed.repair
+        ? { kind: parsed.repair.kind as GuestSkill, label: parsed.repair.label, text: parsed.repair.text, succeeded: parsed.repair.succeeded }
+        : null,
+      retestDemonstrated: parsed.retestDemonstrated,
+    };
+  } catch {
+    // Corrupt or stale cache degrades to a fresh home — never half-restored.
+    return { stage: "home", side: "for", responses: [], repair: null, retestDemonstrated: null };
+  }
+}
 
 // The guest loop mirrors the signed-in product loop:
 //   debate -> one weakness -> fix it now -> retest it -> see what moved.
 //
 // Everything here is deterministic and local. No provider call, no account, no
 // cost: guest mode is a real but deliberately limited sample of the product, not
-// a degraded copy of it. Nothing is persisted, and the closing signup prompt
-// appears only AFTER the learner has actually seen value.
+// a degraded copy of it. Nothing leaves the device: mid-practice progress sits
+// in this tab's sessionStorage (a reload resumes where you left off), and the
+// closing summary sits in localStorage for the signup form. The closing signup
+// prompt appears only AFTER the learner has actually seen value.
 
-type Stage = "home" | "debate" | "result" | "retest";
+type Stage = "home" | "debate" | "result" | "retest" | "done";
 
 function Brand() {
   return (
@@ -219,14 +253,17 @@ function GuestDebate({
   rounds,
   onRoundSubmit,
   onFinish,
+  initialRound,
 }: {
   motion: GuestMotion;
   side: "for" | "against";
   rounds: GuestMotion["rounds"];
   onRoundSubmit: (roundIndex: number, response: string) => void;
   onFinish: () => void;
+  /** Resume a reloaded tab at the first unanswered round (completed rounds are kept). */
+  initialRound?: number;
 }) {
-  const [round, setRound] = useState(0);
+  const [round, setRound] = useState(() => Math.min(Math.max(initialRound ?? 0, 0), rounds.length - 1));
   const [response, setResponse] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const activeRound = rounds[round];
@@ -691,14 +728,103 @@ function GuestRetest({
   );
 }
 
-export default function GuestArena() {
-  const [stage, setStage] = useState<Stage>("home");
-  const [side, setSide] = useState<"for" | "against">("for");
-  const [responses, setResponses] = useState<string[]>([]);
-  const [repair, setRepair] = useState<{ kind: GuestSkill; label: string; text: string; succeeded: boolean } | null>(null);
+function GuestDone({
+  weaknessLabel,
+  repairSucceeded,
+  demonstrated,
+  onRestart,
+}: {
+  weaknessLabel: string;
+  repairSucceeded: boolean;
+  demonstrated: boolean;
+  onRestart: () => void;
+}) {
+  return (
+    <div className="app-shell app-shell-guest">
+      <div className="app-main">
+        <header className="app-topbar app-topbar-guest">
+          <Brand />
+          <div className="flex items-center gap-3 text-xs text-ink3">
+            <span className="pill">Rep complete</span>
+          </div>
+        </header>
+        <main id="main" className="app-content max-w-2xl">
+          <PageHeader
+            eyebrow="Practice complete"
+            title="One rep, fully closed"
+            description="Debate, repair, retest — your practice was saved on this device."
+            actions={<span className="pill">Guest mode</span>}
+          />
 
-  // Rotated by UTC day: deterministic, free, and no server state.
-  const motion = guestMotionForDay(new Date().toISOString().slice(0, 10));
+          <section className="surface-card p-5 sm:p-6" aria-labelledby="guest-done-outcome" data-testid="guest-done">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink3">What happened</p>
+            <h2 id="guest-done-outcome" className="mt-1 text-lg font-semibold">
+              {demonstrated ? "Observed under pressure" : "Not observed this round"}
+            </h2>
+            <ul className="mt-3 space-y-2 text-sm leading-6 text-ink2">
+              <li>
+                <span className="font-semibold text-ink">Weakness:</span> {weaknessLabel}.
+              </li>
+              <li>
+                <span className="font-semibold text-ink">Repair drill:</span>{" "}
+                {repairSucceeded ? "demonstrated." : "attempted — worth another pass."}
+              </li>
+              <li>
+                <span className="font-semibold text-ink">Retest:</span>{" "}
+                {demonstrated
+                  ? "the repaired move showed up under debate conditions — one observed instance, not a measure of ability."
+                  : "the move did not reappear under pressure. The repair itself still stands as completed practice."}
+              </li>
+            </ul>
+            <p className="mt-3 text-[11px] leading-5 text-ink3">
+              Guest practice reports single observed instances. Repeated measurement — the thing that turns a rep
+              into evidence of ability — needs an account.
+            </p>
+          </section>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button type="button" onClick={onRestart} className="btn btn-secondary px-4 py-3 text-sm">
+              Practice again
+            </button>
+            <Link href="/login" className="btn btn-primary px-4 py-3 text-center text-sm">
+              Create a free account
+            </Link>
+          </div>
+          <p className="text-center text-xs leading-5 text-ink3">
+            An account carries this rep over and measures the same move across many debates, with explicit sample
+            sizes — so progress is observed rather than guessed from one rep.
+          </p>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+export default function GuestArena() {
+  // Read the motion day before restoring state: the cache is invalidated per
+  // motion day, so the day must be resolved first.
+  const today = new Date().toISOString().slice(0, 10);
+  const motion = guestMotionForDay(today);
+  const restored = restoreArena(today);
+
+  const [stage, setStage] = useState<Stage>(() => restored.stage);
+  const [side, setSide] = useState<"for" | "against">(() => restored.side);
+  const [responses, setResponses] = useState<string[]>(() => restored.responses);
+  const [repair, setRepair] = useState<{ kind: GuestSkill; label: string; text: string; succeeded: boolean } | null>(() => restored.repair);
+  const [retestDemonstrated, setRetestDemonstrated] = useState<boolean | null>(() => restored.retestDemonstrated);
+
+  // Persist every transition. Best effort like the signup carry-through:
+  // private browsing may deny storage; the flow still finishes.
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        GUEST_ARENA_STORAGE_KEY,
+        encodeGuestArenaProgress({ version: 1, motionDate: today, stage, side, responses, repair, retestDemonstrated }),
+      );
+    } catch {
+      // Storage unavailable — nothing cached, nothing broken.
+    }
+  }, [today, stage, side, responses, repair, retestDemonstrated]);
 
   function finishRetest(demonstrated: boolean) {
     // The completed loop is worth keeping: store a bounded summary for the
@@ -732,9 +858,15 @@ export default function GuestArena() {
   }
 
   function restart() {
+    try {
+      window.sessionStorage.removeItem(GUEST_ARENA_STORAGE_KEY);
+    } catch {
+      // Storage unavailable — in-memory reset below is sufficient.
+    }
     setStage("home");
     setResponses([]);
     setRepair(null);
+    setRetestDemonstrated(null);
   }
 
   function recordResponses(roundIndex: number, response: string) {
@@ -755,6 +887,7 @@ export default function GuestArena() {
         motion={motion}
         side={side}
         rounds={motion.rounds}
+        initialRound={Math.min(responses.length, motion.rounds.length - 1)}
         onRoundSubmit={recordResponses}
         onFinish={() => setStage("result")}
       />
@@ -783,9 +916,21 @@ export default function GuestArena() {
         repairText={repair.text}
         repairSucceeded={repair.succeeded}
         onFinish={(demonstrated) => {
+          setRetestDemonstrated(demonstrated);
           finishRetest(demonstrated);
-          restart();
+          setStage("done");
         }}
+      />
+    );
+  }
+
+  if (stage === "done" && repair) {
+    return (
+      <GuestDone
+        weaknessLabel={repair.label}
+        repairSucceeded={repair.succeeded}
+        demonstrated={retestDemonstrated === true}
+        onRestart={restart}
       />
     );
   }
