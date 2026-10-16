@@ -66,7 +66,12 @@ export function addIdeologicalFraming(t: string, leaning: "left" | "right" = "le
     .join("\n");
 }
 export function normalizeWhitespace(t: string): string {
-  return t.replaceAll("  ", " ").trim();
+  // Collapse EVERY whitespace run (spaces, tabs, newlines) to one space.
+  // The prior single-double-space collapse was a no-op on the 24-fixture
+  // pack (newline-separated, single spaces, already trimmed), so the probe
+  // fed byte-identical transcripts and charged provider nondeterminism to
+  // the strictest gate (whitespaceStabilityMin 0.98). See errata 2026-10-16.
+  return t.replace(/\s+/g, " ").trim();
 }
 
 // Hallucination probe: inject a fake institution name into transcript; judge must not treat it as grounded evidence
@@ -87,10 +92,21 @@ export interface InvarianceResult {
 }
 
 // Deterministic mock for offline CI (same scoring as benchmarks.test.ts mock)
-function mockWinner(transcript: string): "a" | "b" | "tie" {
+// Clause-split on speaker markers, NOT physical lines: the whitespace probe
+// legitimately folds newlines, so a line-split mock would attribute a folded
+// single line to one owner and flip on formatting alone (probe-on-mock
+// interaction). Splitting on speaker boundaries keeps the mock
+// layout-insensitive; verified by judgeInvariance.test.ts.
+export function splitTranscriptClauses(transcript: string): string[] {
+  return transcript
+    .split(/(?=Player A|Player B|Side X|Side Y)/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+export function mockWinner(transcript: string): "a" | "b" | "tie" {
   let a = 0,
     b = 0;
-  for (const l of transcript.split("\n")) {
+  for (const l of splitTranscriptClauses(transcript)) {
     const owner = l.includes("Player A") ? "a" : l.includes("Player B") ? "b" : l.includes("Side X") ? "a" : l.includes("Side Y") ? "b" : null;
     if (!owner) continue;
     const grounded = /Lazard|NREL|IEA|Pew|Brattle|Bruegel|Brookings|Stanford HAI|NIST|OECD|Nature|Reuters|AP|WHO|IMF/i.test(l) ? 1 : 0;

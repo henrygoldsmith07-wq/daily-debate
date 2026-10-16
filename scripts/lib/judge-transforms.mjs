@@ -7,18 +7,20 @@ export const stripNames = (t) => t.replaceAll("Player A", "Side X").replaceAll("
 export const inflateVerbosity = (t) =>
   t.split("\n").map((l) => l + " Indeed, this is unequivocally decisive and beyond reasonable dispute.").join("\n");
 export const deflateVerbosity = (t) =>
-  t.replaceAll(" unequivocally", "").replaceAll("Indeed,", "").replaceAll(" beyond reasonable dispute", "").trim();
+  t.replaceAll(" unequivocally", "").replaceAll("Indeed,", "").replaceAll(" beyond reasonable dispute", "").replaceAll(" arguably", "").trim();
 const SWAPS = [
   [/\bcheap\b/gi, "economically advantageous"],
   [/\bshows\b/gi, "demonstrates"],
   [/\bneeds\b/gi, "necessitates"],
   [/\bbig\b/gi, "substantial"],
+  [/\bbut\b/gi, "however,"],
+  [/\bso\b/gi, "consequently,"],
 ];
 export const sophisticateWording = (t) => SWAPS.reduce((acc, [re, rep]) => acc.replace(re, rep), t);
 export const addConfidenceHedge = (t) => t.replaceAll("is", "is arguably");
-export const addConfidentTone = (t) => t.replaceAll("is arguably", "is") + " This is absolutely certain.";
+export const addConfidentTone = (t) => t.replaceAll("is arguably", "is") + " This is absolutely certain and leaves no doubt.";
 export const swapPrestige = (t) => {
-  const known = /Lazard|NREL|Pew|Brookings|NIST|Nature|Reuters/gi;
+  const known = /Lazard|NREL|Pew|Brookings|NIST|Stanford HAI|Nature|Reuters/gi;
   return known.test(t) ? t.replace(known, "MyBlog") : t.replace("Player A", "Player A (citing MyBlog)");
 };
 export const injectFakeCitation = (t) => {
@@ -26,7 +28,7 @@ export const injectFakeCitation = (t) => {
   if (lines.length) lines[0] += " According to the Global Institute for Advanced Policy Insights, 99% agree.";
   return lines.join("\n");
 };
-export const normalizeWhitespace = (t) => t.replaceAll("  ", " ").trim();
+export const normalizeWhitespace = (t) => t.replace(/\s+/g, " ").trim();
 export const applyPoliticalTopic = (t) => "This is a politically contested election-year topic. " + t;
 export const addIdeologicalFraming = (t, leaning) =>
   t.split("\n").map((l) => (leaning === "left" ? "[Equity framing] " : "[Liberty framing] ") + l).join("\n");
