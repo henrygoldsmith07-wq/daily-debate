@@ -19,7 +19,13 @@ import type { ArgGraph } from "./argGraph";
  */
 
 export function e2eMockAiEnabled(): boolean {
-  return process.env.E2E_MOCK_AI === "1";
+  if (process.env.E2E_MOCK_AI !== "1") return false;
+  // The mock serves canned debates/judges that validate against the real
+  // provider schema, so nothing downstream can distinguish them from real
+  // model output. Refuse to arm it on a real production deployment even if
+  // the variable leaks in. Local and CI E2E (production builds included)
+  // never set VERCEL_ENV=production, so the suite keeps working.
+  return process.env.VERCEL_ENV !== "production";
 }
 
 export function mockDebateOpening(): string {
