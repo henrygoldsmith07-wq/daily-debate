@@ -21,7 +21,7 @@ import { pointMeasuresDimension, repairKindToDimension } from "@/lib/repairRetes
 import { buildTrainingSummary } from "@/lib/trainingSummary";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
-  const ipLimited = await checkRateLimit(request, { name: "solo-finish-ip", limit: 60, windowMs: 60_000 });
+  const ipLimited = await checkRateLimit(request, { name: "solo-finish-ip", limit: 60, windowMs: 60_000, failClosed: true });
   if (ipLimited) return ipLimited;
 
   const { debateId } = await params;
@@ -32,7 +32,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = user.id;
 
-  const userLimit = await checkRateLimitKey(user.id, { name: "solo-finish-user", limit: 10, windowMs: 60_000 });
+  const userLimit = await checkRateLimitKey(user.id, { name: "solo-finish-user", limit: 10, windowMs: 60_000, failClosed: true });
   if (!userLimit.ok) {
     return NextResponse.json(
       { error: "Too many finish attempts. Please wait a moment and try again." },

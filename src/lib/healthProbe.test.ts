@@ -153,6 +153,9 @@ describe("isUsableProbe (consumer-side sanity gate)", () => {
 describe("GET /api/health (route contract)", () => {
   beforeEach(() => {
     loadOpsHealth.mockReset();
+    // The route memoizes the report for 15s: reset it so each contract
+    // assertion exercises a live load, not the previous test's cache.
+    clearMemo();
   });
 
   // The route module is compiled on first use (the Next route plus its
@@ -163,8 +166,9 @@ describe("GET /api/health (route contract)", () => {
   // Importing it once here with an explicit budget moves the cost out of the
   // assertions. The mocks above are hoisted, so they still apply.
   let GET: (request: Request) => Promise<Response>;
+  let clearMemo: () => void = () => {};
   beforeAll(async () => {
-    ({ GET } = await import("../app/api/health/route"));
+    ({ GET, __clearHealthMemoForTests: clearMemo } = await import("../app/api/health/route"));
   }, 30_000);
 
   it("serves the derived state with no-store", async () => {
@@ -210,6 +214,7 @@ describe("GET /api/health (route contract)", () => {
     loadOpsHealth.mockResolvedValue(report());
     const okRes = await GET(new Request("https://dailydebate.app/api/health"));
     const okBody = (await okRes.json()) as Record<string, unknown>;
+    clearMemo();
     loadOpsHealth.mockRejectedValueOnce(new Error("down"));
     const errRes = await GET(new Request("https://dailydebate.app/api/health"));
     const errBody = (await errRes.json()) as Record<string, unknown>;

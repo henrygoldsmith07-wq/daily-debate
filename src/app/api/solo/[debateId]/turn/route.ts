@@ -68,7 +68,7 @@ function stagedResponsePayload(staged: Partial<StagedSubmission> | undefined) {
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
   // Secondary network-abuse ceiling. Authenticated users get their own tighter
   // bucket below so people sharing school/home/work NATs do not throttle each other.
-  const ipLimited = await checkRateLimit(request, { name: "solo-turn-ip", limit: 120, windowMs: 60_000 });
+  const ipLimited = await checkRateLimit(request, { name: "solo-turn-ip", limit: 120, windowMs: 60_000, failClosed: true });
   if (ipLimited) return ipLimited;
 
   const { debateId } = await params;
@@ -78,7 +78,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const userLimit = await checkRateLimitKey(user.id, { name: "solo-turn-user", limit: 30, windowMs: 60_000 });
+  const userLimit = await checkRateLimitKey(user.id, { name: "solo-turn-user", limit: 30, windowMs: 60_000, failClosed: true });
   if (!userLimit.ok) {
     return NextResponse.json(
       { error: "Too many turn submissions. Please wait a moment and try again." },

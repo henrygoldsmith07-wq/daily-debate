@@ -1,5 +1,20 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { __localRateLimitForTests, __clearBucketsForTests, getClientIp } from "./rateLimit";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import {
+  __localRateLimitForTests,
+  __clearBucketsForTests,
+  checkRateLimitKey,
+  getClientIp,
+} from "./rateLimit";
+
+// Simulate a configured-but-unreachable shared limiter: the distributed
+// branch is taken, then the client construction fails, so dbRateLimit yields
+// null exactly as a real outage would.
+vi.mock("./backend/env", () => ({ isDatabaseConfigured: () => true }));
+vi.mock("./backend/server", () => ({
+  createServiceClient: () => {
+    throw new Error("db unavailable");
+  },
+}));
 
 describe("rateLimit local fallback", () => {
   beforeEach(() => __clearBucketsForTests());
@@ -43,5 +58,17 @@ describe("getClientIp", () => {
 
   it("falls back to unknown when no ip header is present", () => {
     expect(getClientIp(new Request("http://x"))).toBe("unknown");
+  });
+});
+
+describe("failClosed paid-route protection", () => {
+  it("denies when the shared limiter is configured but unreachable and failClosed is set", async () => {
+    const r = await checkRateLimitKey("failclosed:k", { name: "t", limit: 5, windowMs: 60_000, failClosed: true });
+    expect(r.ok).toBe(false);
+  });
+
+  it("falls back to the local bucket without failClosed", async () => {
+    const r = await checkRateLimitKey("failopen:k", { name: "t", limit: 5, windowMs: 60_000 });
+    expect(r.ok).toBe(true);
   });
 });
