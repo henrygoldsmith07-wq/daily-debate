@@ -184,8 +184,23 @@ jobs:
 
       - name: Run the pipeline twice for the same target date
         run: |
-          node scripts/generate-topics.mjs | tee run1.json
-          node scripts/generate-topics.mjs | tee run2.json
+          # Pin ONE target date for both runs. Without the pin each run derives
+          # the date from its own wall clock, so a step that straddles the
+          # 15:00 UTC cycle boundary resolves two different dates: run1 stores
+          # date A, run2 legitimately generates date B, and the
+          # `already-present` assertion below fails on a PR that changed
+          # nothing. That is a gate defect, not a product defect — the pipeline
+          # behaved correctly on both sides of the boundary. The pin makes the
+          # idempotence proof depend on the pipeline's write-once behaviour
+          # rather than on which minute the runner happened to start.
+          TARGET_DATE="$(node scripts/generate-topics.mjs --print-target-date)"
+          if ! [[ "$TARGET_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "::error::could not resolve a target date for the idempotence gate"
+            exit 1
+          fi
+          echo "pinned target date: $TARGET_DATE"
+          node scripts/generate-topics.mjs --target-date "$TARGET_DATE" | tee run1.json
+          node scripts/generate-topics.mjs --target-date "$TARGET_DATE" | tee run2.json
           grep -q '"outcome":"curated-fallback"' run1.json
           # The retry verifies rather than regenerates: same row, same content.
           grep -q '"outcome":"already-present"' run2.json
