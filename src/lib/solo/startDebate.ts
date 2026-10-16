@@ -29,6 +29,7 @@ import {
 } from "@/lib/challengeMe";
 import { pickFocusDimension } from "@/lib/coachingGoal";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
+import { FALLBACK_IN_MEMORY_TOPIC_ID } from "@/lib/dailyTopic";
 
 export type SoloStartSideChoice = DebateSide | "challenge";
 
@@ -95,6 +96,18 @@ export async function startSoloDebate(params: {
   difficulty: OpponentDifficulty;
 }): Promise<SoloStartServiceResult> {
   const { db, userId, topicId, sideChoice, format, persona, difficulty } = params;
+
+  // The in-memory topic fallback was never persisted, so no debate can be
+  // anchored to it. Answer 503 (retryable) instead of 404: the store may
+  // recover on retry, and a missing-topic verdict would mislead.
+  if (topicId === FALLBACK_IN_MEMORY_TOPIC_ID) {
+    return failure(
+      503,
+      "The daily topic store is unavailable right now, so this debate cannot start. Please retry in a moment.",
+      "topic-store-unavailable",
+      30,
+    );
+  }
 
   const { data: topic, error: topicError } = await db
     .from("daily_topics")

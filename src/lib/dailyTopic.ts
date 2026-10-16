@@ -94,11 +94,16 @@ async function insertCanonicalTopicOnce(
  * fallback in-memory without persisting. NOT stored, so the topic pipeline's
  * freshness/ladder logic never mistakes it for a generated row; it carries
  * no fingerprint and contributes to no proof (availability protection only).
+ *
+ * Nothing may treat this id as a startable topic: solo start resolves topics
+ * by database id, so handing this sentinel to startSoloDebate would 404.
+ * The service answers 503 (retryable) for it instead — see startDebate.ts.
  */
+export const FALLBACK_IN_MEMORY_TOPIC_ID = "fallback-in-memory";
 function inMemoryFallback(date: string, recentTitles: string[] = []): DailyTopic {
   const fb = pickFallbackExcluding(date, recentTitles);
   return {
-    id: "fallback-in-memory",
+    id: FALLBACK_IN_MEMORY_TOPIC_ID,
     topic_date: date,
     title: fb.title,
     prompt: fb.prompt,

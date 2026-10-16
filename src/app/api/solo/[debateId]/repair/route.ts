@@ -62,7 +62,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ deba
  * repair is deliberate practice, not a re-judgement.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
-  const limited = await checkRateLimit(request, { name: "repair-post", limit: 20, windowMs: 60_000 });
+  const limited = await checkRateLimit(request, { name: "repair-post", limit: 20, windowMs: 60_000, failClosed: true });
   if (limited) return limited;
 
   const { debateId } = await params;
