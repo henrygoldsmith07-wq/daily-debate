@@ -40,7 +40,32 @@ export default function ArgumentRepair({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!target) return null;
+  if (!target) {
+    // The repair exercise is the payoff of the result screen: vanishing
+    // without explanation breaks the practice → repair loop. Say why there
+    // is nothing to repair and where to go instead.
+    return (
+      <section
+        className="repair-panel surface-card flex flex-col gap-3 p-5"
+        aria-labelledby="repair-unavailable-title"
+        data-testid="repair-unavailable"
+      >
+        <p className="repair-overline">One-minute repair</p>
+        <h2 id="repair-unavailable-title" className="mt-1 text-xl font-semibold tracking-tight">
+          No repair target this time
+        </h2>
+        <p className="max-w-xl text-sm leading-6 text-ink3">
+          The debate did not produce a flagged move to rewrite — usually because
+          there was too little assessed structure to pick from. Your score and
+          analysis above still stand.
+        </p>
+        <p className="text-sm leading-6 text-ink3">
+          Debate again to generate a fresh target, or open the full analysis to
+          review what was observed.
+        </p>
+      </section>
+    );
+  }
 
   async function checkRepair() {
     if (submitting) return;
