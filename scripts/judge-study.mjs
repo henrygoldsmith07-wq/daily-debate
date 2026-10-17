@@ -8,8 +8,9 @@
 //    BEFORE the first arm. If the registration file later differs from the
 //    snapshot hash, that is a NEW STUDY: execution refuses to continue or
 //    re-decide under the old seal (item 4).
-//  * Before EVERY arm: scripts/quota-probe.mjs runs (one real call) and the
-//    result is appended to probes.jsonl. Probe failure => stop cleanly,
+//  * Before EVERY arm: scripts/quota-probe.mjs runs (one real call per
+//  *    provider the arm names - every leg must answer) and the result is
+//  *    appended to probes.jsonl. Probe failure => stop cleanly,
 //    leaving the study resumable. Runs are never stacked on one arm because
 //    the other temporarily cannot execute: the interleave planner resumes
 //    from existing per-arm counts and keeps them balanced (item 5).
