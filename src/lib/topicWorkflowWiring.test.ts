@@ -118,7 +118,7 @@ describe("production proof separation (six independent facts)", () => {
           { event: "workflow_dispatch", status: "completed", conclusion: "success", createdAt: "2026-09-15T10:00:00Z" },
         ],
         productionDbReadable: true,
-        tomorrowReady: true,
+        tomorrowReady: true, todayReady: true,
         telemetry: [
           { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-17", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "ai" },
           { event: "schedule", at: "2026-09-16T02:00:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-17", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "ai" },
@@ -142,7 +142,7 @@ describe("production proof separation (six independent facts)", () => {
       {
         runs: [{ event: "workflow_dispatch", status: "completed", conclusion: "success", createdAt: "2026-09-15T10:00:00Z" }],
         productionDbReadable: true,
-        tomorrowReady: true,
+        tomorrowReady: true, todayReady: true,
         telemetry: [
           { event: "workflow_dispatch", at: "2026-09-15T10:00:00Z", result: "success", delayMs: null, targetDate: "2026-09-17", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: "c".repeat(64), generatorResult: "fallback-by-policy" },
         ],
@@ -160,7 +160,7 @@ describe("production proof separation (six independent facts)", () => {
       {
         runs: [{ event: "schedule", status: "completed", conclusion: "success", createdAt: "2026-09-16T02:00:00Z" }],
         productionDbReadable: true,
-        tomorrowReady: true,
+        tomorrowReady: true, todayReady: true,
         telemetry: [
           {
             event: "schedule", at: "2026-09-16T02:00:00Z", result: "success", delayMs: 60_000,

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  calendarDaysBetween,
   classifyFailureStage,
   decideOpsAlert,
   decideOpsNotification,
@@ -91,6 +92,140 @@ test("missing proofs and unknown availability warn without going critical", () =
   assert.equal(d.alert, true);
   assert.equal(d.severity, "warning");
   assert.ok(d.facts.some((f) => f.includes("manualSuccess, idempotenceRerun")));
+});
+
+// --- unassessed vs missing proofs: a failed read is not a claim -------------
+
+test("an unreadable app telemetry log renders telemetry-dependent proofs as unassessed, with the remedy", () => {
+  // The probe reports the three durable-telemetry proofs as plain booleans;
+  // when topic_run_log itself was unreadable to the app witness, those
+  // booleans are NOT claims about history — they mean the observer could not
+  // look. The digest must not say "not yet proven" for them: that phrasing
+  // sends an operator to chase pipeline history that may be perfectly fine.
+  const d = decideOpsAlert(healthy({
+    proofs: {
+      manualSuccess: true,
+      scheduledSuccessAfterManual: true,
+      sameDateContentIdempotence: false,
+      onTimeBeforeDeadline: false,
+      aiGeneratedProductionSuccess: false,
+    },
+    telemetryReadable: false,
+    availability: { state: "pending-before-deadline", note: null },
+  }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "warning");
+  const unassessed = d.facts.find((f) => f.startsWith("proofs: unassessed"));
+  assert.ok(unassessed, "expected an unassessed fact");
+  assert.ok(unassessed.includes("sameDateContentIdempotence"));
+  assert.ok(unassessed.includes("onTimeBeforeDeadline"));
+  assert.ok(unassessed.includes("aiGeneratedProductionSuccess"));
+  assert.ok(unassessed.includes("unreadable"));
+  assert.ok(unassessed.includes("migrations 014-018"));
+  assert.ok(!d.facts.some((f) => f.startsWith("proofs: not yet proven")));
+});
+
+test("a readable telemetry log keeps missing proofs measured ('not yet proven')", () => {
+  const d = decideOpsAlert(healthy({
+    proofs: {
+      manualSuccess: true,
+      scheduledSuccessAfterManual: true,
+      sameDateContentIdempotence: true,
+      onTimeBeforeDeadline: false,
+      aiGeneratedProductionSuccess: false,
+    },
+    telemetryReadable: true,
+    availability: { state: "pending-before-deadline", note: null },
+  }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "warning");
+  const measured = d.facts.find((f) => f.startsWith("proofs: not yet proven"));
+  assert.ok(measured);
+  assert.ok(measured.includes("onTimeBeforeDeadline"));
+  assert.ok(measured.includes("aiGeneratedProductionSuccess"));
+  assert.ok(!d.facts.some((f) => f.startsWith("proofs: unassessed")));
+});
+
+test("omitting telemetryReadable keeps the historical 'not yet proven' wording", () => {
+  // Older probe payloads don't carry the witness field; the digest must not
+  // then claim "unassessed" either — it simply doesn't know, so proofs keep
+  // rendering as measured-missing.
+  const d = decideOpsAlert(healthy({
+    proofs: { ...okProofs, manualSuccess: false, idempotenceRerun: false },
+    availability: { state: "pending-before-deadline", note: null },
+  }));
+  assert.ok(d.facts.some((f) => f.startsWith("proofs: not yet proven") && f.includes("manualSuccess")));
+  assert.ok(!d.facts.some((f) => f.startsWith("proofs: unassessed")));
+});
+
+// --- the digest-morning auto-close regression (ops issue #27's shape) -------
+
+test("a healthy digest morning reads null: pending availability + proven proofs close the alert", () => {
+  // This is the exact shape the 04:00 UTC digest should see on a GOOD day:
+  // today's serving topic is in the store (availability pending: tomorrow's
+  // row cannot exist yet), last evening's run landed it on time, and the
+  // durable proofs all read true from a readable telemetry log. Any fact
+  // here would have kept a false critical alert open forever.
+  const d = decideOpsAlert({
+    runs: [{ event: "schedule", status: "completed", conclusion: "success", createdAt: "2026-10-16T22:23:00Z" }],
+    telemetry: null,
+    availability: { state: "pending-before-deadline", note: null },
+    dbReadable: true,
+    proofs: {
+      databaseReachable: true,
+      manualSuccess: true,
+      scheduledSuccessAfterManual: true,
+      sameDateContentIdempotence: true,
+      onTimeBeforeDeadline: true,
+      aiGeneratedProductionSuccess: true,
+    },
+    telemetryReadable: true,
+    latestTelemetryTargetDate: "2026-10-17",
+    schema: { requiredTablesOk: true, latestApplicationSchemaReady: true, remediation: null },
+    // A fresh published benchmark artifact (as the digest reads it nightly
+    // from its own checkout — the weekly benchmark workflow keeps it current).
+    // A null here would itself be an alertable unknown, correctly.
+    benchmark: { at: "2026-10-15T10:00:00Z", stale: false, thresholdDays: 7 },
+    latestConfigCheck: { ok: true, reason: "ok" },
+    nowIso: "2026-10-17T04:00:00Z",
+  });
+  assert.equal(d, null);
+});
+
+// --- second-witness divergence ---------------------------------------------
+
+test("a witness target date lagging the newest scheduled run by >1 day is named as divergence", () => {
+  const d = decideOpsAlert(healthy({
+    runs: [{ event: "schedule", status: "completed", conclusion: "success", createdAt: "2026-10-17T06:53:00Z" }],
+    latestTelemetryTargetDate: "2026-10-14",
+    availability: { state: "pending-before-deadline", note: null },
+  }));
+  assert.equal(d.alert, true);
+  assert.equal(d.severity, "warning");
+  const divergence = d.facts.find((f) => f.startsWith("telemetry: DIVERGENCE"));
+  assert.ok(divergence, "expected a divergence fact");
+  assert.ok(divergence.includes("2026-10-14"));
+  assert.ok(divergence.includes("2026-10-17"));
+  assert.ok(divergence.includes("DATABASE_URL"));
+});
+
+test("a same-day or one-day-behind witness target is not a divergence", () => {
+  for (const target of ["2026-10-17", "2026-10-16"]) {
+    const d = decideOpsAlert(healthy({
+      runs: [{ event: "schedule", status: "completed", conclusion: "success", createdAt: "2026-10-17T06:53:00Z" }],
+      latestTelemetryTargetDate: target,
+      availability: { state: "pending-before-deadline", note: null },
+    }));
+    assert.ok(!d?.facts?.some?.((f) => String(f).startsWith("telemetry: DIVERGENCE")), `unexpected divergence fact for ${target}`);
+  }
+});
+
+test("calendarDaysBetween measures UTC calendar days and refuses garbage", () => {
+  assert.equal(calendarDaysBetween("2026-10-14T00:00:00Z", "2026-10-17T06:53:00Z"), 3);
+  assert.equal(calendarDaysBetween("2026-10-17T23:00:00Z", "2026-10-18T00:10:00Z"), 1);
+  assert.equal(calendarDaysBetween("2026-10-17", "2026-10-17"), 0);
+  assert.equal(calendarDaysBetween(null, "2026-10-17"), null);
+  assert.equal(calendarDaysBetween("2026-10-14", "nonsense"), null);
 });
 
 test("unavailable sources (null sections) warn instead of passing silently", () => {

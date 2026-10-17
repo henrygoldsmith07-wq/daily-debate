@@ -16,9 +16,15 @@ Scheduling is proven only when all six hold independently in ops health
   Two bare successes are NOT sufficient: under write-once semantics the
   second run verifies rather than rewrites, so only matching fingerprints
   prove the content is stable.
-- `onTimeBeforeDeadline` — tomorrow's topic is stored and verified content
-  for that date completed before the actual 03:00 UTC deadline
-  (`freshness_ok=true`, not merely "not false").
+- `onTimeBeforeDeadline` — verified content for a recent cycle's date
+  completed before that date's own 03:00 UTC deadline (`freshness_ok=true`,
+  not merely "not false"). The eligible dates are {yesterday, today,
+  tomorrow} relative to the observation: after today's 03:00 deadline has
+  fired (mornings, including the 04:00 digest) the just-finished cycle —
+  today's row, written last evening — is exactly what the proof must attest,
+  while "tomorrow only" (the old formulation, gated further on
+  `tomorrowReady`) was structurally unprovable every morning because the next
+  cycle's target row cannot exist before its window opens.
 - `aiGeneratedProductionSuccess` — a real production run returned a valid AI
   candidate that was stored with non-empty sources surviving the JSONB
   round-trip, and the freshness verifier passed for it. Curated fallback

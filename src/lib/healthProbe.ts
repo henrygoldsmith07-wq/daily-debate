@@ -37,6 +37,24 @@ export interface PublicHealthState {
    * ai|fallback vocabulary; this is the public-facing name.
    */
   topicSource: "ai" | "curated_fallback" | "unknown";
+  /**
+   * Whether topic_run_log was readable to the app runtime when the report
+   * was computed. `false` does NOT mean the fingerprint, deadline or real-AI
+   * proofs' subjects never happened — it means this witness could not look,
+   * so those proofs are unassessed rather than false. null = the upstream
+   * report predates the field (an older deployment), treated as unknown.
+   */
+  telemetryReadable: boolean | null;
+  /**
+   * Newest target date among the topic_run_log rows this witness could read
+   * (null when none). Public-safe: a bare date string in the same vocabulary
+   * as the repository's public workflow-run history — no identifiers, no
+   * titles. The digest compares it against GitHub's newest scheduled run:
+   * if the app's database view lags the writer's store by more than a day,
+   * the divergence is visible externally instead of computable in no one's
+   * head — the Neon URL split class of incident becomes nameable.
+   */
+  latestTelemetryTargetDate: string | null;
   /** Public-safe diagnostic: SQLSTATE class of the failing topic read
    *  ("42" undefined-object, "28" privilege, "08" connection...), null
    *  when the read succeeded. A standard error class, never a message. */
@@ -74,6 +92,17 @@ export function derivePublicHealthState(report: OpsHealthReport, nowIso: string)
         : report.topic.origin === "fallback"
           ? "curated_fallback"
           : "unknown",
+    // Runtime-guarded on purpose: the all-unknown fallback report is a hand
+    // built literal that does not carry the new TopicSlo fields, so absent
+    // keys must reduce to null rather than lie as booleans.
+    telemetryReadable:
+      typeof (report.topicSlo as { telemetryReadable?: unknown }).telemetryReadable === "boolean"
+        ? ((report.topicSlo as { telemetryReadable: boolean }).telemetryReadable)
+        : null,
+    latestTelemetryTargetDate:
+      typeof (report.topicSlo as { latestTelemetryTargetDate?: unknown }).latestTelemetryTargetDate === "string"
+        ? ((report.topicSlo as { latestTelemetryTargetDate: string }).latestTelemetryTargetDate)
+        : null,
     proofs: { ...report.topicSlo.proofs },
     /** Public-safe diagnostic: SQLSTATE class of the failing topic read
      *  ("42" undefined-object, "28" privilege, "08" connection...), null

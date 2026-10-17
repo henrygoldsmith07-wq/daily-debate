@@ -15,6 +15,7 @@ import {
   assessTrainingEvidence,
   buildOpsHealthReport,
   MIGRATION_REQUIRED_COLUMNS,
+  todayIsoUtc,
   type AiProductionEvidence,
   type DurableProofFacts,
   deriveDelayWitness,
@@ -402,6 +403,11 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       runs: topicRuns ?? [],
       productionDbReadable: topicStoreReadable,
       tomorrowReady: topic.tomorrowReady,
+      // The breach subject of the availability dimension is TODAY's serving
+      // row (the 03:00 UTC deadline anchors to the OBSERVING day): a >= today
+      // comparison tolerates the degenerate future-row case while staying
+      // false whenever the store holds nothing current.
+      todayReady: !!topic.lastTopicDate && topic.lastTopicDate >= todayIsoUtc(now),
       telemetry,
       telemetryReadable,
       aiEvidence,
@@ -596,7 +602,7 @@ async function loadAiProductionEvidence(
       .limit(5);
     if (rows.error) return null;
     const list = (rows.data ?? []) as Array<{
-      topic_date: string;
+      topic_date: string | Date;
       sources: unknown;
       generation_source: string | null;
       topic_fingerprint: string | null;
@@ -606,7 +612,13 @@ async function loadAiProductionEvidence(
     }
     const row = list[0];
     const sources = Array.isArray(row.sources) ? row.sources : [];
-    const targetDate = String(row.topic_date).slice(0, 10);
+    // Same boundary rule as the daily_topics section: a date column can
+    // arrive as a JS Date via transport type-parsing; String(Date) + slice
+    // would produce garbage like "Thu Oct 17" and silently break the
+    // exact-fingerprint match the AI proof depends on.
+    const targetDate = row.topic_date instanceof Date
+      ? row.topic_date.toISOString().slice(0, 10)
+      : String(row.topic_date).slice(0, 10);
     const rowFingerprint = row.topic_fingerprint ?? null;
     return {
       targetDate,
@@ -707,20 +719,42 @@ async function loadTopicRunTelemetry(): Promise<{ rows: TopicRunTelemetryRow[]; 
     topic_fingerprint?: string | null;
     provider_attempts?: unknown;
   }): TopicRunTelemetryRow => {
+    // Same boundary-hygiene as the daily_topics read: date/timestamp columns
+    // can arrive as JS Date objects depending on transport type-parsing, and
+    // a bare `.slice` on one throws here — which the outer catch turns into
+    // "telemetry unreadable", silently downgrading the fingerprint, deadline
+    // and real-AI proofs to unassessed. Normalise instead of crashing.
+    const toDateOnly = (v: unknown): string | null =>
+      v === null || v === undefined
+        ? null
+        : v instanceof Date
+          ? v.toISOString().slice(0, 10)
+          : String(v).slice(0, 10);
+    const toIso = (v: unknown): string | null =>
+      v === null || v === undefined
+        ? null
+        : v instanceof Date
+          ? v.toISOString()
+          : String(v);
+    const startedIso = toIso(r.started_at);
+    const targetDate = toDateOnly(r.target_date);
+    const completedIso = toIso(r.completed_at);
     let beforeDeadline: boolean | null = null;
-    if (r.completed_at && r.target_date) {
-      const deadline = Date.parse(`${r.target_date.slice(0, 10)}T00:00:00Z`) + 3 * 3_600_000;
-      beforeDeadline = Date.parse(r.completed_at) <= deadline && r.freshness_ok !== false;
+    if (completedIso && targetDate) {
+      const deadline = Date.parse(`${targetDate}T00:00:00Z`) + 3 * 3_600_000;
+      const finished = Date.parse(completedIso);
+      beforeDeadline = Number.isFinite(finished) && finished <= deadline && r.freshness_ok !== false;
     }
     return {
       event: r.event,
-      at: r.started_at,
-      runCreatedAt: r.run_created_at ?? null,
-      completedAt: r.completed_at,
+      at: startedIso ?? "",
+      runCreatedAt:
+        r.run_created_at === null || r.run_created_at === undefined ? null : toIso(r.run_created_at),
+      completedAt: completedIso,
       result: r.result,
       delayMs: r.delay_ms === null ? null : Number(r.delay_ms),
       queueDelayMs: r.queue_delay_ms === null || r.queue_delay_ms === undefined ? null : Number(r.queue_delay_ms),
-      targetDate: r.target_date ? r.target_date.slice(0, 10) : null,
+      targetDate,
       completedBeforeDeadline: beforeDeadline,
       freshnessOk: r.freshness_ok,
       providerHealth: r.provider_health ?? null,

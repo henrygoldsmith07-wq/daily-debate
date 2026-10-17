@@ -3,7 +3,10 @@ name: ops-alert
 # Daily ops-alert digest: turns topic-pipeline health into a GitHub issue so
 # a broken production pipeline is a notification, not something someone has
 # to notice on a dashboard. Runs at 04:00 UTC - just AFTER the 03:00 UTC
-# availability deadline, so it judges the completed daily cycle:
+# deadline for today's serving row, so it judges the completed daily cycle:
+# today's topic either landed on time (availability pending, secrets fine) or
+# missed its deadline (breach). It never reads "tomorrow absent" as a breach:
+# tomorrow's row cannot exist yet - its generation window opens tonight.
 #
 #   alerting state -> open or update ONE issue labeled `ops-alert`
 #   healthy state  -> auto-close any open `ops-alert` issue
