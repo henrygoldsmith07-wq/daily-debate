@@ -94,7 +94,35 @@ export default async function ProgressPage() {
   }
 
   const topic = await getTodayTopic();
-  const coachingContext = await loadCoachingContext(user.id, { currentTopicId: topic.id });
+  const coachingContextPromise = loadCoachingContext(user.id, { currentTopicId: topic.id });
+
+  // Three independent fact-loaders fire together, so the page pays one
+  // parallel round-trip instead of three sequential ones. None of them
+  // depends on the coaching context's outcome; they're coalesced later.
+  // (Loop-latency: /progress is where a returning learner decides whether
+  // today is worth a rep — serial round-trips here read as 'the product is
+  // slow to remember me'.)
+  const service = createServiceClient();
+  const [coachingContext, drillRowsBundle, journeyInputs, scoredDebatesBundle] = await Promise.all([
+    coachingContextPromise,
+    service
+      .from("drill_assignments")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(30)
+      .then((result) => ({ drillRows: result.data, drillRowsError: result.error })),
+    buildJourneyInputsForUser(user.id),
+    service
+      .from("solo_debates")
+      .select("total_score, topic_id")
+      .eq("user_id", user.id)
+      .eq("status", "completed")
+      .not("total_score", "is", null)
+      .order("completed_at", { ascending: false })
+      .limit(100)
+      .then((result) => ({ scoredDebates: result.data })),
+  ]);
   const ledger = coachingContext.ledger;
   if (!ledger) {
     return (
@@ -104,18 +132,22 @@ export default async function ProgressPage() {
           title="Progress temporarily unavailable"
           description="Your saved debates are safe, but the coaching ledger could not be read right now. No zero or reset progress is being inferred."
         />
+        <div className="surface-card mt-4 p-5">
+          <p className="text-sm text-ink3">
+            This is usually a temporary read problem. Reload to try again.
+          </p>
+          <Link href="/progress" className="btn btn-ghost mt-3 px-3 py-1.5 text-xs">
+            Try again
+          </Link>
+        </div>
       </AppShell>
     );
   }
   const drillOutcomes = coachingContext.drillOutcomes;
   const pendingRetest = coachingContext.selectedRetest;
-  const service = createServiceClient();
-  const { data: drillRows, error: drillRowsError } = await service
-    .from("drill_assignments")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(30);
+  const drillRows = drillRowsBundle.drillRows;
+  const drillRowsError = drillRowsBundle.drillRowsError;
+  const scoredDebates = scoredDebatesBundle.scoredDebates;
   const drillAssignments: DrillAssignmentLite[] = drillRowsError ? [] : (drillRows ?? []).map((row) => ({
     id: row.id,
     dimension: row.dimension,
@@ -136,7 +168,6 @@ export default async function ProgressPage() {
 
   const summary = buildProgressSummary(ledger.points);
   const training = buildTrainingProgress(ledger.points);
-  const journeyInputs = await buildJourneyInputsForUser(user.id);
   const journey = buildSkillJourney(journeyInputs.repairs, journeyInputs.weaknessRows);
   const recentlyImproved = buildRecentlyImproved(journey);
   // Canonical learner model: one coherent answer to "what should I practise
@@ -198,14 +229,7 @@ export default async function ProgressPage() {
 
   // Best/worst topic: observational aggregation over scored debates, joined to
   // their topic categories. Conservative by design (see topicInsights.ts).
-  const { data: scoredDebates } = await service
-    .from("solo_debates")
-    .select("total_score, topic_id")
-    .eq("user_id", user.id)
-    .eq("status", "completed")
-    .not("total_score", "is", null)
-    .order("completed_at", { ascending: false })
-    .limit(100);
+  // The scoredDebates rows arrived in the earlier Promise.all.
   const topicIds = [...new Set((scoredDebates ?? []).map((d) => d.topic_id))];
   const { data: topicCategories } = topicIds.length
     ? await service.from("daily_topics").select("id, category").in("id", topicIds)

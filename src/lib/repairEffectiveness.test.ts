@@ -4,6 +4,7 @@ import {
   classifyRepair,
   collapseRepairAttempts,
   countWeaknessesForSide,
+  debateOpportunities,
   NOT_CURRENTLY_MEASURABLE_KINDS,
   REPAIR_MIN_MEASURABLE,
   REPAIR_MIN_SAMPLE,
@@ -27,7 +28,11 @@ function debate(
   at: string,
   kinds: Record<string, number>,
   debateId?: string,
-  opps: { majorClaims: number; opponentMoves: number } = { majorClaims: 2, opponentMoves: 2 },
+  opps: { majorClaims: number; opponentMoves: number; engagementRounds: number } = {
+    majorClaims: 2,
+    opponentMoves: 2,
+    engagementRounds: 2,
+  },
 ): DebateWeaknessRow {
   return { debateId: debateId ?? `d-${user}-${at}`, userId: user, completedAt: at, kinds, opps };
 }
@@ -170,9 +175,69 @@ describe("countWeaknessesForSide (side-scoped validity)", () => {
     expect(countWeaknessesForSide(noImpact, "a").impact).toBe(1); // user made none
   });
 
-  it("keeps clarity at 0 — no deterministic detector exists", () => {
-    expect(countWeaknessesForSide(graph(), "a").clarity).toBe(0);
-    expect(NOT_CURRENTLY_MEASURABLE_KINDS.has("clarity")).toBe(true);
+  it("counts the engagement weakness from the side's unanswered engagement rounds", () => {
+    // Base graph: the AI's round-1 claim is an engagement move the user had a
+    // later turn for (i1, round 2) and answered none of — so round 1 is
+    // unengaged and the clarity weakness is present.
+    expect(countWeaknessesForSide(graph(), "a").clarity).toBe(1);
+
+    // A round-2 counters edge answers the round-1 move: the round is engaged,
+    // so the weakness clears. Rebuttal coverage also clears — which is why the
+    // two are asserted separately below.
+    const answered = graph({
+      nodes: [
+        { id: "c1", kind: "claim", owner: "a", text: "User claim.", round: 1 },
+        { id: "c2", kind: "claim", owner: "ai", text: "AI claim.", round: 1 },
+        { id: "r1", kind: "rebuttal", owner: "a", text: "That assumes a fixed budget.", round: 2, targets: ["c2"] },
+      ],
+      dropped: [],
+    });
+    expect(countWeaknessesForSide(answered, "a").clarity).toBe(0);
+  });
+
+  it("keeps clarity measurable but distinct from rebuttal (impact moves count)", () => {
+    // The user answered every opponent CLAIM, but left the opponent's
+    // weighing move unanswered. Rebuttal is clean (claims answered); clarity
+    // is not (a round still went unengaged) — so the two detectors are not
+    // aliases of each other.
+    const g = graph({
+      nodes: [
+        { id: "c1", kind: "claim", owner: "a", text: "User claim.", round: 1 },
+        { id: "c2", kind: "claim", owner: "ai", text: "AI claim.", round: 1 },
+        { id: "r1", kind: "rebuttal", owner: "a", text: "That claim assumes a fixed budget.", round: 2, targets: ["c2"] },
+        { id: "iw", kind: "impact", owner: "ai", text: "The costs outweigh the benefits.", round: 2 },
+        { id: "i1", kind: "impact", owner: "a", text: "User impact.", round: 3 },
+      ],
+      dropped: [],
+    });
+    const counts = countWeaknessesForSide(g, "a");
+    expect(counts.rebuttal).toBe(0);
+    expect(counts.dropped).toBe(0);
+    expect(counts.clarity).toBe(1);
+  });
+
+  it("never blames the user for an opponent's only move when there was no later turn", () => {
+    // ai1 is the opponent's last move and the user has no later node, so there
+    // is no engagement opportunity at all — the weakness cannot fire.
+    const g = graph({
+      nodes: [
+        { id: "c1", kind: "claim", owner: "a", text: "User claim.", round: 1 },
+        { id: "iw", kind: "impact", owner: "ai", text: "The costs outweigh the benefits.", round: 2 },
+      ],
+      dropped: [],
+    });
+    expect(countWeaknessesForSide(g, "a").clarity).toBe(0);
+    expect(debateOpportunities(g, "a").engagementRounds).toBe(0);
+  });
+
+  it("leaves no repair kind unmeasurable", () => {
+    // Every kind in REPAIR_KINDS must have a real detector. When one is added
+    // without one, it belongs in NOT_CURRENTLY_MEASURABLE_KINDS — which must
+    // then stop being empty. This pins both halves of that contract.
+    expect([...NOT_CURRENTLY_MEASURABLE_KINDS]).toEqual([]);
+    for (const kind of ["evidence", "rebuttal", "logic", "impact", "structure", "clarity"] as const) {
+      expect(NOT_CURRENTLY_MEASURABLE_KINDS.has(kind)).toBe(false);
+    }
   });
 
   it("does not count unsupported claims belonging to the opponent", () => {
@@ -189,31 +254,73 @@ describe("countWeaknessesForSide (side-scoped validity)", () => {
   });
 });
 
-describe("clarity repairs are not currently measurable", () => {
-  it("hard-classifies clarity repairs regardless of surrounding debates", () => {
+describe("clarity/Engagement repairs are measurable", () => {
+  // Clarity left NOT_CURRENTLY_MEASURABLE_KINDS when its detector
+  // (opportunity.engagementRoundsFor) made it measurable. The invariant that
+  // replaced "clarity is always excluded" is that its measurement is bounded by
+  // the same opportunity gate as every other kind, so a debate with nothing to
+  // engage can never manufacture improvement.
+
+  it("improves when unengaged rounds disappear after the repair", () => {
     const r = repair("u1", "clarity", "2026-06-10T12:00:00Z");
     const debates = [
-      debate("u1", daysBefore(r.created_at, 2), { clarity: 1 }), // even fake data cannot make it measurable
-      debate("u1", daysAfter(r.created_at, 2), { clarity: 1 }),
+      debate("u1", daysBefore(r.created_at, 2), { clarity: 1 }),
+      debate("u1", daysBefore(r.created_at, 1), { clarity: 1 }),
+      debate("u1", daysAfter(r.created_at, 1), { clarity: 0 }),
+      debate("u1", daysAfter(r.created_at, 2), { clarity: 0 }),
     ];
-    const detail = classifyRepair(r, debates, { firstRetestDebateId: "d-retest-clean-no" });
-    expect(detail.outcome).toBe("not-currently-measurable");
-    expect(detail.beforeRate).toBeNull();
-    expect(detail.afterRate).toBeNull();
+    const detail = classifyRepair(r, debates);
+    expect(detail.outcome).toBe("improved");
+    expect(detail.beforeRate).toBe(1);
+    expect(detail.afterRate).toBe(0);
   });
 
-  it("excludes clarity repairs from the measurable comparison", () => {
-    const repairs = [repair("u1", "clarity", "2026-06-10T12:00:00Z", "d-c")];
+  it("reports unchanged when the unengaged rounds persist", () => {
+    const r = repair("u1", "clarity", "2026-06-10T12:00:00Z");
     const debates = [
-      debate("u1", daysBefore("2026-06-10T12:00:00Z", 2), {}),
-      debate("u1", daysAfter("2026-06-10T12:00:00Z", 2), {}),
+      debate("u1", daysBefore(r.created_at, 2), { clarity: 1 }),
+      debate("u1", daysAfter(r.created_at, 2), { clarity: 1 }),
     ];
+    expect(classifyRepair(r, debates).outcome).toBe("unchanged");
+  });
+
+  it("withholds a verdict when no later debate offered anything to engage", () => {
+    // Every later debate had zero engagement rounds, so the opportunity gate
+    // drops them: an absence of engagement material is NOT evidence the user
+    // fixed their engagement. The repair stays "not yet measurable" instead of
+    // quietly scoring as improved.
+    const r = repair("u1", "clarity", "2026-06-10T12:00:00Z");
+    const debates = [
+      debate("u1", daysBefore(r.created_at, 2), { clarity: 1 }),
+      debate("u1", daysAfter(r.created_at, 2), { clarity: 0 }, undefined, {
+        majorClaims: 2,
+        opponentMoves: 0,
+        engagementRounds: 0,
+      }),
+    ];
+    const detail = classifyRepair(r, debates);
+    expect(detail.outcome).toBe("not-yet-measurable");
+    expect(detail.afterDebates).toBe(0);
+  });
+
+  it("enters the measurable comparison and reports a rate", () => {
+    // Five episodes, each with a before-window showing the weakness and an
+    // after-window without it: above both sample floors, so the rate is
+    // claimable. Clarity used to be structurally excluded here; it now has to
+    // clear the same thresholds as every other kind.
+    const at = "2026-06-10T12:00:00Z";
+    const repairs = [1, 2, 3, 4, 5].map((n) => repair(`u${n}`, "clarity", at, `d-c${n}`));
+    const debates = repairs.flatMap((r) => [
+      debate(r.user_id, daysBefore(at, 2), { clarity: 1 }, `${r.debate_id}-before`),
+      debate(r.user_id, daysAfter(at, 2), { clarity: 0 }, `${r.debate_id}-after`),
+    ]);
     const report = buildRepairEffectiveness(repairs, debates, { now: NOW });
-    expect(report.overall.repairs).toBe(1);
-    expect(report.overall.measurable).toBe(0);
-    expect(report.overall.improvedRate).toBeNull();
+    expect(report.overall.repairs).toBe(5);
+    expect(report.overall.measurable).toBe(5);
+    expect(report.overall.improvedRate).toBe(1);
     const clarity = report.perKind.find((k) => k.target_kind === "clarity");
-    expect(clarity?.note).toMatch(/not currently measurable/);
+    expect(clarity?.note).toBeNull();
+    expect(clarity?.improvedRate).toBe(1);
   });
 });
 
@@ -417,16 +524,16 @@ describe("buildRepairEffectiveness", () => {
     expect(report.honestyNote).toMatch(/not proof/);
   });
 
-  it("reports clarity repairs as not measurable rather than guessing", () => {
+  it("measures a clarity repair from its engagement rounds", () => {
     const r = repair("u1", "clarity", "2026-06-10T12:00:00Z");
     const debates = [
-      debate("u1", daysBefore(r.created_at, 2), { clarity: 0 }),
+      debate("u1", daysBefore(r.created_at, 2), { clarity: 1 }),
       debate("u1", daysAfter(r.created_at, 2), { clarity: 0 }),
     ];
     const report = buildRepairEffectiveness([r], debates, { now: NOW });
-    // No deterministic clarity detector → the repair can never be "measured"
-    // into unchanged; it is explicitly not measurable.
-    expect(report.overall.measurable).toBe(0);
+    // Clarity now has a real detector, so this repair is measurable like any
+    // other kind — no special-casing in either direction.
+    expect(report.overall.measurable).toBe(1);
     expect(report.overall.repairs).toBe(1);
   });
 });
@@ -437,9 +544,9 @@ describe("opportunity filter (no-opportunity debates are invisible)", () => {
     const debates = [
       debate("u1", daysBefore(r.created_at, 2), { evidence: 1 }, "d-before"),
       // Clean debate WITH claims: genuine evidence of improvement.
-      debate("u1", daysAfter(r.created_at, 1), {}, "d-clean", { majorClaims: 3, opponentMoves: 2 }),
+      debate("u1", daysAfter(r.created_at, 1), {}, "d-clean", { majorClaims: 3, opponentMoves: 2, engagementRounds: 2 }),
       // Claim-free debate: cannot express the weakness, must not count.
-      debate("u1", daysAfter(r.created_at, 3), {}, "d-empty", { majorClaims: 0, opponentMoves: 5 }),
+      debate("u1", daysAfter(r.created_at, 3), {}, "d-empty", { majorClaims: 0, opponentMoves: 5, engagementRounds: 5 }),
     ];
     const detail = classifyRepair(r, debates);
     expect(detail.outcome).toBe("improved");
@@ -450,7 +557,7 @@ describe("opportunity filter (no-opportunity debates are invisible)", () => {
     const r = repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r");
     const debates = [
       debate("u1", daysBefore(r.created_at, 2), { evidence: 1 }, "d-before"),
-      debate("u1", daysAfter(r.created_at, 1), {}, "d-empty", { majorClaims: 0, opponentMoves: 5 }),
+      debate("u1", daysAfter(r.created_at, 1), {}, "d-empty", { majorClaims: 0, opponentMoves: 5, engagementRounds: 5 }),
     ];
     const detail = classifyRepair(r, debates);
     expect(detail.outcome).toBe("not-yet-measurable");
@@ -475,7 +582,7 @@ describe("opportunity filter (no-opportunity debates are invisible)", () => {
     const debates = [
       debate("u1", daysBefore(r.created_at, 2), { dropped: 1 }, "d-before"),
       // No opponent moves: cannot test rebuttal behaviour.
-      debate("u1", daysAfter(r.created_at, 1), {}, "d-quiet", { majorClaims: 2, opponentMoves: 0 }),
+      debate("u1", daysAfter(r.created_at, 1), {}, "d-quiet", { majorClaims: 2, opponentMoves: 0, engagementRounds: 0 }),
     ];
     const detail = classifyRepair(r, debates);
     expect(detail.outcome).toBe("not-yet-measurable");

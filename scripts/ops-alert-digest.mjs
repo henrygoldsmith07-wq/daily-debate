@@ -286,10 +286,23 @@ async function main() {
 
   const decision = decideOpsAlert({
     runs,
-    telemetry: [],
+    // null, not []: this workflow deliberately carries no DATABASE_URL (see the
+    // header), so topic_run_log is never queried here. `[]` would claim a read
+    // that returned nothing; null says the measurement was not taken. The
+    // evidence line renders that distinction verbatim.
+    telemetry: null,
     availability,
     dbReadable,
     proofs,
+    // App-witness telemetry facts from the public probe: whether the app could
+    // read topic_run_log when it computed the report, and the newest target
+    // date among the rows it could read. `telemetryReadable: false` keeps a
+    // failed read from rendering as "not yet proven" here; a target date that
+    // trails GitHub's newest successful scheduled run by more than a day names
+    // a diverging second witness (app store vs writer store) instead of
+    // leaving two contradictory witnesses undecidable.
+    telemetryReadable: probe ? (probe.telemetryReadable ?? null) : null,
+    latestTelemetryTargetDate: probe ? (probe.latestTelemetryTargetDate ?? null) : null,
     schema,
     benchmark: readBenchmarkStaleness(nowIso),
     latestConfigCheck: heuristic,
@@ -337,7 +350,10 @@ async function main() {
     ...decision.facts.map((f) => `- ${f}`),
     "",
     probe
-      ? `_Availability and proofs via ${probeBase}/api/health (report generated ${probe.generatedAt}); scheduler facts via GitHub run history._`
+      ? [
+          `_Availability and proofs via ${probeBase}/api/health (report generated ${probe.generatedAt}); scheduler facts via GitHub run history._`,
+          `_App-witness telemetry: topic_run_log readable = ${probe.telemetryReadable ?? "unknown"}, newest recorded target = ${probe.latestTelemetryTargetDate ?? "none"}._`,
+        ].join("\n")
       : `_Health probes unavailable (${PROD_BASES.map((base) => `${base}/api/health`).join(", ")}) — availability and proofs could not be assessed. Scheduler facts via GitHub run history._`,
     "",
     "_This issue is managed by the daily ops-alert digest (`.github/workflows/ops-alert.yml`).",

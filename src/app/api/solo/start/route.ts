@@ -12,6 +12,9 @@ export async function POST(request: Request) {
     name: "solo-start-ip",
     limit: 120,
     windowMs: 60_000,
+    // Paid model call below: when the shared limiter is unreachable, deny
+    // rather than letting every serverless instance enforce alone.
+    failClosed: true,
   });
   if (ipLimited) return ipLimited;
 
@@ -25,6 +28,8 @@ export async function POST(request: Request) {
     name: "solo-start-user",
     limit: 10,
     windowMs: 60_000,
+    // Paid model call below: fail closed when the shared limiter is down.
+    failClosed: true,
   });
   if (!userLimit.ok) {
     return NextResponse.json(

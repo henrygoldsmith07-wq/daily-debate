@@ -41,7 +41,16 @@ export interface ChallengeTurnState {
   turnNote: string;
 }
 
-/** Human turn-state for the invite page — honest about expiry. */
+/**
+ * Human turn-state for the invite page — honest about expiry.
+ *
+ * Expiry only applies to an invite that is still `open`, matching the database
+ * rule (`update challenge_invites set status='expired' where status='open' and
+ * expires_at <= now()`, migration 023) and the API's own check. A blanket
+ * time comparison here would label an ACCEPTED, in-progress challenge as
+ * expired the moment its invite window passed — and send a live match's
+ * participant a dead end.
+ */
 export function describeChallengeState(
   status: string,
   expiresAt: string,
@@ -50,7 +59,7 @@ export function describeChallengeState(
   challengerName: string,
   now: Date = new Date(),
 ): ChallengeTurnState {
-  const expired = new Date(expiresAt).getTime() < now.getTime();
+  const expired = status === "open" && new Date(expiresAt).getTime() < now.getTime();
   if (status === "cancelled") {
     return { status: "cancelled", expiresAt, accepted: false, turnNote: "This challenge was cancelled." };
   }
@@ -70,7 +79,7 @@ export function describeChallengeState(
     return { status: "accepted", expiresAt, accepted: true, turnNote: "Your move — it's your turn to argue." };
   }
   if (currentTurnPlayer) {
-    return { status: "accepted", expiresAt, accepted: true, turnNote: `Waiting on ${challengerName === "your opponent" ? "them" : "your opponent"} to make their move.` };
+    return { status: "accepted", expiresAt, accepted: true, turnNote: `Waiting on your opponent to make their move.` };
   }
   return { status: "accepted", expiresAt, accepted: true, turnNote: "The match is in progress." };
 }

@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyGuestContextWriteError,
+  encodeGuestArenaProgress,
   encodeGuestLoopSummary,
   guestContextWriteFailureLog,
+  GUEST_ARENA_STORAGE_KEY,
+  parseGuestArenaProgress,
   parseGuestLoopSummary,
+  type GuestArenaProgress,
   type GuestLoopSummary,
 } from "./guestLoop";
 
@@ -118,5 +122,58 @@ describe("guest_context write-failure classification (schema-lag tolerance)", ()
     // typed update (it can only target guest_context).
     const error = { code: "08003", message: "connection does not exist" };
     expect(classifyGuestContextWriteError(error)).toBe("other");
+  });
+});
+
+const validProgress: GuestArenaProgress = {
+  version: 1,
+  motionDate: "2026-10-16",
+  stage: "result",
+  side: "for",
+  responses: ["First response.", "Second response."],
+  repair: { kind: "evidence", label: "Missing evidence", text: "According to UNESCO.", succeeded: true },
+  retestDemonstrated: null,
+};
+
+describe("parseGuestArenaProgress", () => {
+  it("round-trips a well-formed snapshot", () => {
+    expect(parseGuestArenaProgress(validProgress)).toEqual(validProgress);
+    expect(parseGuestArenaProgress(encodeGuestArenaProgress(validProgress))).toEqual(validProgress);
+    expect(GUEST_ARENA_STORAGE_KEY).toBe("daily-debate-guest-arena");
+  });
+
+  it("accepts every stage and a null repair", () => {
+    for (const stage of ["home", "debate", "result", "retest", "done"] as const) {
+      expect(parseGuestArenaProgress({ ...validProgress, stage, repair: null })?.stage).toBe(stage);
+    }
+  });
+
+  it("drops corrupt, oversized, and version-skewed payloads", () => {
+    expect(parseGuestArenaProgress("{not json")).toBeNull();
+    expect(parseGuestArenaProgress(42)).toBeNull();
+    expect(parseGuestArenaProgress(null)).toBeNull();
+    expect(parseGuestArenaProgress("x".repeat(20_001))).toBeNull();
+    expect(parseGuestArenaProgress({ ...validProgress, version: 2 })).toBeNull();
+  });
+
+  it("drops payloads with invalid enums, shapes, or bounds", () => {
+    expect(parseGuestArenaProgress({ ...validProgress, stage: "mastery" })).toBeNull();
+    expect(parseGuestArenaProgress({ ...validProgress, side: "challenge" })).toBeNull();
+    expect(parseGuestArenaProgress({ ...validProgress, motionDate: "yesterday" })).toBeNull();
+    expect(parseGuestArenaProgress({ ...validProgress, responses: "nope" })).toBeNull();
+    expect(parseGuestArenaProgress({ ...validProgress, responses: Array(9).fill("x") })).toBeNull();
+    expect(parseGuestArenaProgress({ ...validProgress, repair: { kind: "pvp", label: "x", text: "y", succeeded: true } })).toBeNull();
+    expect(parseGuestArenaProgress({ ...validProgress, retestDemonstrated: "observed" })).toBeNull();
+  });
+
+  it("bounds long text instead of dropping the snapshot", () => {
+    const parsed = parseGuestArenaProgress({
+      ...validProgress,
+      responses: ["r".repeat(9000)],
+      repair: { kind: "evidence", label: "l".repeat(500), text: "t".repeat(9000), succeeded: false },
+    });
+    expect(parsed?.responses[0].length).toBe(4000);
+    expect(parsed?.repair?.label.length).toBe(100);
+    expect(parsed?.repair?.text.length).toBe(4000);
   });
 });

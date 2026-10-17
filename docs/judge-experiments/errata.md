@@ -27,3 +27,96 @@ Handling (per the no-rewrite policy):
 - The historical kiraai study verdict remains **INCONCLUSIVE** — its audit
   block shows 1/3 usable baseline runs, which under the corrected strict
   rule could never have been anything else.
+
+## Erratum 2026-10-05 — the whitespace probe was inert
+
+**What was wrong.** The `whitespace` invariance probe was
+`t.replaceAll("  ", " ").trim()`. No fixture transcript contains a double
+space or surrounding whitespace — they are newline-separated with single
+spaces — so the transform changed **0 of 24** fixtures and sent the judge a
+byte-identical transcript. The result was published as "Whitespace normalised".
+
+**Why it mattered.** The probe measured endpoint run-to-run nondeterminism, not
+formatting sensitivity. `whitespaceStabilityMin` is `0.98`, the strictest gate
+in `config/judge-gates.json`, so ordinary sampling noise was charged as a real
+judge defect and counted toward every model's failed-invariance list.
+
+**Affected record.** Every `stability.whitespace` value, every
+`Whitespace normalised [whitespace]` gate line, and the whitespace column of
+`docs/judge-leaderboard.md` published **before 2026-10-05** are meaningless.
+That includes `docs/latest-judge-benchmark.json` up to and including the
+2026-10-04 run, and the archived runs under `docs/judge-runs/`. They are left
+byte-intact (the no-rewrite policy applies to published artifacts) but must not
+be read as formatting sensitivity.
+
+**Fix.** The probe now collapses runs of whitespace and folds newlines — the
+invariance it always claimed to test — and changes 24/24 fixtures. Ported 1:1
+to `src/lib/judgeInvariance.ts`.
+
+**Why nothing caught it.** No test asserted that the probes *do* anything; they
+were only tested for how their results are *scored*. A probe that measures
+nothing is not a weak probe, it is a mislabelled one, and it corrupts the
+record it writes. `scripts/lib/judge-transforms.test.mjs` now asserts that no
+probe is inert across the pack, and that the whitespace probe reflows every
+transcript without altering its words.
+
+**Consequence for open work.** The registered study
+`grounding-two-pass-whitespace` targeted this probe and was withdrawn
+unexecuted — a baseline of 0.667 was sampling noise, so it could not support a
+verdict. It is replaced by `grounding-two-pass-verbosity`, which targets
+verbosity stability (measured 0.200 against a 0.95 gate), the largest genuine
+invariance failure on the pack.
+
+## Erratum 2026-10-17 — the live transform port drifted from the offline library
+
+**What was wrong.** `scripts/lib/judge-transforms.mjs` claimed "ported 1:1 from
+`src/lib/judgeInvariance.ts`" in its head comment, but the port had silently
+diverged in four places. The offline library (canonical, unit-tested) and the
+live benchmark were measuring different rewrites:
+
+| transform | offline (`judgeInvariance.ts`) | live port (before this fix) | live-measured under |
+|---|---|---|---|
+| `sophisticateWording` | rewrites `but→however,` and `so→consequently,` too | kept only the first four swaps | `style-fancy` |
+| `addConfidentTone` | appends " This is absolutely certain **and leaves no doubt**." | truncated suffix | `confident-tone` |
+| `swapPrestige` | known-source regex includes `Stanford HAI` | missing → a fixture citing Stanford HAI took the fall-back branch (appended citation instead of a replaced source) | `prestige` |
+| `deflateVerbosity` | also strips " arguably" | missing that one `replaceAll` | nothing live (no `PROBES` id wires it) |
+
+**Why it mattered.** Two of the four transforms sit inside measured live probes:
+every live `stability["style-fancy"]`, `stability["confident-tone"]` and
+`stability["prestige"]` value published **before 2026-10-17** was measured under
+the drifted rewrite — a different transcript reached the judge than the offline
+library's name for the transform implies. Unlike the inert-whitespace case the
+probes still perturbed the pack and the numbers are honest flip-rate
+measurements of whatever rewrite that commit shipped, so they are not
+meaningless — but per-probe values do **not** compare cleanly across this date:
+the boundary mixes two different transforms under one probe id. Trend read
+across the boundary is confounded; same-side comparison is fine.
+`deflateVerbosity` affected no live number (the live `PROBES` list never wired
+it); it only made the two libraries disagree about what a deflation does.
+
+**Affected record.** `docs/latest-judge-benchmark.json` up to and including the
+2026-10-12 run, the `style-fancy` / `confident-tone` / `prestige` columns of
+`docs/judge-leaderboard.md`, and archived runs under `docs/judge-runs/` — left
+byte-intact per the no-rewrite policy.
+
+**Fix.** The live file is ported 1:1 again (TS remains canonical), and the
+parity is now **enforced, not claimed**:
+`src/lib/judgeTransformParity.test.ts` imports both implementations and fails
+on any byte difference over the whole 24-fixture pack plus branch-exercising
+hand transcripts, including assertions that the live `PROBES` and
+`AUDIT_TRANSFORMS` entries wire the same functions their offline names do.
+
+**Why nothing caught it.** Both sides had their own tests — the offline suite
+tested the offline library, the live suite tested that probes *do* something —
+but nothing compared the two implementations to each other. A port is an
+implementation, not a comment; the parity contract now lives in the test suite
+so the next rename or added transform must update both sides consciously.
+
+## Erratum 2026-10-05 — whitespace study withdrawn; verbosity study registered
+
+The study `grounding-two-pass-whitespace` was registered but not executed, and
+is withdrawn: its target metric was meaningless under erratum 2026-10-05
+above. A replacement pre-registration, `grounding-two-pass-verbosity`, is
+sealed in place. It targets the largest genuine invariance gap (verbosity
+stability 0.200 vs a 0.95 gate). No verdict changes as a result — both
+studies were unexecuted and therefore inconclusive by construction.

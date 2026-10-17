@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useRef, useState, useSyncExternalStore } from "react";
+import { useActionState, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { signIn, signUp, type AuthState } from "./actions";
 import { GUEST_LOOP_STORAGE_KEY, parseGuestLoopSummary, encodeGuestLoopSummary } from "@/lib/guestLoop";
@@ -46,13 +46,29 @@ export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
     () => "",
   );
 
+  function selectMode(next: "sign-in" | "sign-up") {
+    setMode(next);
+  }
+
+  function onTabKeyDown(event: KeyboardEvent) {
+    // WAI-ARIA tab keyboard interaction: arrows move between the two tabs.
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    event.preventDefault();
+    selectMode(mode === "sign-in" ? "sign-up" : "sign-in");
+  }
+
   return (
     <div className="surface-raised flex w-full max-w-sm flex-col gap-6 p-6">
-      <div className="flex gap-4 border-b border-[var(--rule)]">
+      <div className="flex gap-4 border-b border-[var(--rule)]" role="tablist" aria-label="Authentication mode">
         <button
           type="button"
-          onClick={() => setMode("sign-in")}
-          aria-pressed={mode === "sign-in"}
+          role="tab"
+          id="auth-tab-signin"
+          aria-selected={mode === "sign-in"}
+          aria-controls="auth-panel"
+          tabIndex={mode === "sign-in" ? 0 : -1}
+          onClick={() => selectMode("sign-in")}
+          onKeyDown={onTabKeyDown}
           className={`-mb-px border-b-2 px-1 pb-2 text-sm font-medium ${
             mode === "sign-in" ? "border-[var(--accent)] text-[var(--foreground)]" : "border-transparent text-ink3"
           }`}
@@ -61,8 +77,13 @@ export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
         </button>
         <button
           type="button"
-          onClick={() => setMode("sign-up")}
-          aria-pressed={mode === "sign-up"}
+          role="tab"
+          id="auth-tab-signup"
+          aria-selected={mode === "sign-up"}
+          aria-controls="auth-panel"
+          tabIndex={mode === "sign-up" ? 0 : -1}
+          onClick={() => selectMode("sign-up")}
+          onKeyDown={onTabKeyDown}
           className={`-mb-px border-b-2 px-1 pb-2 text-sm font-medium ${
             mode === "sign-up" ? "border-[var(--accent)] text-[var(--foreground)]" : "border-transparent text-ink3"
           }`}
@@ -71,7 +92,14 @@ export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
         </button>
       </div>
 
-      <form action={action} onSubmit={prepareTimeZone} className="flex flex-col gap-4">
+      <form
+        action={action}
+        onSubmit={prepareTimeZone}
+        className="flex flex-col gap-4"
+        role="tabpanel"
+        id="auth-panel"
+        aria-labelledby={mode === "sign-in" ? "auth-tab-signin" : "auth-tab-signup"}
+      >
         <input type="hidden" name="next" value={nextPath} />
         <input ref={timeZoneRef} type="hidden" name="timeZone" defaultValue="UTC" />
         <input type="hidden" name="guestContext" value={guestLoopJson} />
@@ -109,14 +137,12 @@ export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
           />
         </label>
 
-        {mode === "sign-in" && (
-          <Link
-            href="/login/forgot-password"
-            className="text-xs text-ink3 underline-offset-4 hover:underline"
-          >
-            Forgot password?
-          </Link>
-        )}
+        <Link
+          href="/login/forgot-password"
+          className="text-xs text-ink3 underline-offset-4 hover:underline"
+        >
+          Forgot password?
+        </Link>
 
         {state.error && (
           <p role="alert" className="text-sm text-[var(--bad)]">

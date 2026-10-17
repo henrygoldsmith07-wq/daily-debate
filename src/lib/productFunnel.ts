@@ -830,9 +830,11 @@ export interface RepairOutcomeRow {
   /** Eligible ordinary later debates (no deliberate assignment at all). */
   incidentalExposure: number;
   /**
-   * Recurrence in the first incidental exposure, or null if none or if the
-   * repair kind is not measurable (clarity). Prompted rows stay null: a
-   * deliberate retest is measured through firstRetestRecurred instead.
+   * Recurrence in the first incidental exposure, or null when there is no
+   * incidental exposure to read (or the repair kind has no deterministic
+   * detector — `NOT_CURRENTLY_MEASURABLE_KINDS`, currently empty). Prompted
+   * rows stay null: a deliberate retest is measured through
+   * firstRetestRecurred instead.
    */
   incidentalRecurred: boolean | null;
   /** Days to the first incidental eligible debate; null when none/measurable. */

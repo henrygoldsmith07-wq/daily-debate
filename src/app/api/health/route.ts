@@ -20,6 +20,8 @@ function unknownReport(): OpsHealthReport {
       scheduling: { latestDelayMs: null, medianDelayMs: null, p95DelayMs: null, missedStarts: 0, thresholdMs: 0, note: null },
       status: "unknown",
       lastSuccessfulRun: null,
+      telemetryReadable: false,
+      latestTelemetryTargetDate: null,
       proofs: {
         databaseReachable: false,
         manualSuccess: false,
@@ -72,16 +74,32 @@ export const dynamic = "force-dynamic";
  * report, and healthProbe.isUsableProbe still refuses a genuinely stale read.
  */
 const HEALTH_MEMO_MS = 15_000;
-let healthMemo: { atMs: number; nowIso: string; report: OpsHealthReport } | null = null;
+let healthMemo: { atMs: number; report: OpsHealthReport } | null = null;
+
+/**
+ * Memo freshness predicate, keyed on the cache timestamp — never on the
+ * request's own clock reading. Comparing against the exact per-request ISO
+ * timestamp (which carries milliseconds) made the memo unreachable: every
+ * request computed a fresh `nowIso`, so the equality never held and every
+ * /api/health hit paid the full DB + GitHub scan the memo exists to avoid.
+ */
+export function healthMemoFresh(cachedAtMs: number, nowMs = Date.now()): boolean {
+  return nowMs - cachedAtMs < HEALTH_MEMO_MS;
+}
 
 async function loadOpsHealthMemoized(nowIso: string): Promise<OpsHealthReport> {
   const cached = healthMemo;
-  if (cached && Date.now() - cached.atMs < HEALTH_MEMO_MS && cached.nowIso === nowIso) {
+  if (cached && healthMemoFresh(cached.atMs)) {
     return cached.report;
   }
   const report = await loadOpsHealth(nowIso);
-  healthMemo = { atMs: Date.now(), nowIso, report };
+  healthMemo = { atMs: Date.now(), report };
   return report;
+}
+
+/** Test-only memo reset so contract tests stay isolated per request. */
+export function __clearHealthMemoForTests(): void {
+  healthMemo = null;
 }
 
 export async function GET(request: Request) {

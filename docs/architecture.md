@@ -43,9 +43,8 @@ User-facing explanation (Today, result screen, Progress, DNA)
 | `argumentRepair.ts` | Repair target selection, structural repair paths + deterministic rewrite scoring |
 | `friendChallenge.ts` | Async invite codes/expiry/turn notes |
 | `productEvents.ts` | Allowlisted funnel events (silent on failure) |
-| `productFunnelServer.ts`, `aiOpsServer.ts` | Admin analytics loaders with explicit complete/partial/unavailable semantics; never convert read failure into zero activity |
-| `analytics/` | Funnel events, session funnel, retention/cohorts, repair outcomes and report assembly. `productFunnel.ts` is a barrel so the import path is unchanged. |
-| `opsHealth/` | One file per subsystem (core, topic, judge, database, app, evidence, report). `opsHealth.ts` is a barrel; I/O stays in `opsHealthServer.ts`. |
+| `productFunnel.ts` | Product funnel measurement: session funnel, weekly cohorts, retention/return rates and repair-outcome analysis over the allowlisted event rows. The single implementation — there is no second copy. | `productFunnelServer.ts` | Loads the rows with explicit complete/partial/unavailable semantics; never converts a read failure into zero activity |
+| `opsHealth.ts` | Assessment functions for every operational subsystem (topic SLO, database, judge, app CI, human validation, training evidence), pure and unit-tested. I/O stays in `opsHealthServer.ts`. |
 | `components/debate/` | The solo debate room: `useDebateSession` (turns, submission, finish, recovery), `useResponseWindow` (server-authoritative timers), `useDebateSpeech`, plus the live and result views. `DebateRoom.tsx` only wires them together. |
 | `backend/*` | Owned Postgres/auth: sessions, query builder, rate limits |
 

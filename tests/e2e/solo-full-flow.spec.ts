@@ -305,9 +305,22 @@ test.describe("solo full-flow", () => {
     // 2. the winner commits before the loser's route checks existing state,
     //    so both tabs navigate immediately. Do not couple the invariant to the
     //    transient alert paint timing.
+    //
+    // There is also a late-arriving variant of outcome 2: at the check above
+    // only one tab had navigated, but the loser navigates on its own a moment
+    // later. Asserting the Start button before ruling out that navigation
+    // flakes — the button is gone because the tab already left. Poll for
+    // either state instead.
     if (!(pageStarted && secondStarted)) {
       const loserStart = loser.getByTestId("start-sprint");
-      await expect(loserStart).toBeVisible({ timeout: 10_000 });
+      await expect.poll(
+        async () => {
+          if (/\/debate\//.test(new URL(loser.url()).pathname)) return "navigated";
+          const visible = await loserStart.isVisible().catch(() => false);
+          return visible ? "still-here" : "waiting";
+        },
+        { timeout: 10_000, message: "losing Start tab should stay with a Start button or navigate" },
+      ).toMatch(/^(navigated|still-here)$/);
 
       // A transient start-in-progress response leaves the loser on Today while
       // its first click is still unwinding. Visibility alone is not retry-ready:

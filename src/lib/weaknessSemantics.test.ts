@@ -217,9 +217,64 @@ describe("structure: only the user's own contradictions count", () => {
   });
 });
 
-describe("clarity: unmeasurable in every direction", () => {
-  it("stays zero regardless of graph content", () => {
-    expect(countWeaknessesForSide(baseGraph(), "a").clarity).toBe(0);
-    expect(countWeaknessesForSide(baseGraph(), "ai").clarity).toBe(0);
+describe("clarity: rounds the user left unengaged", () => {
+  it("counts a round the opponent opened and the user never answered", () => {
+    // baseGraph has an opponent round-1 claim (o1) with a later user node
+    // (c2/i1, round 2), so round 1 is an engagement opportunity that went
+    // unanswered.
+    expect(countWeaknessesForSide(baseGraph(), "a").clarity).toBe(1);
+  });
+
+  it("is side-scoped: each side's unengagement is that side's own weakness", () => {
+    // Measured for the user, the user's missed round counts.
+    expect(countWeaknessesForSide(baseGraph(), "a").clarity).toBe(1);
+    // Measured for the opponent, the mirror image counts for THEM: the user's
+    // round-1 claim (c1) is an opportunity the opponent had a later turn for
+    // (o2, round 2) and never answered. The two readings are independent — the
+    // opponent ignoring the user's move never inflates the user's own failure.
+    expect(countWeaknessesForSide(baseGraph(), "ai").clarity).toBe(1);
+  });
+
+  it("clears when the user answered the round's move", () => {
+    const g = baseGraph();
+    // A round-2 rebuttal aimed at the round-1 opponent claim answers the round.
+    g.nodes.push({
+      id: "r1",
+      kind: "rebuttal",
+      owner: "a",
+      round: 2,
+      text: "Their claim assumes a fixed budget.",
+      targets: ["o1"],
+    });
+    expect(countWeaknessesForSide(g, "a").clarity).toBe(0);
+  });
+
+  it("clears when the user answered the opponent's weighing move", () => {
+    // The engagement answer rule is the only one that credits answering a
+    // WEIGHING move (see opportunity.isEngagementResponseTarget) — which is
+    // exactly what the Engagement repair asks the learner to do. Rebuttal
+    // coverage still refuses impact targets, and must: a weighing comparison
+    // is not an argument.
+    const g: ArgGraph = {
+      ...baseGraph(),
+      nodes: [
+        { id: "c1", kind: "claim", owner: "a", text: "User claim one.", round: 1 },
+        { id: "iw1", kind: "impact", owner: "ai", text: "The costs outweigh those benefits.", round: 1 },
+        { id: "r1", kind: "rebuttal", owner: "a", round: 2, text: "Their weighing ignores the phased rollout, so the costs do not outweigh the benefits.", targets: ["iw1"] },
+      ],
+      dropped: [],
+    };
+    // The weighing move was answered, so no engagement round is missed.
+    expect(countWeaknessesForSide(g, "a").clarity).toBe(0);
+    // The canonical rebuttal chain is untouched by this: no claim/counterclaim
+    // opportunity existed, so there is nothing for rebuttal to have answered —
+    // a weighing move is not an argument.
+    expect(countWeaknessesForSide(g, "a").rebuttal).toBe(0);
+  });
+
+  it("stays zero when the opponent left no engagement move at all", () => {
+    const g = baseGraph();
+    g.nodes = g.nodes.filter((n) => n.owner !== "ai");
+    expect(countWeaknessesForSide(g, "a").clarity).toBe(0);
   });
 });

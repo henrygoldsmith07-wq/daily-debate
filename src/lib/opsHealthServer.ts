@@ -15,6 +15,7 @@ import {
   assessTrainingEvidence,
   buildOpsHealthReport,
   MIGRATION_REQUIRED_COLUMNS,
+  todayIsoUtc,
   type AiProductionEvidence,
   type DurableProofFacts,
   deriveDelayWitness,
@@ -382,7 +383,7 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
   // (migration 014) supplies scheduler-delay/availability telemetry; missing
   // table or unreadable rows degrade to "no telemetry", never to errors.
   const topicRuns = await fetchTopicGenerationRuns(token);
-  const dbTelemetry = await loadTopicRunTelemetry();
+  const { rows: dbTelemetry, readable: telemetryReadable } = await loadTopicRunTelemetry();
   // Durable proofs come from topic_run_log over its WHOLE table — an old
   // manual run must not fall outside an eight-run GitHub page and erase the
   // manual→scheduled fact. GitHub history stays the fallback when the DB
@@ -402,7 +403,13 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
       runs: topicRuns ?? [],
       productionDbReadable: topicStoreReadable,
       tomorrowReady: topic.tomorrowReady,
+      // The breach subject of the availability dimension is TODAY's serving
+      // row (the 03:00 UTC deadline anchors to the OBSERVING day): a >= today
+      // comparison tolerates the degenerate future-row case while staying
+      // false whenever the store holds nothing current.
+      todayReady: !!topic.lastTopicDate && topic.lastTopicDate >= todayIsoUtc(now),
       telemetry,
+      telemetryReadable,
       aiEvidence,
       durableProofs,
     },
@@ -595,7 +602,7 @@ async function loadAiProductionEvidence(
       .limit(5);
     if (rows.error) return null;
     const list = (rows.data ?? []) as Array<{
-      topic_date: string;
+      topic_date: string | Date;
       sources: unknown;
       generation_source: string | null;
       topic_fingerprint: string | null;
@@ -605,7 +612,13 @@ async function loadAiProductionEvidence(
     }
     const row = list[0];
     const sources = Array.isArray(row.sources) ? row.sources : [];
-    const targetDate = String(row.topic_date).slice(0, 10);
+    // Same boundary rule as the daily_topics section: a date column can
+    // arrive as a JS Date via transport type-parsing; String(Date) + slice
+    // would produce garbage like "Thu Oct 17" and silently break the
+    // exact-fingerprint match the AI proof depends on.
+    const targetDate = row.topic_date instanceof Date
+      ? row.topic_date.toISOString().slice(0, 10)
+      : String(row.topic_date).slice(0, 10);
     const rowFingerprint = row.topic_fingerprint ?? null;
     return {
       targetDate,
@@ -664,8 +677,14 @@ async function loadDurableProofFacts(): Promise<DurableProofFacts | null> {
  * derived, not stored: a run for target date T "hit the deadline" iff it
  * completed by T's date-boundary + SLO clock (03:00 UTC of the day the topic
  * serves - i.e. T 00:00 is when it becomes today; 03:00 is the hard cap).
+ *
+ * Returns `{ rows, readable }` rather than an array alone: an empty array on
+ * a read failure is indistinguishable from an empty table, and the proofs
+ * that read durable columns would then compute `false` and render a read
+ * failure as "this pipeline never proved X". `readable: false` lets the SLO
+ * report those proofs as unassessed instead.
  */
-async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
+async function loadTopicRunTelemetry(): Promise<{ rows: TopicRunTelemetryRow[]; readable: boolean }> {
   const parseAttempts = (raw: unknown): TopicRunTelemetryRow["providerAttempts"] => {
     if (raw === null || raw === undefined) return null;
     try {
@@ -700,20 +719,42 @@ async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
     topic_fingerprint?: string | null;
     provider_attempts?: unknown;
   }): TopicRunTelemetryRow => {
+    // Same boundary-hygiene as the daily_topics read: date/timestamp columns
+    // can arrive as JS Date objects depending on transport type-parsing, and
+    // a bare `.slice` on one throws here — which the outer catch turns into
+    // "telemetry unreadable", silently downgrading the fingerprint, deadline
+    // and real-AI proofs to unassessed. Normalise instead of crashing.
+    const toDateOnly = (v: unknown): string | null =>
+      v === null || v === undefined
+        ? null
+        : v instanceof Date
+          ? v.toISOString().slice(0, 10)
+          : String(v).slice(0, 10);
+    const toIso = (v: unknown): string | null =>
+      v === null || v === undefined
+        ? null
+        : v instanceof Date
+          ? v.toISOString()
+          : String(v);
+    const startedIso = toIso(r.started_at);
+    const targetDate = toDateOnly(r.target_date);
+    const completedIso = toIso(r.completed_at);
     let beforeDeadline: boolean | null = null;
-    if (r.completed_at && r.target_date) {
-      const deadline = Date.parse(`${r.target_date.slice(0, 10)}T00:00:00Z`) + 3 * 3_600_000;
-      beforeDeadline = Date.parse(r.completed_at) <= deadline && r.freshness_ok !== false;
+    if (completedIso && targetDate) {
+      const deadline = Date.parse(`${targetDate}T00:00:00Z`) + 3 * 3_600_000;
+      const finished = Date.parse(completedIso);
+      beforeDeadline = Number.isFinite(finished) && finished <= deadline && r.freshness_ok !== false;
     }
     return {
       event: r.event,
-      at: r.started_at,
-      runCreatedAt: r.run_created_at ?? null,
-      completedAt: r.completed_at,
+      at: startedIso ?? "",
+      runCreatedAt:
+        r.run_created_at === null || r.run_created_at === undefined ? null : toIso(r.run_created_at),
+      completedAt: completedIso,
       result: r.result,
       delayMs: r.delay_ms === null ? null : Number(r.delay_ms),
       queueDelayMs: r.queue_delay_ms === null || r.queue_delay_ms === undefined ? null : Number(r.queue_delay_ms),
-      targetDate: r.target_date ? r.target_date.slice(0, 10) : null,
+      targetDate,
       completedBeforeDeadline: beforeDeadline,
       freshnessOk: r.freshness_ok,
       providerHealth: r.provider_health ?? null,
@@ -745,7 +786,7 @@ async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
                 topic_fingerprint, provider_attempts
            FROM topic_run_log ORDER BY started_at DESC LIMIT 60`,
       );
-      return rows.map(mapRow);
+      return { rows: rows.map(mapRow), readable: true };
     } catch {
       // Pre-016 databases lack the fidelity columns — fall back to the
       // legacy shape so telemetry still loads instead of going dark.
@@ -761,10 +802,12 @@ async function loadTopicRunTelemetry(): Promise<TopicRunTelemetryRow[]> {
         `SELECT event, started_at, completed_at, delay_ms, target_date, result, freshness_ok
            FROM topic_run_log ORDER BY started_at DESC LIMIT 60`,
       );
-      return rows.map(mapRow);
+      return { rows: rows.map(mapRow), readable: true };
     }
   } catch {
-    return [];
+    // Unread. The rows stay empty, but the flag tells the SLO the difference
+    // between "no history" and "I could not look" — see loadTopicRunTelemetry.
+    return { rows: [], readable: false };
   }
 }
 

@@ -9,7 +9,6 @@ const THREAT_RE = /\b(i will|i'll|i shall|gonna)\s+(kill|murder|hurt|harm|beat|s
 // Doxxing: SSN and phone-number shapes never belong in a debate turn.
 const DOXX_RE = /\b\d{3}-\d{2}-\d{4}\b|(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}/;
 const SPAM_RE = /(.)\1{12,}/; // 13+ repeated char
-const GENERATED_RE = /\b(as an ai|as a language model)\b/i;
 const MALICIOUS_URL_RE = /(https?:\/\/[^\s]+)/gi;
 // Simple unsafe-content lexicon (offline floor; provider handles nuance)
 const UNSAFE_RE = /\b(nude|porn|explicit sexual|graphic gore|self.?harm instructions)\b/i;
@@ -72,15 +71,6 @@ export function moderateContent(text: string): ModerationResult {
 }
 
 export function isBlocked(flags: ModerationFlag[]): boolean { return flags.some((f)=> f.severity==="high"); }
-
-export function isLikelyGenerated(text: string): boolean {
-  return GENERATED_RE.test(text);
-}
-
-// Moderation does not affect scoring — pure separation check for tests
-export function scoringUntouchedByModeration(): boolean {
-  return true; // invariant: observableAssessment never reads ModerationFlag
-}
 
 // Anti-cheat: copy-paste reuse detection (same text twice) + absurd length + pace
 // Real abuse (multiple accounts, voting rings) lives in Postgres functions; these catch the cheap tricks.

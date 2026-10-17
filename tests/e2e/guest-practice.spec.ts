@@ -84,6 +84,26 @@ test.describe("guest practice honesty", () => {
     await expect(page.getByTestId("guest-retest-outcome")).toBeVisible();
     await expect(page.getByTestId("guest-retest-outcome")).toContainText("one observed instance");
     await expect(page.getByRole("link", { name: /create a free account/i })).toBeVisible();
+
+    // Finishing closes the loop with confirmation instead of ejecting home.
+    await page.getByRole("button", { name: /finish guest practice/i }).click();
+    await expect(page.getByTestId("guest-done")).toBeVisible();
+    await expect(page.getByRole("link", { name: /create a free account/i })).toBeVisible();
+    // Reload survival: the done recap restores in-tab.
+    await page.reload();
+    await expect(page.getByTestId("guest-done")).toBeVisible();
+    await page.getByRole("button", { name: /practice again/i }).click();
+    await expect(page.locator("#guest-motion")).toBeVisible();
+
+    // Mid-debate reload resumes at the next unanswered round, keeping history.
+    await page.getByRole("button", { name: /start a free practice/i }).click();
+    await response.fill(
+      "Schools should use a phone-free hour because fewer notifications make it easier for students to focus during lessons.",
+    );
+    await page.getByRole("button", { name: /send response/i }).click();
+    await expect(page.getByTestId("guest-round-feedback")).toBeVisible();
+    await page.reload();
+    await expect(page.getByText("Round 2 of 3")).toBeVisible();
   });
 
   test("a trigger word alone cannot pass the repair", async ({ page }) => {

@@ -31,6 +31,8 @@ function report(over: Partial<OpsHealthReport> = {}): OpsHealthReport {
       scheduling: { latestDelayMs: null, medianDelayMs: null, p95DelayMs: null, missedStarts: 0, thresholdMs: 90 * 60_000, note: null },
       status: "healthy",
       lastSuccessfulRun: null,
+      telemetryReadable: true,
+      latestTelemetryTargetDate: "2026-09-20",
       proofs: {
         databaseReachable: true,
         manualSuccess: true,
@@ -63,6 +65,11 @@ describe("derivePublicHealthState (non-sensitive reduction)", () => {
       generationReasonSchemaReady: true,
       latestApplicationSchemaReady: true,
       topicSource: "unknown",
+      // Public-safe telemetry witness facts: a boolean + a bare date from
+      // the same vocabulary as the public workflow-run history. No
+      // identifiers, titles, or counters cross the boundary.
+      telemetryReadable: true,
+      latestTelemetryTargetDate: "2026-09-20",
       topicReadSqlstate: null,
       topicReadShapeMatrix: null,
       proofs: { databaseReachable: true, manualSuccess: true, scheduledSuccessAfterManual: true, sameDateContentIdempotence: true, onTimeBeforeDeadline: true, aiGeneratedProductionSuccess: true },
@@ -96,6 +103,33 @@ describe("derivePublicHealthState (non-sensitive reduction)", () => {
     expect(failed.topicFingerprintSchemaReady).toBe(false);
   });
 
+  it("exposes the telemetry witness facts, tolerating pre-field upstream reports", () => {
+    // False ≠ unmeasured: a report that says the log was unreadable carries
+    // that fact into the public payload so no consumer re-derives a wrong
+    // story from plain false proofs.
+    const withWitness = derivePublicHealthState(
+      report({
+        topicSlo: {
+          ...report().topicSlo,
+          telemetryReadable: false,
+          latestTelemetryTargetDate: "2026-09-19",
+        },
+      }),
+      now,
+    );
+    expect(withWitness.telemetryReadable).toBe(false);
+    expect(withWitness.latestTelemetryTargetDate).toBe("2026-09-19");
+
+    // An all-unknown/fallback report (hand-built legacy literal that predates
+    // the fields) reduces to null rather than lying as a boolean.
+    const legacyFixture = report();
+    delete (legacyFixture.topicSlo as { telemetryReadable?: boolean }).telemetryReadable;
+    delete (legacyFixture.topicSlo as { latestTelemetryTargetDate?: string }).latestTelemetryTargetDate;
+    const legacy = derivePublicHealthState(legacyFixture, now);
+    expect(legacy.telemetryReadable).toBeNull();
+    expect(legacy.latestTelemetryTargetDate).toBeNull();
+  });
+
   it("maps the stored topic's provenance to a public topicSource", () => {
     const ai = derivePublicHealthState(
       report({ topic: { origin: "ai" } } as unknown as Partial<OpsHealthReport>),
@@ -123,6 +157,8 @@ describe("isUsableProbe (consumer-side sanity gate)", () => {
     generationReasonSchemaReady: true,
     latestApplicationSchemaReady: true,
     topicSource: "ai",
+    telemetryReadable: true,
+    latestTelemetryTargetDate: "2026-09-20",
     topicReadSqlstate: null,
     topicReadShapeMatrix: null,
     proofs: { databaseReachable: true, manualSuccess: true, scheduledSuccessAfterManual: true, sameDateContentIdempotence: true, onTimeBeforeDeadline: true, aiGeneratedProductionSuccess: true },
@@ -153,6 +189,9 @@ describe("isUsableProbe (consumer-side sanity gate)", () => {
 describe("GET /api/health (route contract)", () => {
   beforeEach(() => {
     loadOpsHealth.mockReset();
+    // The route memoizes the report for 15s: reset it so each contract
+    // assertion exercises a live load, not the previous test's cache.
+    clearMemo();
   });
 
   // The route module is compiled on first use (the Next route plus its
@@ -163,8 +202,9 @@ describe("GET /api/health (route contract)", () => {
   // Importing it once here with an explicit budget moves the cost out of the
   // assertions. The mocks above are hoisted, so they still apply.
   let GET: (request: Request) => Promise<Response>;
+  let clearMemo: () => void = () => {};
   beforeAll(async () => {
-    ({ GET } = await import("../app/api/health/route"));
+    ({ GET, __clearHealthMemoForTests: clearMemo } = await import("../app/api/health/route"));
   }, 30_000);
 
   it("serves the derived state with no-store", async () => {
@@ -182,7 +222,11 @@ describe("GET /api/health (route contract)", () => {
         "topicFingerprintSchemaReady",
         "generationReasonSchemaReady",
         "latestApplicationSchemaReady",
+        // Public-safe telemetry-witness facts (digest consumable; a boolean
+        // and a bare date — identifiers never cross this boundary).
         "generatedAt",
+        "latestTelemetryTargetDate",
+        "telemetryReadable",
         "topicSource",
         "proofs",
         "scheduler",
@@ -210,6 +254,7 @@ describe("GET /api/health (route contract)", () => {
     loadOpsHealth.mockResolvedValue(report());
     const okRes = await GET(new Request("https://dailydebate.app/api/health"));
     const okBody = (await okRes.json()) as Record<string, unknown>;
+    clearMemo();
     loadOpsHealth.mockRejectedValueOnce(new Error("down"));
     const errRes = await GET(new Request("https://dailydebate.app/api/health"));
     const errBody = (await errRes.json()) as Record<string, unknown>;

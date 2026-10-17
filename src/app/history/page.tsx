@@ -8,6 +8,7 @@ import { normalizeIanaTimeZone } from "@/lib/timeZone";
 import { loadJudgeValidation } from "@/lib/judgeValidationServer";
 import { allowsCompetitiveClaims } from "@/lib/judgeValidation";
 import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
+import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 
 export const dynamic = "force-dynamic";
 
@@ -158,6 +159,7 @@ export default async function HistoryPage() {
         )}
       </section>
 
+      {(experimentalSurfacesEnabled() || pvpMatches.length > 0) && (
       <section className="flex flex-col gap-3">
         <div className="section-heading">
           <h2>Player vs player</h2>
@@ -169,8 +171,8 @@ export default async function HistoryPage() {
             <p className="text-sm text-ink3">
               Challenge a friend to argue today&apos;s motion, or join the queue when PvP is open.
             </p>
-            <Link href="/" className="btn btn-ghost mt-1 px-4 py-2 text-sm">
-              Back to today
+            <Link href="/pvp" className="btn btn-ghost mt-1 px-4 py-2 text-sm">
+              Go to PvP
             </Link>
           </div>
         ) : (
@@ -233,6 +235,7 @@ export default async function HistoryPage() {
           })
         )}
       </section>
+      )}
     </AppShell>
   );
 }

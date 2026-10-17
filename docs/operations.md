@@ -112,17 +112,30 @@ consecutive) / stale (>36h without any scheduled attempt finishing) /
 unknown (never executed here).
 
 **Topic availability** (production store content, deadline-enforced):
-ready / pending-before-deadline (before 03:00 UTC, absence is NORMAL, not a
-breach) / **missed-deadline (S1 BREACH after 03:00 UTC — immediate failed,
-not waiting for the 36h stall detector)** / invalid (row exists but freshness
+ready / pending-before-deadline (before the deadline, absence is NORMAL, not a
+breach; also the normal midday state where today's row is stored and
+tomorrow's window has not opened) / **missed-deadline (S1 BREACH: today's
+serving row absent after its own 03:00 UTC deadline — immediate failed, not
+waiting for the 36h stall detector)** / invalid (row exists but freshness
 verification failed) / unknown (production store unreadable).
 
-Overall = worst of the two severities. Example: one failed run with tomorrow
-missing at 12:00 UTC reports `Scheduler: DEGRADED`, `Availability:
-MISSED-DEADLINE`, overall FAILED — run history and content state stay
-separable.
+The deadline anchors to the date it governs: the row serving date X is written
+by X-1's evening ladder and judged against X's 03:00 UTC. Calendar "tomorrow"
+(typically stored tonight) therefore never produces a breach from today's
+observation — its deadline fires tomorrow, when that date IS "today" for the
+observing code. The earlier formulation ("tomorrow's row absent AND hour >= 3
+UTC") enforced next-day deadlines hours before their windows opened and read
+as a false 03:00–20:00 breach every day (ops issue #27's root misreport).
 
-Definitions: **S1** tomorrow's topic stored by 03:00 UTC; **S2** exactly one
+Overall = worst of the two severities. Example: one failed run with TODAY's
+row still missing at 12:00 UTC reports `Scheduler: DEGRADED`,
+`Availability: MISSED-DEADLINE`, overall FAILED — run history and content
+state stay separable. The same state with today's row stored (and only
+tomorrow's missing) reports `MISSED-DEADLINE` nowhere: availability is
+`PENDING-BEFORE-DEADLINE` and overall tracks the scheduler alone.
+
+Definitions: **S1** the topic serving date X (written by X-1's evening ladder)
+stored by 03:00 UTC on X; **S2** exactly one
 valid row per date (`UNIQUE(topic_date)` + post-write verifier); **S3** no
 orphan evidence, bounded count; **S4** AI-failure-with-stored-fallback is
 acceptable, not a breach; **S5** repeated scheduled failures escalate the

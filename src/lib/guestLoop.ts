@@ -117,3 +117,98 @@ export function classifyGuestContextWriteError(
   const message = typeof error.message === "string" ? error.message : "";
   return /guest_context/i.test(message) && /does not exist/i.test(message) ? "schema-lagging" : "other";
 }
+
+// ---------------------------------------------------------------------------
+// Mid-practice progress (this tab only).
+//
+// A reload mid-debate used to wipe up to three submitted rounds: arena state
+// lived in useState only. This codec persists the tab's progress to
+// sessionStorage — same device, same tab, never the network — and restores it
+// only when the stored motion day matches today (the motion rotates daily, so
+// yesterday's answers belong to a different debate). Anything malformed is
+// dropped, never repaired: a corrupt cache must degrade to a fresh home, not
+// a half-restored debate.
+// ---------------------------------------------------------------------------
+
+export type GuestArenaStage = "home" | "debate" | "result" | "retest" | "done";
+
+const ARENA_STAGES: readonly string[] = ["home", "debate", "result", "retest", "done"];
+const ARENA_SIDES: readonly string[] = ["for", "against"];
+
+export interface GuestArenaRepair {
+  kind: string;
+  label: string;
+  text: string;
+  succeeded: boolean;
+}
+
+export interface GuestArenaProgress {
+  version: 1;
+  /** YYYY-MM-DD the motion was picked for; stale days never restore. */
+  motionDate: string;
+  stage: GuestArenaStage;
+  side: "for" | "against";
+  responses: string[];
+  repair: GuestArenaRepair | null;
+  retestDemonstrated: boolean | null;
+}
+
+export const GUEST_ARENA_STORAGE_KEY = "daily-debate-guest-arena";
+
+const ARENA_WIRE_CAP = 20_000;
+const ARENA_MAX_RESPONSES = 8;
+const ARENA_MAX_TEXT = 4000;
+
+export function encodeGuestArenaProgress(progress: GuestArenaProgress): string {
+  return JSON.stringify(progress);
+}
+
+/** Validate a stored arena snapshot. Null means start fresh — never half-restore. */
+export function parseGuestArenaProgress(raw: unknown): GuestArenaProgress | null {
+  let value: unknown = raw;
+  if (typeof raw === "string") {
+    if (!raw || raw.length > ARENA_WIRE_CAP) return null;
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (v.version !== 1) return null;
+  if (typeof v.motionDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v.motionDate)) return null;
+  if (typeof v.stage !== "string" || !ARENA_STAGES.includes(v.stage)) return null;
+  if (typeof v.side !== "string" || !ARENA_SIDES.includes(v.side)) return null;
+  if (!Array.isArray(v.responses) || v.responses.length > ARENA_MAX_RESPONSES) return null;
+  const responses: string[] = [];
+  for (const r of v.responses) {
+    if (typeof r !== "string") return null;
+    responses.push(r.slice(0, ARENA_MAX_TEXT));
+  }
+  let repair: GuestArenaRepair | null = null;
+  if (v.repair !== null && v.repair !== undefined) {
+    if (!v.repair || typeof v.repair !== "object") return null;
+    const r = v.repair as Record<string, unknown>;
+    if (typeof r.kind !== "string" || !KINDS.has(r.kind)) return null;
+    if (typeof r.succeeded !== "boolean") return null;
+    repair = {
+      kind: r.kind,
+      label: boundedString(r.label, 100),
+      text: boundedString(r.text, ARENA_MAX_TEXT),
+      succeeded: r.succeeded,
+    };
+  }
+  if (v.retestDemonstrated !== null && v.retestDemonstrated !== undefined && typeof v.retestDemonstrated !== "boolean") {
+    return null;
+  }
+  return {
+    version: 1,
+    motionDate: v.motionDate,
+    stage: v.stage as GuestArenaStage,
+    side: v.side as GuestArenaProgress["side"],
+    responses,
+    repair,
+    retestDemonstrated: (v.retestDemonstrated ?? null) as boolean | null,
+  };
+}
