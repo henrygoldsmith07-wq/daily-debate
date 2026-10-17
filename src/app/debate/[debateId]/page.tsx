@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/backend/server";
 import AppShell from "@/components/AppShell";
 import DebateRoom from "@/components/DebateRoom";
+import { loadJudgeValidation } from "@/lib/judgeValidationServer";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { buildResultSnapshot } from "@/lib/resultSnapshot";
@@ -116,6 +117,12 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
     };
   }
 
+  // Judge-output honesty for this surface, derived once from the published
+  // benchmark artifact (the same source /metrics uses). The room and its
+  // result view broadcast the claim verbatim so scores and repair targets can
+  // never read as validated ability measures while the evidence says otherwise.
+  const validation = loadJudgeValidation();
+
   return (
     <AppShell width="narrow">
       <DebateRoom
@@ -123,6 +130,8 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
         topic={topic}
         initialTurns={(turns ?? []) as unknown as SoloDebateTurn[]}
         completedResult={completedResult}
+        soloValidation={validation.surfaces["solo-training"]}
+        repairValidation={validation.surfaces.repair}
       />
     </AppShell>
   );

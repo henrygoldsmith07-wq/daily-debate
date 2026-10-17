@@ -3,6 +3,7 @@
 import type { SoloDebate, SoloDebateTurn, DebateSummary, TrainingSummary } from "@/lib/types";
 import type { ArgGraph } from "@/lib/argGraph";
 import type { ResultSnapshot } from "@/lib/resultSnapshot";
+import type { SurfaceValidation } from "@/lib/judgeValidation";
 
 export interface RewardEventView {
   kind: string;
@@ -65,4 +66,8 @@ export interface DebateRoomProps {
   topic: { title: string; prompt: string };
   initialTurns: SoloDebateTurn[];
   completedResult?: CompletedResultView | null;
+  /** Judge-output validation for the training surface (scores shown here). */
+  soloValidation?: SurfaceValidation | null;
+  /** Judge-output validation for the repair surface (repair targets below). */
+  repairValidation?: SurfaceValidation | null;
 }

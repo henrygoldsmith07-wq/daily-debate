@@ -21,6 +21,7 @@ import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { asRepairAttemptLite, latestUnfinishedRepair } from "@/lib/repairResume";
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
 import { getGuestContext } from "@/lib/guestContextServer";
+import { loadJudgeValidation } from "@/lib/judgeValidationServer";
 import { resolvePracticeMotion, type DueRetest } from "@/lib/practiceMotion";
 import { pickPriority } from "@/lib/dailyFocus";
 import { canonicalSkillKey } from "@/lib/skillTaxonomy";
@@ -51,15 +52,20 @@ function formatShortDate(value: string | null | undefined, timeZone: string): st
 }
 
 export default async function DashboardPage() {
+  // The guest arena receives the guest surface's live validation state so a
+  // scoreless practice flow still carries the honest judge-output label. An
+  // unreadable benchmark degrades inside the module — the line reads as a
+  // hole in the evidence, never as a pass.
+  const guestValidation = loadJudgeValidation().surfaces["guest"];
   if (!isDatabaseConfigured()) {
-    return <GuestArena />;
+    return <GuestArena validation={guestValidation} />;
   }
 
   const db = await createClient();
   const user = await getCurrentUser();
 
   if (!user) {
-    return <GuestArena />;
+    return <GuestArena validation={guestValidation} />;
   }
 
   // getTodayTopic never throws — it falls back to a curated motion when

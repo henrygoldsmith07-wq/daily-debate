@@ -5,6 +5,8 @@ import type { ArgGraph } from "@/lib/argGraph";
 import type { RepairTarget } from "@/lib/argumentRepair";
 import { pickRepairTarget, scoreRepair, type RepairScore, type RepairState } from "@/lib/argumentRepair";
 import { WEAKNESS_CONSEQUENCE, repairSuccessTransition } from "@/lib/retest";
+import ValidationStatusLine from "./ValidationStatusLine";
+import type { SurfaceValidation } from "@/lib/judgeValidation";
 import { trackEvent } from "@/lib/trackClientEvent";
 
 interface RepairFeedback {
@@ -24,6 +26,7 @@ export default function ArgumentRepair({
   graph,
   debateId,
   presetTarget,
+  validation = null,
   onCompleted,
 }: {
   graph: ArgGraph;
@@ -31,6 +34,8 @@ export default function ArgumentRepair({
   debateId?: string;
   /** Pre-picked target from the result snapshot (server-derived). */
   presetTarget?: RepairTarget | null;
+  /** Live judge-output validation for this surface, from the report the page loaded. */
+  validation?: SurfaceValidation | null;
   onCompleted?: (result: RepairFeedback) => void;
 }) {
   const target = presetTarget ?? pickRepairTarget(graph);
@@ -116,6 +121,8 @@ export default function ArgumentRepair({
         </div>
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">{target.label}</span>
       </div>
+
+      <ValidationStatusLine validation={validation} testId="repair-validation-state" />
 
       <div className="repair-target" data-testid="repair-source">
         <p className="repair-target-label">From your debate</p>
