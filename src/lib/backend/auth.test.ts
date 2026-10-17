@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, scrypt } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 // The AuthApi imports "server-only" (aliased in vitest.config.mts) and the
@@ -8,6 +8,12 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("./sql", () => ({
   queryRows: vi.fn(),
 }));
+
+// Pass-through wrapper so tests can count password-hash work.
+vi.mock("node:crypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:crypto")>();
+  return { ...actual, scrypt: vi.fn(actual.scrypt) };
+});
 
 import { queryRows } from "./sql";
 import {
@@ -144,5 +150,70 @@ describe("resetPassword validation", () => {
 describe("PASSWORD_RESET_TTL_SECONDS", () => {
   it("gives users 30 minutes to complete the reset", () => {
     expect(PASSWORD_RESET_TTL_SECONDS).toBe(60 * 30);
+  });
+});
+
+describe("signUp display name", () => {
+  function cookieStore() {
+    return { get: () => undefined, set: vi.fn(), delete: vi.fn() };
+  }
+
+  it("never derives the public display name from the email when none is chosen", async () => {
+    mockQueryRows.mockReset();
+    mockQueryRows.mockResolvedValue([{ id: "u-1", email: "john@example.com" }]);
+    const api = new AuthApi(cookieStore());
+    await api.signUp({ email: "john@example.com", password: "long-enough-pw" });
+    const displayName = String(mockQueryRows.mock.calls[0]?.[1]?.[2]);
+    expect(displayName).toMatch(/^debater-[0-9a-f]{8}$/);
+    expect(displayName).not.toContain("john");
+  });
+
+  it("keeps a chosen display name", async () => {
+    mockQueryRows.mockReset();
+    mockQueryRows.mockResolvedValue([{ id: "u-1", email: "john@example.com" }]);
+    const api = new AuthApi(cookieStore());
+    await api.signUp({
+      email: "john@example.com",
+      password: "long-enough-pw",
+      options: { data: { display_name: "  Rhetor  " } },
+    });
+    expect(mockQueryRows.mock.calls[0]?.[1]?.[2]).toBe("Rhetor");
+  });
+
+  it("says which field collided on a unique violation", async () => {
+    const api = new AuthApi(cookieStore());
+    mockQueryRows.mockReset();
+    mockQueryRows.mockRejectedValueOnce(
+      Object.assign(new Error("duplicate key"), { code: "23505", constraint: "profiles_username_key" }),
+    );
+    const taken = await api.signUp({ email: "a@example.com", password: "long-enough-pw", options: { data: { display_name: "x" } } });
+    expect(taken.error?.message).toMatch(/display name is taken/i);
+
+    mockQueryRows.mockRejectedValueOnce(
+      Object.assign(new Error("duplicate key"), { code: "23505", detail: "Key (email)=(a@example.com) already exists." }),
+    );
+    const exists = await api.signUp({ email: "a@example.com", password: "long-enough-pw" });
+    expect(exists.error?.message).toMatch(/account with that email already exists/i);
+
+    // The duplicated value is user input and must not be mistaken for the column.
+    mockQueryRows.mockRejectedValueOnce(
+      Object.assign(new Error("duplicate key"), { code: "23505", detail: "Key (email)=(username@example.com) already exists." }),
+    );
+    const tricky = await api.signUp({ email: "username@example.com", password: "long-enough-pw" });
+    expect(tricky.error?.message).toMatch(/account with that email already exists/i);
+  });
+});
+
+describe("signInWithPassword timing", () => {
+  it("does the same password-hash work for an unknown email as for a wrong password", async () => {
+    mockQueryRows.mockReset();
+    mockQueryRows.mockResolvedValue([]);
+    const api = new AuthApi({ get: () => undefined, set: vi.fn(), delete: vi.fn() });
+    // Warm the lazily computed dummy hash so only the verification is counted.
+    await api.signInWithPassword({ email: "ghost@example.com", password: "long-enough-pw" });
+    vi.mocked(scrypt).mockClear();
+    const { error } = await api.signInWithPassword({ email: "ghost@example.com", password: "long-enough-pw" });
+    expect(error?.message).toBe("Invalid email or password.");
+    expect(vi.mocked(scrypt)).toHaveBeenCalledTimes(1);
   });
 });

@@ -3,6 +3,7 @@ import {
   __localRateLimitForTests,
   __clearBucketsForTests,
   checkRateLimitKey,
+  clientIpFromHeaders,
   getClientIp,
 } from "./rateLimit";
 
@@ -58,6 +59,19 @@ describe("getClientIp", () => {
 
   it("falls back to unknown when no ip header is present", () => {
     expect(getClientIp(new Request("http://x"))).toBe("unknown");
+  });
+});
+
+describe("clientIpFromHeaders (auth server actions)", () => {
+  it("applies the same extraction as getClientIp, so a rotated first hop cannot reset the auth bucket", () => {
+    const spoofA = new Headers({ "x-forwarded-for": "6.6.6.1, 5.6.7.8" });
+    const spoofB = new Headers({ "x-forwarded-for": "6.6.6.2, 5.6.7.8" });
+    expect(clientIpFromHeaders(spoofA)).toBe("5.6.7.8");
+    expect(clientIpFromHeaders(spoofB)).toBe("5.6.7.8");
+  });
+
+  it("prefers x-real-ip over x-forwarded-for", () => {
+    expect(clientIpFromHeaders(new Headers({ "x-real-ip": "9.9.9.9", "x-forwarded-for": "1.2.3.4" }))).toBe("9.9.9.9");
   });
 });
 

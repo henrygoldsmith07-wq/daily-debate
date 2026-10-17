@@ -42,6 +42,15 @@ async function passwordHash(password: string): Promise<string> {
   return `scrypt$${salt.toString("base64url")}$${derived.toString("base64url")}`;
 }
 
+// A fixed hash to verify against when the email is unknown, so a miss costs
+// the same scrypt work as a wrong password and response time does not reveal
+// which addresses have accounts. Computed once, lazily.
+let dummyPasswordHash: Promise<string> | null = null;
+function timingDummyHash(): Promise<string> {
+  dummyPasswordHash ??= passwordHash(randomBytes(16).toString("base64url"));
+  return dummyPasswordHash;
+}
+
 async function passwordMatches(password: string, encoded: string): Promise<boolean> {
   const [algorithm, saltText, hashText] = encoded.split("$");
   if (algorithm !== "scrypt" || !saltText || !hashText) return false;
@@ -61,9 +70,43 @@ function validateCredentials(email: string, password: string): string | null {
   return null;
 }
 
+/**
+ * Public display handle for an account that did not choose one. Never derived
+ * from the email: usernames are shown to other players (leaderboard, PvP,
+ * unauthenticated challenge previews), and an email-derived default both
+ * leaked the address's local part and collided across domains
+ * (john@a.com / john@b.com), failing the second signup.
+ */
+function generatedDisplayName(): string {
+  return `debater-${randomBytes(4).toString("hex")}`;
+}
+
+/** Which unique column a 23505 violated, from the driver's constraint/detail fields. */
+function uniqueViolationColumn(error: unknown): "username" | "email" | null {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const candidate = current as { constraint?: unknown; detail?: unknown; cause?: unknown };
+    // Match the constraint name or the detail's key column only — never the
+    // duplicated value, which is user input ("Key (email)=(username@x.com)").
+    const constraint = typeof candidate.constraint === "string" ? candidate.constraint : "";
+    const keyColumn = typeof candidate.detail === "string" ? /^Key \((\w+)\)/.exec(candidate.detail)?.[1] ?? "" : "";
+    if (/username/.test(constraint) || keyColumn === "username") return "username";
+    if (/email/.test(constraint) || keyColumn === "email") return "email";
+    current = candidate.cause;
+  }
+  return null;
+}
+
 function friendlyError(error: unknown): AuthError {
   const candidate = error as { code?: string; message?: string };
-  if (candidate?.code === "23505") return { message: "That email or display name is already in use." };
+  if (candidate?.code === "23505") {
+    const column = uniqueViolationColumn(error);
+    if (column === "username") return { message: "That display name is taken. Choose another, or leave it blank." };
+    if (column === "email") return { message: "An account with that email already exists." };
+    return { message: "That email or display name is already in use." };
+  }
   console.error("[auth] backend operation failed", { error: candidate?.message ?? String(error) });
   return { message: "Account service is temporarily unavailable." };
 }
@@ -122,7 +165,8 @@ export class AuthApi {
         [email],
       );
       const row = rows[0];
-      if (!row || !(await passwordMatches(credentials.password, row.password_hash))) {
+      const matches = await passwordMatches(credentials.password, row?.password_hash ?? (await timingDummyHash()));
+      if (!row || !matches) {
         return { data: { user: null }, error: { message: "Invalid email or password." } };
       }
       await createSession(row.id, this.cookieStore);
@@ -142,7 +186,7 @@ export class AuthApi {
     const validationError = validateCredentials(email, input.password);
     if (validationError) return { data: { user: null }, error: { message: validationError } };
     const requestedName = input.options?.data?.display_name?.trim();
-    const displayName = (requestedName || email.split("@")[0]).slice(0, 40);
+    const displayName = (requestedName || generatedDisplayName()).slice(0, 40);
     const timeZone = normalizeIanaTimeZone(input.options?.data?.time_zone);
     try {
       const hash = await passwordHash(input.password);

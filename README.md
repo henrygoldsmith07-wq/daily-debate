@@ -20,7 +20,8 @@ Guests get the same loop deterministically, without an account or any network ca
 Practice quality beats practice volume. The product deliberately optimises the
 smallest complete loop and measures whether it works before adding anything
 else. Validation is published, not implied: as of the latest benchmark run **no
-judge clears the quality gates**, so every training-loop number is unvalidated
+benchmarked judge clears the quality gates** (only the free-chain models have
+been benchmarked; the paid production judge has not), so every training-loop number is unvalidated
 and competitive claims stay behind `eloGate` — see
 [docs/status.md](docs/status.md) for the honest numbers and
 [docs/roadmap.md](docs/roadmap.md) for what is active (proving the loop) versus
@@ -51,7 +52,7 @@ Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only chec
 | `ANTHROPIC_MODEL` | optional | Defaults to `claude-sonnet-5`. The exact id is stamped into every verdict's evaluation stamp. |
 | `JUDGE_ALLOW_FREE_PROVIDERS` | optional | `1` enables the free chain outside production (dev/e2e); `emergency` enables it in production too — incident response only, never a default. |
 | `AI_DAILY_SPEND_CAP_USD` | optional | Daily AI spend cap, default `10`; `off` disables. When hit: opponent/judge degrade to an explicit retryable unavailable state (never silent). |
-| `AI_SPEND_UNCOSTED_CALL_USD` | optional | Declared charge for each call whose provider reports no cost, default `0.02`. |
+| `AI_SPEND_UNCOSTED_CALL_USD` | optional | Declared charge for each call with no known cost, default `0.02`. Anthropic calls are instead costed from their token usage at list price (`src/lib/anthropicPricing.ts`); this applies to providers that report nothing and to models missing from that table. |
 | `CLASSIFIER_DEV_ENABLED` | optional | `1` sends argument texts to classifier.dev. Default off everywhere until the service is disclosed in the privacy policy. |
 | `NEXT_PUBLIC_EXPERIMENTAL_SURFACES` | optional | `1` re-enables the parked surfaces in navigation (PvP, friend challenges, voice input, corpus-validation pages). Default off — see [docs/status.md](docs/status.md). |
 | `OPENROUTER_API_KEY` / `UNOROUTER_API_KEY` / `KIRAAI_API_KEY` / `NVIDIA_API_KEY` | optional | Free-chain transports; only used when `JUDGE_ALLOW_FREE_PROVIDERS` allows them. |

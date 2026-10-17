@@ -109,7 +109,9 @@ export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
             <input
               name="displayName"
               type="text"
-              autoComplete="name"
+              autoComplete="nickname"
+              maxLength={40}
+              placeholder="Optional · shown to other players"
               className="rounded border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
             />
           </label>
