@@ -20,6 +20,8 @@
 // jq binary being present and behaving identically across runners.
 
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { scheduledForCron } from "./record-topic-run.mjs";
 
 /** Fields that must never be null when the source files carry a value. */
@@ -117,7 +119,11 @@ export function main(env = process.env) {
   return evidence;
 }
 
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")}`;
+// Same URL->path rule as every other CLI script (fileURLToPath decodes
+// percent-encoding): a hand-built `file://` template cannot match a
+// percent-encoded absolute path (spaces in a checkout path) or a Windows
+// drive letter, and the failure mode is a silent exit-0 no-op.
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 if (isMain) {
   try {
     main();
