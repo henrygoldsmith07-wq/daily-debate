@@ -112,6 +112,39 @@ but nothing compared the two implementations to each other. A port is an
 implementation, not a comment; the parity contract now lives in the test suite
 so the next rename or added transform must update both sides consciously.
 
+## Erratum 2026-10-17 — `ensemble-two-model-agreement` registration text updated before any seal
+
+**What changed.** The arm is now implemented
+(`scripts/lib/judge-providers.mjs`, `makeEnsembleJudge`): exactly two provider
+legs judge the SAME transcript with the byte-identical shipped v5 prompt, each
+leg keeping its own full chain + retry policy; the ensemble verdict is
+deterministic — mean scores, the production tie rule on the MEAN gap, mean
+confidence halved (`ENSEMBLE_DISAGREEMENT_DISCOUNT = 0.5`) when the legs
+disagree on the winner — and a failed leg fails the fixture (the surviving
+leg's verdict is never served as "the ensemble").
+
+**Registration text edits (pre-first-seal).** To match reality: the stale
+"Arm is implementation-pending; validator refuses execution until it exists"
+sentence and the `executionStatus` clause claiming the arm is unimplemented
+were replaced; `providerNote`'s "separate model families" claim was corrected
+to what the registered legs actually are (unorouter + openrouter, distinct
+providers, distinct model sizes within the same nemotron-3 family — family
+independence is partial and the study measures it). No structured, executable
+field changed: arms, `models`, `runsPerArm`, `minimumUsableReliability`,
+target/protected thresholds and `adoptionRule` are byte-identical to before.
+
+**Authority.** No study of this registration had ever been sealed or executed
+when the text changed, so no prior snapshot's hash is invalidated; the
+first-ever seal of this registration is canonical hash `5e85f07ca84de6bd`
+(observed during runner verification, 2026-10-17 — the run itself stayed
+resumable and inconclusive on its capacity/probe gates, as designed).
+
+**Validator consequences.** The disk-sweep test no longer assumes every
+BLOCKED registration carries an unimplemented arm: an unimplemented arm
+remains the only permitted validation failure, but capacity-blocked
+registrations with implemented arms now validate structurally (the runner's
+own capacity gate still refuses to execute without a declared budget).
+
 ## Erratum 2026-10-05 — whitespace study withdrawn; verbosity study registered
 
 The study `grounding-two-pass-whitespace` was registered but not executed, and

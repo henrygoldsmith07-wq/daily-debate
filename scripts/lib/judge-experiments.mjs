@@ -41,9 +41,11 @@ export const EXPERIMENTS = {
     // transcript with the SAME shipped v5 prompt; the ensemble verdict is
     // deterministic (mean scores, production tie rule on the mean gap,
     // confidence = mean confidence discounted when the models disagree on
-    // the winner). No prompt changes; the study may not start until the
-    // arm is implemented AND capacity is declared (validator enforces both).
-    implementationPending: true,
+    // the winner). No prompt changes. IMPLEMENTED 2026-10-17 in
+    // scripts/lib/judge-providers.mjs (makeEnsembleJudge: strict both-legs,
+    // deterministic mean/tie/discount aggregation, shared transport stats);
+    // execution still additionally requires a declared call budget
+    // (scripts/judge-capacity.mjs estimates the ensembles at 2 calls/job).
     hypothesis:
       "averaging two independent model verdicts under the existing deterministic tie policy raises fixture agreement >= 0.08 and lowers ECE without regressing any invariance metric",
     citationClause: CITATION_CLAUSE_DEFAULT,
