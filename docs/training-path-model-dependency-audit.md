@@ -80,8 +80,9 @@ That work is already done.
 - The **opponent's text is model output** and enters the graph as context. A
   provider that produces weak or off-topic arguments degrades the input the
   learner's own moves are scored against. That is a real, unmeasured coupling.
-- The default judge provider is returning **6% usable calls** and PvP verdicts
-  are already degraded by that.
+- The benchmarked free-chain judge was returning **6% usable calls**. (Correction:
+  this was the free chain, not the production Anthropic judge, which has not been
+  benchmarked — see `docs/status.md`.)
 
 ## Recommended next step (unchanged by this audit)
 

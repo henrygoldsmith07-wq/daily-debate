@@ -15,8 +15,15 @@ validation caveat that governs all of them. Last updated 2026-10-07.
 > | Position-swap stability | **0.792** | ≥ 0.97 |
 > | Fake-citation influence | **0.381** | ≤ 0.05 |
 >
-> The default judge returned usable data for **4 of 72** benchmark calls. A
-> fake injected citation moves its verdict roughly a third of the time.
+> **Which judge these numbers describe:** only the free-chain models
+> (OpenRouter/UnoRouter/Kirai). The production judge, Anthropic
+> `claude-sonnet-5`, has **never been benchmarked**: the weekly workflow does
+> not run it, because a benchmark run spends paid API credit
+> (`npm run benchmark:judges -- --models anthropic` with `ANTHROPIC_API_KEY`
+> runs it on demand). Most free-chain failures are provider rate limits and
+> quota errors (429/402), so these figures do not measure the shipped judge
+> in either direction — the judge users see is **unmeasured**, not measured
+> and failing.
 >
 > **What follows from that, stated plainly:** the software below is real and
 > works, but **every training-loop output it produces — weakness detection,

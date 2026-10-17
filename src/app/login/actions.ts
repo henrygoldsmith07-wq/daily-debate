@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/backend/server";
-import { checkRateLimitKey } from "@/lib/rateLimit";
+import { checkRateLimitKey, clientIpFromHeaders } from "@/lib/rateLimit";
 import { safeReturnPath } from "@/lib/authRedirect";
 import { normalizeIanaTimeZone } from "@/lib/timeZone";
 import { guestContextWriteFailureLog, parseGuestLoopSummary } from "@/lib/guestLoop";
@@ -25,9 +25,10 @@ async function authActionLimited(
   identity: string,
   limits: { ip: number; identity: number; windowMs: number },
 ): Promise<boolean> {
-  const requestHeaders = await headers();
-  const forwarded = requestHeaders.get("x-forwarded-for");
-  const ip = forwarded?.split(",")[0]?.trim() || requestHeaders.get("x-real-ip")?.trim() || "unknown";
+  // Same platform-trusted extraction as the API routes: the first
+  // x-forwarded-for entry is caller-controlled and would let a client rotate
+  // it to reset the per-IP auth bucket.
+  const ip = clientIpFromHeaders(await headers());
   const [ipResult, identityResult] = await Promise.all([
     checkRateLimitKey(`ip:${ip}`, { name, limit: limits.ip, windowMs: limits.windowMs, failClosed: true }),
     checkRateLimitKey(`identity:${privateIdentity(identity)}`, {

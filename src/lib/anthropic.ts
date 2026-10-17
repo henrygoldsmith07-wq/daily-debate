@@ -5,6 +5,7 @@ import { finalizePvpAssessment } from "./observableAssessment";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
 import { isValidJudgeExtraction } from "./aiSchema";
 import { ensureSpendWithinCap, reserveSpendCall, SPEND_RESERVATION_FALLBACK_USD } from "./spendCap";
+import { anthropicCallCostUsd, anthropicReservationUsd } from "./anthropicPricing";
 import { e2eMockAiEnabled, mockPvpJudge } from "./aiE2eMock";
 import type { ArgumentRoute } from "./argumentTaxonomy";
 import { renderUntrusted, renderUntrustedTranscript, UNTRUSTED_INSTRUCTION } from "./untrustedContent";
@@ -35,7 +36,8 @@ function getClient(): Anthropic {
 /**
  * messages.create with telemetry: records operation, model, token usage and
  * latency to the AI ledger. The Anthropic API does not report cost, so costUsd
- * stays absent for this provider.
+ * is computed from token usage at list price (src/lib/anthropicPricing.ts);
+ * an unpriced model leaves it absent and the meter applies the declared charge.
  */
 async function createWithTelemetry(
   operation: string,
@@ -47,7 +49,9 @@ async function createWithTelemetry(
   // the same pre-call total. Reserving this call's declared charge makes a
   // burst visible to the very next caller and pushes the effective total over
   // the cap at the point the overshoot would begin.
-  const releaseReservation = reserveSpendCall(SPEND_RESERVATION_FALLBACK_USD);
+  const releaseReservation = reserveSpendCall(
+    anthropicReservationUsd(String(params.model), params.max_tokens, SPEND_RESERVATION_FALLBACK_USD),
+  );
   const anthropic = getClient();
   const startedAt = Date.now();
   try {
@@ -65,6 +69,7 @@ async function createWithTelemetry(
       model: message.model,
       promptTokens: message.usage?.input_tokens,
       completionTokens: message.usage?.output_tokens,
+      costUsd: anthropicCallCostUsd(message.model, message.usage?.input_tokens, message.usage?.output_tokens),
       latencyMs: Date.now() - startedAt,
       outcome: "ok",
     });

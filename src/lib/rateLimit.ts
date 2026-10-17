@@ -58,6 +58,11 @@ export function __clearBucketsForTests() {
 // ---- Public API ----------------------------------------------------------
 
 export function getClientIp(request: Request): string {
+  return clientIpFromHeaders(request.headers);
+}
+
+/** Header-level form of getClientIp, for server actions that only have `headers()`. */
+export function clientIpFromHeaders(headers: Pick<Headers, "get">): string {
   // Prefer `x-real-ip`, then the LAST hop of `x-forwarded-for`.
   //
   // The previous implementation took the FIRST entry of x-forwarded-for, which
@@ -71,10 +76,10 @@ export function getClientIp(request: Request): string {
   // view of the peer, which is still harder to rotate than the first entry.
   // Neither value is trusted as an identity — they are only a throttle key, and
   // every authenticated route additionally buckets on the verified user id.
-  const realIp = request.headers.get("x-real-ip")?.trim();
+  const realIp = headers.get("x-real-ip")?.trim();
   if (realIp) return realIp;
 
-  const forwarded = request.headers.get("x-forwarded-for");
+  const forwarded = headers.get("x-forwarded-for");
   if (forwarded) {
     const hops = forwarded
       .split(",")
