@@ -38,6 +38,19 @@ export function latestFailedScheduledRun(runs) {
 }
 
 /**
+ * Whole days from `fromIso` to `toIso`, both truncated to UTC calendar dates
+ * (positive = `toIso` is later). Used to measure how far the app witness's
+ * newest telemetry target trails a GitHub run date — a pure, unit-tested
+ * comparison, never a wall-clock dependency.
+ */
+export function calendarDaysBetween(fromIso, toIso) {
+  const from = Date.parse(String(fromIso ?? "").slice(0, 10));
+  const to = Date.parse(String(toIso ?? "").slice(0, 10));
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  return Math.round((to - from) / 86_400_000);
+}
+
+/**
  * Stage-aware failure classification (pure).
  *
  * A failed scheduled run is NOT necessarily a config failure: today's runs
@@ -192,6 +205,17 @@ export function decideOpsNotification(input) {
  *   availability: { state: string; note?: string | null } | null,
  *   dbReadable: boolean,
  *   proofs: Record<string, boolean> | null,
+ *   // From the health probe: was topic_run_log readable to the app witness?
+ *   // false → the three telemetry-dependent missing proofs render as
+ *   // "unassessed" (a failed read is not a claim about pipeline history),
+ *   // never as "not yet proven".
+ *   telemetryReadable?: boolean | null,
+ *   // From the health probe: newest readable topic_run_log target date.
+ *   // Compared against GitHub's newest successful scheduled run to detect a
+ *   // diverging second witness (the app's database view lagging the writer's
+ *   // store — the split-DATABASE_URL class of incident). A lag beyond one
+ *   // calendar day is named explicitly with its remedy.
+ *   latestTelemetryTargetDate?: string | null,
  *   // Production application-schema readiness, from the health probe.
  *   // `undefined` = not evaluated (silent); `null` = source unavailable
  *   // (alertable warning); an object is read on its own booleans. A `false`
@@ -328,6 +352,35 @@ export function decideOpsAlert(input) {
     if (severity === null) severity = "warning";
   }
 
+  // --- second-witness divergence ------------------------------------------
+  // The app's health probe (via its own service-key database view) is the
+  // digest's ONLY content witness. That independence was built for the 2026-09
+  // DATABASE_URL-secret outage, but it makes the app's view able to DIVERGE
+  // from the store the successful scheduled runs actually write: two database
+  // URLs that stopped being the same database report two different worlds,
+  // and no single local check can see both. The detectable seam: every
+  // successful scheduled run writes a topic_run_log telemetry row targeting
+  // its own date, so a witness whose newest telemetry target trails GitHub's
+  // newest successful scheduled run by more than a day is loudly inconsistent
+  // with that run history (a mere read failure is honest 'unreadable', not an
+  // older date). The witness date itself is published by the probe — a bare
+  // date, public-safe.
+  const newestScheduledSuccess = scheduled.find((r) => r.status === "completed" && r.conclusion === "success");
+  const witnessLag = input.latestTelemetryTargetDate && newestScheduledSuccess
+    ? calendarDaysBetween(input.latestTelemetryTargetDate, newestScheduledSuccess.createdAt)
+    : null;
+  if (input.dbReadable !== false && witnessLag !== null && witnessLag > 1) {
+    facts.push(
+      `telemetry: DIVERGENCE — the app witness's newest readable topic_run_log row targets ` +
+      `${input.latestTelemetryTargetDate}, but GitHub's newest successful scheduled run started ` +
+      `${newestScheduledSuccess.createdAt} (a successful run records telemetry for its own target date). ` +
+      `The app's database view lags the writer's store by ${witnessLag} day(s): these may be DIFFERENT ` +
+      `databases. Compare the Actions DATABASE_URL secret with the app runtime's DATABASE_URL ` +
+      `(Neon endpoints differ per branch/project) before trusting either witness's availability claims.`,
+    );
+    if (severity === null) severity = "warning";
+  }
+
   // --- production proofs ---------------------------------------------------
   const proofs = input.proofs;
   if (!proofs) {
@@ -338,10 +391,29 @@ export function decideOpsAlert(input) {
     facts.push("proofs: unavailable (health probe did not answer)");
     if (severity === null) severity = "warning";
   } else {
+    // An unreadable telemetry source must not be rendered as a measured false:
+    // "not yet proven" and "we could not look" are DIFFERENT facts needing
+    // different remedies. Only the three proofs that read durable
+    // fingerprint/deadline/AI columns are claim-unassessed when
+    // telemetryReadable is false; the durable manual/scheduled facts fall
+    // back to the GitHub run window and stay measured.
     const missing = Object.entries(proofs).filter(([, v]) => !v).map(([k]) => k);
-    if (missing.length) {
-      facts.push(`proofs: not yet proven — ${missing.join(", ")}`);
+    const telemetryDependent = ["sameDateContentIdempotence", "onTimeBeforeDeadline", "aiGeneratedProductionSuccess"];
+    const unassessed = input.telemetryReadable === false
+      ? missing.filter((k) => telemetryDependent.includes(k))
+      : [];
+    const measured = missing.filter((k) => !unassessed.includes(k));
+    if (measured.length) {
+      facts.push(`proofs: not yet proven — ${measured.join(", ")}`);
       // Missing proofs are expected during bring-up: warning, never critical.
+      if (severity === null) severity = "warning";
+    }
+    if (unassessed.length) {
+      facts.push(
+        `proofs: unassessed — topic_run_log was unreadable to the app witness (a failed read is not a ` +
+        `claim that these never happened): ${unassessed.join(", ")}. Verify the app runtime's database ` +
+        `has migrations 014-018 applied and its role can SELECT from topic_run_log.`,
+      );
       if (severity === null) severity = "warning";
     }
   }

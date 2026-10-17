@@ -138,10 +138,13 @@ export function assessTopicHealth(latest: TopicRowInput | null, nowIso: string):
 //
 // Two INDEPENDENT dimensions answer two different questions (item 9):
 //   Scheduler reliability    - did the job run, and did it run cleanly?
-//   Topic availability       - is tomorrow's valid topic actually there?
+//   Topic availability       - is a valid topic there for serving, with the
+//                              next serving day staged when its window opens?
 // Overall status is the deterministic worst of the two. The 03:00 UTC
-// deadline is ENFORCED, not documentation: before it, absence is
-// pending-before-deadline; after it, absence is a missed-deadline breach.
+// deadline is ENFORCED, not documentation — and it anchors to the date it
+// governs: a row for date X is judged against X's own 03:00. Before
+// X's deadline, that row's absence is pending-before-deadline; after it,
+// absence from the observer's own day is a missed-deadline breach.
 // CI evidence never counts: availability reads the production store and
 // scheduler reads the real workflow run history.
 
@@ -377,6 +380,16 @@ export interface TopicSloInput {
   /** Does the production store hold tomorrow's (or later) topic? */
   tomorrowReady: boolean;
   /**
+   * Does the production store hold a topic for the CURRENT serving day
+   * (todayIsoUtc(nowIso) or later)? This is the row the 03:00 UTC deadline
+   * enforces on any given observation day — the breach subject of the
+   * availability dimension. Required: there is no safe default. A silent
+   * false would convert an unobserved present row into a daily false
+   * breach (the misreport that kept ops issue #27 critical), and a silent
+   * true would green-wash a genuinely unmet deadline.
+   */
+  todayReady: boolean;
+  /**
    * Did the most recent run's post-write freshness verification pass?
    * null/undefined = unknown (older runs pre-verifier, or fetch failure).
    */
@@ -449,6 +462,26 @@ export interface TopicSlo {
   /** Deterministic overall: worst of scheduler + availability. */
   status: HealthState;
   lastSuccessfulRun: { at: string; event: string } | null;
+  /**
+   * Whether topic_run_log was READABLE in the request that produced this
+   * assessment (`telemetryReadable ?? true` semantics preserved here as a
+   * plain boolean for consumers). false does NOT mean the fingerprint,
+   * deadline or real-AI proofs never happened — it means this observer
+   * could not look, so those proofs are unassessed rather than false.
+   * The public health probe now carries this field exactly so no consumer
+   * has to misread a failed read as a measured zero.
+   */
+  telemetryReadable: boolean;
+  /**
+   * Newest target date among readable topic_run_log rows (latest-first
+   * scan; null when none carries one). Public-safe by construction: a date
+   * string in the same vocabulary as the repository's public run history.
+   * The digest compares it against GitHub's newest scheduled run to detect
+   * a diverging second witness — an app store view lagging the writer's
+   * store (the Neon URL split class of incident) becomes externally
+   * visible instead of indistinguishable from honest staleness.
+   */
+  latestTelemetryTargetDate: string | null;
   /**
    * Production proofs: six independent facts. Idempotence requires matching
    * content fingerprints from separate verified attempts — never merely two
@@ -594,8 +627,23 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
   else scheduler = "healthy";
 
   // -- availability dimension (production content; deadline-enforced) --------
+  // The deadline anchors to the OBSERVER's own day. The 03:00 UTC deadline
+  // for date X is enforced by observations made ON date X (the row serving X
+  // is written by X-1's evening ladder). So calendar "tomorrow" means the
+  // NEXT serving day, whose deadline has not fired at any time today — an
+  // absent tomorrow row is at most pending, never a breach, until tomorrow
+  // itself is past 03:00 (at which point tomorrow IS "today" for that day's
+  // observations and the todayReady branch below applies). The breach
+  // subject is TODAY's row: absent after today's 03:00 deadline, today's
+  // users are served the curated fallback. The previous formulation
+  // ("tomorrow's row absent AND hour >= 3") enforced tomorrow's deadline
+  // hours before its window had opened, which was a false 03:00-20:00
+  // breach every day — the misreport that kept ops issue #27 at critical
+  // while the store demonstrably held fresh verified topics.
+  const today = todayIsoUtc(nowIso);
+  const tomorrow = addDaysUtc(today, 1);
   const hourUtc = new Date(nowIso).getUTCHours();
-  const pastDeadline = hourUtc >= Number(TOPIC_SLO_DEADLINE_UTC.slice(0, 2)); // deadline 03:00 local UTC day
+  const pastDeadline = hourUtc >= Number(TOPIC_SLO_DEADLINE_UTC.slice(0, 2)); // 03:00 UTC — today's serving-row deadline has fired
   let availability: AvailabilityState;
   let availabilityNote: string | null = null;
   if (!input.productionDbReadable) {
@@ -606,12 +654,15 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
     availabilityNote = "Tomorrow's row exists but the latest run's freshness verification failed.";
   } else if (input.tomorrowReady) {
     availability = "ready";
-  } else if (pastDeadline) {
+  } else if (!input.todayReady && pastDeadline) {
     availability = "missed-deadline";
-    availabilityNote = `S1 BREACH: tomorrow's topic absent after ${TOPIC_SLO_DEADLINE_UTC} UTC.`;
+    availabilityNote = `S1 BREACH: today's (${today}) topic is absent after ${TOPIC_SLO_DEADLINE_UTC} UTC - today's visitors are on the curated fallback and last night's ladder did not deliver.`;
+  } else if (input.todayReady) {
+    availability = "pending-before-deadline";
+    availabilityNote = `Today's (${today}) topic is stored; tomorrow's (${tomorrow}) row is not yet stored - its deadline is ${TOPIC_SLO_DEADLINE_UTC} UTC on ${tomorrow}.`;
   } else {
     availability = "pending-before-deadline";
-    availabilityNote = `Tomorrow's topic not yet stored; deadline ${TOPIC_SLO_DEADLINE_UTC} UTC has not passed.`;
+    availabilityNote = `Today's (${today}) topic not yet stored; the ${TOPIC_SLO_DEADLINE_UTC} UTC deadline has not passed - late recovery slots can still deliver it.`;
   }
 
   // -- deterministic overall --------------------------------------------------
@@ -671,13 +722,25 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
         r1.topicFingerprint === r2.topicFingerprint,
     ),
   );
-  const tomorrowIso = addDaysUtc(todayIsoUtc(nowIso), 1);
-  // On-time needs VERIFIED content completed before the actual deadline.
+  // On-time needs VERIFIED content completed before the deadline of the cycle
+  // it belongs to. The subject cycle is TIME-ANCHORED, not calendar "tomorrow":
+  // after 03:00 UTC the just-fired deadline covered TODAY's row (last night's
+  // ladder), while from 15:00 onwards the in-flight cycle targets tomorrow.
+  // Accepting any of {yesterday, today, tomorrow} as the target covers both
+  // frames plus the post-midnight wrap, with each row's own
+  // completedBeforeDeadline verdict deciding the rest. (The previous check —
+  // target === today+1 gated on tomorrowReady — was structurally false at
+  // every 04:00 UTC digest, keeping onTimeBeforeDeadline permanently
+  // unprovable even for a pipeline that had just delivered on time.)
+  const eligibleTargets = new Set([addDaysUtc(today, -1), today, tomorrow]);
   const onTimeBeforeDeadline =
-    input.tomorrowReady &&
     telemetryRead &&
     telemetry.some(
-      (r) => r.targetDate === tomorrowIso && r.completedBeforeDeadline === true && r.freshnessOk === true,
+      (r) =>
+        r.targetDate != null &&
+        eligibleTargets.has(r.targetDate) &&
+        r.completedBeforeDeadline === true &&
+        r.freshnessOk === true,
     );
   const aiEvidence = input.aiEvidence ?? null;
   // AI proof requires END-TO-END identity through ONE telemetry row: an AI
@@ -714,6 +777,8 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
     scheduling,
     status,
     lastSuccessfulRun: newestSuccessFirst ? { at: newestSuccessFirst.createdAt, event: newestSuccessFirst.event } : null,
+    telemetryReadable: telemetryRead,
+    latestTelemetryTargetDate: telemetry.find((r) => r.targetDate)?.targetDate ?? null,
     proofs: {
       databaseReachable: input.productionDbReadable,
       manualSuccess,

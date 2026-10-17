@@ -150,7 +150,7 @@ describe("buildOpsHealthReport", () => {
       {
         runs: [{ event: "schedule", status: "completed", conclusion: "success", createdAt: now }],
         productionDbReadable: true,
-        tomorrowReady: true,
+        tomorrowReady: true, todayReady: true,
       },
       now,
     );
@@ -236,7 +236,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
 
   it("healthy requires BOTH a clean scheduler AND ready availability", () => {
     const s = assessTopicSlo(
-      { runs: schedOk, productionDbReadable: true, tomorrowReady: true },
+      { runs: schedOk, productionDbReadable: true, tomorrowReady: true, todayReady: true },
       "2026-09-15T12:00:00Z",
     );
     expect(s.scheduler.state).toBe("healthy");
@@ -245,21 +245,98 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
   });
 
   it("missing topic BEFORE 03:00 UTC is pending, after it is an S1 breach (failed)", () => {
-    const before = assessTopicSlo({ runs: schedOk, productionDbReadable: true, tomorrowReady: false }, "2026-09-15T02:30:00Z");
+    const before = assessTopicSlo({ runs: schedOk, productionDbReadable: true, tomorrowReady: false, todayReady: false }, "2026-09-15T02:30:00Z");
     expect(before.availability.state).toBe("pending-before-deadline");
     expect(before.status).toBe("healthy"); // scheduler clean; pending is normal pre-deadline
-    const after = assessTopicSlo({ runs: schedOk, productionDbReadable: true, tomorrowReady: false }, "2026-09-15T03:00:00Z");
+    const after = assessTopicSlo({ runs: schedOk, productionDbReadable: true, tomorrowReady: false, todayReady: false }, "2026-09-15T03:00:00Z");
     expect(after.availability.state).toBe("missed-deadline");
     expect(after.status).toBe("failed"); // enforced at the deadline, not at 36h
+    // The breach names the row it governs: TODAY's serving topic (the
+    // observer's own day), not calendar tomorrow.
+    expect(after.availability.note).toMatch(/today's \(2026-09-15\) topic/);
+  });
+
+  it("a stored today + absent tomorrow at midday is pending, never a breach (issue #27 regression)", () => {
+    // The steady daily state between the deadline (03:00) and tonight's
+    // ladder (~20:00): today's serving topic is in the store, tomorrow's
+    // row cannot exist yet because its generation window has not opened.
+    // The old formulation read this as "tomorrow's topic absent after
+    // 03:00 -> S1 breach" and kept the daily ops alert at critical all
+    // month with a demonstrably delivered store behind it.
+    const s = assessTopicSlo(
+      { runs: schedOk, productionDbReadable: true, tomorrowReady: false, todayReady: true },
+      "2026-09-15T12:00:00Z",
+    );
+    expect(s.availability.state).toBe("pending-before-deadline");
+    expect(s.availability.note).toMatch(/deadline is 03:00 UTC on 2026-09-16/);
+    expect(s.status).toBe("healthy"); // clean scheduler + valid serving day = green
+  });
+
+  it("tomorrow's row stages readiness at any hour: ready outranks pending", () => {
+    // Pre-stored next serving day (early/manual write) means the NEXT
+    // deadline is already provably survivable.
+    const s = assessTopicSlo(
+      { runs: schedOk, productionDbReadable: true, tomorrowReady: true, todayReady: true },
+      "2026-09-15T12:00:00Z",
+    );
+    expect(s.availability.state).toBe("ready");
+  });
+
+  it("today's row absence before 03:00 is a recoverable pending, never a breach", () => {
+    // Late recovery slots (00:15/02:15 UTC) may still deliver today's row;
+    // breaching at 01:00 would misreport a live recovery window.
+    const s = assessTopicSlo(
+      { runs: schedOk, productionDbReadable: true, tomorrowReady: false, todayReady: false },
+      "2026-09-15T01:00:00Z",
+    );
+    expect(s.availability.state).toBe("pending-before-deadline");
+    expect(s.status).toBe("healthy");
+  });
+
+  it("onTimeBeforeDeadline keys to the recently fired/in-flight cycle, not calendar tomorrow", () => {
+    // 04:00 UTC digest frame: the just-finished cycle (target = today,
+    // landed last evening before today's 03:00) MUST be enough to prove
+    // on-time, without tomorrow's row existing yet. The old check compared
+    // against tomorrow only (and gated on tomorrowReady), so it was
+    // structurally false every single morning.
+    const todayRun = {
+      event: "schedule", at: "2026-09-14T22:27:00Z", result: "success", delayMs: 147 * 60_000,
+      targetDate: "2026-09-15", completedBeforeDeadline: true, freshnessOk: true,
+      topicFingerprint: "a".repeat(64), generatorResult: "ai",
+    };
+    const s = assessTopicSlo(
+      { runs: schedOk, productionDbReadable: true, tomorrowReady: false, todayReady: true, telemetry: [todayRun] },
+      "2026-09-15T04:00:00Z",
+    );
+    expect(s.proofs.onTimeBeforeDeadline).toBe(true);
+    // Late-arriving content after its deadline still fails the proof.
+    const late = {
+      ...todayRun,
+      completedBeforeDeadline: false,
+    };
+    const s2 = assessTopicSlo(
+      { runs: schedOk, productionDbReadable: true, tomorrowReady: false, todayReady: true, telemetry: [late] },
+      "2026-09-15T04:00:00Z",
+    );
+    expect(s2.proofs.onTimeBeforeDeadline).toBe(false);
+    // Stale evidence outside the {yesterday, today, tomorrow} window cannot
+    // attest the current cycle: a verified row from four days ago proves
+    // nothing about today.
+    const stale = { ...todayRun, targetDate: "2026-09-11" };
+    const s3 = assessTopicSlo(
+      { runs: schedOk, productionDbReadable: true, tomorrowReady: false, todayReady: true, telemetry: [stale] },
+      "2026-09-15T04:00:00Z",
+    );
+    expect(s3.proofs.onTimeBeforeDeadline).toBe(false);
   });
 
   it("scheduler failures degrade the scheduler dimension independently of content", () => {
     const failedRun = [run("schedule", "failure", "2026-09-15T02:00:00Z")];
-    const withContent = assessTopicSlo({ runs: failedRun, productionDbReadable: true, tomorrowReady: true }, "2026-09-15T12:00:00Z");
+    const withContent = assessTopicSlo({ runs: failedRun, productionDbReadable: true, tomorrowReady: true, todayReady: true }, "2026-09-15T12:00:00Z");
     expect(withContent.scheduler.state).toBe("degraded");
     expect(withContent.availability.state).toBe("ready");
     expect(withContent.status).toBe("degraded");
-    const noContent = assessTopicSlo({ runs: failedRun, productionDbReadable: true, tomorrowReady: false }, "2026-09-15T12:00:00Z");
+    const noContent = assessTopicSlo({ runs: failedRun, productionDbReadable: true, tomorrowReady: false, todayReady: false }, "2026-09-15T12:00:00Z");
     expect(noContent.scheduler.state).toBe("degraded");
     expect(noContent.availability.state).toBe("missed-deadline");
     expect(noContent.status).toBe("failed"); // worst-of derivation
@@ -271,23 +348,23 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
       run("schedule", "failure", "2026-09-14T02:00:00Z"),
       run("schedule", "failure", "2026-09-13T02:00:00Z"),
     ];
-    const s = assessTopicSlo({ runs: bad, productionDbReadable: true, tomorrowReady: true }, "2026-09-15T12:00:00Z");
+    const s = assessTopicSlo({ runs: bad, productionDbReadable: true, tomorrowReady: true, todayReady: true }, "2026-09-15T12:00:00Z");
     expect(s.scheduler.consecutiveScheduledFailures).toBe(3);
     expect(s.status).toBe("failed");
   });
 
   it("unreadable production store = availability unknown; content alone never healthy", () => {
-    const s = assessTopicSlo({ runs: schedOk, productionDbReadable: false, tomorrowReady: false }, "2026-09-15T12:00:00Z");
+    const s = assessTopicSlo({ runs: schedOk, productionDbReadable: false, tomorrowReady: false, todayReady: false }, "2026-09-15T12:00:00Z");
     expect(s.availability.state).toBe("unknown");
     expect(s.status).toBe("unknown");
-    const s2 = assessTopicSlo({ runs: [], productionDbReadable: true, tomorrowReady: true }, "2026-09-15T12:00:00Z");
+    const s2 = assessTopicSlo({ runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true }, "2026-09-15T12:00:00Z");
     expect(s2.scheduler.state).toBe("unknown");
     expect(s2.status).toBe("unknown"); // CI-like states can't green-wash a silent scheduler
   });
 
   it("freshness verification failure on a present row = invalid availability", () => {
     const s = assessTopicSlo(
-      { runs: schedOk, productionDbReadable: true, tomorrowReady: true, latestRunVerified: false },
+      { runs: schedOk, productionDbReadable: true, tomorrowReady: true, todayReady: true, latestRunVerified: false },
       "2026-09-15T12:00:00Z",
     );
     expect(s.availability.state).toBe("invalid");
@@ -298,13 +375,13 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     const dispatch = run("workflow_dispatch", "success", "2026-09-15T10:00:00Z");
     const laterSchedule = run("schedule", "success", "2026-09-16T02:00:00Z");
     const both = assessTopicSlo(
-      { runs: [laterSchedule, dispatch, ...schedOk.map((r) => run("schedule", r.conclusion, "2026-09-14T02:00:00Z"))], productionDbReadable: true, tomorrowReady: true },
+      { runs: [laterSchedule, dispatch, ...schedOk.map((r) => run("schedule", r.conclusion, "2026-09-14T02:00:00Z"))], productionDbReadable: true, tomorrowReady: true, todayReady: true },
       "2026-09-16T12:00:00Z",
     );
     expect(both.proofs.manualSuccess).toBe(true);
     expect(both.proofs.scheduledSuccessAfterManual).toBe(true);
     const manualOnly = assessTopicSlo(
-      { runs: [dispatch, ...schedOk], productionDbReadable: true, tomorrowReady: true },
+      { runs: [dispatch, ...schedOk], productionDbReadable: true, tomorrowReady: true, todayReady: true },
       "2026-09-15T12:00:00Z",
     );
     expect(manualOnly.proofs.manualSuccess).toBe(true);
@@ -313,7 +390,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
 
   it("stalled scheduler (>36h since last schedule attempt) is stale", () => {
     const old = run("schedule", "success", "2026-09-12T02:00:00Z");
-    const s = assessTopicSlo({ runs: [old], productionDbReadable: true, tomorrowReady: true }, "2026-09-15T12:00:00Z");
+    const s = assessTopicSlo({ runs: [old], productionDbReadable: true, tomorrowReady: true, todayReady: true }, "2026-09-15T12:00:00Z");
     expect(s.scheduler.state).toBe("stale");
     expect(s.status).toBe("stale");
   });
@@ -325,7 +402,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
       { event: "schedule", at: "2026-09-14T02:20:00Z", result: "success", delayMs: 20 * 60_000, targetDate: "2026-09-15", completedBeforeDeadline: true },
     ];
     const s = assessTopicSlo(
-      { runs: [late], productionDbReadable: true, tomorrowReady: true, telemetry },
+      { runs: [late], productionDbReadable: true, tomorrowReady: true, todayReady: true, telemetry },
       "2026-09-15T12:00:00Z",
     );
     expect(s.scheduler.state).toBe("healthy"); // ran, succeeded
@@ -344,7 +421,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     ];
     const s = assessTopicSlo(
       {
-        runs: [schedule, dispatch, ...schedOk], productionDbReadable: true, tomorrowReady: true, telemetry,
+        runs: [schedule, dispatch, ...schedOk], productionDbReadable: true, tomorrowReady: true, todayReady: true, telemetry,
         aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, rowFingerprint: "a".repeat(64), exactVerifiedAiTelemetry: true },
       },
       "2026-09-15T23:00:00Z",
@@ -358,7 +435,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
       aiGeneratedProductionSuccess: true,
     });
     const partial = assessTopicSlo(
-      { runs: [dispatch], productionDbReadable: true, tomorrowReady: true, telemetry: [telemetry[0]] },
+      { runs: [dispatch], productionDbReadable: true, tomorrowReady: true, todayReady: true, telemetry: [telemetry[0]] },
       "2026-09-15T23:00:00Z",
     );
     expect(partial.proofs.scheduledSuccessAfterManual).toBe(false);
@@ -374,7 +451,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
       { event: "schedule", at: "2026-09-15T20:02:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-16", completedBeforeDeadline: true },
     ];
     const s = assessTopicSlo(
-      { runs: [], productionDbReadable: true, tomorrowReady: true, telemetry },
+      { runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true, telemetry },
       "2026-09-15T23:00:00Z",
     );
     expect(s.proofs.sameDateContentIdempotence).toBe(false);
@@ -387,7 +464,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     };
     const same = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true,
         telemetry: [
           { ...base, topicFingerprint: "a".repeat(64), generatorResult: "ai" },
           { ...base, at: "2026-09-15T21:02:00Z", topicFingerprint: "a".repeat(64), generatorResult: "ai" },
@@ -398,7 +475,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     expect(same.proofs.sameDateContentIdempotence).toBe(true);
     const divergent = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true,
         telemetry: [
           { ...base, topicFingerprint: "a".repeat(64), generatorResult: "ai" },
           { ...base, at: "2026-09-15T21:02:00Z", topicFingerprint: "b".repeat(64), generatorResult: "ai" },
@@ -413,7 +490,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     // be a false negative.
     const mixedProvenance = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true,
         telemetry: [
           { ...base, topicFingerprint: "a".repeat(64), generatorResult: "ai" },
           { ...base, at: "2026-09-15T21:02:00Z", topicFingerprint: "a".repeat(64), generatorResult: "fallback-by-policy" },
@@ -425,7 +502,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     // An unverified attempt proves nothing.
     const unverified = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true,
         telemetry: [
           { ...base, topicFingerprint: "a".repeat(64), generatorResult: "ai", freshnessOk: true },
           { ...base, at: "2026-09-15T21:02:00Z", topicFingerprint: "a".repeat(64), generatorResult: "ai", freshnessOk: false },
@@ -440,7 +517,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     const runs = (events: Array<[string, string, string, string]>) =>
       events.map(([event, conclusion, at]) => ({ event, status: "completed", conclusion, createdAt: at }));
     const slo = (list: ReturnType<typeof runs>) =>
-      assessTopicSlo({ runs: list, productionDbReadable: true, tomorrowReady: true }, "2026-09-20T00:00:00Z");
+      assessTopicSlo({ runs: list, productionDbReadable: true, tomorrowReady: true, todayReady: true }, "2026-09-20T00:00:00Z");
     const M = (at: string): [string, string, string, string] => ["workflow_dispatch", "success", at, ""];
     const S = (at: string): [string, string, string, string] => ["schedule", "success", at, ""];
     const F = (event: string, at: string): [string, string, string, string] => [event, "failure", at, ""];
@@ -466,7 +543,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     ];
     const full = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true, telemetry,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true, telemetry,
         aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, rowFingerprint: fp, exactVerifiedAiTelemetry: true },
       },
       "2026-09-15T23:00:00Z",
@@ -476,7 +553,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     // the date-only version of this proof would ride the old run's evidence.
     const rebuilt = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true, telemetry,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true, telemetry,
         aiEvidence: { targetDate: "2026-09-16", aiRowPresent: true, sourcesNonEmpty: true, rowFingerprint: "d".repeat(64), exactVerifiedAiTelemetry: false },
       },
       "2026-09-15T23:00:00Z",
@@ -489,7 +566,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
   it("on-time needs verified content before the deadline; AI proof needs a real AI topic", () => {
     const late = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true,
         telemetry: [
           { event: "schedule", at: "2026-09-16T04:00:00Z", result: "success", delayMs: 0, targetDate: "2026-09-17", completedBeforeDeadline: false, freshnessOk: true, topicFingerprint: "a".repeat(64), generatorResult: "ai" },
         ],
@@ -500,7 +577,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     // A fallback standing in for AI never satisfies the AI proof.
     const fallbackOnly = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true, telemetry: [],
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true, telemetry: [],
         aiEvidence: { targetDate: null, aiRowPresent: false, sourcesNonEmpty: false, rowFingerprint: null, exactVerifiedAiTelemetry: false },
       },
       "2026-09-16T12:00:00Z",
@@ -516,7 +593,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     // which is a factual claim we have no evidence for.
     const s = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true,
         telemetry: [],
         telemetryReadable: false,
         // The GitHub-derived witnesses carry no fingerprint columns, so they
@@ -528,6 +605,10 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     expect(s.proofs.sameDateContentIdempotence).toBe(false);
     expect(s.proofs.onTimeBeforeDeadline).toBe(false);
     expect(s.proofs.aiGeneratedProductionSuccess).toBe(false);
+    // The new typed exposure makes the distinction consumable, not just a
+    // prose note: false here, explicit, next to the proofs it disables.
+    expect(s.telemetryReadable).toBe(false);
+    expect(s.latestTelemetryTargetDate).toBeNull();
     expect(s.note).toMatch(/topic_run_log was unreadable/);
     expect(s.note).toMatch(/unassessed rather than false/);
   });
@@ -538,12 +619,13 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     // existing callers and the GitHub-witness merge path keep their meaning.
     const s = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true,
         telemetry: [],
       },
       "2026-09-16T12:00:00Z",
     );
     expect(s.proofs.sameDateContentIdempotence).toBe(false);
+    expect(s.telemetryReadable).toBe(true); // unset default stays readable
     expect(s.note ?? "").not.toMatch(/unreadable/);
   });
 
@@ -552,7 +634,7 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     const fp = "e".repeat(64);
     const s = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true,
         telemetry: [
           { event: "schedule", at: "2026-09-15T20:02:00Z", result: "success", delayMs: 120_000, targetDate: "2026-09-16", completedBeforeDeadline: true, freshnessOk: true, topicFingerprint: fp, generatorResult: "ai" },
         ],
@@ -563,13 +645,15 @@ describe("assessTopicSlo (two dimensions, enforced deadline, proofs)", () => {
     );
     expect(s.proofs.aiGeneratedProductionSuccess).toBe(true);
     expect(s.proofs.onTimeBeforeDeadline).toBe(true);
+    expect(s.telemetryReadable).toBe(true);
+    expect(s.latestTelemetryTargetDate).toBe("2026-09-16"); // newest row carrying a target
     expect(s.note ?? "").not.toMatch(/unreadable/);
   });
 
   it("longitudinal provider attempts aggregate by provider and model", () => {
     const s = assessTopicSlo(
       {
-        runs: [], productionDbReadable: true, tomorrowReady: true,
+        runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true,
         telemetry: [
           {
             event: "schedule", at: "2026-09-16T02:00:00Z", result: "success", delayMs: 0,
@@ -711,7 +795,7 @@ describe("evidence sections (never green-washed)", () => {
         now,
       ),
       topicSlo: assessTopicSlo(
-        { productionDbReadable: true, tomorrowReady: true, runs: [] },
+        { productionDbReadable: true, tomorrowReady: true, todayReady: true, runs: [] },
         now,
       ),
       judge: assessJudgeHealth(
@@ -790,7 +874,7 @@ describe("second-witness scheduler-delay telemetry (derived from GitHub run hist
       {
         runs: [run("schedule", "failure", "2026-09-16T22:30:00Z")],
         productionDbReadable: false,
-        tomorrowReady: false,
+        tomorrowReady: false, todayReady: false,
         telemetry: deriveDelayWitness([run("schedule", "failure", "2026-09-16T22:30:00Z")]),
       },
       "2026-09-16T23:00:00Z",
@@ -911,7 +995,7 @@ describe("AI production proof: ONE exact telemetry row (items 12-13)", () => {
       {
         runs: [],
         productionDbReadable: true,
-        tomorrowReady: true,
+        tomorrowReady: true, todayReady: true,
         telemetry: [t()],
         aiEvidence: { targetDate: "2026-09-16", aiRowPresent: false, sourcesNonEmpty: false, rowFingerprint: "a".repeat(64), exactVerifiedAiTelemetry: true },
       },
@@ -936,7 +1020,7 @@ describe("durable production proofs (items 14-15: outside any GitHub API page)",
       {
         runs: [], // per_page window saw NOTHING — the old runs scrolled out
         productionDbReadable: true,
-        tomorrowReady: true,
+        tomorrowReady: true, todayReady: true,
         telemetry: [],
         durableProofs: { manualSuccess: true, scheduledSuccessAfterManual: true },
       },
@@ -954,7 +1038,7 @@ describe("durable production proofs (items 14-15: outside any GitHub API page)",
           run("schedule", "success", "2026-09-19T20:00:00Z"),
         ], // GitHub window WOULD prove the pair...
         productionDbReadable: true,
-        tomorrowReady: true,
+        tomorrowReady: true, todayReady: true,
         telemetry: [],
         durableProofs: { manualSuccess: true, scheduledSuccessAfterManual: false },
       },
@@ -972,7 +1056,7 @@ describe("durable production proofs (items 14-15: outside any GitHub API page)",
           run("schedule", "success", "2026-09-19T20:00:00Z"),
         ],
         productionDbReadable: true,
-        tomorrowReady: true,
+        tomorrowReady: true, todayReady: true,
         telemetry: [],
         durableProofs: null, // DB down / pre-014 schema
       },

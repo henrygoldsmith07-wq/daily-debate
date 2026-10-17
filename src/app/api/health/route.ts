@@ -20,6 +20,8 @@ function unknownReport(): OpsHealthReport {
       scheduling: { latestDelayMs: null, medianDelayMs: null, p95DelayMs: null, missedStarts: 0, thresholdMs: 0, note: null },
       status: "unknown",
       lastSuccessfulRun: null,
+      telemetryReadable: false,
+      latestTelemetryTargetDate: null,
       proofs: {
         databaseReachable: false,
         manualSuccess: false,
