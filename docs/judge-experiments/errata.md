@@ -145,31 +145,45 @@ remains the only permitted validation failure, but capacity-blocked
 registrations with implemented arms now validate structurally (the runner's
 own capacity gate still refuses to execute without a declared budget).
 
-## Erratum 2026-10-17 — direct CLI invocations of `scripts/quota-probe.mjs` and `scripts/judge-capacity.mjs` were silent no-ops on Windows paths containing spaces
+## Erratum 2026-10-17 — direct CLI invocations guarded by URL-string comparisons were silent no-ops on Windows paths containing spaces
 
-**What was wrong.** Both scripts guarded their CLI body with
-`path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, "$1"))`.
-`URL.pathname` keeps percent-encoding, so in a checkout whose absolute path
-contains a space (`...henry%20ai%20project/...`), the two sides never matched:
-`node scripts/quota-probe.mjs` printed nothing and exited 0 instead of
-probing, and `node scripts/judge-capacity.mjs --registration X --budget-calls N`
-exited 0 without printing a decision. Any operator reading "exit 0" as a GO
-would have been told nothing at all. Studies were never affected:
-`judge-study.mjs` imports `estimateCapacity` directly and spawns the probe
-script as CLI, which (without a guard) always executed.
+**What was wrong.** Three scripts guarded their CLI body by comparing
+`process.argv[1]` against a string derived from `import.meta.url`:
 
-**Fix.** Both guards now use `fileURLToPath(import.meta.url)` (the URL→path
-API that decodes percent-encoding). The probe was additionally refactored
-into `runQuotaProbe` (unit-tested in `scripts/lib/quota-probe.test.mjs`) and
+- `scripts/quota-probe.mjs` and `scripts/judge-capacity.mjs` compared
+  `path.resolve(argv[1])` against a URL `pathname` that still carries
+  `%20`-encoding;
+- `scripts/topic-run-evidence.mjs` built its own `file://` template by
+  replacing backslashes — a template that can never match a percent-encoded
+  absolute path (a space in the checkout path) *or* a Windows drive letter
+  (`file://C:/...` lacks the required third slash).
+
+In each case the guard mismatched, nothing ran, no output was printed, and
+the script exited **0**: `node scripts/quota-probe.mjs` printed nothing
+instead of probing, `node scripts/judge-capacity.mjs --registration X
+--budget-calls N` exited 0 without printing a decision (any operator reading
+"exit 0" was told nothing at all), and `node scripts/topic-run-evidence.mjs`
+wrote no evidence file. Studies were never affected: `judge-study.mjs`
+imports `estimateCapacity` directly, and the topic pipeline runs the
+evidence script on Linux runners where all three guards happened to match.
+
+**Fix.** All three guards now use `fileURLToPath(import.meta.url)` (the
+URL→path API that decodes percent-encoding), each behind
+`path.resolve` on both sides. The probe was additionally refactored into
+`runQuotaProbe` (unit-tested in `scripts/lib/quota-probe.test.mjs`) and
 multi-label aware: an arm naming several providers ("unorouter,openrouter")
 probes EVERY named provider and fails on the first dead leg — a probe miss
 for a named provider is NO-KEY, never a fallback to a different provider's
-judge.
+judge. `topic-run-evidence` gained a spawn-based regression test
+(`scripts/lib/topic-run-evidence.test.mjs`) that runs the real CLI in this
+checkout and fails when the body again produces no output; verified to catch
+the bug by temporarily reverting the guard.
 
 **Why nothing caught it.** CI runs on Linux paths without spaces, where the
-legacy guard worked; the local checkout path has a space. The probe's CLI
-output is only read by the study runner (which had always seen it work) and
-manual operators, who had no test pinning the script contract.
+legacy guards worked; the local checkout path contains a space. The probe's
+CLI output is only read by the study runner (which had always seen it work),
+the capacity CLI had no test, and the evidence script's local CLI path was
+only ever exercised by operators who had no test pinning the script contract.
 
 ## Erratum 2026-10-05 — whitespace study withdrawn; verbosity study registered
 

@@ -8,7 +8,9 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { readFileSync, rmSync, mkdirSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -132,4 +134,30 @@ test("the workflow no longer reads nested paths from the flat source files", () 
     wf.includes("scripts/topic-run-evidence.mjs"),
     "topic-generation.yml must assemble evidence through the tested script",
   );
+});
+
+test("the CLI body runs in THIS checkout - the URL-isMain guard can never silently no-op again", () => {
+  // A hand-built file:// template cannot match a percent-encoded absolute
+  // path (a space in the checkout path) or a Windows drive letter; the older
+  // guard failed in exactly that case: exit 0, no output, no evidence file.
+  // Spawn the real script the way the workflow does and require PROOF the
+  // body executed (output on stdout or stderr - evidence assembly is a
+  // diagnostic and never exits non-zero).
+  const parent = mkdirSync(path.join(os.tmpdir(), `tre-cli-${Date.now()}-${process.pid}`), { recursive: true });
+  const evidencePath = path.join(parent, "topic-run-evidence.json");
+  const res = spawnSync(process.execPath, ["scripts/topic-run-evidence.mjs"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    env: { ...process.env, EVIDENCE_PATH: evidencePath },
+  });
+  try {
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    const out = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+    assert.ok(
+      out.trim().length > 0,
+      `the CLI body must produce output in this checkout (otherwise the isMain guard failed to match again) - got stdout=${JSON.stringify(res.stdout)} stderr=${JSON.stringify(res.stderr)}`,
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
