@@ -1,24 +1,32 @@
 // Invariance transforms ported 1:1 from src/lib/judgeInvariance.ts so the
-// live suite measures exactly what the offline probes measure.
+// live suite measures exactly what the offline probes measure. The parity is
+// ENFORCED, not claimed: src/lib/judgeTransformParity.test.ts runs both
+// implementations over the whole fixture pack and fails the build on any
+// byte difference (this file drifted four times while that comment stood —
+// deflate missed one replacement, sophistication was missing two swaps, the
+// confident-tone suffix was truncated and the prestige regex missed
+// Stanford HAI — two of which live-measurement actually received).
 
 export const swapLabels = (t) =>
-  t.replaceAll("Player A", "__T__").replaceAll("Player B", "Player A").replaceAll("__T__", "Player B");
+  t.replaceAll("Player A", "__TMP__").replaceAll("Player B", "Player A").replaceAll("__TMP__", "Player B");
 export const stripNames = (t) => t.replaceAll("Player A", "Side X").replaceAll("Player B", "Side Y");
 export const inflateVerbosity = (t) =>
   t.split("\n").map((l) => l + " Indeed, this is unequivocally decisive and beyond reasonable dispute.").join("\n");
 export const deflateVerbosity = (t) =>
-  t.replaceAll(" unequivocally", "").replaceAll("Indeed,", "").replaceAll(" beyond reasonable dispute", "").trim();
+  t.replaceAll(" unequivocally", "").replaceAll("Indeed,", "").replaceAll(" beyond reasonable dispute", "").replaceAll(" arguably", "").trim();
 const SWAPS = [
   [/\bcheap\b/gi, "economically advantageous"],
   [/\bshows\b/gi, "demonstrates"],
   [/\bneeds\b/gi, "necessitates"],
   [/\bbig\b/gi, "substantial"],
+  [/\bbut\b/gi, "however,"],
+  [/\bso\b/gi, "consequently,"],
 ];
 export const sophisticateWording = (t) => SWAPS.reduce((acc, [re, rep]) => acc.replace(re, rep), t);
 export const addConfidenceHedge = (t) => t.replaceAll("is", "is arguably");
-export const addConfidentTone = (t) => t.replaceAll("is arguably", "is") + " This is absolutely certain.";
+export const addConfidentTone = (t) => t.replaceAll("is arguably", "is") + " This is absolutely certain and leaves no doubt.";
 export const swapPrestige = (t) => {
-  const known = /Lazard|NREL|Pew|Brookings|NIST|Nature|Reuters/gi;
+  const known = /Lazard|NREL|Pew|Brookings|NIST|Stanford HAI|Nature|Reuters/gi;
   return known.test(t) ? t.replace(known, "MyBlog") : t.replace("Player A", "Player A (citing MyBlog)");
 };
 export const injectFakeCitation = (t) => {
