@@ -107,12 +107,11 @@ test("every registration file on disk validates against the live experiment regi
   for (const file of files) {
     const reg = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
     const v = validateRegistration(reg, { experiments: LIVE_EXPERIMENTS });
-    // Sealed registrations whose arm is deliberately unimplemented (stated
-    // BLOCKED in executionStatus) must fail ONLY on that pending arm — any
-    // other structural error is a real regression.
-    const blockedPendingArm = /BLOCKED/i.test(String(reg.executionStatus ?? ""));
-    if (blockedPendingArm) {
-      assert.ok(v.errors.length > 0, `${file}: a BLOCKED registration should refuse to execute`);
+    // An unimplemented arm is the ONLY validation failure a deliberately
+    // BLOCKED registration may carry. Other BLOCKED reasons (e.g. capacity,
+    // which the runner governs at execution time) leave the registration
+    // structurally valid.
+    if (/BLOCKED/i.test(String(reg.executionStatus ?? "")) && v.errors.length > 0) {
       assert.ok(
         v.errors.every((e) => /not implemented yet/.test(e)),
         `${file}: unexpected validation errors ${JSON.stringify(v.errors)}`,

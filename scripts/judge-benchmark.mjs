@@ -21,7 +21,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { FIXTURES, STRATA } from "./lib/judge-fixtures.mjs";
 import { PROBES, AUDIT_TRANSFORMS } from "./lib/judge-transforms.mjs";
-import { allJudgeProviders, anthropicJudgeFor, estimatedCost, VERDICT_PROMPT_VERSION, buildVerdictSystem, verdictUser, RETRY_POLICY } from "./lib/judge-providers.mjs";
+import { allJudgeProviders, anthropicJudgeFor, estimatedCost, usableProviders, VERDICT_PROMPT_VERSION, buildVerdictSystem, verdictUser, RETRY_POLICY } from "./lib/judge-providers.mjs";
 import { EXPERIMENTS, experimentSystem } from "./lib/judge-experiments.mjs";
 import {
   GATE_DEFAULTS,
@@ -390,9 +390,22 @@ async function main() {
     process.stderr.write(`[judge-benchmark] ${String(e?.message ?? e)}\n`);
     process.exit(2);
   }
-  const judges = allJudgeProviders(process.env, { system, kind }).filter(
-    (j) => MODELS.length === 0 || MODELS.includes(j.id.split(":")[0]),
+  // Ensemble judges are named `ensemble:<memberA>+<memberB>`; a --models
+  // selection matches them only when BOTH member labels are selected. Any
+  // other count is not the registered two-leg architecture, so allJudgeProviders
+  // returns [] and the standard no-judge exits below fire with the hint above.
+  const selectionLabels = (id) =>
+    id.startsWith("ensemble:") ? id.slice("ensemble:".length).split("+") : [id.split(":")[0]];
+  const judges = allJudgeProviders(process.env, { system, kind, select: MODELS }).filter(
+    (j) => MODELS.length === 0 || selectionLabels(j.id).every((l) => MODELS.includes(l)),
   );
+  if (!judges.length && kind === "ensemble-two-model") {
+    log(
+      `[judge-benchmark] ensemble arm skipped - it needs exactly two usable providers named with --models LABEL1,LABEL2 (usable: ${
+        usableProviders(process.env).map((p) => p.label).join(", ") || "none"
+      }; requested: ${MODELS.join(", ") || "all"}).`,
+    );
+  }
   // Anthropic (the pinned paid default) joins ONLY on an explicit selection,
   // so the weekly sweep and leaderboard keep exactly the judge set they had.
   if (MODELS.includes("anthropic")) {

@@ -329,6 +329,100 @@ function makeGroundingJudge({ url, key, models, extraHeaders = {}, system = buil
   };
 }
 
+/**
+ * Ensemble arm (registered 2026-09-16, `ensemble-two-model-agreement`):
+ * exactly two configured providers judge the SAME transcript with the SAME
+ * shipped system prompt and verdict question (each leg keeps its own full
+ * model chain + retry policy). The ensemble verdict is deterministic:
+ * mean scores, the production tie rule applied to the MEAN gap, and mean
+ * confidence — discounted when the legs disagree on the winner (a leg saying
+ * "tie" counts as disagreeing with a decisive leg). No prompt changes.
+ *
+ * A failed leg fails the fixture. Serving the surviving leg's verdict as the
+ * "ensemble" would measure a different architecture (1-2 legs, availability
+ * dependent) and corrupt the mean, so both legs must produce a verdict; the
+ * registered reliability floor then prices leg failure honestly.
+ */
+
+export const ENSEMBLE_DISAGREEMENT_DISCOUNT = 0.5;
+
+/** Deterministic aggregation of exactly two normalised leg verdicts. */
+export function aggregateEnsembleVerdicts(legA, legB, discount = ENSEMBLE_DISAGREEMENT_DISCOUNT) {
+  const clamp = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+  const a = Math.round((clamp(legA.a) + clamp(legB.a)) / 2);
+  const b = Math.round((clamp(legA.b) + clamp(legB.b)) / 2);
+  // Production tie policy on the MEAN gap (observableAssessment
+  // WINNER_TIE_THRESHOLD): identical to what the app does downstream of
+  // extraction. Two unanimous-decisive legs (both winner "a" with per-leg
+  // gaps >= 5) mathematically imply a mean gap >= 5, so a mean below the
+  // threshold can only arise from genuine cross-model disagreement — the
+  // mean rule never overrides two agreeing decisive legs.
+  const winner = Math.abs(a - b) < 5 ? "tie" : a > b ? "a" : "b";
+  const disagree = legA.winner !== legB.winner;
+  const round4 = (x) => Math.round(x * 1e4) / 1e4;
+  return {
+    winner,
+    a,
+    b,
+    disagree,
+    confidence: round4(Math.max(0, Math.min(1, ((legA.confidence + legB.confidence) / 2) * (disagree ? discount : 1)))),
+    disagreementDiscount: discount,
+  };
+}
+
+function makeEnsembleJudge({ legs }) {
+  if (!Array.isArray(legs) || legs.length !== 2) {
+    throw new Error("ensemble arm needs exactly two provider legs");
+  }
+  return async (input) => {
+    const settled = await Promise.allSettled(legs.map((leg) => leg.judge(input)));
+    const reasons = settled
+      .map((r, i) => [r, legs[i].label])
+      .filter(([r]) => r.status === "rejected")
+      .map(([r, label]) => `${label}(${String(r.reason?.message ?? r).slice(0, 90)})`);
+    if (reasons.length) {
+      const err = new Error(`ensemble leg(s) failed, no ensemble verdict exists: ${reasons.join("; ")}`);
+      // Attach per-leg chain traces, keyed by leg label so cross-provider
+      // model-name collisions cannot blur the error trail.
+      err.chainErrors = Object.fromEntries(
+        settled.flatMap((r, i) =>
+          r.status === "rejected"
+            ? Object.entries(r.reason?.chainErrors ?? {}).map(([k, v]) => [`${legs[i].label}:${k}`, v])
+            : [],
+        ),
+      );
+      throw err;
+    }
+    const [v1, v2] = settled.map((r) => r.value);
+    const agg = aggregateEnsembleVerdicts(v1, v2);
+    return {
+      winner: agg.winner,
+      a: agg.a,
+      b: agg.b,
+      confidence: agg.confidence,
+      model: `ensemble(${legs[0].label}+${legs[1].label})`,
+      disagree: agg.disagree,
+      envelope: { kind: "ensemble-two-model", disagreementDiscount: ENSEMBLE_DISAGREEMENT_DISCOUNT },
+      // Leg diaries are evidence: the raw (normalised) leg verdicts stay in
+      // the run artifact so aggregation can be re-derived, not trusted.
+      legs: [v1, v2].map((v, i) => ({
+        label: legs[i].label,
+        model: v.model,
+        winner: v.winner,
+        a: v.a,
+        b: v.b,
+        confidence: v.confidence,
+        tokens: v.tokens,
+      })),
+      tokens: (v1.tokens ?? 0) + (v2.tokens ?? 0),
+      promptTokens: (v1.promptTokens ?? 0) + (v2.promptTokens ?? 0),
+      completionTokens: (v1.completionTokens ?? 0) + (v2.completionTokens ?? 0),
+      // Legs run in parallel; wall latency is the slower leg, not the sum.
+      latencyMs: Math.max(v1.latencyMs ?? 0, v2.latencyMs ?? 0),
+    };
+  };
+}
+
 export function newJudgeStats() {
   return { jobs: 0, attempts: 0, succeeded: 0, errors: 0, backoffMs: 0, byModel: {} };
 }
@@ -338,8 +432,35 @@ export function newJudgeStats() {
  * pack + probe battery, so per-model rows compare free transports fairly.
  * NVIDIA appears only via its direct key (its models also ride the OpenRouter
  * chain as ":free" variants when that key exists).
+ *
+ * `kind: "ensemble-two-model"` builds ONE ensemble judge from exactly two
+ * usable providers — the labels named in `select` when given (the study passes
+ * `--models` through), otherwise the top two usable in registry priority for
+ * unfiltered ad-hoc runs. Any other count (0, 1, or 3+ usable/selected) is not
+ * the registered two-leg architecture and returns [] so the caller reports the
+ * absence instead of silently running something else.
  */
-export function allJudgeProviders(env = process.env, { system = buildVerdictSystem(), kind = "single-prompt" } = {}) {
+export function allJudgeProviders(env = process.env, { system = buildVerdictSystem(), kind = "single-prompt", select = [] } = {}) {
+  if (kind === "ensemble-two-model") {
+    const requested = (Array.isArray(select) ? select : String(select ?? "").split(",")).map((s) => String(s).trim()).filter(Boolean);
+    let members = usableProviders(env);
+    if (requested.length) members = members.filter((p) => requested.includes(p.label));
+    else members = members.slice(0, 2);
+    if (members.length !== 2) return [];
+    const stats = newJudgeStats(); // shared: both legs attribute jobs/attempts/latency into one run record
+    const legs = members.map((provider) => ({
+      label: provider.label,
+      judge: makeChainJudge({
+        url: provider.url,
+        key: (env[provider.keyEnv] ?? "").trim(),
+        models: chainFor(provider, env),
+        extraHeaders: provider.extraHeaders ?? {},
+        system,
+        stats,
+      }),
+    }));
+    return [{ id: `ensemble:${legs.map((l) => l.label).join("+")}`, stats, fn: makeEnsembleJudge({ legs }) }];
+  }
   const build = kind === "two-pass-grounding" ? makeGroundingJudge : makeChainJudge;
   const judges = [];
   for (const provider of PROVIDERS) {
