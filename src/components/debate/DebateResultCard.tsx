@@ -14,7 +14,9 @@ import type { SoloDebate } from "@/lib/types";
 import Link from "next/link";
 import ArgumentRepair, { FixThisNowButton } from "../ArgumentRepair";
 import { ArgGraphInline, TrackingGrid } from "../ArgGraphView";
+import ValidationStatusLine from "../ValidationStatusLine";
 import type { DebateSummaryPayload, ReplayView } from "./types";
+import type { SurfaceValidation } from "@/lib/judgeValidation";
 import { trackEvent } from "@/lib/trackClientEvent";
 import { formatLabelFor, type DebateFormat } from "@/lib/sprint";
 
@@ -30,6 +32,10 @@ export interface DebateResultCardProps {
   /** Whether the server had already recorded a repair before this load. */
   completedRepaired: boolean;
   onRepairSucceeded: () => void;
+  /** Judge-output validation for the scores shown in this card. */
+  soloValidation?: SurfaceValidation | null;
+  /** Judge-output validation for the repair exercise mounted below. */
+  repairValidation?: SurfaceValidation | null;
 }
 
 export function DebateResultCard({
@@ -41,6 +47,8 @@ export function DebateResultCard({
   freshResult,
   repairRef,
   onRepairSucceeded,
+  soloValidation = null,
+  repairValidation = null,
 }: DebateResultCardProps) {
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
@@ -181,6 +189,7 @@ export function DebateResultCard({
             {view.topRewardDetail && <span className="text-xs text-ink3">({view.topRewardDetail})</span>}
           </div>
           {view.honestyNote && <p className="text-xs leading-5 text-ink3">{view.honestyNote}</p>}
+          <ValidationStatusLine validation={soloValidation} testId="solo-validation-state" />
           {view.summarySource === "fallback" && (
             <p className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink3" role="status">
               Detailed generated feedback was unavailable for this finish. Performance, the main weakness, repair guidance and progress signals still come from the stored deterministic assessment.
@@ -329,6 +338,7 @@ export function DebateResultCard({
               graph={view.argGraph}
               debateId={debateId}
               presetTarget={weakness.repair}
+              validation={repairValidation}
               onCompleted={(repair) => {
                 if (repair.succeeded) onRepairSucceeded();
               }}

@@ -14,6 +14,8 @@ import {
 } from "@/lib/guestAssessment";
 import { guestMotionForDay, type GuestMotion } from "@/lib/guestMotions";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
+import ValidationStatusLine from "./ValidationStatusLine";
+import type { SurfaceValidation } from "@/lib/judgeValidation";
 import {
   encodeGuestArenaProgress,
   encodeGuestLoopSummary,
@@ -429,6 +431,7 @@ function GuestResult({
   motion,
   responses,
   repairSucceeded,
+  validation,
   onRepairSucceeded,
   onRetest,
   onRestart,
@@ -436,6 +439,8 @@ function GuestResult({
   motion: GuestMotion;
   responses: string[];
   repairSucceeded: boolean;
+  /** Live judge-output validation for this surface, from the report the page loaded. */
+  validation?: SurfaceValidation | null;
   /** Called with the accepted rewrite so the retest checks the same move. */
   onRepairSucceeded: (kind: GuestSkill, label: string, text: string, succeeded: boolean) => void;
   /** Move to the deliberate retest. Only offered once a repair succeeded. */
@@ -484,6 +489,7 @@ function GuestResult({
 
           <section className="surface-card p-5 sm:p-6" data-testid="guest-result">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink3">Observed in your writing</p>
+            <ValidationStatusLine validation={validation} testId="guest-validation-state" />
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {observations.map(([label, count]) => (
                 <div key={label} className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-3">
@@ -800,7 +806,12 @@ function GuestDone({
   );
 }
 
-export default function GuestArena() {
+export default function GuestArena({
+  validation = null,
+}: {
+  /** Live judge-output validation for the guest surface, from the report the page loaded. */
+  validation?: SurfaceValidation | null;
+} = {}) {
   // Read the motion day before restoring state: the cache is invalidated per
   // motion day, so the day must be resolved first.
   const today = new Date().toISOString().slice(0, 10);
@@ -900,6 +911,7 @@ export default function GuestArena() {
         motion={motion}
         responses={responses}
         repairSucceeded={!!repair}
+        validation={validation}
         onRepairSucceeded={(kind, label, text, succeeded) => setRepair({ kind, label, text, succeeded })}
         onRetest={() => setStage("retest")}
         onRestart={restart}

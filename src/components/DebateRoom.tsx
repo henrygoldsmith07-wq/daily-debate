@@ -31,6 +31,8 @@ export default function DebateRoom({
   topic,
   initialTurns,
   completedResult,
+  soloValidation = null,
+  repairValidation = null,
 }: DebateRoomProps) {
   const initialPending = initialTurns[initialTurns.length - 1];
   // The mode the server recorded for the turn awaiting the user. A staged
@@ -141,6 +143,8 @@ export default function DebateRoom({
         freshResult={session.result}
         repairRef={repairRef}
         onRepairSucceeded={() => setRepairSucceeded(true)}
+        soloValidation={soloValidation}
+        repairValidation={repairValidation}
       />
     );
   }
