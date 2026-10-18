@@ -1,27 +1,26 @@
-// OpenRouter-backed model calls. Replaces the previous Gemini integration.
+// Model calls over free-tier OpenAI-compatible APIs (UnoRouter, Groq,
+// Cerebras, Gemini, NVIDIA, OpenRouter). There is no paid provider.
 //
-// Three things differ from the Google SDK this grew out of:
-//
-//  1. There is no `responseSchema` parameter. OpenRouter's `json_object` mode
+//  1. There is no shared `responseSchema` parameter. `json_object` mode
 //     guarantees syntactically valid JSON but not a particular shape, and the
 //     free-tier models vary in how well they honour `json_schema` mode. Each
-//     call therefore ships its JSON Schema in the system message, and callers
-//     shape-validate the result (see aiFallback.withProviderFallback).
+//     call therefore ships its JSON Schema in the system message and
+//     shape-validates the result before accepting it.
 //
-//  2. Free pools are shared and return upstream 429s under load, so a request
-//     retries with backoff, honours Retry-After, and then fails over to the
-//     next model in the chain. The whole budget is bounded to stay inside the
+//  2. Free pools are shared and return 429s under load, so a request retries
+//     with backoff, honours Retry-After, then fails over to the next model and
+//     then the next PROVIDER. The whole budget is bounded to stay inside the
 //     serverless function timeout.
 //
 //  3. Several of these are reasoning models that bill thinking tokens against
 //     max_tokens, which can consume the entire budget before any JSON is
-//     emitted. Reasoning is disabled by default for that reason.
+//     emitted. Reasoning is disabled or set low for that reason.
 
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
 import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
-import { isValidJudgeExtraction } from "./aiSchema";
+import { isValidDebateTurn, isValidGeneratedTopic, isValidJudgeExtraction, isValidOpening, isValidSummary } from "./aiSchema";
 import { ensureSpendWithinCap, reserveSpendCall, SPEND_RESERVATION_FALLBACK_USD } from "./spendCap";
 import type { ArgumentRoute } from "./argumentTaxonomy";
 import { renderUntrusted, renderUntrustedTranscript, UNTRUSTED_INSTRUCTION } from "./untrustedContent";
@@ -30,20 +29,32 @@ const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 
 /**
- * Interchangeable OpenAI-style judge transports, tried in priority order —
- * the first one whose API key is present serves every call. Each transport
- * has its own model chain (`<LABEL>_MODEL` primary, `<LABEL>_FALLBACK_MODELS`
- * comma-separated failover; an empty string pins to the single model).
+ * Interchangeable OpenAI-style transports, all on FREE tiers. Every call walks
+ * the configured providers in priority order, each with its own model chain
+ * (`<LABEL>_MODEL` primary, `<LABEL>_FALLBACK_MODELS` comma-separated
+ * failover; an empty string pins to the single model), until one returns a
+ * schema-valid answer. `<LABEL>_DISABLED=1` removes a keyed provider.
  * NVIDIA/OpenRouter keep their historical env names.
  */
-export type ProviderLabel = "nvidia" | "openrouter" | "unorouter" | "kiraai";
+export type ProviderLabel = "unorouter" | "groq" | "cerebras" | "gemini" | "nvidia" | "openrouter";
 
-interface ProviderSpec {
+export interface ProviderSpec {
   label: ProviderLabel;
   keyEnv: string;
   url: string;
   defaultModel: string;
   defaultFallbacks: string[];
+  /**
+   * Sends OpenRouter's `reasoning: { enabled: false }` extension. Only the
+   * OpenRouter-style gateways understand it; other APIs would reject it.
+   */
+  reasoningToggle: boolean;
+  /**
+   * Provider-specific request fields. gpt-oss and Gemini Flash are reasoning
+   * models that bill thinking against max_tokens, so they are asked for low
+   * effort to keep the budget for the JSON answer.
+   */
+  extraBody?: Record<string, unknown>;
 }
 
 /** Free NVIDIA Nemotron on the OpenRouter transport. Override per-environment without a code change.
@@ -58,7 +69,6 @@ export const NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
 /**
  * Free OpenRouter models that hold up on the heaviest calls (the PvP argument
  * graph). Ordered strongest first: Nemotron 3.5 Super, then the full Ultra.
- * A DeepSeek free tier is retained as a trailing fallback.
  */
 export const DEFAULT_FALLBACK_MODELS = [
   "nvidia/nemotron-3.5-lightning:free",
@@ -69,36 +79,30 @@ export const DEFAULT_FALLBACK_MODELS = [
 export const NVIDIA_DEFAULT_FALLBACK_MODELS = ["nvidia/nemotron-3-super-120b-a12b"];
 
 /**
- * Provider registry, ordered by MEASURED reliability — this array order *is*
- * the priority order, and `activeProvider` takes the first configured entry.
+ * Provider registry — this array order *is* the priority order every call
+ * walks. Ordered measured-good, then unmeasured, then measured-bad:
  *
- * Live judge benchmark, 2026-10-04 (docs/latest-judge-benchmark.json),
- * 312 attempted calls per transport:
+ * Live judge benchmark (docs/latest-judge-benchmark.json, 2026-10-12):
  *
- *   unorouter nemotron-3.5-lightning:free    252/312 = 0.808   clears providerReliabilityMin (0.75)
- *   openrouter nvidia/nemotron-3-super:free    92/312 = 0.295   cannot clear it
- *   kiraai    qwen3.8-flash-free                0/24  = 0.000   no usable calls at all
+ *   unorouter nemotron-3.5-lightning:free    278/312 = 0.891   clears providerReliabilityMin (0.75)
+ *   openrouter nvidia/nemotron-3-super:free    72/300 = 0.240   cannot clear it (mostly 429s)
  *
- * This order previously led with OpenRouter Super, justified by a 2026-09-13
- * probe ("live probes found the free Lightning/Ultra pools frequently stall,
- * Super answers in ~1s"). Measurement has since contradicted that: Super drops
- * roughly two calls in three. Leading with it means most PvP judgements have no
- * judgement to return, and the failure is invisible per-call because the
- * failover chain rescues some of them.
+ * groq, cerebras, gemini and nvidia have no benchmark row. They sit between
+ * the two measured transports: ranking them above unorouter would be ranking
+ * on nothing, but OpenRouter's free pool is measured to drop three calls in
+ * four, and with cross-provider failover a provider that mostly 429s spends
+ * the shared retry budget before the others get a turn.
  *
- * Agreement is not the tie-breaker it first appears to be. Super scores higher
- * (0.667 vs 0.625) but on a third of the traffic, and neither model clears the
- * 0.75 agreement floor, so neither may back a competitive claim. Between two
- * judges that are both unusable as judges, the one that answers is strictly
- * better — especially for a verdict the learner is waiting on.
+ * Kirai was removed: its free slugs were retired (hard 404s) and the surviving
+ * ones bill a wallet (402), so it is no longer a free provider at all.
  *
- * nvidia sorts last deliberately: it has no benchmark row at all, so ranking
- * it above a measured transport would be ranking on nothing. It still leads
- * when it is the only key configured.
+ * Default model ids (2026-10): Groq retired llama-3.3-70b-versatile for free
+ * tiers on 2026-08-16 and names openai/gpt-oss-120b as the replacement;
+ * Cerebras's catalog lists gpt-oss-120b; Google's OpenAI-compatibility docs use
+ * gemini-3.8-flash. Free rosters churn quarterly — a retired id returns a 4xx
+ * and the call falls through to the next model, and every id is env-overridable.
  *
- * Re-measure before reordering. A one-off probe is not evidence, and this
- * comment exists so the next person can check the artifact instead of trusting
- * the last person's optimism.
+ * Re-measure before reordering. A one-off probe is not evidence.
  */
 export const PROVIDERS: readonly ProviderSpec[] = [
   {
@@ -110,20 +114,34 @@ export const PROVIDERS: readonly ProviderSpec[] = [
     // per minute per account — it 429s under burst traffic and poisons the
     // failover chain instead of rescuing it.
     defaultFallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free"],
+    reasoningToggle: true,
   },
   {
-    label: "openrouter",
-    keyEnv: "OPENROUTER_API_KEY",
-    url: OPENROUTER_API_URL,
-    defaultModel: DEFAULT_MODEL,
-    defaultFallbacks: DEFAULT_FALLBACK_MODELS,
+    label: "groq",
+    keyEnv: "GROQ_API_KEY",
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    defaultModel: "openai/gpt-oss-120b",
+    defaultFallbacks: ["openai/gpt-oss-20b"],
+    reasoningToggle: false,
+    extraBody: { reasoning_effort: "low" },
   },
   {
-    label: "kiraai",
-    keyEnv: "KIRAAI_API_KEY",
-    url: "https://kiraai.vn/api/v1/chat/completions",
-    defaultModel: "qwen3.8-flash-free",
-    defaultFallbacks: ["glm-5.3-free", "hy3-free", "mimo-v2.5-free"],
+    label: "cerebras",
+    keyEnv: "CEREBRAS_API_KEY",
+    url: "https://api.cerebras.ai/v1/chat/completions",
+    defaultModel: "gpt-oss-120b",
+    defaultFallbacks: [],
+    reasoningToggle: false,
+    extraBody: { reasoning_effort: "low" },
+  },
+  {
+    label: "gemini",
+    keyEnv: "GEMINI_API_KEY",
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    defaultModel: "gemini-3.8-flash",
+    defaultFallbacks: ["gemini-3.5-flash-lite"],
+    reasoningToggle: false,
+    extraBody: { reasoning_effort: "low" },
   },
   {
     label: "nvidia",
@@ -131,96 +149,69 @@ export const PROVIDERS: readonly ProviderSpec[] = [
     url: NVIDIA_API_URL,
     defaultModel: NVIDIA_DEFAULT_MODEL,
     defaultFallbacks: NVIDIA_DEFAULT_FALLBACK_MODELS,
+    reasoningToggle: true,
+  },
+  {
+    label: "openrouter",
+    keyEnv: "OPENROUTER_API_KEY",
+    url: OPENROUTER_API_URL,
+    defaultModel: DEFAULT_MODEL,
+    defaultFallbacks: DEFAULT_FALLBACK_MODELS,
+    reasoningToggle: true,
   },
 ];
 
-/**
- * Whether the FREE provider chain (UnoRouter, free OpenRouter pools, Kirai,
- * NVIDIA free tier) may serve calls at all.
- *
- * Phase 3 judge reliability: the default judge is ONE pinned paid model via
- * a single provider (Anthropic claude-sonnet-5; `ANTHROPIC_MODEL` override).
- * The free chain is opt-in for dev/e2e only:
- *
- *  * unset            -> free chain off everywhere (production default)
- *  * "1"              -> free chain on outside production (local dev, CI)
- *  * "emergency"      -> free chain on even in production. Incident-response
- *                        escape hatch only (e.g. the pinned provider is down,
- *                        or the pre-registered study rejects the switch);
- *                        never a default, always a deliberate operator action.
- */
-export function freeProvidersAllowed(env: Record<string, string | undefined> = process.env): boolean {
-  const flag = (env.JUDGE_ALLOW_FREE_PROVIDERS ?? "").trim().toLowerCase();
-  if (!flag) return false;
-  if (flag === "emergency") return true;
-  const isProduction = (env.VERCEL_ENV ?? env.NODE_ENV) === "production";
-  return flag === "1" && !isProduction;
+function disabled(label: ProviderLabel, env: Record<string, string | undefined>): boolean {
+  return /^(1|true|yes)$/i.test((env[`${label.toUpperCase()}_DISABLED`] ?? "").trim());
 }
 
-/** All providers that currently have an API key configured AND are allowed to serve calls, in priority order. */
+/** Providers that have an API key and are not disabled, in priority order. */
 export function configuredProviders(env: Record<string, string | undefined> = process.env): ProviderSpec[] {
-  if (!freeProvidersAllowed(env)) return [];
-  return PROVIDERS.filter((p) => (env[p.keyEnv] ?? "").trim().length > 0);
-}
-
-export function activeProvider(env: Record<string, string | undefined> = process.env): ProviderSpec & { key: string } {
-  const [first] = configuredProviders(env);
-  if (first) return { ...first, key: (env[first.keyEnv] ?? "").trim() };
-  // Default shape when nothing is configured: OpenRouter without a key —
-  // apiKey() surfaces the actionable error on first use. Selected by label, not
-  // by index, so reordering PROVIDERS on new measurements cannot silently
-  // change what an unconfigured deployment reports.
-  const shape = PROVIDERS.find((p) => p.label === "openrouter") ?? PROVIDERS[0];
-  return { ...shape, key: "" };
-}
-
-export function activeProviderLabel(): ProviderLabel {
-  return activeProvider().label;
+  return PROVIDERS.filter((p) => (env[p.keyEnv] ?? "").trim().length > 0 && !disabled(p.label, env));
 }
 
 const MAX_ATTEMPTS = Number(process.env.OPENROUTER_MAX_ATTEMPTS ?? 4);
 const RETRY_BUDGET_MS = Number(process.env.OPENROUTER_RETRY_BUDGET_MS ?? 45_000);
 
-function apiKey(): string {
-  const provider = activeProvider();
-  if (!provider.key || !configuredProviders().length) {
-    throw new Error(
-      "No judge provider configured — set ANTHROPIC_API_KEY (the pinned paid default), or opt into the free chain with JUDGE_ALLOW_FREE_PROVIDERS=1 (dev/e2e only).",
-    );
-  }
-  return provider.key;
-}
-
-function model(): string {
-  const provider = activeProvider();
-  return process.env[`${provider.label.toUpperCase()}_MODEL`] || provider.defaultModel;
-}
-
-/** The model currently selected on the active transport (for fingerprints/telemetry). */
-export function currentModel(): string {
-  return model();
-}
-
 /**
- * Preferred model first, then fallbacks. Set `<LABEL>_FALLBACK_MODELS` to a
- * comma-separated list to override, or to an empty string to disable failover
- * and pin the app to a single model.
+ * Preferred model first, then fallbacks, for one provider. Set
+ * `<LABEL>_FALLBACK_MODELS` to a comma-separated list to override, or to an
+ * empty string to disable failover and pin that provider to a single model.
  */
-export function modelChain(): string[] {
-  const provider = activeProvider();
-  const configured = process.env[`${provider.label.toUpperCase()}_FALLBACK_MODELS`];
-  const defaults = provider.defaultFallbacks;
+export function modelChainFor(provider: ProviderSpec, env: Record<string, string | undefined> = process.env): string[] {
+  const upper = provider.label.toUpperCase();
+  const configured = env[`${upper}_FALLBACK_MODELS`];
   const fallbacks =
     configured === undefined
-      ? defaults
+      ? provider.defaultFallbacks
       : configured.split(",").map((m) => m.trim()).filter(Boolean);
-  const primary = model();
+  const primary = env[`${upper}_MODEL`] || provider.defaultModel;
   return [primary, ...fallbacks.filter((m) => m !== primary)];
+}
+
+/** One step of the cross-provider failover chain. */
+export interface ChainStep {
+  provider: ProviderSpec;
+  key: string;
+  model: string;
+}
+
+/** Every (provider, model) pair a call may try, in order. */
+export function failoverChain(env: Record<string, string | undefined> = process.env): ChainStep[] {
+  return configuredProviders(env).flatMap((provider) =>
+    modelChainFor(provider, env).map((model) => ({ provider, key: (env[provider.keyEnv] ?? "").trim(), model })),
+  );
+}
+
+/** Which transport and model actually produced a result (for fingerprints). */
+export interface ServedBy {
+  provider: ProviderLabel;
+  model: string;
 }
 
 /**
  * A saturated pool rarely clears within seconds, so burning the whole attempt
- * budget on it starves the known-good fallbacks. Only the last model in the
+ * budget on it starves the known-good fallbacks. Only the last step in the
  * chain — which has nothing to fall through to — gets the full allowance.
  */
 function attemptsFor(index: number, chainLength: number): number {
@@ -257,7 +248,7 @@ export function extractJson(text: string): string {
 }
 
 function parseJson<T>(text: string | undefined): T {
-  if (!text) throw new Error("OpenRouter did not return any content");
+  if (!text) throw new Error("Provider did not return any content");
   const json = extractJson(text);
   try {
     return JSON.parse(json) as T;
@@ -269,7 +260,7 @@ function parseJson<T>(text: string | undefined): T {
     // the length is disclosed, which is enough to diagnose a truncated or
     // fenced response without durably storing a single character of it.
     throw new Error(
-      `OpenRouter returned invalid JSON: ${(error as Error).message} (output length ${json.length})`,
+      `Provider returned invalid JSON: ${(error as Error).message} (output length ${json.length})`,
     );
   }
 }
@@ -283,8 +274,9 @@ interface ChatOptions {
   operation?: string;
   /**
    * Output-shape gate. When present, a parsed value that fails it is treated as
-   * a retryable failure and never returned as a successful result — so malformed
-   * model output cannot become a favourable verdict or an apparently valid score.
+   * a failure and never returned as a successful result — so malformed model
+   * output cannot become a favourable verdict or an apparently valid score —
+   * and the call moves on to the next model/provider.
    */
   validate?: (value: unknown) => boolean;
 }
@@ -293,21 +285,23 @@ interface ChatOptions {
 type ResolvedChatOptions = Required<Omit<ChatOptions, "validate">> &
   Pick<ChatOptions, "validate">;
 
-type Attempt<T> = { ok: true; value: T } | { ok: false; error: string };
+type Attempt<T> = { ok: true; value: T } | { ok: false; error: string; status?: number };
+
+/** Request features a provider may reject with a 400; each is dropped and retried once. */
+interface Compat {
+  reasoning: boolean;
+  jsonMode: boolean;
+}
 
 /**
  * Several of these models are reasoning models that bill thinking tokens
  * against max_tokens — GLM 5.2 spent 324 of 349 completion tokens on reasoning
- * and returned 25 tokens of JSON. Disabling reasoning is what keeps the token
- * budget available for the answer. Endpoints that require reasoning reject the
- * flag with a 400, and are retried without it.
+ * and returned 25 tokens of JSON. Asking for no/low reasoning is what keeps the
+ * token budget available for the answer. Endpoints that reject the reasoning
+ * fields or json_object mode with a 400 are retried without them.
  */
-async function post(
-  m: string,
-  { instruction, schema, maxTokens }: ResolvedChatOptions,
-  key: string,
-  disableReasoning: boolean,
-): Promise<Response> {
+async function post(step: ChainStep, { instruction, schema, maxTokens }: ResolvedChatOptions, compat: Compat): Promise<Response> {
+  const { provider, key, model: m } = step;
   const payload: Record<string, unknown> = {
     model: m,
     messages: [
@@ -319,12 +313,13 @@ async function post(
       },
       { role: "user", content: instruction },
     ],
-    response_format: { type: "json_object" },
     max_tokens: maxTokens,
   };
-  if (disableReasoning) payload.reasoning = { enabled: false };
-
-  const provider = activeProvider();
+  if (compat.jsonMode) payload.response_format = { type: "json_object" };
+  if (compat.reasoning) {
+    if (provider.reasoningToggle) payload.reasoning = { enabled: false };
+    Object.assign(payload, provider.extraBody);
+  }
 
   return fetch(provider.url, {
     method: "POST",
@@ -344,14 +339,15 @@ async function post(
 }
 
 async function tryModel<T>(
-  m: string,
+  step: ChainStep,
   options: ResolvedChatOptions,
-  key: string,
   deadline: number,
   maxAttempts: number,
 ): Promise<Attempt<T>> {
-  let disableReasoning = true;
+  const m = step.model;
+  const compat: Compat = { reasoning: true, jsonMode: true };
   let lastError = "";
+  let lastStatus: number | undefined;
 
   interface OpenRouterUsage {
     prompt_tokens?: number;
@@ -362,19 +358,23 @@ async function tryModel<T>(
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const startedAt = Date.now();
-    const response = await post(m, options, key, disableReasoning);
+    const response = await post(step, options, compat);
     const body: unknown = await response.json().catch(() => null);
     const usage = (body as { usage?: OpenRouterUsage })?.usage;
     const record = (outcome: "ok" | "error", error?: string) =>
       recordAiCall({
         at: new Date().toISOString(),
         operation: options.operation,
-        provider: activeProvider().label,
+        provider: step.provider.label,
         model: m,
         promptTokens: usage?.prompt_tokens,
         completionTokens: usage?.completion_tokens,
         totalTokens: usage?.total_tokens,
-        costUsd: usage?.cost,
+        // Every registered transport is a free tier: a provider that reports a
+        // cost (OpenRouter, e.g. if a paid model is configured) is metered
+        // verbatim, and silence means $0 rather than the declared uncosted
+        // charge, which would otherwise trip the daily cap on free traffic.
+        costUsd: usage?.cost ?? 0,
         latencyMs: Date.now() - startedAt,
         outcome,
         ...(error
@@ -411,8 +411,8 @@ async function tryModel<T>(
 
       try {
         const value = parseJson<T>(content);
-        // Shape gate: an output that fails the expected schema is a retryable
-        // failure, never a successful result. This is what keeps a malformed or
+        // Shape gate: an output that fails the expected schema is a failure,
+        // never a successful result. This is what keeps a malformed or
         // truncated judge graph from becoming a valid-looking score or verdict.
         if (options.validate && !options.validate(value)) {
           const invalid = `${m} returned an output that failed schema validation`;
@@ -429,22 +429,30 @@ async function tryModel<T>(
       }
     }
 
+    lastStatus = response.status;
     lastError =
       (body as { error?: { metadata?: { raw?: string } } })?.error?.metadata?.raw ??
       (body as { error?: { message?: string } })?.error?.message ??
       `HTTP ${response.status}`;
     record("error", lastError);
 
-    // Endpoints where reasoning is mandatory reject the disable flag outright.
-    if (response.status === 400 && disableReasoning && /reasoning/i.test(lastError)) {
-      disableReasoning = false;
+    // A feature the endpoint does not support is dropped and retried once,
+    // without consuming an attempt.
+    if (response.status === 400 && compat.reasoning && /reasoning/i.test(lastError)) {
+      compat.reasoning = false;
+      attempt -= 1;
+      continue;
+    }
+    if (response.status === 400 && compat.jsonMode && /response_format|json_object|json mode/i.test(lastError)) {
+      compat.jsonMode = false;
+      attempt -= 1;
       continue;
     }
 
     // Anything else in the 4xx range will not improve on retry — fall through
     // to the next model instead of spending the budget here.
     if (response.status !== 429 && response.status < 500) {
-      return { ok: false, error: `${m}: ${lastError}` };
+      return { ok: false, error: `${m}: ${lastError}`, status: response.status };
     }
 
     const delay = retryDelayMs(response, body, attempt);
@@ -452,10 +460,18 @@ async function tryModel<T>(
     await sleep(delay);
   }
 
-  return { ok: false, error: `${m}: ${lastError}` };
+  return { ok: false, error: `${m}: ${lastError}`, status: lastStatus };
 }
 
-async function chatJson<T>({ instruction, schema, maxTokens = 2_000, operation = "unknown", validate }: ChatOptions): Promise<T> {
+/**
+ * Statuses that mean the whole provider is unusable, not just this model: a
+ * rejected key. 402/403 stay per-model — OpenRouter answers 403 for a single
+ * model that is "only available on agentic harnesses" and 402 for a paid model,
+ * while its free models on the same key still work.
+ */
+const PROVIDER_FATAL_STATUSES = new Set([401]);
+
+async function chatJsonServed<T>({ instruction, schema, maxTokens = 2_000, operation = "unknown", validate }: ChatOptions): Promise<{ value: T; servedBy: ServedBy }> {
   // Durable daily spend cap: explicit SpendCapReachedError when today's
   // metered spend is exhausted (callers degrade visibly, never silently).
   await ensureSpendWithinCap();
@@ -466,23 +482,34 @@ async function chatJson<T>({ instruction, schema, maxTokens = 2_000, operation =
   // needing a per-attempt price table the providers do not report.
   const releaseReservation = reserveSpendCall(SPEND_RESERVATION_FALLBACK_USD);
   try {
-    const key = apiKey();
+    const chain = failoverChain();
+    if (!chain.length) {
+      throw new Error(
+        "No AI provider configured — set at least one free-tier key: UNOROUTER_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY, GEMINI_API_KEY, NVIDIA_API_KEY or OPENROUTER_API_KEY.",
+      );
+    }
     const deadline = Date.now() + RETRY_BUDGET_MS;
-    const chain = modelChain();
     const options: ResolvedChatOptions = { instruction, schema, maxTokens, operation, validate };
     const failures: string[] = [];
+    const deadProviders = new Set<ProviderLabel>();
 
-    for (const [index, m] of chain.entries()) {
-      const result = await tryModel<T>(m, options, key, deadline, attemptsFor(index, chain.length));
-      if (result.ok) return result.value;
-      failures.push(result.error);
+    for (const [index, step] of chain.entries()) {
+      if (deadProviders.has(step.provider.label)) continue;
+      const result = await tryModel<T>(step, options, deadline, attemptsFor(index, chain.length));
+      if (result.ok) return { value: result.value, servedBy: { provider: step.provider.label, model: step.model } };
+      failures.push(`${step.provider.label}/${result.error}`);
+      if (result.status !== undefined && PROVIDER_FATAL_STATUSES.has(result.status)) deadProviders.add(step.provider.label);
       if (Date.now() >= deadline) break;
     }
 
-    throw new Error(`OpenRouter request failed. Tried ${chain.length}: ${failures.join(" | ")}`);
+    throw new Error(`All AI providers failed. Tried ${failures.length}: ${failures.join(" | ")}`);
   } finally {
     releaseReservation();
   }
+}
+
+async function chatJson<T>(options: ChatOptions): Promise<T> {
+  return (await chatJsonServed<T>(options)).value;
 }
 
 // --- Daily topic -----------------------------------------------------------
@@ -533,6 +560,7 @@ export async function generateDailyTopic(recentTitles: string[]): Promise<Genera
   return chatJson<GeneratedTopic>({
     schema: TOPIC_SCHEMA,
     operation: "generate_daily_topic",
+    validate: isValidGeneratedTopic,
     instruction: `Pick today's debate topic for a daily critical-thinking app used by the general public. It should be genuinely debatable (reasonable people disagree), civically or intellectually meaningful, and not needlessly inflammatory or a pure culture-war flashpoint. Draw from technology, science, ethics, economics, education, or public policy. ${avoid} Ground it with 3-5 real, well-known, credible institutions (never fabricate a specific article URL — only real root homepages) relevant to the topic.`,
   });
 }
@@ -590,6 +618,7 @@ export async function debateTurn(params: {
   return chatJson<DebateTurnResult>({
     schema: TURN_SCHEMA,
     operation: "debate_turn",
+    validate: isValidDebateTurn,
     instruction: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}${opponentStyle}\n\n${UNTRUSTED_INSTRUCTION}\n\nTranscript so far:\n${transcript}\n\n${latest}\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
   });
 }
@@ -614,6 +643,7 @@ export async function debateOpening(params: {
   const result = await chatJson<{ aiMessage: string }>({
     schema: OPENING_SCHEMA,
     operation: "debate_opening",
+    validate: (value) => isValidOpening((value as { aiMessage?: unknown } | null)?.aiMessage),
     instruction: `Open a debate on "${params.topicTitle}" — ${params.topicPrompt}\nArgue the "${params.aiSide}" side in 2-4 sentences, stating a clear, specific opening claim (not a vague restatement of the prompt).${opponentStyle}`,
   });
   return result.aiMessage;
@@ -637,6 +667,7 @@ export async function summarizeSoloDebate(params: {
   return chatJson<DebateSummary>({
     schema: SUMMARY_SCHEMA,
     operation: "summarize_solo",
+    validate: isValidSummary,
     instruction: `Here is a full debate practice transcript on "${params.topicTitle}":\n\n${UNTRUSTED_INSTRUCTION}\n\n${params.transcript}\n\nGive the user a short overall assessment of their critical-thinking performance, with specific strengths and areas to improve.`,
   });
 }
@@ -653,6 +684,8 @@ export interface PvpJudgeResult {
   argGraph?: import("./argGraph").ArgGraph;
   scoreStatus?: import("./observableAssessment").AssessmentStatus;
   observableAssessment?: import("./observableAssessment").ObservableAssessment;
+  /** The transport and model that produced this verdict (absent for the e2e mock). */
+  servedBy?: ServedBy;
 }
 
 const FALLACY_ENUM = ["strawman", "ad_hominem", "false_dilemma", "slippery_slope", "appeal_to_emotion", "hasty_generalization", "appeal_to_authority", "whataboutism", "begging_the_question", "equivocation", "none"];
@@ -732,7 +765,7 @@ export async function judgePvpMatch(params: {
 }): Promise<PvpJudgeResult> {
   if (e2eMockAiEnabled()) return finalizePvpAssessment(mockPvpJudge(), { extractionSource: "llm" });
 
-  const extracted = await chatJson<{ rationale?: string; argGraph?: import("./argGraph").ArgGraph }>({
+  const { value: extracted, servedBy } = await chatJsonServed<{ rationale?: string; argGraph?: import("./argGraph").ArgGraph }>({
     schema: JUDGE_SCHEMA,
     maxTokens: 6_000,
     operation: "judge_pvp",
@@ -740,5 +773,5 @@ export async function judgePvpMatch(params: {
     instruction: `You are a neutral, rigorous debate analyst. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nPlayer A argued "${params.playerASide}"; Player B argued the opposite side.\n\n${UNTRUSTED_INSTRUCTION}\n\nTranscript:\n${params.transcript}\n\nAnalyze the observable argument structure, not which side of the topic is "correct". Judge only what is argued and shown: identical content earns identical treatment regardless of which label (A or B) speaks it, and length, repetition, formatting, fluency or confident tone are not argument quality. Named sources, institutions and statistics count only where the argument makes the evidence usable (mechanism, figure, context); authoritative-sounding references without usable content are noise, never strength. Return a faithful argGraph with nodes (c1,e1,k1,r1,i1, text <=18 words), edges, dropped arguments, contradictions, concessions, fallacies, evidenceStats, and impactComparison. Every cited/strong evidence node MUST include a citation object with a named source; never invent arguments or citations not present in the transcript. Also return a short rationale citing specific graph moments. Numeric scores and winner are computed by the application from the graph and must not be estimated here.`,
   });
 
-  return finalizePvpAssessment(extracted, { extractionSource: "llm" });
+  return { ...finalizePvpAssessment(extracted, { extractionSource: "llm" }), servedBy };
 }

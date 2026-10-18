@@ -3,7 +3,7 @@ import "server-only";
 /**
  * AI cost/telemetry ledger.
  *
- * Every AI provider call (OpenRouter chain, Anthropic SDK) records one ledger
+ * Every AI provider call (the free-provider chain, classifier.dev) records one ledger
  * entry: which operation, which model, token usage, cost when the provider
  * reports it, latency, and outcome. Entries live in an in-process ring buffer
  * (bounded, no external dependency) and are mirrored best-effort to the
@@ -108,8 +108,8 @@ export interface AiCallTelemetry {
   /** Logical operation, e.g. "judge_pvp" — stable identifiers for attribution. */
   operation: string;
   /** Provider stack that served (or failed) the call. */
-  provider: "openrouter" | "nvidia" | "unorouter" | "kiraai" | "bai" | "anthropic" | "classifier";
-  /** Concrete model identifier attempted, e.g. "anthropic/claude-sonnet-4.5". */
+  provider: "openrouter" | "nvidia" | "unorouter" | "groq" | "cerebras" | "gemini" | "classifier";
+  /** Concrete model identifier attempted, e.g. "openai/gpt-oss-120b". */
   model: string;
   /** Routing events are operational measurements, not expensive model calls. */
   eventType?: AiTelemetryEvent;

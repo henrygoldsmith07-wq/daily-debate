@@ -2,13 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_FALLBACK_MODELS,
   DEFAULT_MODEL,
-  activeProvider,
+  PROVIDERS,
   configuredProviders,
-  currentModel,
   extractJson,
+  failoverChain,
   generateDailyTopic,
-  modelChain,
+  judgePvpMatch,
+  modelChainFor,
+  type ProviderLabel,
 } from "./openrouter";
+
+const ALL_KEYS = PROVIDERS.map((p) => p.keyEnv);
+const spec = (label: ProviderLabel) => PROVIDERS.find((p) => p.label === label)!;
+/** Start every registry case from "no provider keyed", whatever the host env holds. */
+function clearKeys() {
+  for (const k of ALL_KEYS) vi.stubEnv(k, "");
+}
 
 // The free-tier models honour `json_object` mode inconsistently — they wrap
 // output in fences, prepend "Here is the JSON:", or emit a reasoning preamble.
@@ -58,94 +67,93 @@ describe("extractJson", () => {
   });
 });
 
-describe("modelChain", () => {
+describe("modelChainFor", () => {
   afterEach(() => vi.unstubAllEnvs());
+  const openrouter = () => spec("openrouter");
 
   it("defaults to the reliably-fast free Nemotron 3 Super ahead of the measured fallbacks", () => {
     expect(DEFAULT_MODEL).toBe("nvidia/nemotron-3-super-120b-a12b:free");
-    expect(modelChain()).toEqual([DEFAULT_MODEL, ...DEFAULT_FALLBACK_MODELS]);
+    expect(modelChainFor(openrouter())).toEqual([DEFAULT_MODEL, ...DEFAULT_FALLBACK_MODELS]);
   });
 
   it("honours an OPENROUTER_MODEL override as the primary", () => {
     vi.stubEnv("OPENROUTER_MODEL", "some/other-model");
-    expect(modelChain()[0]).toBe("some/other-model");
+    expect(modelChainFor(openrouter())[0]).toBe("some/other-model");
   });
 
   it("never lists the primary twice when it also appears in the fallbacks", () => {
     vi.stubEnv("OPENROUTER_MODEL", DEFAULT_FALLBACK_MODELS[0]);
-    const chain = modelChain();
+    const chain = modelChainFor(openrouter());
     expect(chain[0]).toBe(DEFAULT_FALLBACK_MODELS[0]);
     expect(chain.filter((m) => m === DEFAULT_FALLBACK_MODELS[0])).toHaveLength(1);
   });
 
   it("pins to a single model when the fallback list is set empty", () => {
     vi.stubEnv("OPENROUTER_FALLBACK_MODELS", "");
-    expect(modelChain()).toEqual([DEFAULT_MODEL]);
+    expect(modelChainFor(openrouter())).toEqual([DEFAULT_MODEL]);
   });
 
   it("accepts a custom comma-separated fallback list", () => {
     vi.stubEnv("OPENROUTER_FALLBACK_MODELS", " a/one , b/two ");
-    expect(modelChain()).toEqual([DEFAULT_MODEL, "a/one", "b/two"]);
+    expect(modelChainFor(openrouter())).toEqual([DEFAULT_MODEL, "a/one", "b/two"]);
+  });
+
+  it("uses per-provider defaults and override envs", () => {
+    expect(modelChainFor(spec("groq"))).toEqual(["openai/gpt-oss-120b", "openai/gpt-oss-20b"]);
+    expect(modelChainFor(spec("cerebras"))).toEqual(["gpt-oss-120b"]);
+    expect(modelChainFor(spec("gemini"))).toEqual(["gemini-3.8-flash", "gemini-3.5-flash-lite"]);
+    vi.stubEnv("GROQ_MODEL", "custom/model");
+    vi.stubEnv("GROQ_FALLBACK_MODELS", "a/x,b/y");
+    expect(modelChainFor(spec("groq"))).toEqual(["custom/model", "a/x", "b/y"]);
   });
 });
 
 describe("provider registry", () => {
-  beforeEach(() => vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "1"));
+  beforeEach(clearKeys);
   afterEach(() => vi.unstubAllEnvs());
 
-  it("lists configured providers in priority order", () => {
-    vi.stubEnv("NVIDIA_API_KEY", "");
-    vi.stubEnv("OPENROUTER_API_KEY", "");
-    vi.stubEnv("UNOROUTER_API_KEY", "u");
-    vi.stubEnv("KIRAAI_API_KEY", "k");
-    expect(configuredProviders().map((p) => p.label)).toEqual(["unorouter", "kiraai"]);
+  it("has no paid provider and no retired one", () => {
+    expect(PROVIDERS.map((p) => p.label)).toEqual(["unorouter", "groq", "cerebras", "gemini", "nvidia", "openrouter"]);
   });
 
-  it("leads with the transport that can actually answer", () => {
-    // Ordering policy: measured provider reliability (judge benchmark
-    // 2026-10-04), not a probe. UnoRouter returned 252/312; OpenRouter Super
-    // 92/312. Both are below or above providerReliabilityMin (0.75) accordingly,
-    // and only one of them clears it — so only one of them may lead.
-    vi.stubEnv("NVIDIA_API_KEY", "");
+  it("orders measured-good, then unmeasured, then measured-bad", () => {
+    // UnoRouter 278/312 clears providerReliabilityMin; OpenRouter's free pool
+    // 72/300 does not, so it is tried last; unmeasured transports sit between.
+    for (const k of ALL_KEYS) vi.stubEnv(k, "k");
+    const order = configuredProviders().map((p) => p.label);
+    expect(order[0]).toBe("unorouter");
+    expect(order[order.length - 1]).toBe("openrouter");
+  });
+
+  it("serves keyed providers in every environment — there is no production gate any more", () => {
+    vi.stubEnv("GROQ_API_KEY", "g");
     vi.stubEnv("OPENROUTER_API_KEY", "o");
-    vi.stubEnv("UNOROUTER_API_KEY", "u");
-    expect(activeProvider().label).toBe("unorouter");
-    expect(activeProvider().url).toBe("https://api.unorouter.com/v1/chat/completions");
-
-    // Still falls through the registry in order when a transport has no key.
-    vi.stubEnv("UNOROUTER_API_KEY", "");
-    expect(activeProvider().label).toBe("openrouter");
-
-    // nvidia is last while it remains unmeasured, but still usable alone.
-    vi.stubEnv("OPENROUTER_API_KEY", "");
-    vi.stubEnv("NVIDIA_API_KEY", "n");
-    expect(activeProvider().label).toBe("nvidia");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "");
+    expect(configuredProviders().map((p) => p.label)).toEqual(["groq", "openrouter"]);
   });
 
-  it("falls back to OpenRouter shape (no key) when nothing is configured", () => {
-    for (const k of ["NVIDIA_API_KEY", "OPENROUTER_API_KEY", "UNOROUTER_API_KEY", "KIRAAI_API_KEY"]) {
-      vi.stubEnv(k, "");
-    }
-    expect(configuredProviders()).toEqual([]);
-    // activeProvider defaults to the OpenRouter label with an empty key; the
-    // first request throws the actionable "no provider key" message.
-    expect(activeProvider().label).toBe("openrouter");
-    expect(activeProvider().key).toBe("");
+  it("removes a keyed provider with <LABEL>_DISABLED=1", () => {
+    vi.stubEnv("GROQ_API_KEY", "g");
+    vi.stubEnv("GEMINI_API_KEY", "m");
+    vi.stubEnv("GROQ_DISABLED", "1");
+    expect(configuredProviders().map((p) => p.label)).toEqual(["gemini"]);
   });
 
-  it("uses per-provider defaults and override envs for the free alternates", () => {
-    vi.stubEnv("NVIDIA_API_KEY", "");
-    vi.stubEnv("OPENROUTER_API_KEY", "");
-    vi.stubEnv("UNOROUTER_API_KEY", "u");
-    expect(currentModel()).toBe("nemotron-3.5-lightning:free");
-    expect(modelChain().slice(0, 2)).toEqual([
-      "nemotron-3.5-lightning:free",
-      "nemotron-3-super-120b-a12b:free",
+  it("flattens every provider's model chain into one failover chain, in order", () => {
+    vi.stubEnv("CEREBRAS_API_KEY", "c");
+    vi.stubEnv("GEMINI_API_KEY", "m");
+    expect(failoverChain().map((s) => `${s.provider.label}:${s.model}`)).toEqual([
+      "cerebras:gpt-oss-120b",
+      "gemini:gemini-3.8-flash",
+      "gemini:gemini-3.5-flash-lite",
     ]);
-    vi.stubEnv("UNOROUTER_MODEL", "custom/model");
-    expect(modelChain()[0]).toBe("custom/model");
-    vi.stubEnv("UNOROUTER_FALLBACK_MODELS", "a/x,b/y");
-    expect(modelChain()).toEqual(["custom/model", "a/x", "b/y"]);
+    expect(failoverChain()[0].key).toBe("c");
+  });
+
+  it("is empty when nothing is configured", () => {
+    expect(configuredProviders()).toEqual([]);
+    expect(failoverChain()).toEqual([]);
   });
 });
 
@@ -175,10 +183,8 @@ const TOPIC = JSON.stringify({
 
 describe("generateDailyTopic transport", () => {
   beforeEach(() => {
+    clearKeys();
     vi.stubEnv("OPENROUTER_API_KEY", "test-key");
-    // The transport tests exercise the free chain — which production keeps
-    // behind JUDGE_ALLOW_FREE_PROVIDERS (see the gating tests below).
-    vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "1");
     vi.useFakeTimers();
   });
   afterEach(() => {
@@ -307,56 +313,110 @@ describe("generateDailyTopic transport", () => {
       await expect(settle(generateDailyTopic([]))).rejects.toThrow(/truncated at max_tokens/);
     });
 
-    it("fails fast and clearly when the key is absent", async () => {
+    it("fails fast and clearly when no key is present", async () => {
       vi.stubEnv("OPENROUTER_API_KEY", "");
-      await expect(generateDailyTopic([])).rejects.toThrow(/No judge provider configured/i);
+      await expect(generateDailyTopic([])).rejects.toThrow(/No AI provider configured/i);
+    });
+
+    it("retries without json_object mode when the endpoint rejects it", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(errorResponse(400, "response_format type json_object is not supported"))
+        .mockResolvedValueOnce(okResponse(TOPIC));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const topic = await settle(generateDailyTopic([]));
+
+      expect(topic.title).toBe("Ban cars downtown");
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).response_format).toEqual({ type: "json_object" });
+      expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).not.toHaveProperty("response_format");
+    });
+
+    it("rejects a schema-invalid answer instead of returning it", async () => {
+      const fetchMock = vi.fn().mockImplementation(async () => okResponse(JSON.stringify({ title: "x" })));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(settle(generateDailyTopic([]))).rejects.toThrow(/failed schema validation/);
     });
   });
 
-  describe("free-chain gating (JUDGE_ALLOW_FREE_PROVIDERS)", () => {
-    afterEach(() => vi.unstubAllEnvs());
+  describe("cross-provider failover", () => {
+    const urlOf = (call: unknown[]) => String(call[0]);
 
-    function stubKeys() {
-      // The parent transport suite opts into the free chain; start from the
-      // production default (unset) so each case states its own policy.
-      vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "");
+    it("moves to the next provider when every model on the first fails", async () => {
       vi.stubEnv("UNOROUTER_API_KEY", "u");
-      vi.stubEnv("OPENROUTER_API_KEY", "o");
-      vi.stubEnv("NVIDIA_API_KEY", "");
-      vi.stubEnv("KIRAAI_API_KEY", "");
-    }
+      vi.stubEnv("UNOROUTER_FALLBACK_MODELS", "");
+      const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+        url.includes("unorouter") ? errorResponse(404, "no endpoints") : okResponse(TOPIC),
+      );
+      vi.stubGlobal("fetch", fetchMock);
 
-    it("denies the free chain by default even when every key is present", () => {
-      stubKeys();
-      expect(configuredProviders()).toEqual([]);
+      const topic = await settle(generateDailyTopic([]));
+
+      expect(topic.title).toBe("Ban cars downtown");
+      expect(urlOf(fetchMock.mock.calls[0])).toContain("api.unorouter.com");
+      expect(urlOf(fetchMock.mock.calls[1])).toContain("openrouter.ai");
     });
 
-    it("allows the free chain outside production only when opted in", () => {
-      stubKeys();
-      vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "1");
-      vi.stubEnv("NODE_ENV", "development");
-      expect(configuredProviders().map((p) => p.label)).toEqual(["unorouter", "openrouter"]);
+    it("skips the rest of a provider whose key is rejected", async () => {
+      vi.stubEnv("GEMINI_API_KEY", "bad");
+      const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+        url.includes("googleapis") ? errorResponse(401, "API key not valid") : okResponse(TOPIC),
+      );
+      vi.stubGlobal("fetch", fetchMock);
 
-      vi.stubEnv("VERCEL_ENV", "production");
-      expect(configuredProviders()).toEqual([]);
+      await settle(generateDailyTopic([]));
 
-      vi.stubEnv("VERCEL_ENV", "preview");
-      expect(configuredProviders().map((p) => p.label)).toEqual(["unorouter", "openrouter"]);
+      // gemini has two models, but a 401 means the key is bad for all of them.
+      expect(fetchMock.mock.calls.filter((c) => urlOf(c).includes("googleapis"))).toHaveLength(1);
     });
 
-    it("supports the explicitly-named emergency override in production", () => {
-      stubKeys();
-      vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "emergency");
-      vi.stubEnv("VERCEL_ENV", "production");
-      expect(configuredProviders().map((p) => p.label)).toEqual(["unorouter", "openrouter"]);
+    it("sends gpt-oss providers low reasoning effort and never the OpenRouter-only toggle", async () => {
+      vi.stubEnv("OPENROUTER_API_KEY", "");
+      vi.stubEnv("GROQ_API_KEY", "g");
+      const fetchMock = vi.fn().mockResolvedValue(okResponse(TOPIC));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await settle(generateDailyTopic([]));
+
+      expect(urlOf(fetchMock.mock.calls[0])).toBe("https://api.groq.com/openai/v1/chat/completions");
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body.model).toBe("openai/gpt-oss-120b");
+      expect(body.reasoning_effort).toBe("low");
+      expect(body).not.toHaveProperty("reasoning");
+      expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer g");
     });
 
-    it("denies the free chain in production even with E2E-style flags unless emergency", () => {
-      stubKeys();
-      vi.stubEnv("JUDGE_ALLOW_FREE_PROVIDERS", "1");
-      vi.stubEnv("VERCEL_ENV", "production");
-      vi.stubEnv("E2E_MOCK_AI", "1");
-      expect(configuredProviders()).toEqual([]);
+    it("stamps a verdict with the provider and model that actually served it", async () => {
+      vi.stubEnv("UNOROUTER_API_KEY", "u");
+      vi.stubEnv("UNOROUTER_FALLBACK_MODELS", "");
+      vi.stubEnv("OPENROUTER_FALLBACK_MODELS", "");
+      const graph = {
+        rationale: "A answered B's claim directly.",
+        argGraph: {
+          nodes: [
+            { id: "c1", kind: "claim", owner: "a", text: "Cars pollute city centres.", round: 1 },
+            { id: "c2", kind: "claim", owner: "b", text: "Bans hurt local shops.", round: 1 },
+          ],
+          edges: [],
+          dropped: [],
+          contradictions: [],
+          concessions: [],
+          fallacies: [],
+          evidenceStats: { total: 0, byOwner: { a: 0, b: 0, ai: 0 }, byStrength: { anecdotal: 0, general: 0, cited: 0, strong: 0 }, unsupportedClaimIds: [] },
+          impactComparison: { a: 0, b: 0, rationale: "even" },
+        },
+      };
+      const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+        url.includes("unorouter") ? rateLimited() : okResponse(JSON.stringify(graph)),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const verdict = await settle(
+        judgePvpMatch({ topicTitle: "Cars", topicPrompt: "Ban cars?", playerASide: "for", transcript: "A: x\nB: y" }),
+      );
+
+      expect(verdict.servedBy).toEqual({ provider: "openrouter", model: DEFAULT_MODEL });
     });
   });
 

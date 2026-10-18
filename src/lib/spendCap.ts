@@ -1,11 +1,10 @@
 // Daily AI spend cap — a durable, fail-open safety net against runaway spend.
 //
 // The meter is `ai_call_log` for the current UTC day (migrations 006/015/037):
-// provider-reported cost is summed verbatim, Anthropic calls are costed from
-// their token usage at list price (src/lib/anthropicPricing.ts), and calls with
-// no cost at all (classifier.dev; an unpriced model) are charged a DECLARED
-// per-call assumption so the meter can never silently read $0 when cost is
-// unreported. The assumption is an explicit, tunable number — a declared
+// provider-reported cost is summed verbatim, free-tier chain calls are logged
+// at $0 (openrouter.ts), and calls with no cost recorded at all (classifier.dev)
+// are charged a DECLARED per-call assumption so the meter can never silently
+// read $0 when cost is unreported. The assumption is an explicit, tunable number — a declared
 // budgeting figure, not a measured price — and is documented as such.
 //
 // Behaviour contract:
@@ -135,9 +134,8 @@ async function defaultMeter(): Promise<SpendMeterTotals> {
 }
 
 /**
- * Declared charge used for an in-flight reservation when no better estimate
- * exists (Anthropic reserves its max_tokens worst case instead, never less
- * than this). It matches the default
+ * Declared charge used for an in-flight reservation on a call whose cost is
+ * not known in advance. It matches the default
  * uncosted-call assumption, so a reservation is not more pessimistic than the
  * durable meter will eventually charge for the same call.
  */

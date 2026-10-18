@@ -4,8 +4,10 @@
 // benchmark validates the same providers production uses.
 //
 // Configured providers (in priority order): NVIDIA_API_KEY → OPENROUTER_API_KEY
-// → UNOROUTER_API_KEY → KIRAAI_API_KEY. Model overrides use <LABEL>_MODEL and
-// <LABEL>_FALLBACK_MODELS (comma-separated; empty pins one).
+// → UNOROUTER_API_KEY → GROQ_API_KEY → CEREBRAS_API_KEY → GEMINI_API_KEY →
+// KIRAAI_API_KEY (opt-in only). All free tiers; there is no paid judge. Model
+// overrides use <LABEL>_MODEL and <LABEL>_FALLBACK_MODELS (comma-separated;
+// empty pins one).
 
 function extractJson(text) {
   const trimmed = String(text ?? "").trim();
@@ -37,8 +39,8 @@ export function buildVerdictSystem(citationClause = CITATION_CLAUSE_DEFAULT) {
 /** Benchmark verdict-prompt wording. v5 (2026-09-14): fairness clauses added
  *  against live diagnostic evidence (label/format flips, ungrounded-citation
  *  influence, overconfidence) — general judge-policy wording only, never
- *  fixture-specific tuning. Production's graph-extraction legs (openrouter.ts
- *  / anthropic.ts judge_pvp) carry the same clauses at PROMPT_VERSION 4.
+ *  fixture-specific tuning. Production's graph-extraction leg (openrouter.ts
+ *  judge_pvp) carries the same clauses at PROMPT_VERSION 4.
  *  Experiment variants change only CITATION_CLAUSE via buildVerdictSystem. */
 export const VERDICT_PROMPT_VERSION = 5;
 
@@ -65,7 +67,7 @@ function normaliseVerdict(parsed) {
   };
 }
 
-async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {}, timeoutMs = 35_000, disableReasoning = true }) {
+async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {}, timeoutMs = 35_000, disableReasoning = true, reasoningToggle = true, extraBody = {} }) {
   const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -77,10 +79,14 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
       temperature: 0,
     };
     // Free Nemotron models bill thinking tokens against max_tokens; the
-    // verdict JSON is small, so reasoning is disabled exactly like the app's
-    // transport (openrouter.ts post()). Endpoints that require reasoning
-    // reject the flag and are retried without it.
-    if (disableReasoning) payload.reasoning = { enabled: false };
+    // verdict JSON is small, so reasoning is disabled (OpenRouter-style
+    // gateways) or set low (extraBody, e.g. gpt-oss reasoning_effort) exactly
+    // like the app's transport (openrouter.ts post()). Endpoints that reject
+    // either are retried without them.
+    if (disableReasoning) {
+      if (reasoningToggle) payload.reasoning = { enabled: false };
+      Object.assign(payload, extraBody);
+    }
     const res = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...extraHeaders },
@@ -90,7 +96,7 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
     const bodyText = await res.text();
     if (!res.ok) {
       if (disableReasoning && res.status === 400 && /reasoning/i.test(bodyText)) {
-        return chat({ url, key, model, system, user, maxTokens, extraHeaders, timeoutMs, disableReasoning: false });
+        return chat({ url, key, model, system, user, maxTokens, extraHeaders, timeoutMs, disableReasoning: false, reasoningToggle, extraBody });
       }
       const err = new Error(`${res.status}: ${bodyText.slice(0, 160)}`);
       err.httpStatus = res.status;
@@ -123,6 +129,7 @@ export const PROVIDERS = [
     url: "https://integrate.api.nvidia.com/v1/chat/completions",
     defaultModel: "nvidia/nemotron-3-ultra-550b-a55b",
     fallbacks: ["nvidia/nemotron-3-super-120b-a12b"],
+    reasoningToggle: true,
   },
   {
     label: "openrouter",
@@ -137,6 +144,7 @@ export const PROVIDERS = [
       "nvidia/nemotron-3-ultra-550b-a55b:free",
     ],
     extraHeaders: { "HTTP-Referer": "https://daily-debate.app" },
+    reasoningToggle: true,
   },
   {
     label: "unorouter",
@@ -146,6 +154,38 @@ export const PROVIDERS = [
     // glm-5.3:free deliberately excluded: its free tier allows 1 request per
     // minute per account, which poisons burst benchmark traffic with 429s.
     fallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free"],
+    reasoningToggle: true,
+  },
+  // Free tiers added 2026-10 (same defaults as src/lib/openrouter.ts): Groq
+  // retired llama-3.3-70b-versatile for free tiers on 2026-08-16 in favour of
+  // gpt-oss-120b; Cerebras's catalog lists gpt-oss-120b; Gemini's
+  // OpenAI-compatibility docs use gemini-3.8-flash. No benchmark row yet.
+  {
+    label: "groq",
+    keyEnv: "GROQ_API_KEY",
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    defaultModel: "openai/gpt-oss-120b",
+    fallbacks: ["openai/gpt-oss-20b"],
+    reasoningToggle: false,
+    extraBody: { reasoning_effort: "low" },
+  },
+  {
+    label: "cerebras",
+    keyEnv: "CEREBRAS_API_KEY",
+    url: "https://api.cerebras.ai/v1/chat/completions",
+    defaultModel: "gpt-oss-120b",
+    fallbacks: [],
+    reasoningToggle: false,
+    extraBody: { reasoning_effort: "low" },
+  },
+  {
+    label: "gemini",
+    keyEnv: "GEMINI_API_KEY",
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    defaultModel: "gemini-3.8-flash",
+    fallbacks: ["gemini-3.5-flash-lite"],
+    reasoningToggle: false,
+    extraBody: { reasoning_effort: "low" },
   },
   {
     label: "kiraai",
@@ -159,6 +199,7 @@ export const PROVIDERS = [
     // documents that live state instead of assuming.
     defaultModel: "qwen3.8-flash",
     fallbacks: ["glm-5.3", "hy3"],
+    reasoningToggle: true,
   },
 ];
 
@@ -213,6 +254,7 @@ export function generationChains(env = process.env) {
     key: (env[provider.keyEnv] ?? "").trim(),
     models: chainFor(provider, env),
     extraHeaders: provider.extraHeaders ?? {},
+    extraBody: provider.extraBody ?? {},
   }));
 }
 
@@ -232,7 +274,12 @@ function isTransportError(e) {
   return /abort|fetch failed|network|ETIMEDOUT|ECONN/i.test(String(e?.message ?? e));
 }
 
-function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem(), userFn = verdictUser, maxTokens = 900, stats = null }) {
+/** The request-shape fields chat() needs from a registry entry. */
+function requestCompat(provider) {
+  return { reasoningToggle: provider.reasoningToggle !== false, extraBody: provider.extraBody ?? {} };
+}
+
+function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem(), userFn = verdictUser, maxTokens = 900, stats = null, reasoningToggle = true, extraBody = {} }) {
   return async (input) => {
     let lastError;
     const chainErrors = {};
@@ -246,7 +293,7 @@ function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVer
             stats.byModel[model] = (stats.byModel[model] ?? 0) + 1;
           }
           const { content, tokens, promptTokens, completionTokens, latencyMs } = await chat({
-            url, key, model, system, user: userFn(input), maxTokens, extraHeaders,
+            url, key, model, system, user: userFn(input), maxTokens, extraHeaders, reasoningToggle, extraBody,
           });
           if (stats) stats.succeeded += 1;
           return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs };
@@ -288,7 +335,7 @@ export function groundingVerdictUser(grounded) {
     `Grounded evidence representation (extracted by a prior pass; statuses are the transcript's own verifiability, not the sources' real truth):\n${JSON.stringify(grounded)}\n\nDebate transcript (Player A vs Player B):\n\n${transcript}\n\nScore both sides 0-100 on observable argument quality using the grounded representation: credit supported evidence, treat unsupported assertions equally on both sides, and let unverifiable citation strings add NOTHING to score or confidence - a named source whose content cannot be checked from the material is rhetorical decoration, not evidence. Decide the winner strictly on structure; if the structural advantage is small or the sides trade comparable blows, return "tie". Confidence must reflect how clear the advantage is: 0.5-0.6 when balanced, above 0.8 only for decisive one-sided structure, and never above 0.75 when the leading side's edge depends on unverifiable evidence.\nReturn JSON exactly: {"winner":"a|b|tie","playerAScore":<int>,"playerBScore":<int>,"confidence":<0..1>}`;
 }
 
-function makeGroundingJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem(), stats = null }) {
+function makeGroundingJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem(), stats = null, reasoningToggle = true, extraBody = {} }) {
   // Pass 1: extract + classify evidence verifiability. One attempt per chain
   // model (no verdict parsing); failures surface as ordinary call errors, so
   // the arm's reliability is measured honestly, not flattered by retries.
@@ -300,7 +347,7 @@ function makeGroundingJudge({ url, key, models, extraHeaders = {}, system = buil
         if (stats) { stats.attempts += 1; stats.byModel[model] = (stats.byModel[model] ?? 0) + 1; }
         const { content, tokens, promptTokens, completionTokens, latencyMs } = await chat({
           url, key, model, system: EXTRACT_SYSTEM, user: `Transcript:\n\n${transcript}\n\nReturn only the JSON.`,
-          maxTokens: 1_200, extraHeaders,
+          maxTokens: 1_200, extraHeaders, reasoningToggle, extraBody,
         });
         if (stats) stats.succeeded += 1;
         return { grounding: extractJson(content), tokens, promptTokens, completionTokens, latencyMs };
@@ -314,7 +361,7 @@ function makeGroundingJudge({ url, key, models, extraHeaders = {}, system = buil
   return async (transcript) => {
     const g = await extractPass(transcript);
     const judge = makeChainJudge({
-      url, key, models, extraHeaders, stats,
+      url, key, models, extraHeaders, stats, reasoningToggle, extraBody,
       system,
       userFn: groundingVerdictUser(g.grounding),
     });
@@ -457,6 +504,7 @@ export function allJudgeProviders(env = process.env, { system = buildVerdictSyst
         extraHeaders: provider.extraHeaders ?? {},
         system,
         stats,
+        ...requestCompat(provider),
       }),
     }));
     return [{ id: `ensemble:${legs.map((l) => l.label).join("+")}`, stats, fn: makeEnsembleJudge({ legs }) }];
@@ -469,7 +517,7 @@ export function allJudgeProviders(env = process.env, { system = buildVerdictSyst
     if (provider.label === "nvidia") {
       const models = chainFor(provider, env);
       const nvidiaStats = newJudgeStats();
-      judges.push({ id: `nvidia:${models.join("/")}`, stats: nvidiaStats, fn: build({ url: provider.url, key, models, system, stats: nvidiaStats }) });
+      judges.push({ id: `nvidia:${models.join("/")}`, stats: nvidiaStats, fn: build({ url: provider.url, key, models, system, stats: nvidiaStats, ...requestCompat(provider) }) });
       continue;
     }
     if (provider.label === "openrouter" && env.NVIDIA_API_KEY) continue; // already covered as direct nvidia
@@ -478,7 +526,7 @@ export function allJudgeProviders(env = process.env, { system = buildVerdictSyst
     judges.push({
       id: `${provider.label}:${models[0]}`,
       stats,
-      fn: build({ url: provider.url, key, models, extraHeaders: provider.extraHeaders ?? {}, system, stats }),
+      fn: build({ url: provider.url, key, models, extraHeaders: provider.extraHeaders ?? {}, system, stats, ...requestCompat(provider) }),
     });
   }
   return judges;
@@ -487,106 +535,6 @@ export function allJudgeProviders(env = process.env, { system = buildVerdictSyst
 /** Historical direct-nvidia alias kept for older env setups. */
 export function primaryChainJudge(env = process.env) {
   return allJudgeProviders(env)[0] ?? null;
-}
-
-// --- Anthropic judge (explicit selection only) -----------------------------
-// The pinned paid default judge. It is NOT part of allJudgeProviders' default
-// sweep — judge-benchmark only builds it when `--models anthropic` is passed —
-// so the weekly benchmark's judge set and leaderboard rows are unchanged by
-// its existence. Used by the pre-registration study that compares the pinned
-// paid model against the incumbent free chain. Dependency-free REST call,
-// same verdict prompt/normalisation/retry semantics as the chain judges.
-
-const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_API_VERSION = "2023-06-01";
-
-async function anthropicChat({ key, model, system, user, maxTokens, timeoutMs = 35_000 }) {
-  const started = Date.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(ANTHROPIC_API_URL, {
-      method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": ANTHROPIC_API_VERSION,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        temperature: 0,
-        system,
-        messages: [{ role: "user", content: user }],
-      }),
-      signal: controller.signal,
-    });
-    const bodyText = await res.text();
-    if (!res.ok) {
-      const err = new Error(`${res.status}: ${bodyText.slice(0, 160)}`);
-      err.httpStatus = res.status;
-      err.retryAfterSec = Number(res.headers?.get("retry-after")) || null;
-      throw err;
-    }
-    const data = JSON.parse(bodyText);
-    const content = data?.content?.find((block) => block.type === "text")?.text;
-    if (typeof content !== "string" || !content.trim()) throw new Error("empty content");
-    return {
-      content,
-      tokens: (data?.usage?.input_tokens ?? 0) + (data?.usage?.output_tokens ?? 0),
-      promptTokens: data?.usage?.input_tokens ?? null,
-      completionTokens: data?.usage?.output_tokens ?? null,
-      latencyMs: Date.now() - started,
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export function makeAnthropicJudge({ key, model, system = buildVerdictSystem(), stats = null }) {
-  return async (input) => {
-    let lastError;
-    const chainErrors = {};
-    const started = Date.now();
-    if (stats) stats.jobs += 1;
-    for (let attempt = 1; attempt <= CHAIN_ATTEMPTS_PER_MODEL; attempt++) {
-      if (stats) {
-        stats.attempts += 1;
-        stats.byModel[model] = (stats.byModel[model] ?? 0) + 1;
-      }
-      try {
-        const { content, tokens, promptTokens, completionTokens, latencyMs } = await anthropicChat({
-          key,
-          model,
-          system,
-          user: verdictUser(input),
-          maxTokens: 900,
-        });
-        if (stats) stats.succeeded += 1;
-        return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs };
-      } catch (e) {
-        if (stats) stats.errors += 1;
-        chainErrors[model] = String(e?.message ?? e).slice(0, 90);
-        lastError = e;
-        if (attempt >= CHAIN_ATTEMPTS_PER_MODEL || !isTransportError(e)) break;
-        const backoff = Math.min(e.retryAfterSec ? e.retryAfterSec * 1000 : 1200 * attempt, Math.max(0, CHAIN_RETRY_BUDGET_MS - (Date.now() - started)));
-        if (backoff <= 0) break;
-        if (stats) stats.backoffMs += backoff;
-        await new Promise((r) => setTimeout(r, backoff));
-      }
-    }
-    if (lastError) lastError.chainErrors = chainErrors;
-    throw lastError ?? new Error("anthropic judge failed");
-  };
-}
-
-/** The Anthropic judge for an EXPLICIT `--models anthropic` selection, or null without a key. */
-export function anthropicJudgeFor(env = process.env, { system = buildVerdictSystem() } = {}) {
-  const key = (env.ANTHROPIC_API_KEY ?? "").trim();
-  if (!key) return null;
-  const model = env.ANTHROPIC_MODEL || "claude-sonnet-5";
-  const stats = newJudgeStats();
-  return { id: `anthropic:${model}`, stats, fn: makeAnthropicJudge({ key, model, system, stats }) };
 }
 
 /**

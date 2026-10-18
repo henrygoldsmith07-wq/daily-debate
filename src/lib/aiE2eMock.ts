@@ -9,10 +9,9 @@ import type { ArgGraph } from "./argGraph";
  *
  * The E2E specs cannot intercept the server-side provider calls (Playwright
  * routes only see browser traffic), and CI must not spend tokens or hold API
- * keys. Setting E2E_MOCK_AI=1 on the *server* switches the primary provider's
+ * keys. Setting E2E_MOCK_AI=1 on the *server* switches the provider chain's
  * entry points to the scripted responses below. This flag is never set in real
- * deployments; withProviderFallback's anthropic leg is therefore unreachable
- * while the mock is active (the primary always validates).
+ * deployments.
  *
  * Shapes mirror what the provider schema validation accepts so the routes'
  * own validation still exercises.

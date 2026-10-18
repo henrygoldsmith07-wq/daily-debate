@@ -70,7 +70,7 @@ test.describe("solo full-flow", () => {
 
     context.route("**/integrate.api.nvidia.com/**", (route) => respond(route, graphResponse));
     context.route("**/openrouter.ai/api/v1/**", (route) => respond(route, aiResponse));
-    context.route("**/api.anthropic.com/**", (route) => respond(route, aiResponse));
+    context.route("**/api.groq.com/**", (route) => respond(route, aiResponse));
   }
 
   test("signup → topic → debate → 5 rounds → finish → performance → history", async ({ page }) => {

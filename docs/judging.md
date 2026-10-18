@@ -22,7 +22,7 @@ Scored features: `claimsMade`, `claimsDirectlySupported`, `evidenceActuallyCited
 
 ## PvP judging
 
-PvP verdicts come from the ensemble harness — the default judge is ONE pinned paid model via a single provider (Anthropic `claude-sonnet-5` over `@anthropic-ai/sdk`, `ANTHROPIC_MODEL` override); the free OpenAI-style chain serves as a second leg only when `JUDGE_ALLOW_FREE_PROVIDERS=1` (dev/e2e) or as an emergency production override, and UnoRouter/Kirai never participate by default. The graph drives winner/scores via `finalizePvpAssessment`. Verdicts carry judge fingerprints (provider, model, prompt version, scoring engine version, temperature, ensemble) and the evaluation envelope stamp (`src/lib/evaluationEnvelope.ts`) — the exact model id is copied into the stamp itself (`judgeProvider`/`judgeModel`/`judgeEnsemble`), so any stored result is attributable to the exact policy and model that produced it.
+PvP verdicts come from the ensemble harness running ONE judge leg over the free-tier failover chain (UnoRouter → Groq → Cerebras → Gemini → NVIDIA → OpenRouter, each with its own model chain; `src/lib/openrouter.ts`). Whichever provider returns the first schema-valid graph serves the verdict, and its provider and model — not the first configured — go into the fingerprint. The graph drives winner/scores via `finalizePvpAssessment`. Verdicts carry judge fingerprints (provider, model, prompt version, scoring engine version, temperature, ensemble) and the evaluation envelope stamp (`src/lib/evaluationEnvelope.ts`) — the exact model id is copied into the stamp itself (`judgeProvider`/`judgeModel`/`judgeEnsemble`), so any stored result is attributable to the exact policy and model that produced it.
 
 ## Judge invariance and health
 

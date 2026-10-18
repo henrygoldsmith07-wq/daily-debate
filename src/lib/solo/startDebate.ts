@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { BackendClient } from "@/lib/backend/client";
 import { debateOpening } from "@/lib/openrouter";
-import { debateOpening as anthropicOpening } from "@/lib/anthropic";
-import { withProviderFallback } from "@/lib/aiFallback";
-import { isValidOpening } from "@/lib/aiSchema";
 import { isSpendCapError, retryAfterSecondsToReset } from "@/lib/spendCap";
 import type {
   CoachingContextDegradationReason,
@@ -290,23 +287,12 @@ export async function startSoloDebate(params: {
     const aiSide: DebateSide = side === "for" ? "against" : "for";
     let aiMessage: string;
     try {
-      aiMessage = await withProviderFallback(
-        () =>
-          debateOpening({
-            topicTitle: topic.title,
-            topicPrompt: topic.prompt,
-            aiSide,
-            directive: openingDirective(persona, difficulty, format),
-          }),
-        isValidOpening,
-        () =>
-          anthropicOpening({
-            topicTitle: topic.title,
-            topicPrompt: topic.prompt,
-            aiSide,
-            directive: openingDirective(persona, difficulty, format),
-          }),
-      );
+      aiMessage = await debateOpening({
+        topicTitle: topic.title,
+        topicPrompt: topic.prompt,
+        aiSide,
+        directive: openingDirective(persona, difficulty, format),
+      });
     } catch (error) {
       console.error("Failed to generate opening:", error);
       await releaseStartClaim();

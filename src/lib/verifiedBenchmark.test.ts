@@ -140,7 +140,7 @@ describe("ensemble + uncertainty", () => {
 
   it("two judges agreeing => higher confidence than one", () => {
     const a: PvpJudgeResult & { judgeId: "openrouter" } = { winner: "a", playerAScore: 80, playerBScore: 60, rationale: "A", judgeId: "openrouter" };
-    const b: PvpJudgeResult & { judgeId: "anthropic" } = { winner: "a", playerAScore: 78, playerBScore: 62, rationale: "A", judgeId: "anthropic" };
+    const b: PvpJudgeResult & { judgeId: "groq" } = { winner: "a", playerAScore: 78, playerBScore: 62, rationale: "A", judgeId: "groq" };
     const two = ensembleVerdicts([a, b]);
     expect(two.winner).toBe("a");
     expect(two.isTie).toBe(false);
@@ -149,7 +149,7 @@ describe("ensemble + uncertainty", () => {
 
   it("disagreeing judges => tie or low confidence", () => {
     const a: PvpJudgeResult & { judgeId: "openrouter" } = { winner: "a", playerAScore: 72, playerBScore: 68, rationale: "A", judgeId: "openrouter" };
-    const b: PvpJudgeResult & { judgeId: "anthropic" } = { winner: "b", playerAScore: 68, playerBScore: 72, rationale: "B", judgeId: "anthropic" };
+    const b: PvpJudgeResult & { judgeId: "groq" } = { winner: "b", playerAScore: 68, playerBScore: 72, rationale: "B", judgeId: "groq" };
     const e = ensembleVerdicts([a, b]);
     expect(e.isTie).toBe(true);
     expect(e.winner).toBe("tie");
