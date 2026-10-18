@@ -148,7 +148,7 @@ test.describe("guest practice honesty", () => {
     await expect(page.getByText("never a metric number", { exact: false })).toBeVisible();
 
     for (const label of ["Evidence", "Rebuttal", "Logic", "Engagement", "Impact", "Steelmanning", "Structure"]) {
-      await expect(page.getByText(label, { exact: false })).toBeVisible();
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
     }
     // Honesty-safe: the guest home teaches skill *names* with plain-language
     // descriptions, never metric numbers, ratings, or "you are X%" claims.
