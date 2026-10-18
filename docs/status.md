@@ -1,19 +1,34 @@
 # Status
 
 Honest labels for what is shipped, provisional, or gated — with the
-validation caveat that governs all of them. Last updated 2026-10-07.
+validation caveat that governs all of them. Last updated 2026-10-18 (numbers
+below are the 2026-10-12 published artifact; the table is refreshed whenever
+a new full-pack run lands).
 
 > ## ⚠️ Validation status: no judge currently passes
 >
-> As of the latest published benchmark run, **no model clears the judge gates**
-> (`docs/latest-judge-benchmark.json`, rendered per surface on `/metrics`):
+> As of the latest published benchmark run (2026-10-12,
+> `docs/latest-judge-benchmark.json`, rendered per surface on `/metrics`),
+> **no model clears the judge gates**:
 >
 > | | best measured | gate |
 > |---|---|---|
-> | Fixture-label agreement | **0.583** (n=24) | ≥ 0.75 |
-> | Calibration error (ECE) | **0.189** | ≤ 0.08 |
-> | Position-swap stability | **0.792** | ≥ 0.97 |
-> | Fake-citation influence | **0.381** | ≤ 0.05 |
+> | Fixture-label agreement | **0.696** (openrouter, n=23) | ≥ 0.75 |
+> | Calibration error (ECE) | **0.105** (unorouter, n=24) | ≤ 0.08 |
+> | Position-swap stability | **0.455** (unorouter; the only usable measurement this run) | ≥ 0.97 |
+> | Fake-citation influence | **0.5** (unorouter) | ≤ 0.05 |
+>
+> What those bests hide, stated per row: **openrouter** reached the best
+> agreement but answered only 72/300 transport calls (probe/audit instability
+> — provider rate limits and quota errors, not a verdict-quality result), so
+> every invariance gate for it is INSUFFICIENT DATA. **unorouter** answered
+> 278/312 and failed 13 of 14 gates (ideological asymmetry is the only PASS);
+> its 0.455 position-swap and 0.5 fake-citation readings are the worst
+> published numbers for either gate, replacing the 0.792 / 0.381 readings the
+> table had quoted from the 2026-09-14 prompt-v5 artifact (a kiraai free tier
+> that has since been retired mid-session). **kiraai** returned
+> errors on every call (0/24 usable) — a total outage recorded as
+> INSUFFICIENT DATA, never dropped from the record.
 >
 > **Which judge these numbers describe:** the free-tier models benchmarked so
 > far (OpenRouter/UnoRouter; Kirai, since removed). The app now runs only on
