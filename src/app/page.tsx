@@ -25,6 +25,7 @@ import { loadJudgeValidation } from "@/lib/judgeValidationServer";
 import { resolvePracticeMotion, type DueRetest } from "@/lib/practiceMotion";
 import { pickPriority } from "@/lib/dailyFocus";
 import { canonicalSkillKey } from "@/lib/skillTaxonomy";
+import { homeHeaderPills } from "@/lib/homeHeaderPills";
 import { dateKeyInTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
@@ -310,6 +311,8 @@ export default async function DashboardPage() {
     timeZone: profile?.timezone ?? "UTC",
   }).format(new Date());
 
+  const headerPills = homeHeaderPills(profile);
+
   return (
     <AppShell>
       <PageViewEvent name="daily_viewed" />
@@ -318,11 +321,11 @@ export default async function DashboardPage() {
         title="Today"
         description={today}
         actions={
-          profile && (
+          headerPills.length > 0 && (
             <>
-              <span className="pill tabular">🔥 {profile.current_streak}-day streak</span>
-              <span className="pill tabular">Level {profile.level}</span>
-              <span className="pill tabular">{profile.total_points} pts</span>
+              {headerPills.map((pill) => (
+                <span key={pill} className="pill tabular">{pill}</span>
+              ))}
             </>
           )
         }
@@ -489,9 +492,8 @@ export default async function DashboardPage() {
               </div>
             ) : (
               <p>
-                Complete a debate to start seeing your reasoning strengths and gaps. Until then, here is what each
-                skill tracks so you know what to practise:{" "}
-                {SKILL_ORDER.map((k) => `${SKILL_DIMENSIONS[k].label} — ${SKILL_DIMENSIONS[k].skill}`).join(", ")}.
+                Finish today&apos;s debate to start your profile across {SKILL_ORDER.length} reasoning skills. Each
+                one stays an early read until it has {MIN_PROFILE_DEBATES} debates behind it.
               </p>
             )}
             <Link href="/progress" className="home-secondary-action">
