@@ -1,7 +1,7 @@
 // Ensemble judges + provisional uncertainty estimates.
-// Combines OpenRouter + Anthropic verdicts and avoids pretending tiny score
-// differences are meaningful. Used by the public benchmark and by PvP when
-// live keys are present; falls back to single-judge otherwise.
+// Combines judge verdicts and avoids pretending tiny score differences are
+// meaningful. Used by the public benchmark (multiple judges) and by PvP, which
+// runs one judge over the free-provider failover chain.
 //
 // Honesty note on uncertainty: with 1–2 judges there is no meaningful sample
 // from which to compute inferential statistics. The fields below are
@@ -32,7 +32,7 @@ import {
 } from "./routeShadowValidation";
 import { isSpendCapError } from "./spendCap";
 
-export type JudgeId = ProviderLabel | "anthropic";
+export type JudgeId = ProviderLabel;
 export interface JudgedVerdict extends PvpJudgeResult {
   judgeId: JudgeId;
   latencyMs?: number;
@@ -212,16 +212,17 @@ export function ensembleVerdicts(judges: JudgedVerdict[]): EnsembleResult {
 // Live harness: call both judges with retries and timeout
 // ---------------------------------------------------------------------------
 
-const JUDGE_TIMEOUT_MS = 25_000;
+// Above the failover chain's own retry budget (45s, OPENROUTER_RETRY_BUDGET_MS)
+// so the timeout never cuts failover off before later providers get a turn;
+// the chain's deadline is what bounds the call.
+const JUDGE_TIMEOUT_MS = 55_000;
 
 async function expectedExpensiveJudgeLegs(): Promise<number> {
-  // Legs the harness will ACTUALLY run: the free-chain transport only when
-  // the free chain is allowed and keyed, plus Anthropic when keyed. This is
-  // the baseline used by the savings telemetry; it does not influence the
-  // verdict.
+  // Legs the harness will ACTUALLY run: one, over the free-provider failover
+  // chain, when any provider is keyed. This is the baseline used by the
+  // savings telemetry; it does not influence the verdict.
   const { configuredProviders } = await import("./openrouter");
-  const freeLeg = configuredProviders().length > 0 ? 1 : 0;
-  return freeLeg + (process.env.ANTHROPIC_API_KEY ? 1 : 0);
+  return configuredProviders().length > 0 ? 1 : 0;
 }
 
 function effectiveEnsemblePlan(plan: ArgumentRoutingPlan, reason?: string): ArgumentRoutingPlan {
@@ -289,7 +290,7 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
   }
 }
 
-/** Live ensemble: runs the active judge transport (and Anthropic when its key is present) in parallel, best-effort. Returns whatever succeeded. */
+/** Live judging: one leg over the free-provider failover chain. Returns the ensemble shape. */
 export async function liveEnsembleJudge(params: {
   topicTitle: string;
   topicPrompt: string;
@@ -339,42 +340,22 @@ export async function liveEnsembleJudge(params: {
   );
   const ensembleRouting = routingSummary(ensemblePlan, 0);
   const primary = await import("./openrouter");
-  const freeChainKeyed = primary.configuredProviders().length > 0;
-  const anthropicKeyed = Boolean(process.env.ANTHROPIC_API_KEY);
   const legs: Promise<JudgedVerdict>[] = [];
-  if (freeChainKeyed) {
-    // Free-chain chat transport (dev/e2e opt-in only): the first configured
-    // OpenAI-style provider in the registry (UnoRouter → OpenRouter → Kirai →
-    // NVIDIA).
+  if (primary.configuredProviders().length > 0) {
+    // The failover chain may be served by any configured provider, so the
+    // fingerprint names the transport and model that ACTUALLY produced the
+    // verdict, never the first one configured.
     legs.push(
       (async (): Promise<JudgedVerdict> => {
         const { makeFingerprint } = await import("./judgeVersioning");
-        const label = primary.activeProviderLabel();
         const t0 = Date.now();
-        const r = await withTimeout(primary.judgePvpMatch(params), JUDGE_TIMEOUT_MS, label);
+        const { servedBy, ...r } = await withTimeout(primary.judgePvpMatch(params), JUDGE_TIMEOUT_MS, "judge");
+        const provider = servedBy?.provider ?? primary.configuredProviders()[0].label;
         return {
           ...r,
-          judgeId: label,
+          judgeId: provider,
           latencyMs: Date.now() - t0,
-          fingerprint: makeFingerprint(label, primary.currentModel()),
-        };
-      })(),
-    );
-  }
-  if (anthropicKeyed) {
-    // Pinned paid judge: ONE model id, recorded in every verdict fingerprint
-    // and evaluation stamp (claude-sonnet-5 unless ANTHROPIC_MODEL overrides).
-    legs.push(
-      (async (): Promise<JudgedVerdict> => {
-        const anthropic = await import("./anthropic");
-        const { makeFingerprint } = await import("./judgeVersioning");
-        const t0 = Date.now();
-        const r = await withTimeout(anthropic.judgePvpMatch(params), JUDGE_TIMEOUT_MS, "anthropic");
-        return {
-          ...r,
-          judgeId: "anthropic" as const,
-          latencyMs: Date.now() - t0,
-          fingerprint: makeFingerprint("anthropic", anthropic.anthropicModel()),
+          fingerprint: makeFingerprint(provider, servedBy?.model ?? "unknown"),
         };
       })(),
     );
@@ -382,7 +363,7 @@ export async function liveEnsembleJudge(params: {
   if (!legs.length) {
     recordRoutingTelemetry(ensembleRouting);
     throw new Error(
-      "No judge configured — set ANTHROPIC_API_KEY (the pinned paid default), or opt into the free chain with JUDGE_ALLOW_FREE_PROVIDERS=1 (dev/e2e only).",
+      "No judge configured — set at least one free-tier provider key (UNOROUTER_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY, GEMINI_API_KEY, NVIDIA_API_KEY or OPENROUTER_API_KEY).",
     );
   }
   const settled = await Promise.allSettled(legs);

@@ -765,7 +765,7 @@ Return JSON: {"topics":[{"title":"...","prompt":"...","category":"...","sources"
   const attempts = [];
   let lastError;
   for (const chain of chains) {
-    const { label: provider, url, key, models, extraHeaders } = chain;
+    const { label: provider, url, key, models, extraHeaders, extraBody = {} } = chain;
     for (const [modelIndex, model] of models.entries()) {
       const attemptStartedAt = Date.now();
       let httpStatus = null;
@@ -781,6 +781,7 @@ Return JSON: {"topics":[{"title":"...","prompt":"...","category":"...","sources"
             ],
             max_tokens: 3000,
             temperature: 0.8,
+            ...extraBody,
           }),
           signal: AbortSignal.timeout(timeoutForAttempt(model, modelIndex, env)),
         });

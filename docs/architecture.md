@@ -60,8 +60,8 @@ External model providers receive debate content in several places; the
 structural classifier is NOT the only one. The full list: opponent generation
 (`debate_opening` / `debate_turn`), finish summaries (`summarize_solo`), PvP
 judge verdicts (`judge_pvp`) and daily topic generation send the transcript or
-prompt to the configured LLM provider (Anthropic by default; the free
-OpenAI-style chain only when `JUDGE_ALLOW_FREE_PROVIDERS=1`), and the
+prompt to the free-tier provider chain (any of UnoRouter, Groq, Cerebras,
+Gemini, NVIDIA, OpenRouter — whichever answers first), and the
 structural classifier sends argument texts to classifier.dev. Everything
 below applies to the classifier leg specifically.
 

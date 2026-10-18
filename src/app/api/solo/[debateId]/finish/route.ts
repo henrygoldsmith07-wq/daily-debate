@@ -3,9 +3,6 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/backend/server";
 import { checkRateLimit, checkRateLimitKey } from "@/lib/rateLimit";
 import { summarizeSoloDebate } from "@/lib/openrouter";
-import { summarizeSoloDebate as anthropicSummarize } from "@/lib/anthropic";
-import { withProviderFallback } from "@/lib/aiFallback";
-import { isValidSummary } from "@/lib/aiSchema";
 import { performanceScoreForTurns, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { computeCoachRewards, totalBonusXP } from "@/lib/coachRewards";
 import { buildEvaluationResult } from "@/lib/evaluationEnvelope";
@@ -220,11 +217,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   let summary;
   let summarySource: "ai" | "fallback" = "ai";
   try {
-    summary = await withProviderFallback(
-      () => summarizeSoloDebate({ topicTitle: topic.title, transcript }),
-      isValidSummary,
-      () => anthropicSummarize({ topicTitle: topic.title, transcript }),
-    );
+    summary = await summarizeSoloDebate({ topicTitle: topic.title, transcript });
   } catch (error) {
     console.error("Failed to summarize debate:", error);
     summarySource = "fallback";

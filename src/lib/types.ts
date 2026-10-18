@@ -303,7 +303,7 @@ export interface EvaluationStamp {
   evaluatedAt: string;
   /** Exact provider that produced this verdict's primary judge leg. Absent when no live judge ran (deterministic/insufficient evaluations). */
   judgeProvider?: string;
-  /** Exact model id that produced this verdict's primary judge leg, e.g. "claude-sonnet-5". Absent on pre-v3 stamps. */
+  /** Exact model id that produced this verdict's primary judge leg, e.g. "openai/gpt-oss-120b". Absent on pre-v3 stamps. */
   judgeModel?: string;
   /** Every judge model ATTEMPTED for this verdict, "provider:model" — the full ensemble composition. */
   judgeEnsemble?: string[];

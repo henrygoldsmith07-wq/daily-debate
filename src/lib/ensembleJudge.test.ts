@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ensembleVerdicts, verdictFromEnsemble } from "./ensembleJudge";
 import type { JudgedVerdict } from "./ensembleJudge";
 
-function judge(judgeId: "openrouter" | "anthropic", winner: "a" | "b" | "tie", a: number, b: number): JudgedVerdict {
+function judge(judgeId: "openrouter" | "groq", winner: "a" | "b" | "tie", a: number, b: number): JudgedVerdict {
   return { judgeId, winner, playerAScore: a, playerBScore: b, rationale: `${judgeId} rationale` };
 }
 
@@ -24,14 +24,14 @@ describe("ensembleVerdicts — uncertainty", () => {
   });
 
   it("agreeing judges raise confidence; the majority winner holds", () => {
-    const e = ensembleVerdicts([judge("openrouter", "a", 60, 40), judge("anthropic", "a", 58, 42)]);
+    const e = ensembleVerdicts([judge("openrouter", "a", 60, 40), judge("groq", "a", 58, 42)]);
     expect(e.winner).toBe("a");
     expect(e.judgeSplit.a).toBe(1);
     expect(e.confidence).toBeGreaterThan(0.6);
   });
 
   it("split judges collapse to a tie rather than a false winner", () => {
-    const e = ensembleVerdicts([judge("openrouter", "a", 60, 40), judge("anthropic", "b", 40, 60)]);
+    const e = ensembleVerdicts([judge("openrouter", "a", 60, 40), judge("groq", "b", 40, 60)]);
     expect(e.winner).toBe("tie");
     expect(e.isTie).toBe(true);
     expect(e.tieReason).toBeDefined();
@@ -47,7 +47,7 @@ describe("ensembleVerdicts — uncertainty", () => {
 
   it("ignores an insufficient judge when another judge has observable evidence", () => {
     const insufficient = { ...judge("openrouter", "tie", 0, 0), scoreStatus: "insufficient_evidence" as const };
-    const e = ensembleVerdicts([insufficient, judge("anthropic", "a", 72, 45)]);
+    const e = ensembleVerdicts([insufficient, judge("groq", "a", 72, 45)]);
     expect(e.scoreStatus).toBe("scored");
     expect(e.playerAScore).toBe(72);
     expect(e.playerBScore).toBe(45);
@@ -57,7 +57,7 @@ describe("ensembleVerdicts — uncertainty", () => {
 
 describe("verdictFromEnsemble — persists uncertainty onto the stored verdict", () => {
   it("maps scores, confidence, CIs, tie flag, and per-judge detail", () => {
-    const e = ensembleVerdicts([judge("openrouter", "a", 61, 39), judge("anthropic", "a", 59, 41)]);
+    const e = ensembleVerdicts([judge("openrouter", "a", 61, 39), judge("groq", "a", 59, 41)]);
     const v = verdictFromEnsemble(e);
 
     expect(v.winner).toBe("a");
@@ -69,11 +69,11 @@ describe("verdictFromEnsemble — persists uncertainty onto the stored verdict",
     expect(v.isTie).toBe(e.isTie);
     expect(v.tieReason).toBe(e.tieReason);
     expect(v.judges).toHaveLength(2);
-    expect(v.judges!.map((j) => j.judgeId)).toEqual(["openrouter", "anthropic"]);
+    expect(v.judges!.map((j) => j.judgeId)).toEqual(["openrouter", "groq"]);
   });
 
   it("marks a too-close-to-call result with isTie + tieReason", () => {
-    const v = verdictFromEnsemble(ensembleVerdicts([judge("anthropic", "a", 51, 49)]));
+    const v = verdictFromEnsemble(ensembleVerdicts([judge("groq", "a", 51, 49)]));
     expect(v.winner).toBe("tie");
     expect(v.isTie).toBe(true);
     expect(v.tieReason).toBeDefined();
@@ -82,7 +82,7 @@ describe("verdictFromEnsemble — persists uncertainty onto the stored verdict",
   it("takes the breakdown from a judge that scored, not from judges[0]", () => {
     const scoredBreakdown = { a: { claims: 4, evidence: 3, rebuttals: 2, impacts: 1, fallacies: 0, droppedSuffered: 0 }, b: { claims: 2, evidence: 1, rebuttals: 0, impacts: 0, fallacies: 1, droppedSuffered: 2 } };
     const insufficient = { ...judge("openrouter", "tie", 0, 0), scoreStatus: "insufficient_evidence" as const };
-    const scored = { ...judge("anthropic", "a", 72, 45), breakdown: scoredBreakdown };
+    const scored = { ...judge("groq", "a", 72, 45), breakdown: scoredBreakdown };
     const e = ensembleVerdicts([insufficient, scored]);
     const v = verdictFromEnsemble(e);
     expect(v.breakdown).toEqual(scoredBreakdown);
@@ -93,7 +93,7 @@ describe("verdictFromEnsemble — shadow record is telemetry, never authority", 
   it("carries shadowRouting through while winner/scores stay ensemble-owned", async () => {
     const { buildShadowRecord } = await import("./routeShadowValidation");
     const { emptyArgumentRoleCounts, ARGUMENT_TAXONOMY_VERSION } = await import("./argumentTaxonomy");
-    const e = ensembleVerdicts([judge("openrouter", "a", 61, 39), judge("anthropic", "a", 59, 41)]);
+    const e = ensembleVerdicts([judge("openrouter", "a", 61, 39), judge("groq", "a", 59, 41)]);
     const roleCounts = emptyArgumentRoleCounts();
     roleCounts.claim = 1;
     roleCounts.question = 1;
@@ -137,7 +137,7 @@ describe("verdictFromEnsemble — shadow record is telemetry, never authority", 
   it("an adopted lifecycle state never promotes the shadow route to authority", async () => {
     const { buildShadowRecord, monitorAdoptedRoute } = await import("./routeShadowValidation");
     const { emptyArgumentRoleCounts, ARGUMENT_TAXONOMY_VERSION } = await import("./argumentTaxonomy");
-    const e = ensembleVerdicts([judge("openrouter", "a", 61, 39), judge("anthropic", "a", 59, 41)]);
+    const e = ensembleVerdicts([judge("openrouter", "a", 61, 39), judge("groq", "a", 59, 41)]);
     const roleCounts = emptyArgumentRoleCounts();
     roleCounts.claim = 1;
     roleCounts.question = 1;

@@ -19,14 +19,9 @@ const PROCESSORS = [
     what: "Serves the app at the edge and runs the server routes. Standard request logs only.",
   },
   {
-    name: "Anthropic (AI model provider)",
+    name: "Free-tier AI providers (UnoRouter, Groq, Cerebras, Google Gemini, NVIDIA, OpenRouter)",
     what:
-      "Generates your AI opponent, the finish summary, and PvP verdicts. Debate transcripts and the motion are sent to the model (default `claude-sonnet-5`). This is the only third party that receives debate content in production.",
-  },
-  {
-    name: "Free-model transports (OpenRouter, NVIDIA, UnoRouter, Kirai)",
-    what:
-      "Alternative AI transports used only when explicitly enabled outside production (dev/e2e). Never used in production by default.",
+      "Generate your AI opponent, the finish summary, the daily topic, and PvP verdicts. Debate transcripts and the motion are sent to the first enabled provider that answers, so your content may reach any of them. These are free tiers: the providers may log prompts and, under their own terms, use them to improve their models (Google's free Gemini tier and some free OpenRouter models do). Don't write anything in a debate you would not want a third party to read.",
   },
   {
     name: "classifier.dev (argument-structure classification)",
@@ -50,7 +45,7 @@ export default async function PrivacyPage() {
       <main id="main" className="mx-auto w-full max-w-2xl px-6 py-12">
         <h1 className="text-2xl font-semibold tracking-tight">Privacy</h1>
         <p className="mt-2 text-sm text-ink3">
-          Last updated 2026-10-06. This is a UK-GDPR-oriented notice for a small self-hosted service operated from
+          Last updated 2026-10-18. This is a UK-GDPR-oriented notice for a small self-hosted service operated from
           the UK. It states what is actually stored and who processes it — nothing more.
         </p>
 
@@ -92,7 +87,7 @@ export default async function PrivacyPage() {
           <p className="text-ink3">
             There are no advertising networks, session-replay tools, or cross-site analytics. Product analytics live
             in our own database. Sending debate content to an AI provider is how the product works; it is the only
-            place content leaves the service, and only Anthropic receives it in production.
+            place content leaves the service.
           </p>
         </section>
 

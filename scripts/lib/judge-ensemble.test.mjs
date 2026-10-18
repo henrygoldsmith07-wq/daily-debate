@@ -1,7 +1,7 @@
 // The registered two-model ensemble arm (`ensemble-two-model-agreement`):
 // strict both-legs execution, deterministic mean/tie/discount aggregation,
 // exact-two-provider selection, and the byte-identical shipped prompt on both
-// legs. Network is stubbed exactly like judge-anthropic.test.mjs.
+// legs. Network is stubbed with a fetch mock.
 
 import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
