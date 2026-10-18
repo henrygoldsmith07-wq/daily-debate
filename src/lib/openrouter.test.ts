@@ -388,6 +388,9 @@ describe("generateDailyTopic transport", () => {
     });
 
     it("stamps a verdict with the provider and model that actually served it", async () => {
+      // CI's verify job runs with E2E_MOCK_AI=1, which short-circuits the judge
+      // to the scripted mock; this case is about the live transport.
+      vi.stubEnv("E2E_MOCK_AI", "");
       vi.stubEnv("UNOROUTER_API_KEY", "u");
       vi.stubEnv("UNOROUTER_FALLBACK_MODELS", "");
       vi.stubEnv("OPENROUTER_FALLBACK_MODELS", "");
