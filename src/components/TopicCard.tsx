@@ -98,7 +98,7 @@ export default function TopicCard({
   const sideMeta: Record<SideChoice, { label: string; sub: string }> = {
     for: { label: "For", sub: "Make the case" },
     against: { label: "Against", sub: "Push back" },
-    challenge: { label: "Challenge me", sub: "Pick my side" },
+    challenge: { label: "Challenge me", sub: "Pick for me" },
   };
 
   return (

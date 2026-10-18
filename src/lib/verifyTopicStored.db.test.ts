@@ -30,6 +30,12 @@ const VERIFY_SCRIPT = join(ROOT, "scripts", "verify-topic-stored.mjs");
 
 let pool: pg.Pool;
 
+// Only ever clean up the dates this file seeds (2026-10-01..09). An open-ended
+// `>= '2026-10-01'` wipe raced with other DB suites running in parallel (e.g.
+// soloStartAtomicity seeds a topic at current_date + 31) and deleted their rows
+// mid-test, producing intermittent foreign-key failures in CI.
+const OWN_DATES = "'2026-10-01'::date AND '2026-10-09'::date";
+
 const TOPIC = {
   title: "Cities should eliminate minimum parking requirements for new developments",
   prompt: "Should urban planning rules stop requiring developers to build parking spaces alongside new housing?",
@@ -42,14 +48,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await pool.query("DELETE FROM topic_evidence WHERE topic_id IN (SELECT id FROM daily_topics WHERE topic_date >= '2026-10-01'::date)");
-  await pool.query("DELETE FROM daily_topics WHERE topic_date >= '2026-10-01'::date");
+  await pool.query(`DELETE FROM topic_evidence WHERE topic_id IN (SELECT id FROM daily_topics WHERE topic_date BETWEEN ${OWN_DATES})`);
+  await pool.query(`DELETE FROM daily_topics WHERE topic_date BETWEEN ${OWN_DATES}`);
   await pool.end();
 });
 
 beforeEach(async () => {
-  await pool.query("DELETE FROM topic_evidence WHERE topic_id IN (SELECT id FROM daily_topics WHERE topic_date >= '2026-10-01'::date)");
-  await pool.query("DELETE FROM daily_topics WHERE topic_date >= '2026-10-01'::date");
+  await pool.query(`DELETE FROM topic_evidence WHERE topic_id IN (SELECT id FROM daily_topics WHERE topic_date BETWEEN ${OWN_DATES})`);
+  await pool.query(`DELETE FROM daily_topics WHERE topic_date BETWEEN ${OWN_DATES}`);
 });
 
 async function seedTopic(date: string, over: {

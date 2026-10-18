@@ -3,6 +3,7 @@
 import { useActionState, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { signIn, signUp, type AuthState } from "./actions";
+import type { AuthMode } from "@/lib/authRedirect";
 import { GUEST_LOOP_STORAGE_KEY, parseGuestLoopSummary, encodeGuestLoopSummary } from "@/lib/guestLoop";
 
 const initialState: AuthState = { error: null };
@@ -22,8 +23,15 @@ function subscribeGuestLoop(onStoreChange: () => void): () => void {
   return () => window.removeEventListener("storage", onStoreChange);
 }
 
-export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
-  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+export default function AuthForm({
+  nextPath = "/",
+  initialMode = "sign-in",
+}: {
+  nextPath?: string;
+  /** `/login?mode=signup` opens on Create account (every sign-up CTA links there). */
+  initialMode?: AuthMode;
+}) {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const timeZoneRef = useRef<HTMLInputElement>(null);
 
   function prepareTimeZone() {
@@ -111,7 +119,7 @@ export default function AuthForm({ nextPath = "/" }: { nextPath?: string }) {
               type="text"
               autoComplete="nickname"
               maxLength={40}
-              placeholder="Optional · shown to other players"
+              placeholder="Optional · shown on the leaderboard"
               className="rounded border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
             />
           </label>
