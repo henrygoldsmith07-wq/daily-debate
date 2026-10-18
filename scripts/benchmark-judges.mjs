@@ -3,10 +3,10 @@
 // validation. The canonical live judge benchmark is
 // scripts/judge-benchmark.mjs (24 fixtures, gates, fingerprint/latency/cost).
 // This file is not wired into npm scripts or CI and may import stale paths.
-// Live judge benchmark: runs real OpenRouter + Anthropic judges over the corpus,
+// Live judge benchmark: runs the real free-chain judge over the corpus,
 // computes bias probes with significance, ensemble, correlation and calibration.
 // Usage:
-//   OPENROUTER_API_KEY=... ANTHROPIC_API_KEY=... node scripts/benchmark-judges.mjs [--corpus 50] [--bias]
+//   OPENROUTER_API_KEY=... node scripts/benchmark-judges.mjs [--corpus 50] [--bias]
 //
 // Outputs JSON to stdout and a human summary to stderr.
 // Exit code 0 always (don't break CI when keys are missing — just report).
@@ -21,10 +21,9 @@ const log = (...a) => process.stderr.write(a.join(" ") + "\n");
 
 async function main() {
   const hasOpenRouter = !!process.env.OPENROUTER_API_KEY;
-  const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
-  if (!hasOpenRouter && !hasAnthropic) {
+  if (!hasOpenRouter) {
     const stub = {
-      skipped: "No OPENROUTER_API_KEY / ANTHROPIC_API_KEY set — run with keys to exercise live judges.",
+      skipped: "No OPENROUTER_API_KEY set — run with a key to exercise live judges.",
       offline: { hint: "Mock probes still run in `npm test` (src/lib/benchmarks.test.ts)." },
     };
     out(stub);
@@ -47,19 +46,13 @@ async function main() {
     out({ error: "No corpus loaded" });
     return;
   }
-  log(`[benchmark-judges] corpus=${pool.length} openrouter=${hasOpenRouter} anthropic=${hasAnthropic} bias=${doBias}`);
+  log(`[benchmark-judges] corpus=${pool.length} openrouter=${hasOpenRouter} bias=${doBias}`);
   const judges = [];
   if (hasOpenRouter) {
     try {
       const openrouter = await import("../src/lib/openrouter.ts");
       judges.push({ id: "openrouter", fn: openrouter.judgePvpMatch });
     } catch (e) { log("openrouter import failed", String(e?.message ?? e)); }
-  }
-  if (hasAnthropic) {
-    try {
-      const anthropic = await import("../src/lib/anthropic.ts");
-      judges.push({ id: "anthropic", fn: anthropic.judgePvpMatch });
-    } catch (e) { log("anthropic import failed", String(e?.message ?? e)); }
   }
   const topicTitle = "Benchmark topic";
   const topicPrompt = "Should test proposition?";

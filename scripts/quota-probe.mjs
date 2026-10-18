@@ -21,7 +21,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { allJudgeProviders, anthropicJudgeFor } from "./lib/judge-providers.mjs";
+import { allJudgeProviders } from "./lib/judge-providers.mjs";
 
 export const PROBE_TRANSCRIPT =
   "Side A (round 1): Renewable subsidies cut emissions.\nSide B (round 1): They mainly shift them abroad.\nSide A (round 2): Border adjustments close that gap.\nSide B (round 2): Which collapses under compliance cost.";
@@ -35,13 +35,11 @@ function loadDotEnvLocal() {
 }
 
 /**
- * Resolve the probe judge for one explicit label. "anthropic" builds the
- * pinned paid judge (it is not part of the default sweep); any other label
- * must match a configured provider's judge exactly - a miss is a no-resolve,
- * never a different provider.
+ * Resolve the probe judge for one explicit label. The label must match a
+ * configured provider's judge exactly - a miss is a no-resolve, never a
+ * different provider.
  */
 export function resolveJudgeForLabel(label, env = process.env) {
-  if (label === "anthropic") return anthropicJudgeFor(env);
   return allJudgeProviders(env).find((j) => j.id.split(":")[0] === label) ?? null;
 }
 

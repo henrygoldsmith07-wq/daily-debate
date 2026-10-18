@@ -30,15 +30,13 @@ a new full-pack run lands).
 > errors on every call (0/24 usable) — a total outage recorded as
 > INSUFFICIENT DATA, never dropped from the record.
 >
-> **Which judge these numbers describe:** only the free-chain models
-> (OpenRouter/UnoRouter/Kirai). The production judge, Anthropic
-> `claude-sonnet-5`, has **never been benchmarked**: the weekly workflow does
-> not run it, because a benchmark run spends paid API credit
-> (`npm run benchmark:judges -- --models anthropic` with `ANTHROPIC_API_KEY`
-> runs it on demand). Most free-chain failures are provider rate limits and
-> quota errors (429/402), so these figures do not measure the shipped judge
-> in either direction — the judge users see is **unmeasured**, not measured
-> and failing.
+> **Which judge these numbers describe:** the free-tier models benchmarked so
+> far (OpenRouter/UnoRouter; Kirai, since removed). The app now runs only on
+> free tiers, failing over across UnoRouter, Groq, Cerebras, Gemini, NVIDIA and
+> OpenRouter; Groq, Cerebras and Gemini have **no benchmark row yet** (the
+> weekly workflow picks them up once their keys are repository secrets). Most
+> free-tier failures are rate limits and quota errors (429/402), and a verdict
+> may come from whichever provider answered — each verdict's stamp names it.
 >
 > **What follows from that, stated plainly:** the software below is real and
 > works, but **every training-loop output it produces — weakness detection,
@@ -88,7 +86,7 @@ Elo remains code + tests only and was never rendered.
 - Guest practice without an account: deterministic local checks react to the actual response (claim, reasoning, opponent engagement, impact comparison, named evidence), identify one observable weakness, and offer a mini repair. The motion rotates from a curated set by UTC day (`src/lib/guestMotions.ts`), so guest mode costs nothing and stays deterministic. The loop completes the full cycle — debate → one weakness → repair → **retest under debate conditions** → an honest read of whether the move reappeared — before the signup prompt appears. Guest mode deliberately shows no numeric ability score: the retest reports one observed instance and names its sample size, never a claim of mastery.
 - Product analytics: allowlisted, bounded, no-free-text funnel events (`src/lib/productEvents.ts`), with transactional/idempotent solo round, completion and retest events plus an internal admin report at `/analytics` covering the training funnel, weekly loop volumes, and observational repair-effectiveness measurement.
 - Blind corpus rating with position-bias control: `validateRating` requires at least one scored dimension per side, so a winner-only submission can never be stored as a full neutral rating via the `completeScores` fallback and contaminate the inter-rater reliability matrix that gates judge validation. Partial dimension sets remain allowed (unscored dimensions fall back at analysis time); ratings stay append-once with admin-only audited corrections.
-- Judge reliability & cost controls (Phase 3): pinned paid default judge (`claude-sonnet-5` via `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` to override), free-provider chain gated off everywhere by default (`JUDGE_ALLOW_FREE_PROVIDERS`), a durable daily spend cap (`AI_DAILY_SPEND_CAP_USD`, fail-open on meter error, explicit retryable degradation), and per-verdict judge provider/model stamps.
+- Free-only AI with cross-provider failover (2026-10): the paid Anthropic judge/opponent was removed. Every call walks the keyed free tiers (UnoRouter → Groq → Cerebras → Gemini → NVIDIA → OpenRouter), model by model then provider by provider, accepting only schema-valid output; per-verdict stamps record the provider and model that actually served. The durable daily spend cap (`AI_DAILY_SPEND_CAP_USD`) remains as a guard; free-tier calls are metered at $0.
 - Privacy & data rights (Phase 3): `/privacy` and `/terms`, account self-service deletion (`DELETE /api/account` with password re-auth) backed by a transactional `delete_app_account(uuid)` erasure function, and a one-request JSON export (`GET /api/account/export`).
 - Expired sessions, password-reset tokens, rate-limit buckets, stale solo start/finalization/submission leases, legacy zero-turn solo orphans, and stale challenge invites are swept daily by the unattended `backend-cleanup` workflow; `npm run db:cleanup` runs the same maintenance function manually. Database maintenance and manual migrations share one concurrency group so they cannot overlap.
 

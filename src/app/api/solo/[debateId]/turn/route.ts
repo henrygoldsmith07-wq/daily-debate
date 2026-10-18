@@ -3,9 +3,6 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/backend/server";
 import { checkRateLimit, checkRateLimitKey } from "@/lib/rateLimit";
 import { debateTurn } from "@/lib/openrouter";
-import { debateTurn as anthropicTurn } from "@/lib/anthropic";
-import { withProviderFallback } from "@/lib/aiFallback";
-import { isValidDebateTurn } from "@/lib/aiSchema";
 import { isSpendCapError, retryAfterSecondsToReset } from "@/lib/spendCap";
 import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
@@ -348,29 +345,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     }
 
     try {
-      const result = await withProviderFallback(
-        () =>
-          debateTurn({
-            topicTitle: topic.title,
-            topicPrompt: topic.prompt,
-            userSide: debate.side as "for" | "against",
-            history,
-            latestUserMessage: effectiveMessage,
-            argumentRoute,
-            directive,
-          }),
-        isValidDebateTurn,
-        () =>
-          anthropicTurn({
-            topicTitle: topic.title,
-            topicPrompt: topic.prompt,
-            userSide: debate.side as "for" | "against",
-            history,
-            latestUserMessage: effectiveMessage,
-            argumentRoute,
-            directive,
-          }),
-      );
+      // Validated inside the provider chain: invalid output fails over.
+      const result = await debateTurn({
+        topicTitle: topic.title,
+        topicPrompt: topic.prompt,
+        userSide: debate.side as "for" | "against",
+        history,
+        latestUserMessage: effectiveMessage,
+        argumentRoute,
+        directive,
+      });
       feedback = result.feedback;
       nextAiMessage = result.aiMessage;
     } catch (error) {

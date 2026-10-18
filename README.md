@@ -20,8 +20,8 @@ Guests get the same loop deterministically, without an account or any network ca
 Practice quality beats practice volume. The product deliberately optimises the
 smallest complete loop and measures whether it works before adding anything
 else. Validation is published, not implied: as of the latest benchmark run **no
-benchmarked judge clears the quality gates** (only the free-chain models have
-been benchmarked; the paid production judge has not), so every training-loop number is unvalidated
+benchmarked judge clears the quality gates** (Groq, Cerebras and Gemini have no
+benchmark row yet), so every training-loop number is unvalidated
 and competitive claims stay behind `eloGate` — see
 [docs/status.md](docs/status.md) for the honest numbers and
 [docs/roadmap.md](docs/roadmap.md) for what is active (proving the loop) versus
@@ -29,7 +29,7 @@ parked (corpus, benchmarks, classrooms, tournaments, ranked play).
 
 ## Stack
 
-Next.js (App Router) + a repository-owned Postgres/auth backend + Anthropic as the default judge and opponent (one pinned paid model, `claude-sonnet-5`, over `@anthropic-ai/sdk`; `ANTHROPIC_MODEL` overrides). The free OpenAI-style chain (NVIDIA → OpenRouter → UnoRouter → Kirai) is opt-in for dev/e2e only via `JUDGE_ALLOW_FREE_PROVIDERS=1` and is never used in production by default. The app talks to standard Postgres through the Neon serverless driver.
+Next.js (App Router) + a repository-owned Postgres/auth backend + free-tier AI only: the opponent, summaries, topics and PvP judge run over OpenAI-compatible free tiers (UnoRouter → Groq → Cerebras → Gemini → NVIDIA → OpenRouter). Each call fails over model by model and then provider by provider until one returns a schema-valid answer, so a rate-limited free tier does not take the product down. There is no paid provider. The app talks to standard Postgres through the Neon serverless driver.
 
 ## Run
 
@@ -48,14 +48,12 @@ Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only chec
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | Server-only pooled Postgres connection string. Never expose it with a `NEXT_PUBLIC_` prefix. |
-| `ANTHROPIC_API_KEY` | yes (production) | The pinned paid judge/opponent. Solo debates, PvP judging, and daily topics fail with an explicit "judge unavailable" state without it (daily topics fall back to the curated bank). |
-| `ANTHROPIC_MODEL` | optional | Defaults to `claude-sonnet-5`. The exact id is stamped into every verdict's evaluation stamp. |
-| `JUDGE_ALLOW_FREE_PROVIDERS` | optional | `1` enables the free chain outside production (dev/e2e); `emergency` enables it in production too — incident response only, never a default. |
+| `UNOROUTER_API_KEY` / `GROQ_API_KEY` / `CEREBRAS_API_KEY` / `GEMINI_API_KEY` / `NVIDIA_API_KEY` / `OPENROUTER_API_KEY` | at least one (production) | Free-tier AI providers, tried in that order. Set as many as you can: each extra key is another fallback when a free tier is rate-limited. With none, solo debates, PvP judging and daily topics show an explicit "AI unavailable" state (daily topics fall back to the curated bank). `<LABEL>_DISABLED=1` removes one without deleting its key. |
+| `<LABEL>_MODEL` / `<LABEL>_FALLBACK_MODELS` | optional | Per-provider model chain (e.g. `GROQ_MODEL`). Defaults in `src/lib/openrouter.ts`. Free rosters change often; override when a provider retires a default. The model that actually served is stamped into every verdict. |
 | `AI_DAILY_SPEND_CAP_USD` | optional | Daily AI spend cap, default `10`; `off` disables. When hit: opponent/judge degrade to an explicit retryable unavailable state (never silent). |
-| `AI_SPEND_UNCOSTED_CALL_USD` | optional | Declared charge for each call with no known cost, default `0.02`. Anthropic calls are instead costed from their token usage at list price (`src/lib/anthropicPricing.ts`); this applies to providers that report nothing and to models missing from that table. |
+| `AI_SPEND_UNCOSTED_CALL_USD` | optional | Declared charge for each call with no recorded cost (classifier.dev), default `0.02`. Free-tier provider calls are logged at $0 unless the provider reports a cost. |
 | `CLASSIFIER_DEV_ENABLED` | optional | `1` sends argument texts to classifier.dev. Default off everywhere until the service is disclosed in the privacy policy. |
 | `NEXT_PUBLIC_EXPERIMENTAL_SURFACES` | optional | `1` re-enables the parked surfaces in navigation (PvP, friend challenges, voice input, corpus-validation pages). Default off — see [docs/status.md](docs/status.md). |
-| `OPENROUTER_API_KEY` / `UNOROUTER_API_KEY` / `KIRAAI_API_KEY` / `NVIDIA_API_KEY` | optional | Free-chain transports; only used when `JUDGE_ALLOW_FREE_PROVIDERS` allows them. |
 | `OPENROUTER_MODEL` | optional | Defaults to `nvidia/nemotron-3-super-120b-a12b:free`. |
 | `OPENROUTER_FALLBACK_MODELS` | optional | Comma-separated failover chain. Defaults to free Nemotron 3 Super then Ultra. Empty string pins to one model. |
 | `CORPUS_ADMIN_EMAILS` | optional | Leave unset to keep the corpus endpoints closed. |

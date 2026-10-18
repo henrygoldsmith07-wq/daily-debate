@@ -49,7 +49,9 @@ export default function BenchmarkPage() {
             Live runs need at least one provider key —{" "}
             <code className="text-xs">OPENROUTER_API_KEY</code>,{" "}
             <code className="text-xs">UNOROUTER_API_KEY</code>,{" "}
-            <code className="text-xs">KIRAAI_API_KEY</code>, or <code className="text-xs">NVIDIA_API_KEY</code> — repository secrets for CI, local keys for direct runs.
+            <code className="text-xs">GROQ_API_KEY</code>,{" "}
+            <code className="text-xs">CEREBRAS_API_KEY</code>,{" "}
+            <code className="text-xs">GEMINI_API_KEY</code>, or <code className="text-xs">NVIDIA_API_KEY</code> — repository secrets for CI, local keys for direct runs.
           </>
         }
       />

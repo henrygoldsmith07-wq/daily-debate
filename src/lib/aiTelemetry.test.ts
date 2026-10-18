@@ -64,9 +64,9 @@ describe("aiTelemetry ledger", () => {
     expect(aiCallStats().costKnown).toBe(true);
   });
 
-  it("flags costKnown=false when any call lacks provider-reported cost (anthropic)", () => {
+  it("flags costKnown=false when any call lacks provider-reported cost (classifier)", () => {
     recordAiCall(entry({ costUsd: 0.01 }));
-    recordAiCall(entry({ provider: "anthropic" }));
+    recordAiCall(entry({ provider: "classifier" }));
     expect(aiCallStats().costKnown).toBe(false);
   });
 

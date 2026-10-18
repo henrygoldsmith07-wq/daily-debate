@@ -203,11 +203,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
   let verdict: PvpVerdict;
   try {
-    // Route every judged match through the ensemble harness: it runs the
-    // configured OpenAI-style judge transports in parallel (whichever keys
-    // are present), falls back to a single judge when only one key is set,
-    // and always yields uncertainty fields (provisional agreement signal,
-    // score-gap band, judge split, "too close to call").
+    // Route every judged match through the ensemble harness: it runs one
+    // judge over the free-tier failover chain (whichever provider answers
+    // first serves, and is named in the fingerprint) and always yields
+    // uncertainty fields (provisional agreement signal, score-gap band, judge
+    // split, "too close to call").
     const { liveEnsembleJudge, verdictFromEnsemble } = await import("@/lib/ensembleJudge");
     const ensemble = await liveEnsembleJudge({
       topicTitle: topic?.title ?? "the topic",

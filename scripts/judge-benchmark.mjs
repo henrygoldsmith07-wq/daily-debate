@@ -21,7 +21,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { FIXTURES, STRATA } from "./lib/judge-fixtures.mjs";
 import { PROBES, AUDIT_TRANSFORMS } from "./lib/judge-transforms.mjs";
-import { allJudgeProviders, anthropicJudgeFor, estimatedCost, usableProviders, VERDICT_PROMPT_VERSION, buildVerdictSystem, verdictUser, RETRY_POLICY } from "./lib/judge-providers.mjs";
+import { allJudgeProviders, estimatedCost, usableProviders, VERDICT_PROMPT_VERSION, buildVerdictSystem, verdictUser, RETRY_POLICY } from "./lib/judge-providers.mjs";
 import { EXPERIMENTS, experimentSystem } from "./lib/judge-experiments.mjs";
 import {
   GATE_DEFAULTS,
@@ -405,16 +405,6 @@ async function main() {
         usableProviders(process.env).map((p) => p.label).join(", ") || "none"
       }; requested: ${MODELS.join(", ") || "all"}).`,
     );
-  }
-  // Anthropic (the pinned paid default) joins ONLY on an explicit selection,
-  // so the weekly sweep and leaderboard keep exactly the judge set they had.
-  if (MODELS.includes("anthropic")) {
-    if (kind !== "single-prompt") {
-      process.stderr.write(`[judge-benchmark] the anthropic judge implements single-prompt runs only (experiment kind: ${kind}).\n`);
-      process.exit(2);
-    }
-    const anthropic = anthropicJudgeFor(process.env, { system });
-    if (anthropic) judges.push(anthropic);
   }
   if (MODELS.length > 0 && judges.length === 0) {
     process.stderr.write(`[judge-benchmark] --models ${MODELS.join(",")} matched no configured provider.\n`);
