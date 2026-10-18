@@ -25,6 +25,9 @@ import {
   type GuestLoopSummary,
 } from "@/lib/guestLoop";
 import { SPRINT_ESTIMATE_MINUTES } from "@/lib/sprint";
+import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
+import { guestAccountBenefits } from "@/lib/guestAccountBenefits";
+import { SIGN_UP_PATH } from "@/lib/authRedirect";
 
 // Restore this tab's in-progress guest practice, if any. Runs at initial
 // render only (lazy initializer) so server HTML and the first client paint
@@ -146,7 +149,7 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
                       <span className="home-side-option-label">
                         {option === "for" ? "For" : option === "against" ? "Against" : "Challenge me"}
                       </span>
-                      <span>{option === "for" ? "Make the case" : option === "against" ? "Push back" : "Pick my side"}</span>
+                      <span>{option === "for" ? "Make the case" : option === "against" ? "Push back" : "Pick for me"}</span>
                     </button>
                   ))}
                 </div>
@@ -169,9 +172,10 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
               <h2 id="guest-skills">What this practice measures</h2>
             </div>
             <p className="mt-1 max-w-none text-ink2">
-              Each round is scored on the same seven reasoning skills the full product tracks. Guest practice
-              reports one observed weakness and one observable strength — never a metric number or a rating — so
-              you can see what to work on before you decide whether to keep your progress.
+              The full product coaches seven reasoning skills, listed below. Guest practice is a quick local
+              check of five of the moves behind them (a clear claim, a reason, answering the opponent, comparing
+              impact, and naming evidence). It shows you one thing you did well and one thing to fix — never a
+              metric number or a rating.
             </p>
             <ol className="mt-4 grid gap-3 sm:grid-cols-2">
               {SKILL_ORDER.map((k) => (
@@ -191,7 +195,7 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
             </div>
             <ol className="home-secondary-grid">
               {[
-                { step: "1", kicker: "Debate", title: "Three rounds against a guided case", copy: "Each round answers what the opponent actually said, rather than adding another claim. Guest opponents are scripted, so replies stay on-device." },
+                { step: "1", kicker: "Debate", title: "Three rounds against a guided case", copy: "Each round, answer what the opponent actually said instead of just adding another point. The opponent is scripted in guest mode, so nothing you write leaves your device." },
                 { step: "2", kicker: "Fix", title: "One weakness, repaired immediately", copy: "You see the missing move, why it matters, and rewrite it yourself." },
                 { step: "3", kicker: "Retest", title: "See whether it moved", copy: "You argue again and we check whether the repair held under debate conditions." },
               ].map((item) => (
@@ -213,28 +217,7 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
               <span className="section-heading-note">Free</span>
             </div>
             <div className="home-secondary-grid">
-              {[
-                {
-                  kicker: "Progress",
-                  title: "A profile that persists",
-                  copy: "Your argument graph, streak and skill trajectory are kept between debates instead of resetting each session.",
-                },
-                {
-                  kicker: "Measurement",
-                  title: "A real skill measurement",
-                  copy: "Guest shows one weakness and one retest. An account tracks the same move across many debates, with honest sample sizes.",
-                },
-                {
-                  kicker: "Player vs Player",
-                  title: "Debate other people",
-                  copy: "Take the motion head-to-head against another player and get a judged verdict on the transcript.",
-                },
-                {
-                  kicker: "History",
-                  title: "Every rep, replayable",
-                  copy: "Go back to any past debate, read the transcript, and see how the scoring was reached.",
-                },
-              ].map((item) => (
+              {guestAccountBenefits(experimentalSurfacesEnabled()).map((item) => (
                 <article key={item.title} className="home-secondary-card">
                   <p className="home-secondary-kicker">{item.kicker}</p>
                   <h3>{item.title}</h3>
@@ -418,7 +401,7 @@ function GuestDebate({
               </div>
             </div>
             <p className="px-1 text-[11px] leading-5 text-ink3">
-              Guest feedback checks only what is visible in your wording. An account adds persisted debates, argument graphs and longitudinal coaching.
+              Guest feedback only checks what is visible in your wording. An account saves your debates and keeps coaching you on the same weakness over time.
             </p>
           </aside>
         </main>
@@ -431,6 +414,7 @@ function GuestResult({
   motion,
   responses,
   repairSucceeded,
+  acceptedRepairText,
   validation,
   onRepairSucceeded,
   onRetest,
@@ -439,6 +423,12 @@ function GuestResult({
   motion: GuestMotion;
   responses: string[];
   repairSucceeded: boolean;
+  /**
+   * The rewrite already accepted for this practice, if any. Coming back from
+   * the retest ("Back to my result", or a reload) must show that accepted
+   * repair again, not an empty box beside a "Now prove it" button.
+   */
+  acceptedRepairText?: string | null;
   /** Live judge-output validation for this surface, from the report the page loaded. */
   validation?: SurfaceValidation | null;
   /** Called with the accepted rewrite so the retest checks the same move. */
@@ -449,9 +439,15 @@ function GuestResult({
 }) {
   const rounds = motion.rounds;
   const assessment = assessGuestPractice(responses, rounds.map((round) => round.opponent));
-  const [repair, setRepair] = useState("");
-  const [repairAssessment, setRepairAssessment] = useState<GuestRepairAssessment | null>(null);
   const sourceRound = rounds[assessment.sourceResponseIndex];
+  const [repair, setRepair] = useState(() => acceptedRepairText ?? "");
+  // Re-running the same deterministic check restores the same feedback the
+  // learner saw when the repair was accepted.
+  const [repairAssessment, setRepairAssessment] = useState<GuestRepairAssessment | null>(() =>
+    acceptedRepairText
+      ? assessGuestRepair(assessment.weakness.kind, acceptedRepairText, sourceRound?.opponent ?? "")
+      : null,
+  );
 
   function submitRepair() {
     if (repair.trim().length < 12) return;
@@ -477,13 +473,13 @@ function GuestResult({
       <div className="app-main">
         <header className="app-topbar app-topbar-guest">
           <Brand />
-          <Link href="/login" className="btn btn-secondary px-3 py-1.5 text-xs">Save my progress</Link>
+          <Link href={SIGN_UP_PATH} className="btn btn-secondary px-3 py-1.5 text-xs">Create account</Link>
         </header>
         <main id="main" className="app-content max-w-2xl">
           <PageHeader
             eyebrow="Rep complete"
             title="Your practice result"
-            description="One observable strength, one useful weakness, then one immediate repair."
+            description="One thing you did well, one thing to fix, then a quick rewrite to fix it."
             actions={<span className="pill">Guest preview</span>}
           />
 
@@ -577,7 +573,7 @@ function GuestResult({
           {repairSucceeded ? (
             <section className="surface-card flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between" aria-labelledby="guest-retest-cta" data-testid="guest-retest-cta">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--speak)]">Return later</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--speak)]">Last step</p>
                 <h2 id="guest-retest-cta" className="mt-1 text-base font-semibold">Now prove it in a fresh debate</h2>
                 <p className="mt-1 text-sm leading-6 text-ink3">
                   Argue one more round and we will check whether the repaired move actually shows up under debate conditions.
@@ -597,7 +593,7 @@ function GuestResult({
             <button type="button" onClick={onRestart} className="btn btn-secondary px-4 py-3 text-sm">
               Start again
             </button>
-            <Link href="/login" className="btn btn-primary px-4 py-3 text-center text-sm">
+            <Link href={SIGN_UP_PATH} className="btn btn-primary px-4 py-3 text-center text-sm">
               Create a free account
             </Link>
           </div>
@@ -617,6 +613,7 @@ function GuestRetest({
   repairText,
   repairSucceeded: repairSucceededFlag,
   onFinish,
+  onBack,
 }: {
   motion: GuestMotion;
   weaknessKind: GuestSkill;
@@ -626,6 +623,8 @@ function GuestRetest({
   repairSucceeded: boolean;
   /** Finish the retest, reporting whether the repaired behaviour was observed. */
   onFinish: (demonstrated: boolean) => void;
+  /** Go back to the result screen without answering the retest. */
+  onBack: () => void;
 }) {
   // A genuinely NEW challenge, not the round-3 pressure the learner has already
   // answered. Re-serving a seen prompt measures recall; an unseen one that
@@ -714,14 +713,24 @@ function GuestRetest({
           </section>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => onFinish(outcome?.demonstrated === true)}
-              className="btn btn-secondary px-4 py-3 text-sm"
-            >
-              Finish guest practice
-            </button>
-            <Link href="/login" className="btn btn-primary px-4 py-3 text-center text-sm">
+            {/* Finishing is only offered once the retest has an answer. Before
+                that, "Finish" used to record an unanswered retest as "Not
+                observed under pressure" — a verdict on writing that was never
+                submitted, carried into the done screen and the signup summary. */}
+            {submitted ? (
+              <button
+                type="button"
+                onClick={() => onFinish(outcome?.demonstrated === true)}
+                className="btn btn-secondary px-4 py-3 text-sm"
+              >
+                Finish guest practice
+              </button>
+            ) : (
+              <button type="button" onClick={onBack} className="btn btn-secondary px-4 py-3 text-sm">
+                Back to my result
+              </button>
+            )}
+            <Link href={SIGN_UP_PATH} className="btn btn-primary px-4 py-3 text-center text-sm">
               Create a free account
             </Link>
           </div>
@@ -792,7 +801,7 @@ function GuestDone({
             <button type="button" onClick={onRestart} className="btn btn-secondary px-4 py-3 text-sm">
               Practice again
             </button>
-            <Link href="/login" className="btn btn-primary px-4 py-3 text-center text-sm">
+            <Link href={SIGN_UP_PATH} className="btn btn-primary px-4 py-3 text-center text-sm">
               Create a free account
             </Link>
           </div>
@@ -911,6 +920,7 @@ export default function GuestArena({
         motion={motion}
         responses={responses}
         repairSucceeded={!!repair}
+        acceptedRepairText={repair?.text ?? null}
         validation={validation}
         onRepairSucceeded={(kind, label, text, succeeded) => setRepair({ kind, label, text, succeeded })}
         onRetest={() => setStage("retest")}
@@ -932,6 +942,7 @@ export default function GuestArena({
           finishRetest(demonstrated);
           setStage("done");
         }}
+        onBack={() => setStage("result")}
       />
     );
   }

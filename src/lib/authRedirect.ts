@@ -18,3 +18,18 @@ export function safeReturnPath(value: unknown, fallback = "/"): string {
     return fallback;
   }
 }
+
+/**
+ * The login page opens on "Sign in" by default. Every "Create a free account"
+ * entry point links here instead, so a new visitor lands on the sign-up tab
+ * rather than a sign-in form for an account they do not have yet.
+ */
+export const SIGN_UP_PATH = "/login?mode=signup";
+
+export type AuthMode = "sign-in" | "sign-up";
+
+/** Read the `?mode=` query value; anything but "signup" opens sign-in. */
+export function authModeFromParam(value: unknown): AuthMode {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw === "signup" ? "sign-up" : "sign-in";
+}
