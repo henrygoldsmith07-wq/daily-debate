@@ -414,6 +414,7 @@ function GuestResult({
   motion,
   responses,
   repairSucceeded,
+  acceptedRepairText,
   validation,
   onRepairSucceeded,
   onRetest,
@@ -422,6 +423,12 @@ function GuestResult({
   motion: GuestMotion;
   responses: string[];
   repairSucceeded: boolean;
+  /**
+   * The rewrite already accepted for this practice, if any. Coming back from
+   * the retest ("Back to my result", or a reload) must show that accepted
+   * repair again, not an empty box beside a "Now prove it" button.
+   */
+  acceptedRepairText?: string | null;
   /** Live judge-output validation for this surface, from the report the page loaded. */
   validation?: SurfaceValidation | null;
   /** Called with the accepted rewrite so the retest checks the same move. */
@@ -432,9 +439,15 @@ function GuestResult({
 }) {
   const rounds = motion.rounds;
   const assessment = assessGuestPractice(responses, rounds.map((round) => round.opponent));
-  const [repair, setRepair] = useState("");
-  const [repairAssessment, setRepairAssessment] = useState<GuestRepairAssessment | null>(null);
   const sourceRound = rounds[assessment.sourceResponseIndex];
+  const [repair, setRepair] = useState(() => acceptedRepairText ?? "");
+  // Re-running the same deterministic check restores the same feedback the
+  // learner saw when the repair was accepted.
+  const [repairAssessment, setRepairAssessment] = useState<GuestRepairAssessment | null>(() =>
+    acceptedRepairText
+      ? assessGuestRepair(assessment.weakness.kind, acceptedRepairText, sourceRound?.opponent ?? "")
+      : null,
+  );
 
   function submitRepair() {
     if (repair.trim().length < 12) return;
@@ -907,6 +920,7 @@ export default function GuestArena({
         motion={motion}
         responses={responses}
         repairSucceeded={!!repair}
+        acceptedRepairText={repair?.text ?? null}
         validation={validation}
         onRepairSucceeded={(kind, label, text, succeeded) => setRepair({ kind, label, text, succeeded })}
         onRetest={() => setStage("retest")}

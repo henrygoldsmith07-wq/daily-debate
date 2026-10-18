@@ -72,4 +72,23 @@ describe("GuestArena first visit", () => {
     // Sign-up CTAs open the Create account tab.
     expect(html).toContain('href="/login?mode=signup"');
   });
+
+  it("shows the accepted repair again when the learner comes back from the retest", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    // "one / two / three" has no clear claim, so the weakness is Claim.
+    const text = "Cities should scrap parking minimums because they push up the cost of new homes.";
+    const html = renderAtStage({
+      version: 1,
+      motionDate: today,
+      stage: "result",
+      side: "for",
+      responses: ["one", "two", "three"],
+      repair: { kind: "claim", label: "Claim", text, succeeded: true },
+      retestDemonstrated: null,
+    });
+    expect(html).toContain("Now prove it in a fresh debate");
+    // Not an empty rewrite box: the accepted repair (or its feedback) is shown.
+    expect(html).not.toMatch(/<textarea[^>]*id="guest-repair-response"[^>]*><\/textarea>/);
+    expect(html).toContain('data-testid="guest-repair-feedback"');
+  });
 });
