@@ -33,6 +33,13 @@ describe("parseGuestLoopSummary", () => {
     expect(parseGuestLoopSummary({ ...valid, retestOutcome: "mastery" })).toBeNull();
   });
 
+  it("accepts a signup before the retest as not-run, never as observed", () => {
+    const parsed = parseGuestLoopSummary({ ...valid, retestOutcome: "not-run" });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.retestOutcome).toBe("not-run");
+    expect(parsed!.repairSucceeded).toBe(true);
+  });
+
   it("drops malformed JSON and non-objects", () => {
     expect(parseGuestLoopSummary("{not json")).toBeNull();
     expect(parseGuestLoopSummary(42)).toBeNull();

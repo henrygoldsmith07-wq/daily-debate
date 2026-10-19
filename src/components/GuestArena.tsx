@@ -1,5 +1,6 @@
 "use client";
 
+import { guestChallengeSide } from "@/lib/guestSide";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -85,13 +86,7 @@ function Brand() {
 function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "for" | "against") => void }) {
   const [side, setSide] = useState<"for" | "against" | "challenge">("challenge");
 
-  function resolveSide(): "for" | "against" {
-    // "Challenge me" assigns the side. It is derived from the date so a reload
-    // cannot silently swap the side mid-practice; a random pick would make the
-    // transcript unreadable on a second visit.
-    const day = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`) / 86_400_000;
-    return day % 2 === 0 ? "for" : "against";
-  }
+  const resolveSide = (): "for" | "against" => (side === "challenge" ? guestChallengeSide() : side);
 
   return (
     <div className="app-shell app-shell-guest">
@@ -153,6 +148,11 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
                     </button>
                   ))}
                 </div>
+                {side === "challenge" ? (
+                  <p className="home-start-note" data-testid="guest-challenge-side">
+                    Today&apos;s pick for you: <strong>{guestChallengeSide() === "for" ? "For" : "Against"}</strong>.
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => onStart(resolveSide())}
@@ -418,6 +418,7 @@ function GuestResult({
   validation,
   onRepairSucceeded,
   onRetest,
+  onSignUp,
   onRestart,
 }: {
   motion: GuestMotion;
@@ -435,6 +436,8 @@ function GuestResult({
   onRepairSucceeded: (kind: GuestSkill, label: string, text: string, succeeded: boolean) => void;
   /** Move to the deliberate retest. Only offered once a repair succeeded. */
   onRetest: () => void;
+  /** Called when the guest follows a sign-up link before taking the retest. */
+  onSignUp?: () => void;
   onRestart: () => void;
 }) {
   const rounds = motion.rounds;
@@ -473,7 +476,9 @@ function GuestResult({
       <div className="app-main">
         <header className="app-topbar app-topbar-guest">
           <Brand />
-          <Link href={SIGN_UP_PATH} className="btn btn-secondary px-3 py-1.5 text-xs">Create account</Link>
+          <Link href="/login" className="btn btn-secondary px-3 py-1.5 text-xs">
+            Sign in
+          </Link>
         </header>
         <main id="main" className="app-content max-w-2xl">
           <PageHeader
@@ -593,7 +598,7 @@ function GuestResult({
             <button type="button" onClick={onRestart} className="btn btn-secondary px-4 py-3 text-sm">
               Start again
             </button>
-            <Link href={SIGN_UP_PATH} className="btn btn-primary px-4 py-3 text-center text-sm">
+            <Link href={SIGN_UP_PATH} onClick={onSignUp} className="btn btn-primary px-4 py-3 text-center text-sm">
               Create a free account
             </Link>
           </div>
@@ -847,6 +852,16 @@ export default function GuestArena({
   }, [today, stage, side, responses, repair, retestDemonstrated]);
 
   function finishRetest(demonstrated: boolean) {
+    saveGuestLoop(demonstrated ? "observed" : "not-observed");
+  }
+
+  /** Signing up from the result screen: carry the repair over, with no retest reading. */
+  function saveBeforeRetest() {
+    if (!repair) return;
+    saveGuestLoop("not-run");
+  }
+
+  function saveGuestLoop(retestOutcome: GuestLoopSummary["retestOutcome"]) {
     // The completed loop is worth keeping: store a bounded summary for the
     // signup form so an account picks up where the guest left off. Best
     // effort — private browsing may deny storage; the flow still finishes.
@@ -867,7 +882,7 @@ export default function GuestArena({
           ? "repair_demonstrated"
           : "partially_repaired",
       repairSucceeded: drillSucceeded,
-      retestOutcome: demonstrated ? "observed" : "not-observed",
+      retestOutcome,
       completedAt: new Date().toISOString(),
     };
     try {
@@ -924,6 +939,7 @@ export default function GuestArena({
         validation={validation}
         onRepairSucceeded={(kind, label, text, succeeded) => setRepair({ kind, label, text, succeeded })}
         onRetest={() => setStage("retest")}
+        onSignUp={saveBeforeRetest}
         onRestart={restart}
       />
     );
