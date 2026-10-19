@@ -156,4 +156,15 @@ test.describe("guest practice honesty", () => {
     await expect(skillsSection).toBeVisible();
     await expect(skillsSection).not.toHaveText(/\d+\s*(debates|points|score|rating|%)/i);
   });
+
+  test("an explicit side is honoured and Challenge me shows its side before starting", async ({ page }) => {
+    // 2026-10-08 is an even UTC day count, so Challenge me resolves to For.
+    await page.clock.setFixedTime(new Date("2026-10-08T12:00:00Z"));
+    await page.goto("/");
+    await expect(page.getByTestId("guest-challenge-side")).toContainText(/today.s pick for you: for/i);
+    await page.getByRole("button", { name: /^against/i }).click();
+    await expect(page.getByTestId("guest-challenge-side")).toHaveCount(0);
+    await page.getByRole("button", { name: /start a free practice/i }).click();
+    await expect(page.getByText("You: push back")).toBeVisible();
+  });
 });
