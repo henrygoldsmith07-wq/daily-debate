@@ -1,5 +1,6 @@
 "use client";
 
+import { guestChallengeSide } from "@/lib/guestSide";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -85,13 +86,7 @@ function Brand() {
 function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "for" | "against") => void }) {
   const [side, setSide] = useState<"for" | "against" | "challenge">("challenge");
 
-  function resolveSide(): "for" | "against" {
-    // "Challenge me" assigns the side. It is derived from the date so a reload
-    // cannot silently swap the side mid-practice; a random pick would make the
-    // transcript unreadable on a second visit.
-    const day = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`) / 86_400_000;
-    return day % 2 === 0 ? "for" : "against";
-  }
+  const resolveSide = (): "for" | "against" => (side === "challenge" ? guestChallengeSide() : side);
 
   return (
     <div className="app-shell app-shell-guest">
@@ -153,6 +148,11 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
                     </button>
                   ))}
                 </div>
+                {side === "challenge" ? (
+                  <p className="home-start-note" data-testid="guest-challenge-side">
+                    Today&apos;s pick for you: <strong>{guestChallengeSide() === "for" ? "For" : "Against"}</strong>.
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => onStart(resolveSide())}
