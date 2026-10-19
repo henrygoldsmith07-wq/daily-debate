@@ -195,7 +195,9 @@ test.describe("daily sprint repair loop", () => {
     await composer.fill(draft);
     await page.getByRole("button", { name: /^send$/i }).click();
 
-    await expect(page.getByRole("alert")).toBeVisible({ timeout: 10_000 });
+    // Next.js also renders an always-present, empty role="alert" route
+    // announcer; match only an alert that actually carries a message.
+    await expect(page.getByRole("alert").filter({ hasText: /\S/ })).toBeVisible({ timeout: 10_000 });
     await expect(composer).toHaveValue(draft);
     await expect(page.getByRole("button", { name: /^send$/i })).toBeEnabled();
 

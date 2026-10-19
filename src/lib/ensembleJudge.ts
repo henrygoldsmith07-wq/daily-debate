@@ -32,7 +32,7 @@ import {
 } from "./routeShadowValidation";
 import { isSpendCapError } from "./spendCap";
 
-export type JudgeId = ProviderLabel;
+export type JudgeId = ProviderLabel | "e2e-mock";
 export interface JudgedVerdict extends PvpJudgeResult {
   judgeId: JudgeId;
   latencyMs?: number;
@@ -341,7 +341,10 @@ export async function liveEnsembleJudge(params: {
   const ensembleRouting = routingSummary(ensemblePlan, 0);
   const primary = await import("./openrouter");
   const legs: Promise<JudgedVerdict>[] = [];
-  if (primary.configuredProviders().length > 0) {
+  // E2E runs keyless with the scripted judge, so the leg runs in mock mode too;
+  // otherwise e2e would only ever exercise the judge-unavailable path.
+  const { e2eMockAiEnabled } = await import("./aiE2eMock");
+  if (primary.configuredProviders().length > 0 || e2eMockAiEnabled()) {
     // The failover chain may be served by any configured provider, so the
     // fingerprint names the transport and model that ACTUALLY produced the
     // verdict, never the first one configured.
@@ -350,7 +353,7 @@ export async function liveEnsembleJudge(params: {
         const { makeFingerprint } = await import("./judgeVersioning");
         const t0 = Date.now();
         const { servedBy, ...r } = await withTimeout(primary.judgePvpMatch(params), JUDGE_TIMEOUT_MS, "judge");
-        const provider = servedBy?.provider ?? primary.configuredProviders()[0].label;
+        const provider = servedBy?.provider ?? primary.configuredProviders()[0]?.label ?? "e2e-mock";
         return {
           ...r,
           judgeId: provider,
