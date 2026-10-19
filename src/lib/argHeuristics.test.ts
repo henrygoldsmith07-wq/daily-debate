@@ -3,7 +3,7 @@ import type { ArgGraph, ArgNode } from "./argGraph";
 import { detectRepetition, fallacyHints, rebuttalCoverage } from "./argHeuristics";
 
 const node = (id: string, over: Partial<ArgNode> = {}): ArgNode =>
-  ({ id, kind: "claim", owner: "user", text: "x", round: 1, ...over }) as ArgNode;
+  ({ id, kind: "claim", owner: "a", text: "x", round: 1, ...over }) as ArgNode;
 const graph = (nodes: ArgNode[]) => ({ nodes, edges: [] }) as unknown as ArgGraph;
 
 describe("detectRepetition", () => {
@@ -11,7 +11,7 @@ describe("detectRepetition", () => {
     const nodes = [
       node("a", { text: "Cities should ban cars downtown to cut pollution" }),
       node("b", { text: "Cities should ban cars downtown to cut pollution!" }),
-      node("c", { owner: "opponent", text: "Cities should ban cars downtown to cut pollution" }),
+      node("c", { owner: "b", text: "Cities should ban cars downtown to cut pollution" }),
     ];
     const out = detectRepetition(nodes);
     expect(out).toHaveLength(1);
