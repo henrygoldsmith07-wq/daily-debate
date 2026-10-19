@@ -120,22 +120,25 @@ test.describe("two-browser pvp full-flow", () => {
       await playerB.waitForTimeout(1500);
 
       // Check completion
-      const aDone = await playerA.getByText(/too close to call|won\b|opponent won/i).first().isVisible().catch(() => false);
-      const bDone = await playerB.getByText(/too close to call|won\b|opponent won/i).first().isVisible().catch(() => false);
+      const aDone = await playerA.getByText(/judge outcome|too close to call|won\b|opponent won/i).first().isVisible().catch(() => false);
+      const bDone = await playerB.getByText(/judge outcome|too close to call|won\b|opponent won/i).first().isVisible().catch(() => false);
       if (aDone || bDone) break;
     }
 
-    // ── Verify same result is visible to both ──
-    // At least one of them must see a verdict (winner or tie)
+    // ── Verify a real judged verdict is visible ──
+    // The scripted E2E judge scores this debate for Player A, so a working
+    // judge leg produces "Judge outcome" (competitive wording stays gated).
+    // "Too close to call" here would mean the judge failed and the route
+    // stored its no-confidence fallback — which used to pass this test.
     const verdictVisibleForA = await playerA
       .locator(".surface-card h2")
-      .filter({ hasText: /won|close to call/i })
+      .filter({ hasText: /judge outcome/i })
       .first()
       .isVisible()
       .catch(() => false);
     const verdictVisibleForB = await playerB
       .locator(".surface-card h2")
-      .filter({ hasText: /won|close to call/i })
+      .filter({ hasText: /judge outcome/i })
       .first()
       .isVisible()
       .catch(() => false);

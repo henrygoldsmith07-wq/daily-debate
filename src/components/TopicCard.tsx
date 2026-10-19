@@ -155,6 +155,11 @@ export default function TopicCard({
                 </button>
               ))}
             </div>
+            {side === "challenge" ? (
+              <p className="home-start-note" data-testid="challenge-side-note">
+                We pick For or Against from your recent debates, and show it when you start.
+              </p>
+            ) : null}
 
             <details className="home-motion-details">
               <summary className="home-motion-details-summary">

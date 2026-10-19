@@ -1,8 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Transport tests stub fetch; telemetry must not mirror their fake calls into a
+// real ai_call_log when DATABASE_URL is set (the CI e2e job runs unit tests
+// against Postgres, and the DB suites' migration replay rejects provider labels
+// newer than migration 011).
+vi.mock("./aiTelemetry", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./aiTelemetry")>()),
+  recordAiCall: vi.fn(),
+}));
 import {
   DEFAULT_FALLBACK_MODELS,
   DEFAULT_MODEL,
   PROVIDERS,
+  __clearCooldownsForTests,
   configuredProviders,
   extractJson,
   failoverChain,
@@ -184,6 +194,7 @@ const TOPIC = JSON.stringify({
 describe("generateDailyTopic transport", () => {
   beforeEach(() => {
     clearKeys();
+    __clearCooldownsForTests();
     vi.stubEnv("OPENROUTER_API_KEY", "test-key");
     vi.useFakeTimers();
   });
@@ -342,6 +353,64 @@ describe("generateDailyTopic transport", () => {
 
   describe("cross-provider failover", () => {
     const urlOf = (call: unknown[]) => String(call[0]);
+
+    it("skips a rate-limited provider on the next request until its cooldown passes", async () => {
+      vi.stubEnv("UNOROUTER_API_KEY", "u");
+      vi.stubEnv("UNOROUTER_FALLBACK_MODELS", "");
+      const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+        url.includes("unorouter") ? errorResponse(429, "daily free limit reached") : okResponse(TOPIC),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const unoCalls = () => fetchMock.mock.calls.filter((c) => urlOf(c).includes("unorouter")).length;
+
+      await settle(generateDailyTopic([]));
+      const afterFirst = unoCalls();
+      expect(afterFirst).toBeGreaterThan(0);
+
+      // Second request: unorouter is cooling down, so it goes straight to OpenRouter.
+      await settle(generateDailyTopic([]));
+      expect(unoCalls()).toBe(afterFirst);
+
+      // After the default 60s cooldown it is tried again.
+      vi.advanceTimersByTime(61_000);
+      await settle(generateDailyTopic([]));
+      expect(unoCalls()).toBeGreaterThan(afterFirst);
+    });
+
+    it("honours a provider's Retry-After for the cooldown length", async () => {
+      vi.stubEnv("UNOROUTER_API_KEY", "u");
+      vi.stubEnv("UNOROUTER_FALLBACK_MODELS", "");
+      const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+        url.includes("unorouter")
+          ? new Response(JSON.stringify({ error: { message: "slow down" } }), { status: 429, headers: { "retry-after": "300" } })
+          : okResponse(TOPIC),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const unoCalls = () => fetchMock.mock.calls.filter((c) => urlOf(c).includes("unorouter")).length;
+
+      await settle(generateDailyTopic([]));
+      const afterFirst = unoCalls();
+      vi.advanceTimersByTime(120_000); // past the 60s default, inside the advised 300s
+      await settle(generateDailyTopic([]));
+      expect(unoCalls()).toBe(afterFirst);
+    });
+
+    it("still tries everything when every step is cooling down", async () => {
+      vi.stubEnv("OPENROUTER_FALLBACK_MODELS", "");
+      const fetchMock = vi
+        .fn()
+        .mockImplementationOnce(async () => rateLimited())
+        .mockImplementationOnce(async () => rateLimited())
+        .mockImplementationOnce(async () => rateLimited())
+        .mockImplementationOnce(async () => rateLimited())
+        .mockImplementation(async () => okResponse(TOPIC));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(settle(generateDailyTopic([]))).rejects.toThrow(/rate-limited/);
+      // The only step is cooling down; local memory must not refuse the call.
+      const topic = await settle(generateDailyTopic([]));
+      expect(topic.title).toBe("Ban cars downtown");
+    });
 
     it("moves to the next provider when every model on the first fails", async () => {
       vi.stubEnv("UNOROUTER_API_KEY", "u");
