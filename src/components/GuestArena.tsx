@@ -544,6 +544,7 @@ function GuestResult({
                 </label>
                 <textarea
                   id="guest-repair-response"
+                  aria-describedby="guest-repair-count"
                   value={repair}
                   onChange={(event) => {
                     setRepair(event.target.value);
@@ -553,6 +554,9 @@ function GuestResult({
                   placeholder="Rewrite the move here..."
                   className="field mt-2 resize-none text-sm leading-6"
                 />
+                <p id="guest-repair-count" className="mt-1 text-[11px] text-ink3">
+                  {repair.trim().length}/12 minimum characters
+                </p>
                 <button
                   type="button"
                   onClick={submitRepair}
@@ -682,12 +686,16 @@ function GuestRetest({
                 </label>
                 <textarea
                   id="guest-retest-response"
+                  aria-describedby="guest-retest-count"
                   value={response}
                   onChange={(event) => setResponse(event.target.value)}
                   placeholder="Write 2-4 sentences..."
                   rows={5}
                   className="field mt-2 resize-none text-sm leading-6"
                 />
+                <p id="guest-retest-count" className="mt-1 text-[11px] text-ink3">
+                  {response.trim().length}/12 minimum characters
+                </p>
                 <button
                   type="button"
                   onClick={() => setSubmitted(true)}
