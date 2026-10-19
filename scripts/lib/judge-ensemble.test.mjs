@@ -109,14 +109,14 @@ test("selection: no keys -> no ensemble judge", () => {
 test("selection: exactly two usable providers -> one ensemble judge, members in registry order", () => {
   const judges = allJudgeProviders(envWith(), { kind: "ensemble-two-model", select: ["unorouter", "openrouter"] });
   assert.equal(judges.length, 1);
-  assert.equal(judges[0].id, "ensemble:openrouter+unorouter");
+  assert.equal(judges[0].id, "ensemble:unorouter+openrouter");
   assert.equal(judges[0].stats.jobs, 0);
 });
 
 test("selection: extra configured providers outside the selection never leak into the ensemble", () => {
   const judges = allJudgeProviders(envWith({ NVIDIA_API_KEY: "k-nv" }), { kind: "ensemble-two-model", select: ["openrouter", "unorouter"] });
   assert.equal(judges.length, 1);
-  assert.equal(judges[0].id, "ensemble:openrouter+unorouter");
+  assert.equal(judges[0].id, "ensemble:unorouter+openrouter");
 });
 
 test("selection: fewer or more than two selected providers is not the registered architecture", () => {
@@ -146,7 +146,7 @@ test("ensemble judge: both legs run on the same shipped prompt and the aggregate
   };
   const judge = ensembleJudge();
   const row = await judge.fn("Side A claims X.\nSide B counters.");
-  assert.equal(row.model, "ensemble(openrouter+unorouter)");
+  assert.equal(row.model, "ensemble(unorouter+openrouter)");
   assert.equal(row.winner, "a");
   assert.equal(row.a, 66); // mean of 70 and 62
   assert.equal(row.b, 45); // (45+44)/2 = 44.5 rounds up

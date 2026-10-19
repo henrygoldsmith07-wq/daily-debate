@@ -6,6 +6,7 @@ import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { pickRepairTarget, scoreRepair, type RepairTarget } from "@/lib/argumentRepair";
 import { recordProductEventForUser } from "@/lib/productEvents";
 import { REPAIR_KIND_TO_DIMENSION } from "@/lib/repairRetest";
+import { dateKeyInTimeZone, normalizeIanaTimeZone } from "@/lib/timeZone";
 
 const REPAIR_SUCCESS_THRESHOLD = 60;
 
@@ -131,7 +132,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   // repair and drill rubrics are formative signals, not a shared skill scale.
   try {
     const service = createServiceClient();
-    const today = new Date().toISOString().slice(0, 10);
+    // Drill assignments are keyed by the learner's LOCAL training day
+    // (coach/today uses dateKeyInTimeZone). A UTC date here matched no row
+    // whenever local and UTC dates differ — US evenings, Asia/Pacific
+    // mornings — so the repair silently never counted as that day's attempt.
+    const { data: profile } = await service.from("profiles").select("timezone").eq("id", user.id).maybeSingle();
+    const today = dateKeyInTimeZone(normalizeIanaTimeZone(profile?.timezone));
     const dimension = REPAIR_KIND_TO_DIMENSION[target.kind];
     await service
       .from("drill_assignments")

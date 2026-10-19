@@ -16,6 +16,7 @@
 //     max_tokens, which can consume the entire budget before any JSON is
 //     emitted. Reasoning is disabled or set low for that reason.
 
+import providerConfig from "../../config/ai-providers.json";
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
 import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
@@ -24,9 +25,6 @@ import { isValidDebateTurn, isValidGeneratedTopic, isValidJudgeExtraction, isVal
 import { ensureSpendWithinCap, reserveSpendCall, SPEND_RESERVATION_FALLBACK_USD } from "./spendCap";
 import type { ArgumentRoute } from "./argumentTaxonomy";
 import { renderUntrusted, renderUntrustedTranscript, UNTRUSTED_INSTRUCTION } from "./untrustedContent";
-
-const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 
 /**
  * Interchangeable OpenAI-style transports, all on FREE tiers. Every call walks
@@ -57,109 +55,58 @@ export interface ProviderSpec {
   extraBody?: Record<string, unknown>;
 }
 
-/** Free NVIDIA Nemotron on the OpenRouter transport. Override per-environment without a code change.
- * Nemotron 3 Super leads the chain: live probes (2026-09-13) found the free
- * Lightning/Ultra pools frequently stall, Super answers in ~1s.
- */
-export const DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free";
+const PROVIDER_LABELS: readonly ProviderLabel[] = ["unorouter", "groq", "cerebras", "gemini", "nvidia", "openrouter"];
 
-/** Direct-NVIDIA default: the strongest Nemotron, no shared free-pool saturation. */
-export const NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
+interface ProviderConfigEntry {
+  label: string;
+  keyEnv: string;
+  url: string;
+  defaultModel: string;
+  fallbacks: string[];
+  reasoningToggle: boolean;
+  extraBody?: Record<string, unknown>;
+}
+
+function toSpec(entry: ProviderConfigEntry): ProviderSpec {
+  if (!(PROVIDER_LABELS as readonly string[]).includes(entry.label)) {
+    throw new Error(`config/ai-providers.json: unknown provider label "${entry.label}"`);
+  }
+  return {
+    label: entry.label as ProviderLabel,
+    keyEnv: entry.keyEnv,
+    url: entry.url,
+    defaultModel: entry.defaultModel,
+    defaultFallbacks: entry.fallbacks,
+    reasoningToggle: entry.reasoningToggle,
+    ...(entry.extraBody ? { extraBody: entry.extraBody } : {}),
+  };
+}
 
 /**
- * Free OpenRouter models that hold up on the heaviest calls (the PvP argument
- * graph). Ordered strongest first: Nemotron 3.5 Super, then the full Ultra.
- */
-export const DEFAULT_FALLBACK_MODELS = [
-  "nvidia/nemotron-3.5-lightning:free",
-  "nvidia/nemotron-3-ultra-550b-a55b:free",
-];
-
-/** NVIDIA-transport fallbacks (no ":free" suffix on the direct API). */
-export const NVIDIA_DEFAULT_FALLBACK_MODELS = ["nvidia/nemotron-3-super-120b-a12b"];
-
-/**
- * Provider registry — this array order *is* the priority order every call
- * walks. Ordered measured-good, then unmeasured, then measured-bad:
+ * Provider registry, read from config/ai-providers.json — the ONE list the
+ * app and the scripts (benchmark, topic generation, quota probe) share, so
+ * the benchmark measures the chain production actually runs. Array order *is*
+ * the priority order every call walks: measured-good, then unmeasured, then
+ * measured-bad.
  *
  * Live judge benchmark (docs/latest-judge-benchmark.json, 2026-10-12):
  *
  *   unorouter nemotron-3.5-lightning:free    278/312 = 0.891   clears providerReliabilityMin (0.75)
  *   openrouter nvidia/nemotron-3-super:free    72/300 = 0.240   cannot clear it (mostly 429s)
  *
- * groq, cerebras, gemini and nvidia have no benchmark row. They sit between
- * the two measured transports: ranking them above unorouter would be ranking
- * on nothing, but OpenRouter's free pool is measured to drop three calls in
- * four, and with cross-provider failover a provider that mostly 429s spends
- * the shared retry budget before the others get a turn.
- *
- * Kirai was removed: its free slugs were retired (hard 404s) and the surviving
- * ones bill a wallet (402), so it is no longer a free provider at all.
- *
- * Default model ids (2026-10): Groq retired llama-3.3-70b-versatile for free
- * tiers on 2026-08-16 and names openai/gpt-oss-120b as the replacement;
- * Cerebras's catalog lists gpt-oss-120b; Google's OpenAI-compatibility docs use
- * gemini-3.8-flash. Free rosters churn quarterly — a retired id returns a 4xx
- * and the call falls through to the next model, and every id is env-overridable.
- *
- * Re-measure before reordering. A one-off probe is not evidence.
+ * groq, cerebras, gemini and nvidia have no benchmark row and sit between the
+ * two measured transports. Kirai is not in the app chain: its free slugs were
+ * retired and the rest bill a wallet. Re-measure before reordering.
  */
-export const PROVIDERS: readonly ProviderSpec[] = [
-  {
-    label: "unorouter",
-    keyEnv: "UNOROUTER_API_KEY",
-    url: "https://api.unorouter.com/v1/chat/completions",
-    defaultModel: "nemotron-3.5-lightning:free",
-    // glm-5.3:free excluded from the chain: its free tier allows 1 request
-    // per minute per account — it 429s under burst traffic and poisons the
-    // failover chain instead of rescuing it.
-    defaultFallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free"],
-    reasoningToggle: true,
-  },
-  {
-    label: "groq",
-    keyEnv: "GROQ_API_KEY",
-    url: "https://api.groq.com/openai/v1/chat/completions",
-    defaultModel: "openai/gpt-oss-120b",
-    defaultFallbacks: ["openai/gpt-oss-20b"],
-    reasoningToggle: false,
-    extraBody: { reasoning_effort: "low" },
-  },
-  {
-    label: "cerebras",
-    keyEnv: "CEREBRAS_API_KEY",
-    url: "https://api.cerebras.ai/v1/chat/completions",
-    defaultModel: "gpt-oss-120b",
-    defaultFallbacks: [],
-    reasoningToggle: false,
-    extraBody: { reasoning_effort: "low" },
-  },
-  {
-    label: "gemini",
-    keyEnv: "GEMINI_API_KEY",
-    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    defaultModel: "gemini-3.8-flash",
-    defaultFallbacks: ["gemini-3.5-flash-lite"],
-    reasoningToggle: false,
-    extraBody: { reasoning_effort: "low" },
-  },
-  {
-    label: "nvidia",
-    keyEnv: "NVIDIA_API_KEY",
-    url: NVIDIA_API_URL,
-    defaultModel: NVIDIA_DEFAULT_MODEL,
-    defaultFallbacks: NVIDIA_DEFAULT_FALLBACK_MODELS,
-    reasoningToggle: true,
-  },
-  {
-    label: "openrouter",
-    keyEnv: "OPENROUTER_API_KEY",
-    url: OPENROUTER_API_URL,
-    defaultModel: DEFAULT_MODEL,
-    defaultFallbacks: DEFAULT_FALLBACK_MODELS,
-    reasoningToggle: true,
-  },
-];
+export const PROVIDERS: readonly ProviderSpec[] = (providerConfig.providers as ProviderConfigEntry[]).map(toSpec);
+
+const openrouterSpec = PROVIDERS.find((p) => p.label === "openrouter")!;
+
+/** Free NVIDIA Nemotron on the OpenRouter transport (config/ai-providers.json). */
+export const DEFAULT_MODEL = openrouterSpec.defaultModel;
+
+/** OpenRouter failover models (config/ai-providers.json). */
+export const DEFAULT_FALLBACK_MODELS = openrouterSpec.defaultFallbacks;
 
 function disabled(label: ProviderLabel, env: Record<string, string | undefined>): boolean {
   return /^(1|true|yes)$/i.test((env[`${label.toUpperCase()}_DISABLED`] ?? "").trim());
@@ -203,9 +150,13 @@ export function failoverChain(env: Record<string, string | undefined> = process.
   );
 }
 
-/** Which transport and model actually produced a result (for fingerprints). */
+/**
+ * Which transport and model actually produced a result (for fingerprints).
+ * "e2e-mock" marks the scripted E2E judge, so a test verdict can never be
+ * mistaken for a real provider's in a stored stamp.
+ */
 export interface ServedBy {
-  provider: ProviderLabel;
+  provider: ProviderLabel | "e2e-mock";
   model: string;
 }
 
@@ -224,13 +175,56 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * Retry-After is advisory and arrives in two different places depending on
  * whether the limit came from OpenRouter itself or the upstream provider.
  */
-function retryDelayMs(response: Response, body: unknown, attempt: number): number {
+function advisedRetryMs(response: Response, body: unknown): number | undefined {
   const advisedSeconds = (body as { error?: { metadata?: { retry_after_seconds?: number } } })?.error
     ?.metadata?.retry_after_seconds;
   const headerSeconds = Number(response.headers.get("retry-after"));
-  const advised = advisedSeconds ?? (Number.isFinite(headerSeconds) ? headerSeconds : undefined);
+  const advised = advisedSeconds ?? (Number.isFinite(headerSeconds) && headerSeconds > 0 ? headerSeconds : undefined);
+  return advised ? advised * 1_000 : undefined;
+}
+
+function retryDelayMs(response: Response, body: unknown, attempt: number): number {
   const backoff = Math.min(8_000, 500 * 2 ** attempt);
-  return Math.max(advised ? advised * 1_000 : 0, backoff);
+  return Math.max(advisedRetryMs(response, body) ?? 0, backoff);
+}
+
+/**
+ * Rate-limit cooldown, per server instance. A free tier that answered 429 —
+ * often a daily cap (OpenRouter's free models allow 50 requests a day) — is
+ * skipped by later requests until its advised Retry-After passes, instead of
+ * every request re-spending retries and backoff on it before reaching a
+ * provider that works. Warm serverless instances serve many requests, so this
+ * removes most of the repeated cost without a database round-trip per call.
+ *
+ * Safety: local memory never refuses a call on its own — when every step is
+ * cooling down, the request tries them all anyway — and a success clears the
+ * step's cooldown immediately.
+ */
+const COOLDOWN_DEFAULT_MS = 60_000;
+const COOLDOWN_MIN_MS = 30_000;
+const COOLDOWN_MAX_MS = 15 * 60_000;
+const cooldownUntil = new Map<string, number>();
+
+const stepKey = (step: ChainStep) => `${step.provider.label}|${step.model}`;
+
+export function isCoolingDown(step: ChainStep, now: number = Date.now()): boolean {
+  const until = cooldownUntil.get(stepKey(step));
+  if (until === undefined) return false;
+  if (until <= now) {
+    cooldownUntil.delete(stepKey(step));
+    return false;
+  }
+  return true;
+}
+
+function startCooldown(step: ChainStep, advisedMs: number | undefined, now: number = Date.now()): void {
+  const ms = Math.min(COOLDOWN_MAX_MS, Math.max(COOLDOWN_MIN_MS, advisedMs ?? COOLDOWN_DEFAULT_MS));
+  cooldownUntil.set(stepKey(step), now + ms);
+}
+
+/** Test seam: forget every cooldown. */
+export function __clearCooldownsForTests(): void {
+  cooldownUntil.clear();
 }
 
 /** Free models often wrap their JSON in prose or a markdown fence. */
@@ -285,7 +279,7 @@ interface ChatOptions {
 type ResolvedChatOptions = Required<Omit<ChatOptions, "validate">> &
   Pick<ChatOptions, "validate">;
 
-type Attempt<T> = { ok: true; value: T } | { ok: false; error: string; status?: number };
+type Attempt<T> = { ok: true; value: T } | { ok: false; error: string; status?: number; retryAfterMs?: number };
 
 /** Request features a provider may reject with a 400; each is dropped and retried once. */
 interface Compat {
@@ -348,6 +342,7 @@ async function tryModel<T>(
   const compat: Compat = { reasoning: true, jsonMode: true };
   let lastError = "";
   let lastStatus: number | undefined;
+  let lastRetryAfterMs: number | undefined;
 
   interface OpenRouterUsage {
     prompt_tokens?: number;
@@ -430,6 +425,7 @@ async function tryModel<T>(
     }
 
     lastStatus = response.status;
+    lastRetryAfterMs = advisedRetryMs(response, body);
     lastError =
       (body as { error?: { metadata?: { raw?: string } } })?.error?.metadata?.raw ??
       (body as { error?: { message?: string } })?.error?.message ??
@@ -460,7 +456,7 @@ async function tryModel<T>(
     await sleep(delay);
   }
 
-  return { ok: false, error: `${m}: ${lastError}`, status: lastStatus };
+  return { ok: false, error: `${m}: ${lastError}`, status: lastStatus, retryAfterMs: lastRetryAfterMs };
 }
 
 /**
@@ -482,12 +478,14 @@ async function chatJsonServed<T>({ instruction, schema, maxTokens = 2_000, opera
   // needing a per-attempt price table the providers do not report.
   const releaseReservation = reserveSpendCall(SPEND_RESERVATION_FALLBACK_USD);
   try {
-    const chain = failoverChain();
-    if (!chain.length) {
+    const fullChain = failoverChain();
+    if (!fullChain.length) {
       throw new Error(
         "No AI provider configured — set at least one free-tier key: UNOROUTER_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY, GEMINI_API_KEY, NVIDIA_API_KEY or OPENROUTER_API_KEY.",
       );
     }
+    const warm = fullChain.filter((step) => !isCoolingDown(step));
+    const chain = warm.length ? warm : fullChain;
     const deadline = Date.now() + RETRY_BUDGET_MS;
     const options: ResolvedChatOptions = { instruction, schema, maxTokens, operation, validate };
     const failures: string[] = [];
@@ -496,8 +494,12 @@ async function chatJsonServed<T>({ instruction, schema, maxTokens = 2_000, opera
     for (const [index, step] of chain.entries()) {
       if (deadProviders.has(step.provider.label)) continue;
       const result = await tryModel<T>(step, options, deadline, attemptsFor(index, chain.length));
-      if (result.ok) return { value: result.value, servedBy: { provider: step.provider.label, model: step.model } };
+      if (result.ok) {
+        cooldownUntil.delete(stepKey(step));
+        return { value: result.value, servedBy: { provider: step.provider.label, model: step.model } };
+      }
       failures.push(`${step.provider.label}/${result.error}`);
+      if (result.status === 429) startCooldown(step, result.retryAfterMs);
       if (result.status !== undefined && PROVIDER_FATAL_STATUSES.has(result.status)) deadProviders.add(step.provider.label);
       if (Date.now() >= deadline) break;
     }
@@ -763,7 +765,9 @@ export async function judgePvpMatch(params: {
   playerASide: DebateSide;
   transcript: string;
 }): Promise<PvpJudgeResult> {
-  if (e2eMockAiEnabled()) return finalizePvpAssessment(mockPvpJudge(), { extractionSource: "llm" });
+  if (e2eMockAiEnabled()) {
+    return { ...finalizePvpAssessment(mockPvpJudge(), { extractionSource: "llm" }), servedBy: { provider: "e2e-mock", model: "scripted" } };
+  }
 
   const { value: extracted, servedBy } = await chatJsonServed<{ rationale?: string; argGraph?: import("./argGraph").ArgGraph }>({
     schema: JUDGE_SCHEMA,
