@@ -94,7 +94,7 @@ describe("GuestArena first visit", () => {
 
   it("ties the debate textarea to its minimum-length counter", () => {
     const today = new Date().toISOString().slice(0, 10);
-    const html = renderAtStage({ version: 1, motionDate: today, stage: "debate", side: "for", responses: [] });
+    const html = renderAtStage({ version: 1, motionDate: today, stage: "debate", side: "for", responses: [], repair: null, retestDemonstrated: null });
     expect(html).toContain('aria-describedby="guest-response-count"');
     expect(html).toContain('id="guest-response-count"');
   });
