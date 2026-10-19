@@ -86,7 +86,7 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         href: "/history",
         label: "History",
-        description: "Your latest solo and PvP debate records",
+        description: "Your latest debate records",
         icon: "history",
         primary: true,
       },
