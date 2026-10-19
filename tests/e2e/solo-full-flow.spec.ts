@@ -86,6 +86,10 @@ test.describe("solo full-flow", () => {
     // 2. Dashboard loads with today's topic
     await expect(page.getByText(/Today.*debate|Today.*topic/i).first()).toBeVisible({ timeout: 15_000 });
     await expect(page.locator(".home-motion-card").first()).toBeVisible();
+    await expect(page.getByTestId("challenge-side-note")).toBeVisible();
+    await page.getByRole("button", { name: /^against/i }).first().click();
+    await expect(page.getByTestId("challenge-side-note")).toHaveCount(0);
+    await page.getByRole("button", { name: /^challenge me/i }).first().click();
 
     // 3. Start full solo debate
     await page.getByTestId("start-full").click();
