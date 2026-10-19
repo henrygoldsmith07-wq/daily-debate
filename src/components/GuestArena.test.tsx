@@ -91,4 +91,11 @@ describe("GuestArena first visit", () => {
     expect(html).not.toMatch(/<textarea[^>]*id="guest-repair-response"[^>]*><\/textarea>/);
     expect(html).toContain('data-testid="guest-repair-feedback"');
   });
+
+  it("ties the debate textarea to its minimum-length counter", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const html = renderAtStage({ version: 1, motionDate: today, stage: "debate", side: "for", responses: [] });
+    expect(html).toContain('aria-describedby="guest-response-count"');
+    expect(html).toContain('id="guest-response-count"');
+  });
 });
