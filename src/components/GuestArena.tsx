@@ -476,7 +476,9 @@ function GuestResult({
       <div className="app-main">
         <header className="app-topbar app-topbar-guest">
           <Brand />
-          <Link href={SIGN_UP_PATH} onClick={onSignUp} className="btn btn-secondary px-3 py-1.5 text-xs">Create account</Link>
+          <Link href="/login" className="btn btn-secondary px-3 py-1.5 text-xs">
+            Sign in
+          </Link>
         </header>
         <main id="main" className="app-content max-w-2xl">
           <PageHeader
