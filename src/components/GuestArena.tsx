@@ -333,10 +333,11 @@ function GuestDebate({
                   onChange={(event) => setResponse(event.target.value)}
                   placeholder="Write 2-4 sentences..."
                   rows={5}
+                  aria-describedby="guest-response-count"
                   className="field mt-4 resize-none text-sm leading-6"
                 />
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-[11px] text-ink3">{response.trim().length}/12 minimum characters</span>
+                  <span id="guest-response-count" className="text-[11px] text-ink3">{response.trim().length}/12 minimum characters</span>
                   <button type="button" onClick={submit} disabled={response.trim().length < 12} className="btn btn-primary px-4 py-2 text-sm">
                     Send response <span aria-hidden="true">→</span>
                   </button>
