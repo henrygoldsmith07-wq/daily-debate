@@ -16,10 +16,11 @@ export interface GuestLoopSummary {
    * Whether the repair DRILL itself succeeded — never conflated with the
    * retest reading. A demonstrated drill whose move does not reappear under
    * pressure is `repairSucceeded: true` with `retestOutcome: "not-observed"`,
-   * not a failed repair.
+   * not a failed repair. `not-run` means the guest signed up before taking the
+   * retest: the repair is carried over, but no retest reading exists.
    */
   repairSucceeded: boolean;
-  retestOutcome: "observed" | "not-observed";
+  retestOutcome: "observed" | "not-observed" | "not-run";
   completedAt: string;
 }
 
@@ -27,7 +28,7 @@ export const GUEST_LOOP_STORAGE_KEY = "daily-debate-guest-loop";
 
 const KINDS = new Set(["claim", "reasoning", "rebuttal", "impact", "evidence"]);
 const REPAIR_STATES = new Set(["needs_another_pass", "partially_repaired", "repair_demonstrated"]);
-const RETEST_OUTCOMES = new Set(["observed", "not-observed"]);
+const RETEST_OUTCOMES = new Set(["observed", "not-observed", "not-run"]);
 
 /**
  * Validate and bound a guest-loop payload. Accepts a parsed object or a JSON
