@@ -3,11 +3,12 @@
 // model chain. Mirrors src/lib/openrouter.ts (the app's transports) so the
 // benchmark validates the same providers production uses.
 //
-// Configured providers (in priority order): NVIDIA_API_KEY → OPENROUTER_API_KEY
-// → UNOROUTER_API_KEY → GROQ_API_KEY → CEREBRAS_API_KEY → GEMINI_API_KEY →
-// KIRAAI_API_KEY (opt-in only). All free tiers; there is no paid judge. Model
-// overrides use <LABEL>_MODEL and <LABEL>_FALLBACK_MODELS (comma-separated;
-// empty pins one).
+// Configured providers, in config/ai-providers.json priority order (shared
+// with the app), plus KIRAAI_API_KEY (opt-in only, benchmark history). All
+// free tiers; there is no paid judge. Model overrides use <LABEL>_MODEL and
+// <LABEL>_FALLBACK_MODELS (comma-separated; empty pins one).
+
+import providerConfig from "../../config/ai-providers.json" with { type: "json" };
 
 function extractJson(text) {
   const trimmed = String(text ?? "").trim();
@@ -119,74 +120,24 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
 }
 
 /**
- * The provider registry — same transports and priority order the app uses.
- * Default chains verified against each /models endpoint on 2026-09-11.
+ * The provider registry: config/ai-providers.json, the same list and priority
+ * order the app reads (src/lib/openrouter.ts), so the benchmark and topic
+ * generation run the chain production runs. Script-only additions below.
  */
+const sharedProviders = providerConfig.providers;
+
+/** Script-side request extras the app sets differently (attribution only). */
+const SCRIPT_EXTRA_HEADERS = {
+  openrouter: { "HTTP-Referer": "https://daily-debate.app" },
+};
+
 export const PROVIDERS = [
-  {
-    label: "nvidia",
-    keyEnv: "NVIDIA_API_KEY",
-    url: "https://integrate.api.nvidia.com/v1/chat/completions",
-    defaultModel: "nvidia/nemotron-3-ultra-550b-a55b",
-    fallbacks: ["nvidia/nemotron-3-super-120b-a12b"],
-    reasoningToggle: true,
-  },
-  {
-    label: "openrouter",
-    keyEnv: "OPENROUTER_API_KEY",
-    url: "https://openrouter.ai/api/v1/chat/completions",
-    // Super first: live probes (2026-09-13) found the free Lightning/Ultra
-    // pools frequently stall; Super answers in ~1s. No non-existent
-    // ":free" slugs in the chain — they add only error noise.
-    defaultModel: "nvidia/nemotron-3-super-120b-a12b:free",
-    fallbacks: [
-      "nvidia/nemotron-3.5-lightning:free",
-      "nvidia/nemotron-3-ultra-550b-a55b:free",
-    ],
-    extraHeaders: { "HTTP-Referer": "https://daily-debate.app" },
-    reasoningToggle: true,
-  },
-  {
-    label: "unorouter",
-    keyEnv: "UNOROUTER_API_KEY",
-    url: "https://api.unorouter.com/v1/chat/completions",
-    defaultModel: "nemotron-3.5-lightning:free",
-    // glm-5.3:free deliberately excluded: its free tier allows 1 request per
-    // minute per account, which poisons burst benchmark traffic with 429s.
-    fallbacks: ["nemotron-3-super-120b-a12b:free", "nemotron-3-ultra-550b-a55b:free"],
-    reasoningToggle: true,
-  },
-  // Free tiers added 2026-10 (same defaults as src/lib/openrouter.ts): Groq
-  // retired llama-3.3-70b-versatile for free tiers on 2026-08-16 in favour of
-  // gpt-oss-120b; Cerebras's catalog lists gpt-oss-120b; Gemini's
-  // OpenAI-compatibility docs use gemini-3.8-flash. No benchmark row yet.
-  {
-    label: "groq",
-    keyEnv: "GROQ_API_KEY",
-    url: "https://api.groq.com/openai/v1/chat/completions",
-    defaultModel: "openai/gpt-oss-120b",
-    fallbacks: ["openai/gpt-oss-20b"],
-    reasoningToggle: false,
-    extraBody: { reasoning_effort: "low" },
-  },
-  {
-    label: "cerebras",
-    keyEnv: "CEREBRAS_API_KEY",
-    url: "https://api.cerebras.ai/v1/chat/completions",
-    defaultModel: "gpt-oss-120b",
-    fallbacks: [],
-    reasoningToggle: false,
-    extraBody: { reasoning_effort: "low" },
-  },
-  {
-    label: "gemini",
-    keyEnv: "GEMINI_API_KEY",
-    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    defaultModel: "gemini-3.8-flash",
-    fallbacks: ["gemini-3.5-flash-lite"],
-    reasoningToggle: false,
-    extraBody: { reasoning_effort: "low" },
-  },
+  ...sharedProviders.map((p) => ({
+    ...p,
+    ...(SCRIPT_EXTRA_HEADERS[p.label] ? { extraHeaders: SCRIPT_EXTRA_HEADERS[p.label] } : {}),
+  })),
+  // Benchmark history only — not in the app chain, and providerUsable keeps
+  // it off without an explicit KIRAAI_ENABLED=1.
   {
     label: "kiraai",
     keyEnv: "KIRAAI_API_KEY",

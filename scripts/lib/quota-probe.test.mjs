@@ -110,9 +110,9 @@ test("an empty label keeps the historical any-configured behaviour", () =>
     assert.equal(code, 0);
     assert.ok(line.startsWith("PROBE-OK"), line);
     assert.equal(seen.length, 1);
-    // Registry order is nvidia > openrouter > unorouter; without an NVIDIA
-    // key the first configured is openrouter.
-    assert.match(seen[0], /openrouter\.ai/);
+    // Registry order (config/ai-providers.json) puts unorouter first and
+    // openrouter last; with both keyed the first configured is unorouter.
+    assert.match(seen[0], /api\.unorouter\.com/);
   }));
 
 test("resolveJudgeForLabel: strict match, no fuzzy fallthrough", () => {
