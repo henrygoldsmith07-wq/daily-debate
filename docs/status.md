@@ -1,34 +1,42 @@
 # Status
 
 Honest labels for what is shipped, provisional, or gated — with the
-validation caveat that governs all of them. Last updated 2026-10-18 (numbers
-below are the 2026-10-12 published artifact; the table is refreshed whenever
+validation caveat that governs all of them. Last updated 2026-10-20 (numbers
+below are the 2026-10-19 published artifact; the table is refreshed whenever
 a new full-pack run lands).
 
 > ## ⚠️ Validation status: no judge currently passes
 >
-> As of the latest published benchmark run (2026-10-12,
+> As of the latest published benchmark run (2026-10-19,
 > `docs/latest-judge-benchmark.json`, rendered per surface on `/metrics`),
 > **no model clears the judge gates**:
 >
 > | | best measured | gate |
 > |---|---|---|
-> | Fixture-label agreement | **0.696** (openrouter, n=23) | ≥ 0.75 |
-> | Calibration error (ECE) | **0.105** (unorouter, n=24) | ≤ 0.08 |
-> | Position-swap stability | **0.455** (unorouter; the only usable measurement this run) | ≥ 0.97 |
-> | Fake-citation influence | **0.5** (unorouter) | ≤ 0.05 |
+> | Fixture-label agreement | **0.714** (cerebras, n=14) | ≥ 0.75 |
+> | Calibration error (ECE) | **0.144** (cerebras) | ≤ 0.08 |
+> | Position-swap stability | no usable measurement — every model's gate is INSUFFICIENT DATA | ≥ 0.97 |
+> | Fake-citation influence | no usable measurement — every model's gate is INSUFFICIENT DATA | ≤ 0.05 |
 >
-> What those bests hide, stated per row: **openrouter** reached the best
-> agreement but answered only 72/300 transport calls (probe/audit instability
-> — provider rate limits and quota errors, not a verdict-quality result), so
-> every invariance gate for it is INSUFFICIENT DATA. **unorouter** answered
-> 278/312 and failed 13 of 14 gates (ideological asymmetry is the only PASS);
-> its 0.455 position-swap and 0.5 fake-citation readings are the worst
-> published numbers for either gate, replacing the 0.792 / 0.381 readings the
-> table had quoted from the 2026-09-14 prompt-v5 artifact (a kiraai free tier
-> that has since been retired mid-session). **kiraai** returned
-> errors on every call (0/24 usable) — a total outage recorded as
-> INSUFFICIENT DATA, never dropped from the record.
+> What that hides, stated plainly: **this run measures the free tier, not the
+> judge.** The two invariance rows above have no number because *no* model
+> produced a usable invariance sample — position swap needs 12 usable responses
+> out of 24 and the best any model reached was 5. **cerebras** answered 42/192
+> transport calls (22%) and still produced the best agreement (0.714 at n=14)
+> and the best ECE (0.144); **openrouter** answered 76/312 (24%) for 0.667 at
+> n=24 and ECE 0.221. **unorouter** and **kiraai** returned errors on every
+> call (0/24 usable) — total outages, recorded as INSUFFICIENT DATA and never
+> dropped from the record. Every model additionally failed the
+> provider-reliability floor (≥ 0.75), so this run's primary finding is a
+> transport problem, not a verdict-quality result.
+>
+> The last run that *did* measure invariance is the 2026-10-12 artifact (in
+> git history): unorouter scored 0.455 position-swap stability, 0.619
+> verbosity stability, 0.591 name stability and 0.5 fake-citation influence.
+> Those remain the best evidence of how the judge behaves, and they are far
+> below their gates. Its whitespace column is not evidence of anything — that
+> probe was measuring nothing until it was fixed (see
+> [docs/judge-experiments/errata.md](judge-experiments/errata.md)).
 >
 > **Which judge these numbers describe:** the free-tier models benchmarked so
 > far (OpenRouter/UnoRouter; Kirai, since removed). The app now runs only on

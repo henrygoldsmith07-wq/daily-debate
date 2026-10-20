@@ -49,6 +49,18 @@ That includes `docs/latest-judge-benchmark.json` up to and including the
 byte-intact (the no-rewrite policy applies to published artifacts) but must not
 be read as formatting sensitivity.
 
+**Correction (2026-10-20).** The window above was stated as "before 2026-10-05",
+which is the date the *erratum* was written, not the date the *fix* landed. The
+fix reached `main` in commit `6c7227e` on **2026-10-16**, so every run
+published between those two dates also used the inert probe — including the
+**2026-10-12** run, whose `whitespace` 0.500 was endpoint nondeterminism rather
+than formatting sensitivity. The affected window is therefore **every whitespace
+value published before 2026-10-16**, i.e. through and including the 2026-10-12
+artifact. The first run on `main` whose whitespace value is a real measurement
+is the 2026-10-19 one — and it reports **INSUFFICIENT DATA** (no model produced
+enough usable responses to measure it), which is the honest state, not a
+regression.
+
 **Fix.** The probe now collapses runs of whitespace and folds newlines — the
 invariance it always claimed to test — and changes 24/24 fixtures. Ported 1:1
 to `src/lib/judgeInvariance.ts`.
