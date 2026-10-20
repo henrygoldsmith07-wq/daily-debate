@@ -77,7 +77,7 @@ function Brand() {
       <Image src="/logo.svg" alt="" width={30} height={30} className="rounded-lg" aria-hidden="true" />
       <span className="home-brand-copy">
         <span className="block text-sm font-semibold tracking-tight">Daily Debate</span>
-        <span className="block text-[10px] uppercase tracking-[0.16em] text-ink3">Think in public</span>
+        <span className="block text-xs uppercase tracking-[0.16em] text-ink3">Think in public</span>
       </span>
     </Link>
   );
@@ -297,7 +297,7 @@ function GuestDebate({
                 />
               ))}
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-ink3">
+            <div className="mt-2 flex items-center justify-between text-xs text-ink3">
               <span>Round {round + 1} of {rounds.length} · {activeRound.label}</span>
               {/* No fabricated countdown: guest practice is untimed and free.
                   Showing "~2 min left" next to a round that never expires
@@ -309,7 +309,7 @@ function GuestDebate({
               <div className="flex gap-3">
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface-2)] text-xs font-semibold text-ink3">AI</div>
                 <div className="max-w-2xl rounded-2xl rounded-tl-sm border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-ink2">
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink3">Opponent</p>
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-ink3">Opponent</p>
                   {activeRound.opponent}
                 </div>
               </div>
@@ -333,10 +333,11 @@ function GuestDebate({
                   onChange={(event) => setResponse(event.target.value)}
                   placeholder="Write 2-4 sentences..."
                   rows={5}
+                  aria-describedby="guest-response-count"
                   className="field mt-4 resize-none text-sm leading-6"
                 />
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-[11px] text-ink3">{response.trim().length}/12 minimum characters</span>
+                  <span id="guest-response-count" className="text-xs text-ink3">{response.trim().length}/12 minimum characters</span>
                   <button type="button" onClick={submit} disabled={response.trim().length < 12} className="btn btn-primary px-4 py-2 text-sm">
                     Send response <span aria-hidden="true">→</span>
                   </button>
@@ -366,7 +367,7 @@ function GuestDebate({
                     </span>
                   ))}
                 </div>
-                <p className="mt-3 text-[11px] leading-5 text-ink3">
+                <p className="mt-3 text-xs leading-5 text-ink3">
                   This is a local text check of observable features, not a debate score.
                 </p>
                 <button type="button" onClick={next} className="btn btn-primary mt-5 w-full px-4 py-3 text-sm">
@@ -400,7 +401,7 @@ function GuestDebate({
                 ))}
               </div>
             </div>
-            <p className="px-1 text-[11px] leading-5 text-ink3">
+            <p className="px-1 text-xs leading-5 text-ink3">
               Guest feedback only checks what is visible in your wording. An account saves your debates and keeps coaching you on the same weakness over time.
             </p>
           </aside>
@@ -516,7 +517,7 @@ function GuestResult({
             <p className="mt-2 text-sm leading-6 text-ink2">{assessment.weakness.why}</p>
             {assessment.sourceResponse && (
               <div className="mt-4 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink3">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink3">
                   Original move · round {assessment.sourceResponseIndex + 1}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-ink2">{assessment.sourceResponse}</p>
@@ -544,6 +545,7 @@ function GuestResult({
                 </label>
                 <textarea
                   id="guest-repair-response"
+                  aria-describedby="guest-repair-count"
                   value={repair}
                   onChange={(event) => {
                     setRepair(event.target.value);
@@ -553,6 +555,9 @@ function GuestResult({
                   placeholder="Rewrite the move here..."
                   className="field mt-2 resize-none text-sm leading-6"
                 />
+                <p id="guest-repair-count" aria-live="polite" className="mt-1 text-xs text-ink3">
+                  {repair.trim().length >= 12 ? "Ready to submit." : `${repair.trim().length}/12 minimum characters`}
+                </p>
                 <button
                   type="button"
                   onClick={submitRepair}
@@ -669,7 +674,7 @@ function GuestRetest({
             <div className="mt-4 flex gap-3">
               <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface-2)] text-xs font-semibold text-ink3">AI</div>
               <div className="max-w-2xl rounded-2xl rounded-tl-sm border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-ink2">
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink3">Opponent</p>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-ink3">Opponent</p>
                 {retestRound.opponent}
               </div>
             </div>
@@ -682,12 +687,16 @@ function GuestRetest({
                 </label>
                 <textarea
                   id="guest-retest-response"
+                  aria-describedby="guest-retest-count"
                   value={response}
                   onChange={(event) => setResponse(event.target.value)}
                   placeholder="Write 2-4 sentences..."
                   rows={5}
                   className="field mt-2 resize-none text-sm leading-6"
                 />
+                <p id="guest-retest-count" aria-live="polite" className="mt-1 text-xs text-ink3">
+                  {response.trim().length >= 12 ? "Ready to submit." : `${response.trim().length}/12 minimum characters`}
+                </p>
                 <button
                   type="button"
                   onClick={() => setSubmitted(true)}
@@ -710,7 +719,7 @@ function GuestRetest({
                 </p>
                 <p className="mt-1 text-sm leading-6 text-ink2">{outcome?.headline}</p>
                 <p className="mt-2 text-sm leading-6 text-ink2">{outcome?.detail}</p>
-                <p className="mt-3 text-[11px] leading-5 text-ink3">
+                <p className="mt-3 text-xs leading-5 text-ink3">
                   Guest retest is one observed instance. It is not a validated measure of ability - that needs repeated measurement, which an account provides.
                 </p>
               </div>
@@ -796,7 +805,7 @@ function GuestDone({
                   : "the move did not reappear under pressure. The repair itself still stands as completed practice."}
               </li>
             </ul>
-            <p className="mt-3 text-[11px] leading-5 text-ink3">
+            <p className="mt-3 text-xs leading-5 text-ink3">
               Guest practice reports single observed instances. Repeated measurement — the thing that turns a rep
               into evidence of ability — needs an account.
             </p>

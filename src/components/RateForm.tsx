@@ -233,7 +233,7 @@ export default function RateForm() {
             <button type="button" onClick={submit} disabled={submitting} className="btn btn-primary px-4 py-2 text-sm disabled:opacity-40">
               {submitting ? "Submitting…" : "Submit & rate next"}
             </button>
-            <p className="text-[11px] leading-4 text-ink3">
+            <p className="text-xs leading-4 text-ink3">
               Score at least one dimension per side. Dimensions you leave blank are filled with a neutral value at
               analysis time, so a rating with no scores would record a neutral claim you never made.
             </p>

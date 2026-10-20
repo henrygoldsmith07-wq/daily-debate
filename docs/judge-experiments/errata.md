@@ -185,6 +185,145 @@ CLI output is only read by the study runner (which had always seen it work),
 the capacity CLI had no test, and the evidence script's local CLI path was
 only ever exercised by operators who had no test pinning the script contract.
 
+## Erratum 2026-10-18 — a registration on a removed provider validated as READY
+
+**What was wrong.** `pinned-paid-judge-default.json` (pre-registered 2026-10-06)
+pins its candidate arm to the paid `anthropic claude-sonnet-5` judge. PR #135
+removed the paid Anthropic transport entirely — there is no `anthropic` entry in
+`scripts/lib/judge-providers.mjs` — but the registration kept naming it, and
+`validateRegistration` had no opinion about whether the provider labels an arm
+names actually exist. It returned `ok: true` with no errors and no warnings,
+and the file still advertised:
+
+> `executionStatus: "READY - both arms implemented (anthropic judge selectable via --models anthropic …)"`
+
+Both halves of that sentence had become false. Measured on the current tree:
+
+| step | result |
+|---|---|
+| `validateRegistration(reg, { experiments })` | `ok: true`, `errors: []`, `warnings: []` |
+| `node scripts/quota-probe.mjs anthropic` (what the runner gates the arm on) | `NO-KEY anthropic`, exit 3 |
+| `node scripts/judge-benchmark.mjs --models anthropic` | `matched no configured provider`, exit 2 |
+
+**Why it mattered.** The study was unrunnable by construction, and the record
+said otherwise. `judge-study.mjs` probes before every arm, so the failure mode
+is safe — the probe fails, `stoppedEarly` is set, the study stops cleanly and
+stays resumable, and no calls are burned — but "safe" is not "honest": the
+registration advertised READY, and nothing in the validator, the runner or the
+test suite contradicted it. An operator reading `executionStatus` would have
+believed the study was executable and waited for a verdict that could never
+arrive. This is the same defect class as the inert whitespace probe: a record
+that describes work the system cannot actually do.
+
+**Why nothing caught it.** The disk-sweep test asserted that every registration
+file *validates*, and it did — validation simply never looked at provider
+identity. `--models` matching nothing is a runtime condition, so only a live
+run would reveal it, and a live run was never made (no study directory, no
+`registration-snapshot.json`: the file was never sealed).
+
+**Fix.** `validateRegistration` now resolves every provider label named by
+`models` and by each arm's own `models` against the live `PROVIDERS` registry,
+and refuses a registration naming a transport that does not exist:
+
+```
+arms.candidate.models names unknown provider "anthropic" (known: nvidia,
+openrouter, unorouter, groq, cerebras, gemini, kiraai); an arm on a removed
+provider can never be probed or benchmarked
+```
+
+Comma-separated ensemble labels are checked individually, so the registered
+ensemble arm (`unorouter,openrouter`) still validates. `knownProviderLabels()`
+is exported so tests assert against the registry rather than a copied list.
+
+**Reconciliation.** The registration is marked `status: "withdrawn"` with a
+`withdrawalReason`, not silently edited to a free provider: swapping the judge
+provider IS the registered single variable, so substituting one would be a new
+study, not an edit (same reasoning as the whitespace withdrawal above). Its
+structured fields are otherwise byte-intact for history. Nothing is invalidated
+by this: no study of it was ever sealed or executed, so no snapshot hash
+depends on its contents.
+
+**Validator consequence.** A `withdrawn` registration is exempt from execution
+validation — the defect that withdrew it may itself be a validation error —
+but must carry a substantive `withdrawalReason` (>= 40 chars), and every
+non-withdrawn registration still must validate. `scripts/lib/judge-registration.test.mjs`
+asserts both, and that no known registry label is ever rejected.
+
+**Superseded in part by erratum 2026-10-20 below**, which tightens this
+exemption: a withdrawn registration is now refused by the validator and by the
+runner, and the disk-sweep test holds it to a stricter standard rather than
+skipping it.
+
+## Erratum 2026-10-20 — a withdrawn registration could still be sealed and planned
+
+**What was wrong.** The erratum above introduced a `withdrawn` status as the
+honest way to retire `pinned-paid-judge-default`, and exempted withdrawn
+registrations from execution validation (the defect that withdrew a study may
+itself be a validation failure). But that exemption was the **only** place a
+registration could dodge validation, and nothing actually stopped a withdrawn
+study from being RUN:
+
+- `validateRegistration` never looked at `status` at all;
+- `judge-study.mjs` never looked at `status` at all.
+
+Measured on the tree before the fix, using a withdrawn copy of a *healthy*
+registration (every other field valid, so nothing but the marker differed):
+
+```
+validateRegistration(reg, { experiments })  -> ok: true, errors: []
+node scripts/judge-study.mjs --registration <that file> --budget-calls 100000
+  -> exit 0
+  -> "sealed registration grounding-two-pass-verbosity canonical hash=6257be1db2f98cb3"
+  -> "resume counts: baseline=0 candidate=0; plan=baseline,candidate,baseline,candidate"
+  -> "STOPPING: provider probe failed before arm baseline"
+```
+
+The runner **sealed** the withdrawn registration, created a study directory and
+a `registration-snapshot.json`, planned four arm runs, and never once mentioned
+the withdrawal. The only thing that stopped it was the provider probe — the
+same probe that would have failed for an unrelated reason, so the withdrawal
+was invisible in the output. The study directory that remained looked exactly
+like real evidence for a study nobody was running.
+
+**Why it mattered.** A withdrawal is a statement that a study is NOT running.
+If the tooling can still seal, plan and (once the provider is healthy) execute
+one, the withdrawal is decorative, and the record disagrees with the system —
+the same defect class as an inert probe. It also makes the exemption
+dangerous: a registration could be marked withdrawn to escape validation, and
+the escape hatch would double as a way to *run* something that should be inert.
+
+**Fix.** Two independent guards, because either alone is insufficient:
+
+1. `validateRegistration` now reports `withdrawn: true` and **refuses** a
+   withdrawn registration ("registration is WITHDRAWN - it is a historical
+   record and must never be sealed or executed"), and requires a substantive
+   `withdrawalReason` (>= 40 chars) — a withdrawal without a stated reason is
+   not an honest withdrawal.
+2. `judge-study.mjs` refuses a withdrawn registration **before it creates
+   anything** — no study dir, no seal, no snapshot, no calls — and names the
+   recorded reason in the refusal.
+
+The disk-sweep test was also tightened: a withdrawn registration is now held to
+a **stricter** standard than a live one, not a looser one. It must state why,
+it must be refused by the validator, it must fail ONLY for its own withdrawal
+reasons (an unknown provider, an unimplemented arm, a missing reason) — so a
+withdrawal cannot become a hiding place for an otherwise broken record — and
+every other field, including the byte-exact `adoptionRule` prose, must still
+hold.
+
+**Why nothing caught it.** The exemption was introduced one erratum earlier
+and was never exercised: no test ran a withdrawn registration through the real
+runner, and the validator had no concept of withdrawal to assert against. The
+new regression test spawns the real `scripts/judge-study.mjs` against a
+withdrawn copy of a healthy registration and asserts exit 2, an explicit
+withdrawal message, and that no study directory, seal or plan was produced.
+Both guards were proven non-vacuous by removing them one at a time and
+watching the test fail.
+
+**Nothing else is invalidated.** No study of any withdrawn registration was
+ever sealed or executed, so no snapshot hash or published verdict depends on
+this.
+
 ## Erratum 2026-10-05 — whitespace study withdrawn; verbosity study registered
 
 The study `grounding-two-pass-whitespace` was registered but not executed, and

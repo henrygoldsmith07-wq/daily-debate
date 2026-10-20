@@ -65,7 +65,7 @@ export function VerdictExplainPanel({
             : `${playerAName}: ${verdict.playerAScore}/100 · ${playerBName}: ${verdict.playerBScore}/100`}
         </p>
         {verdict.scoreStatus !== "insufficient_evidence" && (
-          <p className="text-[11px] text-ink3">Application score from the observable inputs below; not a calibrated ability rating.</p>
+          <p className="text-xs text-ink3">Application score from the observable inputs below; not a calibrated ability rating.</p>
         )}
         {verdict.observableAssessment && <ObservableFeaturePanel assessment={verdict.observableAssessment} playerAName={playerAName} playerBName={playerBName} />}
         {verdict.isTie && (

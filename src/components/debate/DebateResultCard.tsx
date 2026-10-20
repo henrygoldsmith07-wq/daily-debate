@@ -231,7 +231,7 @@ export function DebateResultCard({
                   Pace changed {trainingSummary.paceChangeWpm > 0 ? "+" : ""}{trainingSummary.paceChangeWpm} WPM from your first to last measured speech turn.
                 </p>
               )}
-              <p className="mt-3 text-[11px] leading-5 text-ink3">
+              <p className="mt-3 text-xs leading-5 text-ink3">
                 Delivery observations are separate from the argument score. They describe pace, wording and timing in this training mode, not accent, voice quality or general ability.
               </p>
             </section>
