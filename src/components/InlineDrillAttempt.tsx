@@ -67,7 +67,7 @@ export default function InlineDrillAttempt({ assignmentId }: { assignmentId: str
         aria-describedby="drill-attempt-hint"
         className="w-full resize-none rounded-lg border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
       />
-      <p id="drill-attempt-hint" className="text-xs opacity-70">
+      <p id="drill-attempt-hint" aria-live="polite" className="text-xs opacity-70">
         {text.trim().length < 10 ? "Write at least 10 characters to submit." : "Ready to submit."}
       </p>
       {error && (
