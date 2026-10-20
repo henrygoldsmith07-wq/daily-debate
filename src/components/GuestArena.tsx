@@ -555,8 +555,8 @@ function GuestResult({
                   placeholder="Rewrite the move here..."
                   className="field mt-2 resize-none text-sm leading-6"
                 />
-                <p id="guest-repair-count" className="mt-1 text-[11px] text-ink3">
-                  {repair.trim().length}/12 minimum characters
+                <p id="guest-repair-count" aria-live="polite" className="mt-1 text-[11px] text-ink3">
+                  {repair.trim().length >= 12 ? "Ready to submit." : `${repair.trim().length}/12 minimum characters`}
                 </p>
                 <button
                   type="button"
@@ -694,8 +694,8 @@ function GuestRetest({
                   rows={5}
                   className="field mt-2 resize-none text-sm leading-6"
                 />
-                <p id="guest-retest-count" className="mt-1 text-[11px] text-ink3">
-                  {response.trim().length}/12 minimum characters
+                <p id="guest-retest-count" aria-live="polite" className="mt-1 text-[11px] text-ink3">
+                  {response.trim().length >= 12 ? "Ready to submit." : `${response.trim().length}/12 minimum characters`}
                 </p>
                 <button
                   type="button"
