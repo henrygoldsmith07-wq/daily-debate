@@ -8,7 +8,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
       <p className="text-xs uppercase tracking-wide text-ink3">Something went wrong</p>
       <h1 className="text-2xl font-semibold tracking-tight">This page hit an unexpected error</h1>
       <p className="max-w-sm text-sm text-ink3">
-        It&apos;s not you — try again. If it keeps happening, come back in a moment.
+        It&apos;s not you, and your saved debates and progress are safe. Try again, or come back in a moment.
       </p>
       <div className="flex gap-3">
         <button type="button" onClick={reset} className="btn btn-primary px-4 py-2 text-sm">
