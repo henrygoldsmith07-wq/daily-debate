@@ -1,0 +1,9 @@
+{
+  "decision": "GO",
+  "expectedJobs": 1248,
+  "expectedCalls": 2340,
+  "expectedTokensApprox": 1638000,
+  "budgetCalls": 3000,
+  "requiredHeadroom": "expected calls must fit 80% of the declared budget",
+  "rationale": "expected 2340 calls fit within 80% of the declared 3000 budget"
+}
