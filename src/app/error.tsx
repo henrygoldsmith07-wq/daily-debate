@@ -4,7 +4,7 @@ import Link from "next/link";
 
 export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+    <div role="alert" className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
       <p className="text-xs uppercase tracking-wide text-ink3">Something went wrong</p>
       <h1 className="text-2xl font-semibold tracking-tight">This page hit an unexpected error</h1>
       <p className="max-w-sm text-sm text-ink3">
