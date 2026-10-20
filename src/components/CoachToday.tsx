@@ -231,6 +231,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
               onChange={(e) => setAttemptText(e.target.value)}
               rows={4}
               placeholder="Write your drill attempt here…"
+              maxLength={6000}
               aria-label="Drill attempt"
               aria-describedby="coach-drill-hint"
               className="w-full resize-none rounded-lg border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
