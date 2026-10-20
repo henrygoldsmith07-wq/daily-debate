@@ -77,6 +77,29 @@ if (REPS < reg.runsPerArm) {
   process.exit(2);
 }
 
+// Execution transport knobs. These change HOW the arms are executed, never
+// WHAT is measured: the same arms, the same fixtures, the same gates, the same
+// verdict rule. They exist so a long free-tier study can survive a job time
+// limit (--max-arms stops between arms) and a per-minute rate cap (--pace-ms
+// throttles the global call rate so 429s do not masquerade as judge quality).
+const argInt = (name, dflt, min, max) => {
+  const eq = args.find((x) => x.startsWith(`--${name}=`));
+  const raw = eq !== undefined ? eq.split("=").slice(1).join("=") : (() => {
+    const i = args.indexOf(`--${name}`);
+    return i === -1 ? undefined : args[i + 1];
+  })();
+  if (raw === undefined) return dflt;
+  const v = Number(raw);
+  if (!Number.isInteger(v) || v < min || v > max) {
+    process.stderr.write(`[judge-study] invalid --${name}: expected an integer from ${min} to ${max}\n`);
+    process.exit(2);
+  }
+  return v;
+};
+const PACE_MS = argInt("pace-ms", 0, 0, 300_000);
+const CONCURRENCY = argInt("concurrency", 3, 1, 8);
+const MAX_ARMS = argInt("max-arms", 0, 0, 1000); // 0 = run the whole plan
+
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9-]+/g, "-");
 const studyDir = path.resolve(
   argVal("study-dir") ?? path.join("docs", "judge-runs", `study-${slug(reg.name)}-${new Date().toISOString().slice(0, 10)}`),
@@ -168,8 +191,17 @@ if (!REANALYZE) {
     candidate: collectArm(dirs.candidate).length,
   };
   const plan = nextArmPlan(counts.baseline, counts.candidate, REPS);
-  log(`resume counts: baseline=${counts.baseline} candidate=${counts.candidate}; plan=${plan.join(",") || "(complete)"}`);
-  for (const arm of plan) {
+  // --max-arms stops the dispatch after N arms, BETWEEN arms. The arms that
+  // already ran are preserved raw in the study dir, so the next dispatch
+  // resumes from the same seal with balanced counts. Stopping between arms
+  // (never mid-arm) is what keeps a job-time limit from discarding a
+  // half-finished arm's calls.
+  const planned = MAX_ARMS > 0 ? plan.slice(0, MAX_ARMS) : plan;
+  if (MAX_ARMS > 0 && planned.length < plan.length) {
+    log(`--max-arms ${MAX_ARMS}: running ${planned.join(",") || "(none)"} of ${plan.join(",")}; the rest stay planned for the next dispatch`);
+  }
+  log(`resume counts: baseline=${counts.baseline} candidate=${counts.candidate}; plan=${planned.join(",") || "(complete)"}`);
+  for (const arm of planned) {
     const exp = reg.arms[arm].experiment;
     // Per-arm provider selection: an arm may pin its own `models` (e.g. a
     // provider-vs-provider study); otherwise the study-level models apply.
@@ -180,12 +212,25 @@ if (!REANALYZE) {
       log(`STOPPING: ${stoppedEarly}`);
       break;
     }
-    log(`arm ${arm} (${exp}) models=${armModelsForArm || "any"}`);
-    const spawnArgs = ["scripts/judge-benchmark.mjs", "--concurrency", "3", "--runs-dir", dirs[arm], "--experiment", exp];
+    log(`arm ${arm} (${exp}) models=${armModelsForArm || "any"} concurrency=${CONCURRENCY} paceMs=${PACE_MS}`);
+    const spawnArgs = [
+      "scripts/judge-benchmark.mjs",
+      "--concurrency", String(CONCURRENCY),
+      "--runs-dir", dirs[arm],
+      "--experiment", exp,
+    ];
+    if (PACE_MS > 0) spawnArgs.push("--pace-ms", String(PACE_MS));
     if (armModelsForArm) spawnArgs.push("--models", armModelsForArm);
     const res = spawnSync(process.execPath, spawnArgs, { stdio: ["ignore", "ignore", "inherit"] });
     log(`  arm ${arm} exited ${res.status} (gate failures are data)`);
     counts[arm] += 1;
+  }
+  // A dispatch that stopped on --max-arms has NOT decided the study: the
+  // verdict below is computed from the preserved runs, but it must not be
+  // written back to the registration while arms remain unrun.
+  if (!stoppedEarly && MAX_ARMS > 0 && planned.length < plan.length) {
+    stoppedEarly = `dispatch stopped after ${planned.length} of ${plan.length} planned arms (--max-arms); the study remains resumable and undecided`;
+    log(`STOPPING: ${stoppedEarly}`);
   }
 }
 
@@ -206,6 +251,7 @@ const md = [
   `- hypothesis: ${reg.hypothesis}`,
   `- variable: ${reg.singleVariable}`,
   `- design: registered runs/arm=${reg.runsPerArm}, probe-gated serialized interleave, provider=${reg.models ?? "any"}`,
+  `- transport: concurrency=${CONCURRENCY}, paceMs=${PACE_MS} (transport only - same arms, fixtures, gates and verdict rule)`,
   `- capacity plan: ${capacity.decision} - ${capacity.rationale} (expected ${capacity.expectedCalls} calls of budget ${capacity.budgetCalls ?? "none declared"}; see capacity.json)`,
   `- executable rule (generated from structured fields; structured fields are authoritative): ${deriveAdoptionRule(reg)}`,
   `- prose adoption rule: ${reg.adoptionRule ? (String(reg.adoptionRule).trim() === deriveAdoptionRule(reg) ? "matches generated rule" : "LEGACY (non-authoritative; structured fields govern)") : "none (generated governs)"}`,
