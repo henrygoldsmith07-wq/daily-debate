@@ -133,7 +133,7 @@ export default async function AppShell({
           )}
           {signOutButton}
           <ReaderPreferences />
-          <LegalLinks className="px-3 pb-1 text-[10px] text-ink3" />
+          <LegalLinks className="px-3 pb-1 text-xs text-ink3" />
         </div>
       </aside>
 

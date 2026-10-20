@@ -182,7 +182,7 @@ export default function TopicCard({
                       data-testid={`persona-${p.id}`}
                     >
                       {p.label}
-                      <span className="mt-0.5 block text-[11px] font-normal leading-4 opacity-80">{p.tagline}</span>
+                      <span className="mt-0.5 block text-xs font-normal leading-4 opacity-80">{p.tagline}</span>
                     </button>
                   ))}
                 </div>
@@ -204,11 +204,11 @@ export default function TopicCard({
                           already render their tagline inline; pressure now
                           does the same, so both controls describe themselves
                           without a pointer. WCAG 1.4.13. */}
-                      <span className="mt-0.5 block text-[11px] font-normal leading-4 opacity-80">{d.description}</span>
+                      <span className="mt-0.5 block text-xs font-normal leading-4 opacity-80">{d.description}</span>
                     </button>
                   ))}
                 </div>
-                <p className="mt-3 text-[11px] leading-5 text-ink3">
+                <p className="mt-3 text-xs leading-5 text-ink3">
                   Personas change how the AI attacks; pressure changes how hard. Neither changes how you are scored.
                 </p>
               </div>
@@ -266,7 +266,7 @@ export default function TopicCard({
                 reading as a hung click. No fresh spinner copy; this is the
                 only affordance the start button gets. */}
             {starting !== null && (
-              <p className="text-[11px] leading-4 text-ink3" role="status">
+              <p className="text-xs leading-4 text-ink3" role="status">
                 Building your debate will take a few seconds — the AI is composing its opening argument.
               </p>
             )}
@@ -307,7 +307,7 @@ export default function TopicCard({
                     </dl>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {chips.map((chip) => <span key={chip.label} className={`rounded-full px-2 py-0.5 text-xs ${chip.ok === true ? "bg-[var(--accent-soft)] text-[var(--accent)]" : chip.ok === false ? "bg-[var(--review-soft)] text-[var(--review)]" : "bg-surface-2 text-ink3"}`}>{chip.ok === false ? "⚠ " : chip.ok === true ? "✓ " : ""}{chip.label}</span>)}
-                      <a href={card.url} target="_blank" rel="noreferrer" className="ml-auto text-xs font-medium text-[var(--accent)] hover:underline">[Open source]</a>
+                      <a href={card.url} target="_blank" rel="noreferrer" className="ml-auto text-xs font-medium text-[var(--accent)] hover:underline">[Open source]<span className="sr-only"> (opens in a new tab)</span></a>
                     </div>
                   </li>
                 );
@@ -327,6 +327,7 @@ export default function TopicCard({
                     <a href={source.homepage} target="_blank" rel="noreferrer" className="font-medium text-ink hover:underline">
                       {known ? <span className="mr-1 text-[var(--accent)]">✓</span> : null}
                       {source.name}
+                      <span className="sr-only"> (opens in a new tab)</span>
                     </a>
                     {/* Was `text-amber-600`, which on --surface-2 in the
                         app's only (dark) theme measures ~2.6:1 — well below

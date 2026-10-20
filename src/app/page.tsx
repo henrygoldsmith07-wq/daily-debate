@@ -356,7 +356,7 @@ export default async function DashboardPage() {
                 : " You repaired it in the rewrite, though it did not reappear in the retest round — so it is still the thing to watch."
               : " You have not repaired it yet, so it stays today's focus."}
           </p>
-          <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink3">
+          <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-4 text-ink3">
             A guest rep is one local practice run, not measured evidence — it is not counted in your
             skill scores. It only decides what today&apos;s debate watches for; your own completed
             debates are what build the profile.
@@ -388,7 +388,7 @@ export default async function DashboardPage() {
               <dd className="text-ink3">Daily Sprint ≈4 min, or a Full Debate (5–12 rounds).</dd>
             </div>
           </dl>
-          <p className="mt-3 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink3">
+          <p className="mt-3 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-4 text-ink3">
             {learnerModel.nextPractice.evidence} {learnerModel.nextPractice.caveat}
           </p>
           <Link

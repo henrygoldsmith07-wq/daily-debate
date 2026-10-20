@@ -37,7 +37,7 @@ export default function SkillProfileBars({ profile }: { profile: ArgumentSkillPr
           </span>
         </div>
       ))}
-      <p className="mt-2 text-[10px] leading-4 text-ink3">Relative reads compare your own observed debate behaviour. Raw metrics remain available on Progress.</p>
+      <p className="mt-2 text-xs leading-4 text-ink3">Relative reads compare your own observed debate behaviour. Raw metrics remain available on Progress.</p>
     </div>
   );
 }

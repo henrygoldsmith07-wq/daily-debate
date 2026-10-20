@@ -1,7 +1,9 @@
 {
   "name": "pinned-paid-judge-default",
   "schemaVersion": 2,
-  "status": "registered",
+  "status": "withdrawn",
+  "withdrawnAt": "2026-10-18T00:00:00.000Z",
+  "withdrawalReason": "Never sealed or executed. The candidate arm names the paid `anthropic` provider, which was removed from the codebase on 2026-10-18 (PR #135: free tiers only). No transport named `anthropic` exists in scripts/lib/judge-providers.mjs, so the arm's quota probe answers NO-KEY and scripts/judge-benchmark.mjs --models anthropic matches no configured provider: the study could not have reached a verdict. The `executionStatus` claim of READY below was false for that reason and is retained only as the historical record of what the file said. Substituting a free provider would change the registered single variable (provider/model identity), so this is a NEW study rather than an edit - see docs/judge-experiments/errata.md.",
   "registeredAt": "2026-10-06T16:14:46.492Z",
   "kind": "provider",
   "question": "Production is switching its default judge from the free OpenAI-style chain (measured provider reliability 0.295-0.808 on 312-call packs) to ONE pinned paid model (anthropic claude-sonnet-5). Does the pinned paid model clear the reliability floor and raise reliability without regressing verdict quality against the incumbent chain?",

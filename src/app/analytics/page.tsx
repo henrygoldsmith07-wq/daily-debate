@@ -432,7 +432,7 @@ export default async function AnalyticsPage() {
               D7 {trainingLoop.postRepairReturnByArm.prompted.d7.rate === null ? "—" : pct(trainingLoop.postRepairReturnByArm.prompted.d7.rate)} ·
               D30 {trainingLoop.postRepairReturnByArm.prompted.d30.rate === null ? "—" : pct(trainingLoop.postRepairReturnByArm.prompted.d30.rate)}
             </p>
-            <p className="mt-1 text-[11px] text-ink3">
+            <p className="mt-1 text-xs text-ink3">
               {trainingLoop.postRepairReturnByArm.prompted.d7.eligibleUsers} eligible at day 7 · {trainingLoop.postRepairReturnByArm.prompted.d7.pendingUsers} still pending
             </p>
           </div>
@@ -443,7 +443,7 @@ export default async function AnalyticsPage() {
               D7 {trainingLoop.postRepairReturnByArm.incidental.d7.rate === null ? "—" : pct(trainingLoop.postRepairReturnByArm.incidental.d7.rate)} ·
               D30 {trainingLoop.postRepairReturnByArm.incidental.d30.rate === null ? "—" : pct(trainingLoop.postRepairReturnByArm.incidental.d30.rate)}
             </p>
-            <p className="mt-1 text-[11px] text-ink3">
+            <p className="mt-1 text-xs text-ink3">
               {trainingLoop.postRepairReturnByArm.incidental.d7.eligibleUsers} eligible at day 7 · {trainingLoop.postRepairReturnByArm.incidental.d7.pendingUsers} still pending
             </p>
           </div>

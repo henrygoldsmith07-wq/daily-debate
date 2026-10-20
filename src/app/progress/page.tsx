@@ -283,7 +283,7 @@ export default async function ProgressPage() {
               <dd className="text-ink3">{learnerModel.nextPractice.evidence}</dd>
             </div>
           </dl>
-          <p className="mt-3 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink3">
+          <p className="mt-3 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-4 text-ink3">
             {learnerModel.nextPractice.caveat}
           </p>
           <Link
@@ -329,7 +329,7 @@ export default async function ProgressPage() {
         </dl>
         <details className="mt-3">
           <summary className="cursor-pointer text-xs font-medium text-ink3">How much of this is certain?</summary>
-          <ul className="mt-2 flex flex-col gap-1 text-[11px] leading-4 text-ink3">
+          <ul className="mt-2 flex flex-col gap-1 text-xs leading-4 text-ink3">
             {learnerModel.skills
               .filter((s) => s.level !== null)
               .map((s) => (
@@ -340,7 +340,7 @@ export default async function ProgressPage() {
                 </li>
               ))}
           </ul>
-          <p className="mt-2 text-[11px] leading-4 text-ink3">{learnerModel.honestyNote}</p>
+          <p className="mt-2 text-xs leading-4 text-ink3">{learnerModel.honestyNote}</p>
         </details>
       </section>
 
@@ -366,7 +366,7 @@ export default async function ProgressPage() {
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-[11px] leading-4 text-ink3">
+          <p className="mt-2 text-xs leading-4 text-ink3">
             Observable changes from your own debate history, with their sample size. Not a verdict on ability.
           </p>
         </section>
@@ -414,7 +414,7 @@ export default async function ProgressPage() {
                   )}
                 </ol>
                 {!entry.evidence.sufficient && (
-                  <p className="mt-2 text-[11px] leading-4 text-ink3">
+                  <p className="mt-2 text-xs leading-4 text-ink3">
                     Evidence is still too limited for a strong claim — this is what has been observed so far, not a verdict.
                   </p>
                 )}
@@ -447,7 +447,7 @@ export default async function ProgressPage() {
           {summary.strongest && <span>Stronger current signal: <span className="font-medium text-ink2">{summary.strongest.label}</span></span>}
           {summary.weakest && <span>Current coaching gap: <span className="font-medium text-ink2">{summary.weakest.label}</span></span>}
         </div>
-        <p className="mt-3 text-[11px] leading-5 text-ink3">
+        <p className="mt-3 text-xs leading-5 text-ink3">
           Trends need repeated observable opportunities before they are useful. {summary.debatesAnalysed < summary.minDebatesForStableScores && `You have ${summary.debatesAnalysed} debate${summary.debatesAnalysed === 1 ? "" : "s"} so far, so treat these as early signals.`}
         </p>
       </section>
@@ -499,7 +499,7 @@ export default async function ProgressPage() {
                     <article key={mode} className="rounded-lg border border-[var(--rule)] bg-surface-2 p-3">
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
                         <p className="text-sm font-semibold">{DEBATE_MODES[mode].label}</p>
-                        <p className="text-[11px] text-ink3">{stats.debates} debate{stats.debates === 1 ? "" : "s"} · {stats.turns} turn{stats.turns === 1 ? "" : "s"}</p>
+                        <p className="text-xs text-ink3">{stats.debates} debate{stats.debates === 1 ? "" : "s"} · {stats.turns} turn{stats.turns === 1 ? "" : "s"}</p>
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
                         <div><span className="text-ink3">Pace</span><p className="mt-0.5 font-semibold tabular">{stats.avgPaceWpm === null ? "—" : `${stats.avgPaceWpm} WPM`}</p></div>
@@ -508,7 +508,7 @@ export default async function ProgressPage() {
                         <div><span className="text-ink3">Response</span><p className="mt-0.5 font-semibold tabular">{stats.avgResponseSeconds === null ? "—" : `${stats.avgResponseSeconds}s`}</p></div>
                       </div>
                       {(stats.speechQualityChange !== null || stats.responseTimeChangeSeconds !== null) && (
-                        <p className="mt-3 text-[11px] leading-5 text-ink3">
+                        <p className="mt-3 text-xs leading-5 text-ink3">
                           First → latest observed debate in this mode:
                           {stats.speechQualityChange !== null ? ` delivery ${stats.speechQualityChange > 0 ? "+" : ""}${stats.speechQualityChange}` : ""}
                           {stats.speechQualityChange !== null && stats.responseTimeChangeSeconds !== null ? " ·" : ""}
@@ -517,7 +517,7 @@ export default async function ProgressPage() {
                         </p>
                       )}
                       {stats.speechQualityChange === null && stats.responseTimeChangeSeconds === null && (
-                        <p className="mt-3 text-[11px] leading-5 text-ink3">
+                        <p className="mt-3 text-xs leading-5 text-ink3">
                           More observations are needed before showing change. Trends require at least {MIN_MODE_TREND_DEBATES} debates and {MIN_MODE_TREND_TURNS} measured turns in this mode.
                         </p>
                       )}
@@ -527,7 +527,7 @@ export default async function ProgressPage() {
             </div>
           )}
 
-          <p className="mt-3 text-[11px] leading-5 text-ink3">
+          <p className="mt-3 text-xs leading-5 text-ink3">
             Based on {training.debatesWithTrainingData} debate{training.debatesWithTrainingData === 1 ? "" : "s"} with mode metadata{training.spokenTurns > 0 ? ` and ${training.spokenTurns} spoken turn${training.spokenTurns === 1 ? "" : "s"}` : ""}.
           </p>
         </section>
@@ -557,7 +557,7 @@ export default async function ProgressPage() {
               </p>
             )}
           </div>
-          <p className="mt-3 text-[11px] leading-5 text-ink3">
+          <p className="mt-3 text-xs leading-5 text-ink3">
             {topicInsights.note ?? "Observational averages from your own debates — topic mix and difficulty vary, so treat this as a hint about what to practise, not a verdict."}
           </p>
         </section>
@@ -637,7 +637,7 @@ export default async function ProgressPage() {
             })}
           </div>
 
-          <p className="mt-4 text-[11px] leading-5 text-ink3">
+          <p className="mt-4 text-xs leading-5 text-ink3">
             These are observational skill trajectories from your debate history, not proof that a drill caused the
             change. A skill only reaches “retained” after improvement persists across later measurements.
           </p>
