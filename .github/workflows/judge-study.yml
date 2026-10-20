@@ -1,0 +1,238 @@
+name: judge-study
+
+# Pre-registered judge study execution.
+#
+# A study is not a benchmark: it is a SEALED, single-variable experiment whose
+# verdict is computed from its own registered numbers (scripts/judge-study.mjs
+# + scripts/lib/judge-stats.mjs). The runner refuses to execute under a drifted
+# registration, probes the provider before EVERY arm, keeps the A/B counts
+# balanced on resume, and infers only from runs whose reliability clears the
+# registered floor. Verdicts are supported / rejected / inconclusive - a
+# rejection is a successful outcome and is never re-bricked after seeing data.
+#
+# Why this is a workflow and not a laptop command: the provider keys live
+# ONLY as repository secrets (GitHub secrets are write-only - they cannot be
+# read back or exported), and the registered verbosity study needs ~2340 calls
+# against free tiers whose ceilings are a few requests per minute. A study that
+# cannot run is not a study; this workflow is the only place it can run.
+#
+# RESUMABILITY. The study is explicitly designed to span dispatches: runs are
+# preserved raw in the study dir and appended across days, and the verdict is
+# always recomputed from ALL preserved runs against the same sealed rule. This
+# workflow keeps that state on a dedicated branch (runs/study-<slug>) so a
+# dispatch that hits the job time limit loses no work: the next dispatch
+# restores the state and continues. Arms never run concurrently (the runner
+# executes them serially, and this workflow holds a concurrency group).
+#
+# EVIDENCE. The results PR is opened ONLY when the registration was written
+# back with status "decided" - that happens only when the whole registered
+# plan completed. An unfinished study is state, not a result: it stays on the
+# runs branch and no PR is opened. main is protected (PR + required checks
+# verify / e2e / topic-pipeline, no bypass actors), so evidence lands through
+# the same branch -> PR -> green -> squash path the weekly benchmark uses.
+#
+# Requires: a judge provider secret, and the default GITHUB_TOKEN with
+# contents:write and pull-requests:write.
+
+on:
+  workflow_dispatch:
+    inputs:
+      registration:
+        description: "Path to the sealed registration file to execute"
+        required: true
+        default: "docs/judge-experiments/registrations/grounding-two-pass-verbosity.json"
+      budget_calls:
+        description: "Explicit provider-call budget for the capacity gate (unknown capacity is refused)"
+        required: true
+        default: "3000"
+      pace_ms:
+        description: "Minimum ms between provider calls (throttles to the free-tier rate ceiling)"
+        required: true
+        default: "12000"
+      concurrency:
+        description: "Benchmark concurrency per arm"
+        required: true
+        default: "1"
+      max_arms:
+        description: "Max arms per dispatch (0 = whole plan). Arms run one at a time, so the study resumes across dispatches."
+        required: true
+        default: "0"
+      study_dir:
+        description: "Study directory (must be STABLE across dispatches so the seal and runs resume)"
+        required: true
+        default: "docs/judge-runs/study-grounding-two-pass-verbosity"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Two dispatches of the same study must never run at once: they would share
+# the provider's rate budget and could interleave writes to the runs branch.
+concurrency:
+  group: judge-study-${{ inputs.registration }}
+  cancel-in-progress: false
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    # The job ceiling is 360 minutes. The study step stops earlier so the
+    # state-persistence step below still runs and the next dispatch can
+    # resume. Stopping BETWEEN arms (--max-arms) means no half-finished arm
+    # is ever thrown away.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history so the runs branch can be restored.
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Fail fast when no judge secrets are configured
+        # Without this the study would "succeed" having done nothing, and an
+        # empty study looks like an INCONCLUSIVE verdict rather than a
+        # secrets regression.
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          UNOROUTER_API_KEY: ${{ secrets.UNOROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
+        run: |
+          if [ -z "$NVIDIA_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ] && [ -z "$UNOROUTER_API_KEY" ] && [ -z "$GROQ_API_KEY" ] && [ -z "$CEREBRAS_API_KEY" ] && [ -z "$GEMINI_API_KEY" ] && [ -z "$KIRAAI_API_KEY" ]; then
+            echo "::error::No judge configured - set at least one provider key as a repository secret. The study cannot run."
+            exit 1
+          fi
+
+      - name: Probe every configured provider (availability, not judge quality)
+        # A provider that cannot answer is a transport fact, not a judge
+        # verdict. Recording it here means the run's evidence says WHY it
+        # could not measure, instead of looking like a silent no-op.
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          UNOROUTER_API_KEY: ${{ secrets.UNOROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          for p in unorouter groq cerebras gemini nvidia openrouter; do
+            echo "--- probing $p ---"
+            node scripts/quota-probe.mjs "$p" || echo "provider $p did not answer (transport fact, recorded not hidden)"
+          done
+
+      - name: Restore persisted study state (resume across dispatches)
+        env:
+          REGISTRATION: ${{ inputs.registration }}
+          STUDY_DIR: ${{ inputs.study_dir }}
+        run: |
+          slug="$(basename "$REGISTRATION" .json)"
+          branch="runs/study-$slug"
+          echo "study branch: $branch"
+          echo "STUDY_BRANCH=$branch" >> "$GITHUB_ENV"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch origin "$branch"
+            # Restore only the study tree; the published validation record on
+            # main is never touched by a study.
+            git checkout FETCH_HEAD -- docs/judge-runs/ 2>/dev/null || true
+            echo "restored persisted study state from $branch"
+          else
+            echo "no persisted state yet - this dispatch starts the study"
+          fi
+
+      - name: Run the registered study (probe-gated, sealed, resumable)
+        id: study
+        # The step ceiling leaves room for the state-persistence step to run
+        # even when the study is cut short.
+        timeout-minutes: 320
+        env:
+          REGISTRATION: ${{ inputs.registration }}
+          BUDGET_CALLS: ${{ inputs.budget_calls }}
+          PACE_MS: ${{ inputs.pace_ms }}
+          CONCURRENCY: ${{ inputs.concurrency }}
+          MAX_ARMS: ${{ inputs.max_arms }}
+          STUDY_DIR: ${{ inputs.study_dir }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          UNOROUTER_API_KEY: ${{ secrets.UNOROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
+        run: |
+          # The study dir MUST be stable across dispatches: the runner's
+          # default appends today's date, which would start a new study
+          # (and a new seal) on every dispatch and never resume.
+          node scripts/judge-study.mjs \
+            --registration "$REGISTRATION" \
+            --budget-calls "$BUDGET_CALLS" \
+            --study-dir "$STUDY_DIR" \
+            --pace-ms "$PACE_MS" \
+            --concurrency "$CONCURRENCY" \
+            --max-arms "$MAX_ARMS"
+
+      - name: Persist study state on the runs branch
+        # Always: even when the study step failed or was cut short, the runs
+        # that DID complete are evidence and must survive to the next dispatch.
+        if: always()
+        env:
+          REGISTRATION: ${{ inputs.registration }}
+          STUDY_DIR: ${{ inputs.study_dir }}
+        run: |
+          git config user.name "judge-study-bot"
+          git config user.email "actions@users.noreply.github.com"
+          branch="$STUDY_BRANCH"
+          git checkout -B "$branch"
+          git add -A "$STUDY_DIR" || true
+          if git diff --cached --quiet; then
+            echo "no new study state; nothing to persist"
+            exit 0
+          fi
+          git commit -m "chore(judge-study): persist study state (resumable)"
+          git push origin "$branch"
+          echo "persisted study state on $branch"
+
+      - name: Open the evidence PR once the verdict is decided
+        # The runner writes the verdict back to the registration ONLY when the
+        # whole registered plan completed. A changed registration file is
+        # therefore the exact signal that the study is decided - and it
+        # publishes supported AND rejected AND inconclusive alike, because an
+        # inconclusive verdict is still a verdict.
+        if: always() && steps.study.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRATION: ${{ inputs.registration }}
+          STUDY_DIR: ${{ inputs.study_dir }}
+        run: |
+          if git diff --quiet -- "$REGISTRATION"; then
+            echo "::notice::Study not decided (plan incomplete or stopped early). State is on $STUDY_BRANCH; re-dispatch to resume."
+            exit 0
+          fi
+          git config user.name "judge-study-bot"
+          git config user.email "actions@users.noreply.github.com"
+          branch="chore/judge-study-$(date -u +%Y%m%d-%H%M%S)"
+          git checkout -b "$branch"
+          git add "$STUDY_DIR" "$REGISTRATION"
+          git commit -m "chore(judge-study): publish study evidence and verdict"
+          git push origin "$branch"
+          if number=$(gh pr create --base main --head "$branch" \
+            --title "chore(judge-study): publish study evidence and verdict" \
+            --body "Automated pre-registered judge study: sealed registration, probe-gated arms, verdict computed from the registration's own numbers. Merges only after the required application checks (verify, e2e, topic-pipeline) pass; the ruleset has no bypass actors." 2>pr-create.err \
+            | grep -oE '[0-9]+$'); then
+            echo "Opened study-evidence PR #$number (branch $branch)"
+            echo "pr_number=$number" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Study evidence PR was NOT created (automation permission, not a study failure). The evidence is on branch $branch and in the uploaded artifact."
+            cat pr-create.err || true
+          fi
+
+      - name: Upload the study evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: judge-study-evidence
+          path: ${{ inputs.study_dir }}
+          if-no-files-found: warn
