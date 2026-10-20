@@ -21,7 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const WORKFLOWS = ["topic-generation.yml", "daily-debate.yml", "judge-benchmark.yml"]
+const WORKFLOWS = ["topic-generation.yml", "daily-debate.yml", "judge-benchmark.yml", "judge-study.yml"]
   .map((f) => ({ name: f, text: readFileSync(path.join(REPO_ROOT, ".github", "workflows", f), "utf8") }));
 
 const SUPPORTED_STEP_PROPS = ["outputs", "outcome", "conclusion"];
