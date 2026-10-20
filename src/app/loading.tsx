@@ -29,7 +29,8 @@ export default function Loading() {
           <Skeleton className="h-6 w-28" />
           <Skeleton className="h-6 w-20" />
         </header>
-        <div className="app-content max-w-4xl">
+        <div className="app-content max-w-4xl" role="status" aria-busy="true">
+          <span className="sr-only">Loading…</span>
           <Skeleton className="h-3 w-24" />
           <Skeleton className="h-8 w-1/2" />
           <Skeleton className="h-56 w-full rounded-xl" />

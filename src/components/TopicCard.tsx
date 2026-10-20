@@ -307,7 +307,7 @@ export default function TopicCard({
                     </dl>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {chips.map((chip) => <span key={chip.label} className={`rounded-full px-2 py-0.5 text-xs ${chip.ok === true ? "bg-[var(--accent-soft)] text-[var(--accent)]" : chip.ok === false ? "bg-[var(--review-soft)] text-[var(--review)]" : "bg-surface-2 text-ink3"}`}>{chip.ok === false ? "⚠ " : chip.ok === true ? "✓ " : ""}{chip.label}</span>)}
-                      <a href={card.url} target="_blank" rel="noreferrer" className="ml-auto text-xs font-medium text-[var(--accent)] hover:underline">[Open source]</a>
+                      <a href={card.url} target="_blank" rel="noreferrer" className="ml-auto text-xs font-medium text-[var(--accent)] hover:underline">[Open source]<span className="sr-only"> (opens in a new tab)</span></a>
                     </div>
                   </li>
                 );
@@ -327,6 +327,7 @@ export default function TopicCard({
                     <a href={source.homepage} target="_blank" rel="noreferrer" className="font-medium text-ink hover:underline">
                       {known ? <span className="mr-1 text-[var(--accent)]">✓</span> : null}
                       {source.name}
+                      <span className="sr-only"> (opens in a new tab)</span>
                     </a>
                     {/* Was `text-amber-600`, which on --surface-2 in the
                         app's only (dark) theme measures ~2.6:1 — well below

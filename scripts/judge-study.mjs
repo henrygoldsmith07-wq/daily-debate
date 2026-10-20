@@ -25,7 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { EXPERIMENTS } from "./lib/judge-experiments.mjs";
-import { canonicalHash, deriveAdoptionRule, validateRegistration, armModels } from "./lib/judge-registration.mjs";
+import { canonicalHash, deriveAdoptionRule, validateRegistration, armModels, isWithdrawn } from "./lib/judge-registration.mjs";
 import { estimateCapacity } from "./judge-capacity.mjs";
 import {
   basicStats,
@@ -54,6 +54,19 @@ if (!argVal("registration") || !fs.existsSync(regPath) || !fs.statSync(regPath).
 const registrationText = fs.readFileSync(regPath, "utf8").replace(/^\uFEFF/, "");
 const reg = JSON.parse(registrationText);
 const regHash = canonicalHash(reg);
+// A withdrawn registration is a historical record, never a plan. Refuse it
+// BEFORE anything is created: no study dir, no seal, no snapshot, no calls.
+// Without this the runner happily sealed a withdrawn study, planned its arms
+// and only stopped at the provider probe - leaving a study directory that
+// looked like real evidence for a study nobody was running.
+if (isWithdrawn(reg)) {
+  process.stderr.write(
+    `[judge-study] registration "${reg.name ?? regPath}" is WITHDRAWN - refusing to seal or execute it.\n` +
+      `  reason: ${String(reg.withdrawalReason ?? "(none recorded)")}\n` +
+      `  A withdrawn registration is a historical record. Register a NEW study if the question is still worth asking.\n`,
+  );
+  process.exit(2);
+}
 const validation = validateRegistration(reg, { experiments: EXPERIMENTS });
 if (!validation.ok) {
   process.stderr.write(`[judge-study] registration INVALID - refusing to seal or execute:\n  - ${validation.errors.join("\n  - ")}\n`);

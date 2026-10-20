@@ -65,6 +65,16 @@ export function armModels(reg, arm) {
 }
 
 /**
+ * A registration is WITHDRAWN when its `status` says so. A withdrawn
+ * registration is a historical record, not an executable plan: the defect that
+ * withdrew it may itself be a validation failure, so it is exempt from the
+ * execution-shaped checks. It is NOT exempt from being refused by the runner.
+ */
+export function isWithdrawn(reg) {
+  return /withdrawn|superseded/i.test(String(reg?.status ?? ""));
+}
+
+/**
  * Validate a registration before sealing/executing. Returns { ok, errors[] }.
  * Anything the engine cannot execute authoritatively is an error: a bad
  * registration must never produce a confident-looking verdict.
@@ -147,5 +157,16 @@ export function validateRegistration(reg, { experiments } = {}) {
       }
     }
   }
-  return { ok: errors.length === 0, errors, warnings };
+  // A withdrawn registration is not an executable plan. It is reported as
+  // such rather than silently validated, so no caller can mistake "the
+  // withdrawal is excusable" for "the withdrawal is fine". The runner refuses
+  // it outright; a withdrawn study is a historical record, not a plan.
+  const withdrawn = isWithdrawn(reg);
+  if (withdrawn) {
+    if (String(reg.withdrawalReason ?? "").trim().length < 40) {
+      errors.push("withdrawn registration must carry a substantive withdrawalReason (>= 40 chars)");
+    }
+    errors.push("registration is WITHDRAWN - it is a historical record and must never be sealed or executed");
+  }
+  return { ok: errors.length === 0, errors, warnings, withdrawn };
 }
