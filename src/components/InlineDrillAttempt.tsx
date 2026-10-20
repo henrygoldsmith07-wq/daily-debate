@@ -83,7 +83,7 @@ export default function InlineDrillAttempt({ assignmentId }: { assignmentId: str
       >
         {submitting ? DRILL_FEEDBACK_COPY.submitBusy : DRILL_FEEDBACK_COPY.submitIdle}
       </button>
-      <p className="text-[10px] leading-4 text-ink3">{DRILL_FEEDBACK_COPY.note}</p>
+      <p className="text-xs leading-4 text-ink3">{DRILL_FEEDBACK_COPY.note}</p>
     </div>
   );
 }
