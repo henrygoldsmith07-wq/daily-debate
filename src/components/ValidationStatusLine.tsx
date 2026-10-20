@@ -36,7 +36,7 @@ export default function ValidationStatusLine({
       className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs leading-5 text-ink3"
       data-testid={testId}
     >
-      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${chipClass(status)}`}>
+      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${chipClass(status)}`}>
         validation: {status}
       </span>
       <span>{validation?.claim ?? "This surface's validation status could not be read and may not be described as validated."}</span>

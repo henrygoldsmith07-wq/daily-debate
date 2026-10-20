@@ -34,7 +34,7 @@ export default function ReaderPreferences() {
 
       {open && (
         <div id={panelId} className="mt-3 flex flex-col gap-3" data-testid="reader-preferences-panel">
-          <p className="text-[11px] leading-4 text-ink3">
+          <p className="text-xs leading-4 text-ink3">
             Stored on this device only. Applies immediately, including before you sign in.
           </p>
 
@@ -54,7 +54,7 @@ export default function ReaderPreferences() {
                 />
                 <span className="min-w-0">
                   <span className="block font-medium text-ink2">{option.label}</span>
-                  <span className="block text-[11px] leading-4 text-ink3">{option.description}</span>
+                  <span className="block text-xs leading-4 text-ink3">{option.description}</span>
                 </span>
               </label>
             );

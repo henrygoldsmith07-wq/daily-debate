@@ -297,7 +297,7 @@ function GuestDebate({
                 />
               ))}
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-ink3">
+            <div className="mt-2 flex items-center justify-between text-xs text-ink3">
               <span>Round {round + 1} of {rounds.length} · {activeRound.label}</span>
               {/* No fabricated countdown: guest practice is untimed and free.
                   Showing "~2 min left" next to a round that never expires
@@ -337,7 +337,7 @@ function GuestDebate({
                   className="field mt-4 resize-none text-sm leading-6"
                 />
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                  <span id="guest-response-count" className="text-[11px] text-ink3">{response.trim().length}/12 minimum characters</span>
+                  <span id="guest-response-count" className="text-xs text-ink3">{response.trim().length}/12 minimum characters</span>
                   <button type="button" onClick={submit} disabled={response.trim().length < 12} className="btn btn-primary px-4 py-2 text-sm">
                     Send response <span aria-hidden="true">→</span>
                   </button>
@@ -367,7 +367,7 @@ function GuestDebate({
                     </span>
                   ))}
                 </div>
-                <p className="mt-3 text-[11px] leading-5 text-ink3">
+                <p className="mt-3 text-xs leading-5 text-ink3">
                   This is a local text check of observable features, not a debate score.
                 </p>
                 <button type="button" onClick={next} className="btn btn-primary mt-5 w-full px-4 py-3 text-sm">
@@ -401,7 +401,7 @@ function GuestDebate({
                 ))}
               </div>
             </div>
-            <p className="px-1 text-[11px] leading-5 text-ink3">
+            <p className="px-1 text-xs leading-5 text-ink3">
               Guest feedback only checks what is visible in your wording. An account saves your debates and keeps coaching you on the same weakness over time.
             </p>
           </aside>
@@ -555,7 +555,7 @@ function GuestResult({
                   placeholder="Rewrite the move here..."
                   className="field mt-2 resize-none text-sm leading-6"
                 />
-                <p id="guest-repair-count" aria-live="polite" className="mt-1 text-[11px] text-ink3">
+                <p id="guest-repair-count" aria-live="polite" className="mt-1 text-xs text-ink3">
                   {repair.trim().length >= 12 ? "Ready to submit." : `${repair.trim().length}/12 minimum characters`}
                 </p>
                 <button
@@ -694,7 +694,7 @@ function GuestRetest({
                   rows={5}
                   className="field mt-2 resize-none text-sm leading-6"
                 />
-                <p id="guest-retest-count" aria-live="polite" className="mt-1 text-[11px] text-ink3">
+                <p id="guest-retest-count" aria-live="polite" className="mt-1 text-xs text-ink3">
                   {response.trim().length >= 12 ? "Ready to submit." : `${response.trim().length}/12 minimum characters`}
                 </p>
                 <button
@@ -719,7 +719,7 @@ function GuestRetest({
                 </p>
                 <p className="mt-1 text-sm leading-6 text-ink2">{outcome?.headline}</p>
                 <p className="mt-2 text-sm leading-6 text-ink2">{outcome?.detail}</p>
-                <p className="mt-3 text-[11px] leading-5 text-ink3">
+                <p className="mt-3 text-xs leading-5 text-ink3">
                   Guest retest is one observed instance. It is not a validated measure of ability - that needs repeated measurement, which an account provides.
                 </p>
               </div>
@@ -805,7 +805,7 @@ function GuestDone({
                   : "the move did not reappear under pressure. The repair itself still stands as completed practice."}
               </li>
             </ul>
-            <p className="mt-3 text-[11px] leading-5 text-ink3">
+            <p className="mt-3 text-xs leading-5 text-ink3">
               Guest practice reports single observed instances. Repeated measurement — the thing that turns a rep
               into evidence of ability — needs an account.
             </p>
