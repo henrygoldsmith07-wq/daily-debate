@@ -47,7 +47,7 @@ export default function LoopThread({ thread }: { thread: LoopThreadView }) {
               aria-hidden="true"
             />
             <span
-              className={`text-[11px] leading-4 ${
+              className={`text-xs leading-4 ${
                 stage.status === "active"
                   ? "font-semibold text-ink"
                   : stage.status === "done"
@@ -74,7 +74,7 @@ export default function LoopThread({ thread }: { thread: LoopThreadView }) {
           </p>
         ))}
 
-      <p className="mt-3 text-[11px] leading-4 text-ink3">
+      <p className="mt-3 text-xs leading-4 text-ink3">
         A repair is practice, not proof. Only a later, unprompted, different-topic debate closes the loop — one
         demonstration is an observation, not a habit.
       </p>
