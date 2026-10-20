@@ -185,6 +185,70 @@ CLI output is only read by the study runner (which had always seen it work),
 the capacity CLI had no test, and the evidence script's local CLI path was
 only ever exercised by operators who had no test pinning the script contract.
 
+## Erratum 2026-10-18 — a registration on a removed provider validated as READY
+
+**What was wrong.** `pinned-paid-judge-default.json` (pre-registered 2026-10-06)
+pins its candidate arm to the paid `anthropic claude-sonnet-5` judge. PR #135
+removed the paid Anthropic transport entirely — there is no `anthropic` entry in
+`scripts/lib/judge-providers.mjs` — but the registration kept naming it, and
+`validateRegistration` had no opinion about whether the provider labels an arm
+names actually exist. It returned `ok: true` with no errors and no warnings,
+and the file still advertised:
+
+> `executionStatus: "READY - both arms implemented (anthropic judge selectable via --models anthropic …)"`
+
+Both halves of that sentence had become false. Measured on the current tree:
+
+| step | result |
+|---|---|
+| `validateRegistration(reg, { experiments })` | `ok: true`, `errors: []`, `warnings: []` |
+| `node scripts/quota-probe.mjs anthropic` (what the runner gates the arm on) | `NO-KEY anthropic`, exit 3 |
+| `node scripts/judge-benchmark.mjs --models anthropic` | `matched no configured provider`, exit 2 |
+
+**Why it mattered.** The study was unrunnable by construction, and the record
+said otherwise. `judge-study.mjs` probes before every arm, so the failure mode
+is safe — the probe fails, `stoppedEarly` is set, the study stops cleanly and
+stays resumable, and no calls are burned — but "safe" is not "honest": the
+registration advertised READY, and nothing in the validator, the runner or the
+test suite contradicted it. An operator reading `executionStatus` would have
+believed the study was executable and waited for a verdict that could never
+arrive. This is the same defect class as the inert whitespace probe: a record
+that describes work the system cannot actually do.
+
+**Why nothing caught it.** The disk-sweep test asserted that every registration
+file *validates*, and it did — validation simply never looked at provider
+identity. `--models` matching nothing is a runtime condition, so only a live
+run would reveal it, and a live run was never made (no study directory, no
+`registration-snapshot.json`: the file was never sealed).
+
+**Fix.** `validateRegistration` now resolves every provider label named by
+`models` and by each arm's own `models` against the live `PROVIDERS` registry,
+and refuses a registration naming a transport that does not exist:
+
+```
+arms.candidate.models names unknown provider "anthropic" (known: nvidia,
+openrouter, unorouter, groq, cerebras, gemini, kiraai); an arm on a removed
+provider can never be probed or benchmarked
+```
+
+Comma-separated ensemble labels are checked individually, so the registered
+ensemble arm (`unorouter,openrouter`) still validates. `knownProviderLabels()`
+is exported so tests assert against the registry rather than a copied list.
+
+**Reconciliation.** The registration is marked `status: "withdrawn"` with a
+`withdrawalReason`, not silently edited to a free provider: swapping the judge
+provider IS the registered single variable, so substituting one would be a new
+study, not an edit (same reasoning as the whitespace withdrawal above). Its
+structured fields are otherwise byte-intact for history. Nothing is invalidated
+by this: no study of it was ever sealed or executed, so no snapshot hash
+depends on its contents.
+
+**Validator consequence.** A `withdrawn` registration is exempt from execution
+validation — the defect that withdrew it may itself be a validation error —
+but must carry a substantive `withdrawalReason` (>= 40 chars), and every
+non-withdrawn registration still must validate. `scripts/lib/judge-registration.test.mjs`
+asserts both, and that no known registry label is ever rejected.
+
 ## Erratum 2026-10-05 — whitespace study withdrawn; verbosity study registered
 
 The study `grounding-two-pass-whitespace` was registered but not executed, and

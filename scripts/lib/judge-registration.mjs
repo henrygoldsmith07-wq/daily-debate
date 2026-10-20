@@ -9,6 +9,7 @@
 
 import { createHash } from "node:crypto";
 import { METRIC_DIRECTION } from "./judge-stats.mjs";
+import { PROVIDERS } from "./judge-providers.mjs";
 
 export const REGISTRATION_SCHEMA_VERSION = 2;
 
@@ -36,6 +37,22 @@ export function deriveAdoptionRule(reg) {
 }
 
 const KNOWN_METRICS = new Set(Object.keys(METRIC_DIRECTION));
+
+/** Provider labels the benchmark and quota probe can actually resolve. */
+export function knownProviderLabels() {
+  return PROVIDERS.map((p) => p.label);
+}
+
+/**
+ * Provider labels named by a `models` field ("unorouter" or the ensemble's
+ * "unorouter,openrouter"). Empty when the field is absent/blank.
+ */
+export function providerLabelsIn(models) {
+  return String(models ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 /**
  * Provider label(s) a registration arm runs on: the arm's own `models` when
@@ -93,6 +110,30 @@ export function validateRegistration(reg, { experiments } = {}) {
     errors.push("baseline and candidate arms must differ");
   }
   if (typeof reg.models !== "string" || !reg.models.trim()) errors.push("models (provider label) required");
+  // Every provider label an arm names must resolve to a real transport. A
+  // label that no longer exists cannot be probed or benchmarked: the probe
+  // answers NO-KEY and the benchmark matches no configured provider, so the
+  // arm burns no calls but the study can never reach a verdict. Left
+  // unnoticed it is worse than a crash - the registration keeps claiming it
+  // is READY (see the incident note in docs/judge-experiments/errata.md).
+  const knownLabels = new Set(knownProviderLabels());
+  for (const armName of ["baseline", "candidate"]) {
+    const armModelsValue = reg.arms?.[armName]?.models;
+    if (armModelsValue === undefined || String(armModelsValue).trim() === "") continue;
+    for (const label of providerLabelsIn(armModelsValue)) {
+      if (!knownLabels.has(label)) {
+        errors.push(
+          `arms.${armName}.models names unknown provider "${label}" (known: ${knownProviderLabels().join(", ")}); ` +
+            `an arm on a removed provider can never be probed or benchmarked`,
+        );
+      }
+    }
+  }
+  for (const label of providerLabelsIn(reg.models)) {
+    if (!knownLabels.has(label)) {
+      errors.push(`models names unknown provider "${label}" (known: ${knownProviderLabels().join(", ")})`);
+    }
+  }
   if (reg.bootstrapSeed !== undefined && !Number.isInteger(reg.bootstrapSeed)) errors.push("bootstrapSeed must be an integer");
   const warnings = [];
   const prose = reg.adoptionRule ?? reg.proseAdoptionRule;
