@@ -6,6 +6,7 @@ import {
   armModels,
   canonicalHash,
   deriveAdoptionRule,
+  knownProviderLabels,
   validateRegistration,
   REGISTRATION_SCHEMA_VERSION,
 } from "./judge-registration.mjs";
@@ -106,6 +107,17 @@ test("every registration file on disk validates against the live experiment regi
   assert.ok(files.length >= 3, `expected sealed registrations, found ${files.length}`);
   for (const file of files) {
     const reg = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
+    // A WITHDRAWN registration is a historical record, not an executable plan:
+    // the defect that withdrew it may itself be a validation failure (an arm on
+    // a removed provider is exactly that), so it is not required to validate.
+    // It must still state why it was withdrawn.
+    if (/withdrawn/i.test(String(reg.status ?? ""))) {
+      assert.ok(
+        String(reg.withdrawalReason ?? "").trim().length >= 40,
+        `${file}: withdrawn registration must carry a substantive withdrawalReason`,
+      );
+      continue;
+    }
     const v = validateRegistration(reg, { experiments: LIVE_EXPERIMENTS });
     // An unimplemented arm is the ONLY validation failure a deliberately
     // BLOCKED registration may carry. Other BLOCKED reasons (e.g. capacity,
@@ -143,4 +155,68 @@ test("armModels: per-arm provider overrides the study-level provider", () => {
   assert.equal(armModels(reg, "candidate"), "anthropic");
   assert.equal(armModels({ models: "x", arms: { baseline: { experiment: "a", models: " y " } } }, "baseline"), "y");
   assert.equal(armModels({ arms: {} }, "baseline"), "");
+});
+
+// --- An arm naming a provider that does not exist can never execute ----------
+//
+// Guards the defect that withdrew `pinned-paid-judge-default`: PR #135 removed
+// the paid `anthropic` transport, but the pre-registered study's candidate arm
+// still named it. validateRegistration returned ok=true with no errors and the
+// registration kept advertising executionStatus READY, while at run time the
+// quota probe answered "NO-KEY anthropic" (exit 3) and the benchmark reported
+// "--models anthropic matched no configured provider" (exit 2). The study could
+// never reach a verdict, and nothing said so.
+
+test("an arm on an unknown provider is refused (the withdrawn pinned-paid defect)", () => {
+  const dead = {
+    ...VALID,
+    arms: { baseline: { experiment: "baseline" }, candidate: { experiment: "grounding-two-pass", models: "anthropic" } },
+  };
+  const v = validateRegistration(dead, { experiments: EXPERIMENTS });
+  assert.equal(v.ok, false);
+  assert.ok(
+    v.errors.some((e) => /arms\.candidate\.models names unknown provider "anthropic"/.test(e)),
+    `expected an unknown-provider error, got ${JSON.stringify(v.errors)}`,
+  );
+});
+
+test("an unknown study-level provider is refused too", () => {
+  const v = validateRegistration({ ...VALID, models: "unorouter,gpt5" }, { experiments: EXPERIMENTS });
+  assert.equal(v.ok, false);
+  assert.ok(
+    v.errors.some((e) => /models names unknown provider "gpt5"/.test(e)),
+    `expected an unknown-provider error, got ${JSON.stringify(v.errors)}`,
+  );
+});
+
+test("every label the registry exposes is accepted; a removed one is not", () => {
+  const known = knownProviderLabels();
+  assert.ok(known.length > 0);
+  assert.ok(!known.includes("anthropic"), "anthropic was removed from the registry and must not validate");
+  for (const label of known) {
+    const v = validateRegistration({ ...VALID, models: label }, { experiments: EXPERIMENTS });
+    assert.equal(v.ok, true, `known provider ${label} must validate: ${JSON.stringify(v.errors)}`);
+  }
+});
+
+test("a withdrawn registration states why, and is exempt from execution validation", () => {
+  const dir = path.join(process.cwd(), "docs", "judge-experiments", "registrations");
+  const withdrawn = fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => ({ file: f, reg: JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) }))
+    .filter(({ reg }) => /withdrawn/i.test(String(reg.status ?? "")));
+  // The pinned-paid registration must stay withdrawn while anthropic is absent.
+  const pinned = withdrawn.find(({ file }) => file === "pinned-paid-judge-default.json");
+  assert.ok(pinned, "pinned-paid-judge-default must be marked withdrawn while its provider is removed");
+  assert.ok(String(pinned.reg.withdrawalReason).includes("anthropic"));
+  // And no non-withdrawn registration may name a provider the registry lacks.
+  for (const { file, reg } of fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => ({ file: f, reg: JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) }))
+    .filter(({ reg }) => !/withdrawn/i.test(String(reg.status ?? "")))) {
+    const v = validateRegistration(reg, { experiments: LIVE_EXPERIMENTS });
+    assert.equal(v.ok, true, `${file}: ${JSON.stringify(v.errors)}`);
+  }
 });
