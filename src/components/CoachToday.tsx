@@ -225,14 +225,20 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
               {DRILL_FEEDBACK_COPY.savedNote}
             </p>
           ) : (
+            <>
             <textarea
               value={attemptText}
               onChange={(e) => setAttemptText(e.target.value)}
               rows={4}
               placeholder="Write your drill attempt here…"
               aria-label="Drill attempt"
+              aria-describedby="coach-drill-hint"
               className="w-full resize-none rounded-lg border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
             />
+            <p id="coach-drill-hint" className="text-xs opacity-70">
+              {attemptText.trim().length < 10 ? "Write at least 10 characters to submit." : "Ready to submit."}
+            </p>
+            </>
           )}
 
           {!feedback && assignment.status !== "attempted" && (
