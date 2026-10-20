@@ -77,7 +77,7 @@ function Brand() {
       <Image src="/logo.svg" alt="" width={30} height={30} className="rounded-lg" aria-hidden="true" />
       <span className="home-brand-copy">
         <span className="block text-sm font-semibold tracking-tight">Daily Debate</span>
-        <span className="block text-[10px] uppercase tracking-[0.16em] text-ink3">Think in public</span>
+        <span className="block text-xs uppercase tracking-[0.16em] text-ink3">Think in public</span>
       </span>
     </Link>
   );
@@ -309,7 +309,7 @@ function GuestDebate({
               <div className="flex gap-3">
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface-2)] text-xs font-semibold text-ink3">AI</div>
                 <div className="max-w-2xl rounded-2xl rounded-tl-sm border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-ink2">
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink3">Opponent</p>
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-ink3">Opponent</p>
                   {activeRound.opponent}
                 </div>
               </div>
@@ -517,7 +517,7 @@ function GuestResult({
             <p className="mt-2 text-sm leading-6 text-ink2">{assessment.weakness.why}</p>
             {assessment.sourceResponse && (
               <div className="mt-4 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink3">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink3">
                   Original move · round {assessment.sourceResponseIndex + 1}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-ink2">{assessment.sourceResponse}</p>
@@ -674,7 +674,7 @@ function GuestRetest({
             <div className="mt-4 flex gap-3">
               <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface-2)] text-xs font-semibold text-ink3">AI</div>
               <div className="max-w-2xl rounded-2xl rounded-tl-sm border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-ink2">
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink3">Opponent</p>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-ink3">Opponent</p>
                 {retestRound.opponent}
               </div>
             </div>
