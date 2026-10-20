@@ -181,7 +181,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
               <ProfileRead key={d.key} label={d.label} score={d.score} min={profileMin} max={profileMax} />
             ))}
           </div>
-          <p className="mt-3 text-[10px] leading-4 text-ink3">These are relative coaching signals from observed debate behaviour, not ability scores.</p>
+          <p className="mt-3 text-xs leading-4 text-ink3">These are relative coaching signals from observed debate behaviour, not ability scores.</p>
         </section>
       )}
 
@@ -284,7 +284,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
           >
             {activating ? "Starting…" : retest ? "Use this retest drill" : "Start drill"}
           </button>
-          <p className="text-[10px] leading-4 text-ink3">
+          <p className="text-xs leading-4 text-ink3">
             Opening Progress only previews the drill. It is added to your training history when you start it.
           </p>
         </section>
