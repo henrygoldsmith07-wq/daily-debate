@@ -63,6 +63,7 @@ export default function InlineDrillAttempt({ assignmentId }: { assignmentId: str
         onChange={(e) => setText(e.target.value)}
         rows={4}
         placeholder="Write your drill attempt here…"
+        maxLength={6000}
         aria-label="Drill attempt"
         aria-describedby="drill-attempt-hint"
         className="w-full resize-none rounded-lg border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
