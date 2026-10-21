@@ -65,18 +65,18 @@
     "adoptionRule": "supported iff usable runs >= 2/arm at reliability >= 0.75 AND target \"verbosity stability\" moves up by >= 0.2 AND the bootstrap 90% CI lower bound of the signed improvement is > 0 AND no protected metric regresses beyond its cap AND pooled run sd. Fewer usable runs, any unmet condition or missing data => INCONCLUSIVE. Gate thresholds are untouchable.",
     "budgetNote": "NOT YET EXECUTED. scripts/judge-capacity.mjs refuses to start without an explicit provider call budget, and treats unknown capacity as insufficient. 312 jobs/run x 2 runs x 2 arms x 1.5 calls/job (the two-pass arm averages 2) x 1.25 retry allowance = 2340 expected calls; GO additionally requires the budget to cover 125% of that, i.e. >= 2925 calls. At a 12s request gate the free tier (5 requests/minute) sustains roughly 5 calls/minute, so the full plan is a multi-hour run and is designed to be resumable across dispatches: raw runs are preserved in the study directory and the verdict is recomputed from ALL preserved runs against this same sealed rule. Registered and sealed rather than started on hope."
   },
-  "stoppedEarly": "dispatch stopped after 1 of 3 planned arms (--max-arms); the study remains resumable and undecided",
+  "stoppedEarly": "dispatch stopped after 1 of 2 planned arms (--max-arms); the study remains resumable and undecided",
   "verdict": {
     "status": "inconclusive",
     "reasons": [
-      "registered requirement not met: usable runs baseline 1/2, candidate 0/2 (reliability >= 0.75); INCONCLUSIVE - fewer usable runs never proceed to inference"
+      "registered requirement not met: usable runs baseline 2/2, candidate 0/2 (reliability >= 0.75); INCONCLUSIVE - fewer usable runs never proceed to inference"
     ],
     "audit": {
       "minimumUsableReliability": 0.75,
       "runsPerArmRequired": 2,
       "baseline": {
-        "totalRuns": 1,
-        "usableRuns": 1,
+        "totalRuns": 2,
+        "usableRuns": 2,
         "excluded": []
       },
       "candidate": {
@@ -122,6 +122,33 @@
           "allPassRun": false,
           "usable": true,
           "reason": null
+        },
+        {
+          "at": "2026-10-21T22:48:34.687Z",
+          "file": "2026-10-21T224834687Z-cerebras.json",
+          "model": "cerebras:gpt-oss-120b",
+          "reliability": 0.993,
+          "metrics": {
+            "verbosity stability": 0.636,
+            "provider reliability": 0.993,
+            "fixture agreement": 0.522,
+            "ECE": 0.25,
+            "position stability": 0.652,
+            "names stability": 0.565,
+            "style stability": 0.609,
+            "prestige stability": 0.565,
+            "fake-citation influence": 0.174,
+            "latency p50 ms": 25008,
+            "prompt tokens": 146356
+          },
+          "gateSummary": {
+            "provider": 0,
+            "quality": 13,
+            "insufficient": 0
+          },
+          "allPassRun": false,
+          "usable": true,
+          "reason": null
         }
       ]
     },
@@ -157,5 +184,5 @@
       ]
     }
   },
-  "at": "2026-10-21T19:39:29.924Z"
+  "at": "2026-10-21T22:48:34.698Z"
 }
