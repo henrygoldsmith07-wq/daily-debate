@@ -204,7 +204,7 @@
 .dna-down { color: var(--danger); }
 
 .dna-range-switch { display: inline-flex; padding: 0.18rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); }
-.dna-range-switch button { padding: 0.32rem 0.62rem; border: 0; border-radius: 999px; background: transparent; color: var(--ink-3); cursor: pointer; font-size: 0.68rem; font-weight: 600; }
+.dna-range-switch button { min-height: 2.75rem; padding: 0.32rem 0.62rem; border: 0; border-radius: 999px; background: transparent; color: var(--ink-3); cursor: pointer; font-size: 0.68rem; font-weight: 600; }
 .dna-range-switch button:hover { color: var(--ink); }
 .dna-range-switch button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
 .dna-timeline-panel { padding-bottom: 0.8rem; }

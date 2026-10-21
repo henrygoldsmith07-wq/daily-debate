@@ -3,8 +3,9 @@ import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import ArgumentDnaView from "@/components/ArgumentDnaView";
 import { buildArgumentDnaForUser } from "@/lib/argumentDnaServer";
-import { buildLedgerForUser } from "@/lib/skillLedgerServer";
 import { buildCoachingGoal } from "@/lib/coachingGoal";
+import { loadCoachingContext } from "@/lib/coachingContextServer";
+import { skillUnderTest } from "@/lib/retestDisclosure";
 import { DIMENSION_LABELS } from "@/lib/adaptiveCoach";
 
 export const dynamic = "force-dynamic";
@@ -34,10 +35,20 @@ export default async function ArgumentDnaPage() {
   const model = await buildArgumentDnaForUser(user.id);
   // The current deliberate-practice focus, from the shared coaching loop —
   // one source of truth for "what am I training", never a second selector.
+  //
+  // The skill under a pending deliberate retest is EXCLUDED here exactly as
+  // it is on the dashboard and on Progress: this page names the learner's
+  // focus, so naming the skill under silent test would cue the very behaviour
+  // the retest is meant to measure (retestDisclosure.ts).
   let focus: string | null = null;
   try {
-    const ledger = await buildLedgerForUser(user.id);
-    const goal = buildCoachingGoal(ledger.points, null);
+    const context = await loadCoachingContext(user.id);
+    const goal = buildCoachingGoal(
+      context.ledger?.points ?? [],
+      null,
+      context.drillOutcomes,
+      skillUnderTest(context.pendingRetests),
+    );
     focus = goal?.dimension ? (DIMENSION_LABELS[goal.dimension] ?? goal.dimension) : null;
   } catch {
     focus = null;

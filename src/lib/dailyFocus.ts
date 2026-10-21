@@ -116,8 +116,8 @@ export function pickPriority(input: PriorityInputs): PriorityAction | null {
     const age = retestAgeDays(input.dueRetest.attemptedAt);
     const detail =
       age >= 0
-        ? `You repaired a skill ${age} day${age === 1 ? "" : "s"} ago. A later debate, on a different topic, is the test — and it isn't signposted.`
-        : "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and it isn't signposted.";
+        ? `You repaired a skill ${age} day${age === 1 ? "" : "s"} ago. A later debate, on a different topic, is the test — and the skill and the day are never signposted.`
+        : "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and the skill and the day are never signposted.";
     return {
       kind: "retest",
       title: RETEST_PENDING_CARD_TITLE,
@@ -137,7 +137,7 @@ export function pickPriority(input: PriorityInputs): PriorityAction | null {
       title: `Today's drill: ${input.openDrill.title}`,
       detail,
       action: "Open the drill",
-      href: "/progress#coach",
+      href: "/progress#daily-drill",
     };
   }
   if (input.debateAvailable) {

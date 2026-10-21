@@ -65,7 +65,7 @@ Replays of finished debates render the same hierarchy server-side (strength, wea
 - retries remain raw practice history, but the latest retry refreshes the linked formative drill attempt so coaching never stays stuck on an abandoned first draft;
 - if the user leaves after an unsuccessful rewrite, Today surfaces the newest unresolved repair with its formative state and an actionable cue so the core loop does not silently die between sessions.
 
-Learner-facing repair checks use three formative states: **Needs another pass**, **Partially repaired**, and **Repair demonstrated**. The deterministic numeric rubric remains internal for compatibility and thresholds; it is not shown as a validated reasoning score. Rebuttal, evidence, logic and impact repairs require relationships between ideas rather than cue words alone, and every repair reminds the learner that the real test is later unprompted performance.
+Learner-facing repair checks use three formative states: **Needs another pass**, **Partially repaired**, and **Repair demonstrated**. The deterministic numeric rubric remains internal for compatibility and thresholds; it is not shown as a validated reasoning score. Rebuttal, evidence, logic and impact repairs require relationships between ideas rather than cue words alone, and every repair reminds the learner that the real test is later performance without a prompt.
 
 For longitudinal measurement, multiple rewrite submissions for the same user + debate + weakness kind are one **repair episode**. The first attempt anchors retry/conversion history, while the **first successful submission** anchors effectiveness and retest timing. Retries are preserved but cannot inflate repair denominators or create fake intervention cutoffs. A failed submission is practice history only: it stays retryable, does **not** count as repair completion, and does **not** unlock a deliberate next-debate retest.
 
@@ -141,7 +141,9 @@ While a deliberate retest is pending, **no pre-debate surface may**:
 
 1. name the skill under test;
 2. give that skill's instruction or observable as the day's coaching;
-3. state or imply that a retest is scheduled for today.
+3. tie the test to a specific debate or a specific day.
+
+The method itself stays public. "A repair is waiting to be tested" is not a cue: it says what the product is for, it names no skill, and it tells the learner nothing they could not work out from their own memory. A loop the learner cannot see is a loop the learner cannot value — so the product says that a loop is open, and says nothing about what to watch for.
 
 ### How it is enforced
 
@@ -150,22 +152,27 @@ While a deliberate retest is pending, **no pre-debate surface may**:
 | Goal line (Today, Progress) | the retest skill's instruction, with transfer copy | the ordinary focus, with the retest skill **excluded** (`buildCoachingGoal`, `pickFocusDimension`, `selectFocus`) |
 | Today's practice target | "Retest: rebuttal is due" + the skill's observable | the ordinary target; the retest skill is excluded (`selectNextPractice`) |
 | Continue-training card | "Retest: rebuttal is due" / "Start today's retest" | "A repair is waiting to be tested" / "Start today's debate" — the age of the repair stays, so the nudge is still auditable (`pickPriority`) |
-| Loop thread | "Loop open: Rebuttal is repaired…" + "Today's debate … is the test" | "Loop open: a repair is waiting to be tested" + "A later debate, on a different topic, is the test — and it isn't signposted" (`buildLoopThread`) |
+| Loop thread | "Loop open: Rebuttal is repaired…" + "Today's debate … is the test" | "Loop open: a repair is waiting to be tested" + "A later debate, on a different topic, is the test — and the skill and the day are never signposted" (`buildLoopThread`) |
 | Drill coach | the retest skill's drill, "Retest after repair" card | the drill focus excludes the retest skill; the card is gone (`/api/coach/today`, `CoachToday`) |
+| Argument DNA | "your current focus" named the skill under test | the focus excludes the skill under test, like every other surface (`/dna`) |
+| The debate's own coaching goal | the topic-eligible retest's skill was excluded, so a different pending skill could be coached | the oldest **pending** retest's skill is excluded — one rule, one helper (`skillUnderTest`, `startDebate`) |
 | Motion kicker / reason | "Today's retest motion" / "…so this tests transfer" | "Today's motion" / "A different motion today, so you meet a fresh argument…" (`TopicCard`, `pickRetestMotion`) |
 | Live coaching hints | the hint that cues the skill under test fired every round | suppressed for the retest debate, before the one-warning/one-tip cap (`liveCoachingForTurn`, the solo turn route) |
 | Result screen | reused the goal outcome under a "Repair retest ·" label | the behavioural verdict, with the skill named for the first time (`DebateResultCard`) |
 
-The exclusion follows the Khan model: a mixed-skill session in which one skill is silently assessed, revealed afterwards.
+The exclusion follows the Khan model: a mixed-skill session in which one skill is silently assessed, revealed afterwards. It comes from the oldest **pending** retest rather than the topic-eligible one, because a pre-debate surface cannot know the final motion: when the day's motion is the very topic the learner repaired, the app retargets the motion so the debate can carry the test, and excluding only the eligible retest would name the skill on exactly that day.
 
 ### The honest limit
 
-A learner who knows what they repaired can guess that a given debate is the test. The product cannot remove that knowledge, and no copy in the product should pretend otherwise. What the product guarantees — and what the copy now claims — is that it gives **no instruction** for that skill and **no announcement** of the day. The product says "without a prompt", not "unprompted".
+The product controls what it **shows**, not what the learner **remembers**. A learner who knows what they repaired can combine "a loop is open" with their own memory and guess that a given debate is the test. The product cannot remove that knowledge, and no copy in the product may pretend otherwise.
+
+What the product guarantees — and what the copy now says — is that it gives **no instruction** for that skill, never **names** that skill before the debate, and never ties the test to a **day**. The product says "without a prompt", not "unprompted". It also does not overstate the guarantee in the other direction: it does not claim the test is "not signposted", because the loop is deliberately visible.
 
 ### Scope
 
 - **Guest practice** (`src/components/GuestArena.tsx`) is deliberately outside the policy and says so in the code: it is a guided demonstration of the loop, not a measurement. Its retest happens immediately in the same session, its verdict comes from a local heuristic over the learner's own text, it never touches the skill ledger, and its copy already states that it is "one observed instance… not a validated measure of ability". Hiding the skill there would make the demo incoherent without protecting a measurement that does not exist.
-- The **post-repair screen** still says the repair will be tested later, on a different topic. That is the moment the loop's promise is made; removing it would make the repair feel unvalued. It names no day.
+- The **post-repair screen** still says the repair will be tested later, on a different topic. That is the moment the loop's promise is made; removing it would make the repair feel unvalued. It names no day and ties the test to no specific debate.
+- The **guest carryover** on a new account's first day names the carried-over skill, because that skill is the day's *visible focus* rather than a skill under test — no account repair is pending at that point. It no longer claims the account's first debate is a measured test, because it is not: the guest rep is not measured evidence and never enters the repair queue.
 
 ## Evidence-support honesty
 

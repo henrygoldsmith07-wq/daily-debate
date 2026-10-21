@@ -10,7 +10,7 @@ import {
   type ModeTrainingProgress,
 } from "@/lib/trainingProgress";
 import { DEBATE_MODES, type DebateModeId } from "@/lib/debateModes";
-import { buildCoachingGoal } from "@/lib/coachingGoal";
+import { buildCoachingGoal, focusUnavailableHeading } from "@/lib/coachingGoal";
 import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
@@ -116,10 +116,13 @@ export default async function ProgressPage() {
     buildJourneyInputsForUser(user.id),
     service
       .from("solo_debates")
-      .select("total_score, topic_id")
+      // The length-normalised performance score, not the raw per-turn XP
+      // total: the XP total grows with the number of rounds, so a long
+      // debate would look like a strong one and a sprint would look weak.
+      .select("performance_score, topic_id")
       .eq("user_id", user.id)
       .eq("status", "completed")
-      .not("total_score", "is", null)
+      .not("performance_score", "is", null)
       .order("completed_at", { ascending: false })
       .limit(100)
       .then((result) => ({ scoredDebates: result.data })),
@@ -231,6 +234,16 @@ export default async function ProgressPage() {
   const focusLabel = goal?.dimension
     ? (summary.skills.find((s) => s.key === goal.dimension)?.label ?? goal.dimension)
     : null;
+  // No focus line is not the same as no data. The copy has to say which:
+  // "complete a debate" is only true when nothing has been scored yet.
+  const focusHeading =
+    focusLabel ??
+    focusUnavailableHeading(
+      ledger.points,
+      drillOutcomes,
+      skillUnderTest(coachingContext.pendingRetests),
+    ) ??
+    "Complete a debate to unlock your focus";
 
   // Best/worst topic: observational aggregation over scored debates, joined to
   // their topic categories. Conservative by design (see topicInsights.ts).
@@ -243,7 +256,7 @@ export default async function ProgressPage() {
   const topicInsights = bestWorstTopics(
     (scoredDebates ?? []).map((d) => ({
       category: categoryById.get(d.topic_id) ?? null,
-      totalScore: d.total_score as number | null,
+      performanceScore: d.performance_score as number | null,
     })),
   );
 
@@ -545,7 +558,7 @@ export default async function ProgressPage() {
                 <span className="text-ink3">Strongest topic:</span>{" "}
                 <span className="font-semibold">{topicInsights.best.category}</span>{" "}
                 <span className="text-ink3">
-                  · {Math.round(topicInsights.best.averageScore)} avg over {topicInsights.best.debates} debates
+                  · {Math.round(topicInsights.best.averageScore)}/100 avg over {topicInsights.best.debates} debates
                 </span>
               </p>
             )}
@@ -554,7 +567,7 @@ export default async function ProgressPage() {
                 <span className="text-ink3">Weakest topic:</span>{" "}
                 <span className="font-semibold">{topicInsights.worst.category}</span>{" "}
                 <span className="text-ink3">
-                  · {Math.round(topicInsights.worst.averageScore)} avg over {topicInsights.worst.debates} debates
+                  · {Math.round(topicInsights.worst.averageScore)}/100 avg over {topicInsights.worst.debates} debates
                 </span>
               </p>
             )}
@@ -570,7 +583,7 @@ export default async function ProgressPage() {
         <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">
           Focus this week
         </p>
-        <h2 id="focus-heading" className="mt-1 text-lg font-semibold">{focusLabel ?? "Complete a debate to unlock your focus"}</h2>
+        <h2 id="focus-heading" className="mt-1 text-lg font-semibold">{focusHeading}</h2>
         {goal?.goalLine && (
           <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-sm text-ink2">
             {goal.goalLine}
