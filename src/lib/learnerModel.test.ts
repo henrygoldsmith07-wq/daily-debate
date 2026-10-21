@@ -51,7 +51,7 @@ const weakEvidencePoints = [
 ];
 
 describe("learnerModel — adaptive practice selection", () => {
-  it("prioritises a due retest of a successful repair above everything else", () => {
+  it("keeps the skill under silent test out of today's target", () => {
     const model = buildLearnerModel({
       points: weakEvidencePoints,
       repairs: [
@@ -59,11 +59,13 @@ describe("learnerModel — adaptive practice selection", () => {
       ],
       retests: [],
     });
-    expect(model.nextPractice?.priority).toBe("retest-due");
-    expect(model.nextPractice?.skill).toBe("evidence");
-    expect(model.nextPractice?.reason).toMatch(/repaired evidence/i);
-    // A repair is practice, not proof — the caveat must say so.
-    expect(model.nextPractice?.caveat).toMatch(/practice, not proof/i);
+    // The loop is still open — the repair is still awaiting a real test — but
+    // the day's TARGET must not be the skill under test, and must not announce
+    // that a test is due (retestDisclosure.ts).
+    expect(model.repairs.find((r) => r.skill === "evidence")?.awaitingRetest).toBe(true);
+    expect(model.nextPractice?.skill ?? null).not.toBe("evidence");
+    expect(model.nextPractice?.reason ?? "").not.toMatch(/repaired/i);
+    expect(model.nextPractice?.reason ?? "").not.toMatch(/test/i);
   });
 
   it("targets the persistent weakness when no retest is owed", () => {
@@ -152,7 +154,9 @@ describe("learnerModel — repair is practice, demonstration is separate", () =>
     const repair = model.repairs.find((r) => r.skill === "evidence");
     expect(repair?.awaitingRetest).toBe(true);
     expect(repair?.demonstratedLater).toBe(false);
-    expect(model.nextPractice?.priority).toBe("retest-due");
+    // The skill under test stays out of today's target while the retest is
+    // still pending (retestDisclosure.ts).
+    expect(model.nextPractice?.skill ?? null).not.toBe("evidence");
     expect(model.retests[0]?.status).toBe("no-opportunity");
   });
 

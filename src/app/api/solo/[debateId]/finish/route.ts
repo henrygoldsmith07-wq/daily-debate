@@ -13,8 +13,11 @@ import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { snapshotFromAssessment } from "@/lib/coachingGoal";
 import { type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
 import { loadSoloFinalizationContext } from "@/lib/solo/finalizationContext";
-import { extractSkillPoint } from "@/lib/skillLedger";
-import { pointMeasuresDimension, repairKindToDimension } from "@/lib/repairRetest";
+import { repairKindToDimension } from "@/lib/repairRetest";
+import { retestAssignmentFor, retestOutcomeFor, RETEST_OUTCOME_DETAIL, RETEST_OUTCOME_LABELS, type RetestOutcome } from "@/lib/retest";
+import { countWeaknessesForSide, debateOpportunities } from "@/lib/repairEffectiveness";
+import { isRepairKind, type RepairKind } from "@/lib/argumentRepair";
+import { REPAIR_KIND_LABELS } from "@/lib/repairResume";
 import { buildTrainingSummary } from "@/lib/trainingSummary";
 
 export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
@@ -296,35 +299,80 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     repairResultId: string | null;
     observable: boolean;
     demonstrated: boolean | null;
+    /** The canonical four-valued verdict, kept for the result card. */
+    outcome: RetestOutcome | null;
   } | null = null;
+  const retestTargetKind = coaching.repairRetest?.targetKind ?? null;
   if (coaching.repairRetest) {
-    const retestDimension = repairKindToDimension(coaching.repairRetest.targetKind);
-    const clarityValues = answered
-      .map((turn) => {
-        const scores = turn.scores as { clarity?: unknown } | null;
-        return typeof scores?.clarity === "number" ? scores.clarity : null;
-      })
-      .filter((value): value is number => value !== null);
-    const avgClarity = clarityValues.length
-      ? clarityValues.reduce((sum, value) => sum + value, 0) / clarityValues.length
-      : null;
-    const retestPoint = retestDimension && finalAssessment
-      ? extractSkillPoint(debateId, completedAt, finalAssessment, "a", avgClarity)
-      : null;
-    const observable = !!(
-      retestDimension &&
-      retestPoint &&
-      pointMeasuresDimension(retestPoint, retestDimension)
-    );
+    const targetKind = retestTargetKind as string;
+    const retestDimension = repairKindToDimension(targetKind);
+
+    // THE VERDICT IS BEHAVIOURAL, NOT GOAL-COMPLIANCE.
+    //
+    // It used to be `snapshot.goalOutcome.demonstrated` — "did this debate
+    // comply with the goal line we had just displayed?" That was wrong twice
+    // over: it measured compliance with a prompt (so it could not answer the
+    // question the product actually asks — does the repair transfer?), and
+    // `assessGoalOutcome` only judges three of the six repair kinds, so for
+    // logic, impact, clarity and steelmanning the retest could NEVER be
+    // demonstrated and every one of them recorded "not enough evidence".
+    //
+    // The canonical detector is used instead: `retestOutcomeFor` reads the
+    // same weakness counters and the same opportunity test every other layer
+    // uses (repairEffectiveness / opportunity.ts), so there is one definition
+    // of "the weakness was still there" and one definition of "the debate
+    // gave a real chance to show the skill". The old local test — whether the
+    // skill point carried a non-null value for the dimension — is dropped: it
+    // was a second definition of the same question, and it could only ever
+    // withhold a verdict, never produce one.
+    //
+    // The four outcomes map onto the existing repair_retests columns without
+    // a migration: `skillJourneyServer.outcomeFromAssignment` decodes
+    // (observable, demonstrated) back into exactly these four states.
+    const graph = finalAssessment?.graph ?? null;
+    const outcome: RetestOutcome | null =
+      graph && retestDimension && isRepairKind(targetKind)
+        ? retestOutcomeFor(
+            { target_kind: targetKind },
+            {
+              debateId,
+              userId: user.id,
+              completedAt,
+              kinds: countWeaknessesForSide(graph, "a"),
+              opps: debateOpportunities(graph, "a"),
+            },
+            graph,
+            "a",
+            // Only the sprint sample is too small to judge the skill; every
+            // other format keeps the behaviour it had before this change.
+            { format: format === "sprint" ? "sprint" : "full" },
+          )
+        : null;
+
+    const assignment = retestAssignmentFor(outcome);
     retestCompletion = {
       repairResultId: coaching.repairRetest.repairResultId ?? null,
-      observable,
+      observable: assignment.observable,
       // A sprint retest observes the skill but cannot judge it — the sample is
       // too small — so it records no demonstrated verdict rather than a
-      // pass/fail the evidence cannot support.
-      demonstrated: observable && format !== "sprint"
-        ? snapshot.goalOutcome.demonstrated === true
-        : null,
+      // pass/fail the evidence cannot support. "no-valid-opportunity" and a
+      // missing assessment both record no verdict at all.
+      demonstrated: assignment.demonstrated,
+      outcome,
+    };
+  }
+  // The retest verdict travels with the coaching record so the result card
+  // can REVEAL it — the skill under test is named for the first time after the
+  // debate it was measured in (retestDisclosure.ts).
+  if (retestCompletion?.outcome) {
+    coachingUpdate = {
+      ...coachingUpdate,
+      retestOutcome: {
+        outcome: retestCompletion.outcome,
+        label: RETEST_OUTCOME_LABELS[retestCompletion.outcome],
+        detail: RETEST_OUTCOME_DETAIL[retestCompletion.outcome],
+        skillLabel: REPAIR_KIND_LABELS[retestTargetKind as RepairKind] ?? "your repair",
+      },
     };
   }
   const resultPayload: PersistedSoloResult = {

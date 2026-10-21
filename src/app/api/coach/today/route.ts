@@ -44,6 +44,11 @@ type CoachTodayState = {
   proposal: DrillProposal | null;
   existing: DrillAssignmentRow | null;
   activationRequired: boolean;
+  /**
+   * The pending retest's skill, kept server-side so the drill can be kept off
+   * it. It is NOT returned to the client: a pre-debate surface must not name
+   * the skill under silent test (retestDisclosure.ts).
+   */
   retest: {
     dimension: string;
     label: string;
@@ -97,17 +102,14 @@ async function loadCoachTodayState(userId: string): Promise<CoachTodayState> {
 
   let focus: CoachDim | null;
   let focusReason: string;
-  if (pendingRetest) {
-    focus =
-      dims.find((d) => d.key === pendingRetest.dimension) ?? {
-        key: pendingRetest.dimension,
-        label: DIMENSION_LABELS[pendingRetest.dimension],
-        score: null,
-        hasData: false,
-      };
-    focusReason = "deliberate retest after your repair";
-  } else {
-    const selected = selectFocus(dims, slopes, outcomes);
+  {
+    // The drill must not train the skill under silent test. A drill on the
+    // skill whose transfer is being measured is a prompt: the learner would
+    // practise it minutes before the debate, and the retest would then read
+    // as recall. So the skill under test is EXCLUDED from the drill focus,
+    // exactly as it is excluded from the visible coaching goal
+    // (retestDisclosure.ts).
+    const selected = selectFocus(dims, slopes, outcomes, pendingRetest?.dimension ?? null);
     focus = selected.focus;
     focusReason = selected.reason;
   }
@@ -201,7 +203,8 @@ export async function GET(request: Request) {
         assignment: state.existing,
         proposal: state.proposal,
         activationRequired: state.activationRequired,
-        retest: state.retest,
+        // The retest block is deliberately NOT returned: it names the skill
+        // under silent test, and this is a pre-debate surface.
         debatesAnalysed: state.debatesAnalysed,
         coachingStatus: state.coachingStatus,
         degradationReasons: state.degradationReasons,

@@ -9,6 +9,7 @@ import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import SkillProfileBars from "@/components/SkillProfileBars";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
+import { NEUTRAL_GOAL_LINE } from "@/lib/retestDisclosure";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
 import { buildLearnerModel } from "@/lib/learnerModel";
@@ -238,6 +239,10 @@ export default async function DashboardPage() {
     ledger?.points ?? [],
     lastCoaching?.snapshot ?? null,
     drillOutcomes,
+    // The pending retest's skill is EXCLUDED from the visible coaching goal,
+    // not forced into it: the goal line is an instruction, and an instruction
+    // for the skill under silent test would prompt the very behaviour the
+    // retest is meant to measure (retestDisclosure.ts).
     pendingRetest?.dimension ?? null,
   );
 
@@ -407,11 +412,14 @@ export default async function DashboardPage() {
         topic={topic}
         activeDebateId={activeDebate?.id ?? null}
         evidenceCards={(evidenceRows ?? []) as unknown as EvidenceCardView[]}
-        goalLine={goal?.goalLine ?? "Use evidence for major claims."}
+        // The goal line is the day's VISIBLE coaching. When a retest is
+        // pending it must not be the instruction for the skill under silent
+        // test (retestDisclosure.ts) — `buildCoachingGoal` excludes that skill
+        // already, and the fallback below is deliberately skill-agnostic.
+        goalLine={goal?.goalLine ?? (pendingRetest ? NEUTRAL_GOAL_LINE : "Use evidence for major claims.")}
         lastLine={goal?.lastLine ?? null}
-        focusLabel={motion.servesRetest && pendingRetest ? "Retest after repair" : "Today's focus"}
+        focusLabel="Today's focus"
         motionReason={motion.reasonLine}
-        retestMode={motion.servesRetest}
         isFirstVisit={!previousDebate}
       />
       {coachingContext.status !== "ok" && (

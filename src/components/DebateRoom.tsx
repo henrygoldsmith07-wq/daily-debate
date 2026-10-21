@@ -139,6 +139,7 @@ export default function DebateRoom({
         format={format}
         debateId={debate.id}
         repairRetest={repairRetest}
+        retestOutcome={debate.coaching?.retestOutcome ?? null}
         completedRepaired={!!completedResult?.repaired}
         freshResult={session.result}
         repairRef={repairRef}

@@ -258,16 +258,15 @@ export default async function ProgressPage() {
           data-testid="next-practice"
         >
           <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">
-            {/* A retest is only surfaced when the canonical motion has one
-                scheduled (agrees with Today/CoachToday) — a same-topic repair is
-                never relabelled as a transfer retest by this card. */}
-            {learnerModel.nextPractice.priority === "retest-due" && pendingRetest
-              ? "Retest after repair"
-              : learnerModel.nextPractice.priority === "needs-evidence"
-                ? "Gather evidence"
-                : learnerModel.nextPractice.priority === "persistent-weakness"
-                  ? "Focus now"
-                  : "Next practice"}
+            {/* The card never says a retest is due. While a retest is pending,
+                the skill under silent test is excluded from the day's target,
+                so naming it here would prompt the behaviour the retest is
+                meant to measure (retestDisclosure.ts). */}
+            {learnerModel.nextPractice.priority === "needs-evidence"
+              ? "Gather evidence"
+              : learnerModel.nextPractice.priority === "persistent-weakness"
+                ? "Focus now"
+                : "Next practice"}
           </p>
           <h2 id="next-practice-heading" className="mt-1 text-lg font-semibold">
             {learnerModel.nextPractice.label}
@@ -291,9 +290,7 @@ export default async function ProgressPage() {
             className="btn btn-primary mt-4 px-5 py-2.5 text-sm"
             data-testid="next-practice-cta"
           >
-            {learnerModel.nextPractice.priority === "retest-due" && pendingRetest
-              ? "Start today's retest"
-              : "Start today's debate"}{" "}
+            Start today&apos;s debate{" "}
             →
           </Link>
         </section>
@@ -566,13 +563,13 @@ export default async function ProgressPage() {
       {/* ── Current training focus ─────────────────────────────────────────── */}
       <section className="surface-card p-5" aria-labelledby="focus-heading" data-testid="focus-card">
         <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">
-          {pendingRetest ? "Retest after repair" : "Focus this week"}
+          Focus this week
         </p>
         <h2 id="focus-heading" className="mt-1 text-lg font-semibold">{focusLabel ?? "Complete a debate to unlock your focus"}</h2>
         {goal?.goalLine && (
           <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-sm text-ink2">
             {goal.goalLine}
-            {pendingRetest && goal.lastLine ? (
+            {goal.lastLine ? (
               <span className="mt-1 block text-xs text-ink3">{goal.lastLine}</span>
             ) : null}
           </p>
@@ -583,7 +580,7 @@ export default async function ProgressPage() {
             className="btn btn-ghost mt-4 w-full px-4 py-2.5 text-center text-sm sm:w-auto"
             data-testid="practice-focus"
           >
-            {pendingRetest ? "Retest" : "Practice"} {focusLabel.toLowerCase()} in today&apos;s debate →
+            Practice {focusLabel.toLowerCase()} in today&apos;s debate →
           </Link>
         )}
       </section>

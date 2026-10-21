@@ -126,15 +126,26 @@ describe("buildCoachingGoal", () => {
   });
 });
 
-  it("lets a pending repair retest override the generic weakest-skill focus", () => {
+  it("keeps the skill under silent test out of the visible goal", () => {
     const points = [
       point({ rebuttalCoverage: 0.2, unsupportedClaimRate: 0.1, clarity: 0.9 }, 0),
       point({ rebuttalCoverage: 0.2, unsupportedClaimRate: 0.1, clarity: 0.9 }, 1),
     ];
     const goal = buildCoachingGoal(points, null, {}, "evidence");
-    expect(goal?.dimension).toBe("evidence");
-    expect(goal?.lastLine).toMatch(/test whether it transfers/i);
+    // The excluded skill is NOT the goal. A goal line is an instruction, and
+    // an instruction for the skill under silent test would prompt the very
+    // behaviour the retest is meant to measure (retestDisclosure.ts).
+    expect(goal?.dimension).not.toBe("evidence");
+    expect(goal?.dimension).toBe("rebuttal");
+    expect(goal?.lastLine ?? "").not.toMatch(/test whether it transfers/i);
     expect(goal?.numeric).toBe(false);
+  });
+
+  it("returns no goal when the only scored skill is the one under silent test", () => {
+    const points = [
+      point({ unsupportedClaimRate: 0.1, evidenceGrounding: 0.9, uncitedEvidenceRate: 0 }, 0),
+    ];
+    expect(buildCoachingGoal(points, null, {}, "evidence")).toBeNull();
   });
 
 describe("assessGoalOutcome", () => {

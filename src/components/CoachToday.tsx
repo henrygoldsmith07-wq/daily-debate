@@ -28,13 +28,6 @@ interface Proposal {
   beforeScore: number | null;
 }
 
-interface RetestInfo {
-  dimension: string;
-  label: string;
-  repairDebateId: string;
-  attemptedAt: string;
-}
-
 interface OutcomeRow {
   id: string;
   label: string;
@@ -68,7 +61,6 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
   const [focusReason, setFocusReason] = useState<string>("");
   const [debatesAnalysed, setDebatesAnalysed] = useState<number | null>(null);
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([]);
-  const [retest, setRetest] = useState<RetestInfo | null>(null);
   const [outcomeSummary, setOutcomeSummary] = useState<string | null>(null);
   const [attemptText, setAttemptText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -97,7 +89,6 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
       setProposal(todayData.proposal ?? null);
       setActivationRequired(todayData.activationRequired === true);
       setFocusReason(todayData.focusReason ?? "");
-      setRetest(todayData.retest ?? null);
       setDebatesAnalysed(todayData.debatesAnalysed ?? null);
       setCoachingStatus(todayData.coachingStatus ?? "ok");
       if (outcomesRes.ok) {
@@ -185,17 +176,6 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
         </section>
       )}
 
-      {retest && (
-        <section className="surface-card border-[var(--accent)] p-5" role="status" data-testid="repair-retest-card">
-          <p className="text-xs uppercase tracking-wide text-[var(--accent)]">Retest after repair</p>
-          <h2 className="mt-1 text-lg font-semibold">{retest.label}</h2>
-          <p className="mt-1 text-sm text-ink3">
-            You practised this weak link after your last debate. Your next debate keeps this skill in focus until it
-            produces an observable reading.
-          </p>
-        </section>
-      )}
-
       {assignment ? (
         <section className="surface-card flex flex-col gap-4 p-5">
           <div>
@@ -264,7 +244,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
         <section className="surface-card flex flex-col gap-4 p-5" data-testid="coach-drill-proposal">
           <div>
             <p className="text-xs uppercase tracking-wide text-[var(--accent)]">
-              {retest ? "Retest drill ready" : "Today’s training focus"}
+              Today’s training focus
             </p>
             <h2 className="mt-1 text-lg font-semibold">{proposal.title}</h2>
             <p className="text-xs text-ink3">{proposal.minutes} min · {focusReason}</p>
@@ -283,7 +263,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
             disabled={activating}
             className="btn btn-primary px-4 py-2 text-sm disabled:opacity-40"
           >
-            {activating ? "Starting…" : retest ? "Use this retest drill" : "Start drill"}
+            {activating ? "Starting…" : "Start drill"}
           </button>
           <p className="text-xs leading-4 text-ink3">
             Opening Progress only previews the drill. It is added to your training history when you start it.

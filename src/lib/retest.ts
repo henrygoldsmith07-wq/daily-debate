@@ -219,6 +219,39 @@ export const RETEST_OUTCOME_DETAIL: Record<RetestOutcome, string> = {
 };
 
 /**
+ * The four canonical retest outcomes mapped onto the two columns
+ * `repair_retests` actually has.
+ *
+ * The mapping lives here so it cannot drift between the writer and the
+ * reader: `skillJourneyServer.outcomeFromAssignment` decodes exactly these
+ * pairs back into the same four states, so a verdict written by the finish
+ * route and read by the journey/funnel layer always agree.
+ *
+ * "no-valid-opportunity" records NO verdict (observable=false,
+ * demonstrated=null): the debate never gave the learner a chance to show the
+ * skill, so it says nothing about whether the repair stuck — and a negative
+ * verdict there would be a claim the evidence cannot support.
+ */
+export function retestAssignmentFor(outcome: RetestOutcome | null): {
+  observable: boolean;
+  demonstrated: boolean | null;
+} {
+  switch (outcome) {
+    case "skill-observed":
+      return { observable: true, demonstrated: true };
+    case "skill-not-observed":
+      return { observable: true, demonstrated: false };
+    case "not-enough-evidence":
+      // The skill was in play, but the sample cannot judge it: observe, and
+      // record no pass/fail.
+      return { observable: true, demonstrated: null };
+    case "no-valid-opportunity":
+    default:
+      return { observable: false, demonstrated: null };
+  }
+}
+
+/**
  * The transition copy after a successful repair: what happens next, and why
  * the retest must come on a different topic.
  */

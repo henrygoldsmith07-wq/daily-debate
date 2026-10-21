@@ -118,15 +118,54 @@ This prevents a short drill from looking like a validated 0–100 measurement wh
 ## Coaching loop
 
 1. Normally, the ledger's weakest dimension (movement-adjusted, shared with the drill system — one selection policy, not two) becomes today's goal.
-2. **Pending repair retests override that generic selector only after successful repairs.** Failed attempts remain retryable practice. Every successful repair keeps the identity of its `repair_results` row in a durable queue: a newer success never replaces an older unresolved transfer test. For the current motion, the app chooses the oldest **eligible** repair; a repair created on the same topic is skipped rather than falsely labelled as transfer, allowing the next eligible repair to surface. Today, Progress, the drill coach and solo-debate start all derive their state from the same coaching-context loader.
+2. **A pending repair retest EXCLUDES its skill from the day's visible coaching.** It does not override it with transfer copy. The rule, its enforcement points and its tests live in `src/lib/retestDisclosure.ts`; see "The retest is a measurement, not a prompt" below.
 3. A retest closes only when a distinct later debate was **explicitly assigned to that repair** and the durable `repair_retests` row completes with `observable=true`. `solo_debates.coaching.repairRetest` remains the per-debate provenance copy. A coincidental evidence/rebuttal/etc. reading from an unassigned debate cannot clear one or several repairs. A poor assigned reading still counts as a real retest; an assigned debate with no opportunity is recorded as completed/unobservable and leaves that repair eligible for another deliberate test. Starting a newer deliberate test rolls an abandoned older open assignment to completed/unobservable so an old topic cannot block the queue forever.
 4. Same-day drill handling is conservative: reading Today/Progress is side-effect free. A proposed drill is only created or retargeted after the learner explicitly starts it with the coaching command endpoint. An unattempted drill may then be retargeted to a new repair focus, but an already-attempted drill is preserved as history rather than rewritten.
-5. The goal travels with the debate (`solo_debates.coaching.dimension`). At finish, the result snapshot receives that dimension, assesses the observable goal behaviour where a deterministic proxy exists, and the exact same outcome is persisted as `demonstrated`.
-6. The result screen labels deliberate retests explicitly. Dimensions without a valid one-debate pass/fail rule are reported as practised under debate conditions and left to longitudinal Progress measurement rather than receiving a guessed verdict.
-7. Longitudinal coaching only consumes **observable opportunities**. Default zeroes do not become fake success: Impact needs something to weigh; Structure needs an opposing move or enough own claims to expose a contradiction; Steelmanning needs an opposing move. The same opportunity filtering applies to profile scores, trend slopes and post-drill movement.
-8. Improvement rewards compare **whole prior debates with the whole current debate**. Turn-level assessments are merged per debate before the weakest-skill baseline is calculated. The longitudinal ledger fetches the newest bounded debate window and restores chronological order before trend math, so recent repairs/retests never disappear because a long-time user exceeded the cap.
+5. The goal travels with the debate (`solo_debates.coaching.dimension`). At finish, the result snapshot receives that dimension, assesses the observable goal behaviour where a deterministic proxy exists, and the exact same outcome is persisted as `demonstrated`. This is the **visible goal's** outcome — the skill the learner was actually instructed in — and is not the retest verdict.
+6. **The retest verdict is behavioural, not goal-compliance.** It is computed by the canonical detector `retestOutcomeFor` (`src/lib/retest.ts`) over the merged argument graph, using the same weakness counters and the same opportunity test every other layer uses (`repairEffectiveness` / `opportunity.ts`). It used to be `snapshot.goalOutcome.demonstrated` — compliance with the goal line that had just been displayed — which measured the prompt rather than the behaviour, and could never be "demonstrated" for logic, impact, clarity or steelmanning because `assessGoalOutcome` has no deterministic proxy for them. The four canonical outcomes map onto the existing `repair_retests` columns without a migration: `skill-observed` → (observable=true, demonstrated=true), `skill-not-observed` → (true, false), `not-enough-evidence` → (true, null), `no-valid-opportunity` → (false, null). `retestAssignmentFor` owns that mapping; `skillJourneyServer.outcomeFromAssignment` decodes it back.
+7. The result screen labels deliberate retests explicitly, and reveals the verdict — and with it, the name of the skill under test — only after the debate. Dimensions without a one-debate pass/fail rule are reported as observed-but-not-judged rather than given a guessed verdict.
+8. Longitudinal coaching only consumes **observable opportunities**. Default zeroes do not become fake success: Impact needs something to weigh; Structure needs an opposing move or enough own claims to expose a contradiction; Steelmanning needs an opposing move. The same opportunity filtering applies to profile scores, trend slopes and post-drill movement.
+9. Improvement rewards compare **whole prior debates with the whole current debate**. Turn-level assessments are merged per debate before the weakest-skill baseline is calculated. The longitudinal ledger fetches the newest bounded debate window and restores chronological order before trend math, so recent repairs/retests never disappear because a long-time user exceeded the cap.
 
 Goals are numeric only where previous behaviour justifies precision ("Answer at least 4 of 5" needs ≥3 opportunities last debate; otherwise the goal stays qualitative).
+
+## The retest is a measurement, not a prompt
+
+A deliberate retest answers one question: **did the repair transfer when the learner was not told what to watch for?** That question is only answerable if the product does not prompt.
+
+The product's own copy already promised this — "no reminder, no cue", "use it without a cue and the loop closes", "Only a later, unprompted, different-topic debate closes the loop" — while every pre-debate surface named the skill under test, printed that skill's instruction as the day's goal, and announced that today was the test. The claim and the implementation disagreed. A competitor survey found no product that closes the loop at all, so this one property is the moat; a cued retest gives it away.
+
+### The rule
+
+While a deliberate retest is pending, **no pre-debate surface may**:
+
+1. name the skill under test;
+2. give that skill's instruction or observable as the day's coaching;
+3. state or imply that a retest is scheduled for today.
+
+### How it is enforced
+
+| Surface | Before | Now |
+| --- | --- | --- |
+| Goal line (Today, Progress) | the retest skill's instruction, with transfer copy | the ordinary focus, with the retest skill **excluded** (`buildCoachingGoal`, `pickFocusDimension`, `selectFocus`) |
+| Today's practice target | "Retest: rebuttal is due" + the skill's observable | the ordinary target; the retest skill is excluded (`selectNextPractice`) |
+| Continue-training card | "Retest: rebuttal is due" / "Start today's retest" | "A repair is waiting to be tested" / "Start today's debate" — the age of the repair stays, so the nudge is still auditable (`pickPriority`) |
+| Loop thread | "Loop open: Rebuttal is repaired…" + "Today's debate … is the test" | "Loop open: a repair is waiting to be tested" + "A later debate, on a different topic, is the test — and it isn't signposted" (`buildLoopThread`) |
+| Drill coach | the retest skill's drill, "Retest after repair" card | the drill focus excludes the retest skill; the card is gone (`/api/coach/today`, `CoachToday`) |
+| Motion kicker / reason | "Today's retest motion" / "…so this tests transfer" | "Today's motion" / "A different motion today, so you meet a fresh argument…" (`TopicCard`, `pickRetestMotion`) |
+| Live coaching hints | the hint that cues the skill under test fired every round | suppressed for the retest debate, before the one-warning/one-tip cap (`liveCoachingForTurn`, the solo turn route) |
+| Result screen | reused the goal outcome under a "Repair retest ·" label | the behavioural verdict, with the skill named for the first time (`DebateResultCard`) |
+
+The exclusion follows the Khan model: a mixed-skill session in which one skill is silently assessed, revealed afterwards.
+
+### The honest limit
+
+A learner who knows what they repaired can guess that a given debate is the test. The product cannot remove that knowledge, and no copy in the product should pretend otherwise. What the product guarantees — and what the copy now claims — is that it gives **no instruction** for that skill and **no announcement** of the day. The product says "without a prompt", not "unprompted".
+
+### Scope
+
+- **Guest practice** (`src/components/GuestArena.tsx`) is deliberately outside the policy and says so in the code: it is a guided demonstration of the loop, not a measurement. Its retest happens immediately in the same session, its verdict comes from a local heuristic over the learner's own text, it never touches the skill ledger, and its copy already states that it is "one observed instance… not a validated measure of ability". Hiding the skill there would make the demo incoherent without protecting a measurement that does not exist.
+- The **post-repair screen** still says the repair will be tested later, on a different topic. That is the moment the loop's promise is made; removing it would make the repair feel unvalued. It names no day.
 
 ## Evidence-support honesty
 

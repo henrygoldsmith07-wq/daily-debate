@@ -14,6 +14,7 @@
 // Pure selection over a candidate pool; routes supply the pool and persist.
 
 import type { CoachDimension } from "./adaptiveCoach";
+import { RETEST_MOTION_REASON } from "./retestDisclosure";
 
 export interface MotionCandidate {
   id: string;
@@ -62,10 +63,11 @@ export function pickRetestMotion(
   if (!chosen) return null;
   return {
     motion: chosen,
-    reason:
-      (chosen.category ?? "") !== (avoidCategory ?? "")
-        ? "A different topic from the debate you repaired — the point is to see the skill transfer, not recall."
-        : "A different motion from the debate you repaired, so this tests transfer rather than recall.",
+    // The motion is a different topic because the retest rule requires it —
+    // but the reason must not announce that a transfer test is happening: the
+    // learner would then perform the skill rather than reveal it
+    // (retestDisclosure.ts). The sentence stays true without the announcement.
+    reason: RETEST_MOTION_REASON,
     isDaily: false,
   };
 }

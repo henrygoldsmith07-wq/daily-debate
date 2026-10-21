@@ -26,6 +26,12 @@ export interface DebateResultCardProps {
   debateId: string;
   /** The deliberate retest assignment this debate is serving, if any. */
   repairRetest: NonNullable<SoloDebate["coaching"]>["repairRetest"] | null;
+  /**
+   * The retest verdict for this debate, computed from behaviour by the
+   * canonical detector. Present only once the debate is over — this is the
+   * first moment the skill under test is named (retestDisclosure.ts).
+   */
+  retestOutcome: NonNullable<SoloDebate["coaching"]>["retestOutcome"] | null;
   repairRef: RefObject<HTMLDivElement | null>;
   /** The raw finish payload, present only for a debate finished in this visit. */
   freshResult: DebateSummaryPayload | null;
@@ -43,6 +49,7 @@ export function DebateResultCard({
   format,
   debateId,
   repairRetest,
+  retestOutcome,
   completedRepaired,
   freshResult,
   repairRef,
@@ -114,28 +121,45 @@ export function DebateResultCard({
             {view.fresh ? "Finished just now" : "Past debate"}
           </p>
 
-          {/* Today's focus outcome, including deliberate repair retests. */}
+          {/* Today's focus outcome — the goal the learner was actually given.
+              It is NOT the retest verdict: since the disclosure policy, the
+              visible goal is a different skill from the one under silent test. */}
           {snapshot?.goalOutcome?.detail && (
             <div
               className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-sm text-ink2"
-              data-testid={repairRetest ? "repair-retest-outcome" : "goal-outcome"}
+              data-testid="goal-outcome"
             >
-              {repairRetest && (
-                <span className="mr-1 font-semibold text-[var(--accent)]">Repair retest ·</span>
-              )}
               {snapshot.goalOutcome.demonstrated === true && <span className="mr-1 text-[var(--success)]">✓</span>}
               {snapshot.goalOutcome.demonstrated === false && <span className="mr-1 text-[var(--review)]">→</span>}
               {snapshot.goalOutcome.detail}
             </div>
           )}
-          {repairRetest && !snapshot?.goalOutcome?.detail && (
+          {/* The deliberate retest verdict — REVEALED, not signposted. This is
+              the first moment the skill under test is named, and the verdict
+              comes from the canonical behaviour detector, not from compliance
+              with the goal line. */}
+          {repairRetest && (
             <div
               className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-sm text-ink2"
               data-testid="repair-retest-outcome"
             >
               <span className="mr-1 font-semibold text-[var(--accent)]">Repair retest ·</span>
-              This skill was practised under debate conditions. A one-debate pass/fail claim is not available for this
-              dimension; Progress tracks the later observable movement instead.
+              {retestOutcome ? (
+                <>
+                  {retestOutcome.outcome === "skill-observed" && (
+                    <span className="mr-1 text-[var(--success)]">✓</span>
+                  )}
+                  {retestOutcome.outcome === "skill-not-observed" && (
+                    <span className="mr-1 text-[var(--review)]">→</span>
+                  )}
+                  <span className="font-semibold">{retestOutcome.skillLabel}</span> — {retestOutcome.detail}
+                </>
+              ) : (
+                <>
+                  This debate was a deliberate retest, and no verdict was recorded for it. Progress tracks the later
+                  observable movement instead.
+                </>
+              )}
             </div>
           )}
 
