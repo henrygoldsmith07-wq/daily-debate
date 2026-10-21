@@ -10,6 +10,7 @@ import type {
   SoloDebateTurn,
 } from "@/lib/types";
 import type { RepairKind } from "@/lib/argumentRepair";
+import { skillUnderTest } from "@/lib/retestDisclosure";
 import type { DebateFormat } from "@/lib/sprint";
 import {
   DEFAULT_DIFFICULTY,
@@ -250,11 +251,18 @@ export async function startSoloDebate(params: {
     degradationReasons.push(...context.degradationReasons);
 
     if (context.ledger) {
+      // The retest this debate actually carries is the topic-eligible one.
       const pendingRetest = context.selectedRetest;
+      // The skill that must NOT be coached in the debate is the oldest
+      // PENDING retest's skill — the same rule every other surface uses
+      // (retestDisclosure.ts). The two can differ when the day's motion is
+      // the very topic the learner repaired: the debate then cannot carry that
+      // test, but coaching its skill would still prompt the behaviour a later
+      // debate is meant to measure.
       coachingDimension = pickFocusDimension(
         context.ledger.points,
         context.drillOutcomes,
-        pendingRetest?.dimension ?? null,
+        skillUnderTest(context.pendingRetests),
       );
 
       if (pendingRetest) {

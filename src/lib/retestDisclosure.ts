@@ -23,7 +23,13 @@
 //   While a deliberate retest is pending, no PRE-DEBATE surface may
 //   (1) name the skill under test,
 //   (2) give that skill's instruction or observable as the day's coaching,
-//   (3) state or imply that a retest is scheduled for today.
+//   (3) tie the test to a specific debate or a specific day.
+//
+// The method itself stays public. "A repair is waiting to be tested" is not a
+// cue: it says what the product is for, it names no skill, and it tells the
+// learner nothing they could not work out from their own memory. A loop the
+// learner cannot see is a loop the learner cannot value — so the product says
+// that a loop is open, and says nothing about what to watch for.
 //
 // How the rule is enforced:
 //   - the skill under test is EXCLUDED from the visible coaching focus, so the
@@ -36,12 +42,14 @@
 //     the duration of the retest debate (liveCoaching.ts);
 //   - the verdict is revealed after the debate, in the result card.
 //
-// THE HONEST LIMIT: a learner who knows what they repaired can guess that a
-// given debate is the test. The product cannot remove that knowledge, and no
-// claim in the product should pretend otherwise. What the product can
-// guarantee — and what the copy now says — is that it gives no instruction for
-// that skill and no announcement. The product claims "without a prompt", not
-// "unprompted".
+// THE HONEST LIMIT: the product controls what it SHOWS, not what the learner
+// remembers. A learner who knows what they repaired can combine "a loop is
+// open" with their own memory and guess that a given debate is the test. The
+// product cannot remove that knowledge, and no claim in the product may
+// pretend otherwise. What it guarantees — and what the copy says — is that it
+// gives no instruction for that skill, never names that skill before the
+// debate, and never ties the test to a day. The product claims "without a
+// prompt", not "unprompted".
 
 import type { CoachDimension } from "./adaptiveCoach";
 
@@ -100,7 +108,17 @@ export function skillUnderTest(
  */
 export const RETEST_PENDING_HEADLINE = "Loop open: a repair is waiting to be tested.";
 export const RETEST_PENDING_DETAIL =
-  "A repair is practice, not proof. A later debate, on a different topic, is the test — and it isn't signposted.";
+  "A repair is practice, not proof. A later debate, on a different topic, is the test — and the skill and the day are never signposted.";
+
+/**
+ * The product's actual guarantee, in the words the learner sees.
+ *
+ * It is deliberately narrower than "unprompted": the product controls what it
+ * SHOWS, not what the learner remembers. It never shows an instruction for the
+ * skill under test, never names that skill before the debate, and never ties
+ * the test to a day or a specific debate.
+ */
+export const RETEST_GUARANTEE = "the skill and the day are never signposted";
 
 /**
  * The title of the single "continue training" card on a day when a retest is

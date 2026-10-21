@@ -1,3 +1,5 @@
+import { COACH_DIMENSIONS, scoreAttempt, type CoachDimension } from "./adaptiveCoach";
+
 export const DRILL_FEEDBACK_COPY = {
   heading: "Practice checked",
   observationLabel: "Observed in this draft:",
@@ -26,4 +28,20 @@ export function normaliseDrillSignals(value: unknown): string[] {
     if (out.length >= 8) break;
   }
   return out;
+}
+
+/**
+ * Recompute a stored drill attempt's observable signals.
+ *
+ * The attempt route stores the attempt text and the internal rubric value, not
+ * the learner-facing signals. The rubric is deterministic, so the server can
+ * reproduce exactly the same signals from the stored text — which is what lets
+ * the dashboard render the feedback AFTER a page refresh instead of losing it
+ * the moment the component that received it unmounts.
+ */
+export function drillSignalsFromAttempt(dimension: unknown, text: unknown): string[] {
+  if (typeof text !== "string" || !text.trim()) return [];
+  if (typeof dimension !== "string") return [];
+  if (!(COACH_DIMENSIONS as readonly string[]).includes(dimension)) return [];
+  return normaliseDrillSignals(scoreAttempt(dimension as CoachDimension, text).signals);
 }

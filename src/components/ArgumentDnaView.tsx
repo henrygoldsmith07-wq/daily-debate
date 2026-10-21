@@ -90,7 +90,7 @@ function TimelineChart({ periods }: { periods: DnaPeriodSummary[] }) {
 
   return (
     <div className="dna-chart-wrap">
-      <svg className="dna-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Average length-normalised debate score by month">
+      <svg className="dna-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Average debate score by month">
         {[0, 0.5, 1].map((ratio) => {
           const value = min + span * (1 - ratio);
           return (
@@ -104,14 +104,14 @@ function TimelineChart({ periods }: { periods: DnaPeriodSummary[] }) {
         {measured.map((period, index) => (
           <g key={period.key}>
             <circle cx={x(index)} cy={y(period.score ?? min)} r="5" className="dna-chart-point" />
-            <title>{`${formatMonth(period.key)} · ${Math.round(period.score ?? 0)}/100 length-normalised debate average`}</title>
+            <title>{`${formatMonth(period.key)} · ${Math.round(period.score ?? 0)}/100 ${period.format === "pvp" ? "judge score" : "length-normalised debate"} average`}</title>
             {(index === 0 || index === measured.length - 1 || measured.length < 6) && (
               <text x={x(index)} y={height - 10} textAnchor={index === 0 ? "start" : index === measured.length - 1 ? "end" : "middle"} className="dna-axis-label">{formatMonth(period.key)}</text>
             )}
           </g>
         ))}
       </svg>
-      <p className="dna-chart-note">Length-normalised debate score · a within-product structural read, not a validated ability scale.</p>
+      <p className="dna-chart-note">Debate score by month · solo debates are length-normalised, PvP months use the judge&apos;s score — a within-product structural read, not a validated ability scale.</p>
     </div>
   );
 }
@@ -273,8 +273,8 @@ export default function ArgumentDnaView({ model, focus }: { model: ArgumentDnaMo
       <section className="dna-section">
         <div className="dna-section-heading dna-section-heading-stack-mobile">
           <div><p className="dna-overline">The long view</p><h2>How your reasoning has changed</h2><p className="dna-section-sub">A monthly view of the observable moves behind the length-normalised debate score. Tap a period below to inspect its graph.</p></div>
-          <div className="dna-range-switch" aria-label="Timeline range">
-            {(["all", "6", "3"] as Range[]).map((option) => <button key={option} type="button" className={range === option ? "active" : ""} onClick={() => setRange(option)}>{option === "all" ? "All time" : `${option} months`}</button>)}
+          <div className="dna-range-switch" role="group" aria-label="Timeline range">
+            {(["all", "6", "3"] as Range[]).map((option) => <button key={option} type="button" className={range === option ? "active" : ""} onClick={() => setRange(option)} aria-pressed={range === option}>{option === "all" ? "All time" : `${option} months`}</button>)}
           </div>
         </div>
         <div className="dna-panel dna-timeline-panel">

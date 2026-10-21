@@ -9,8 +9,15 @@
 export interface TopicDebateResult {
   /** Topic category (e.g. "Science"); null categories are excluded. */
   category: string | null;
-  /** The debate's final score; null (unfinished/legacy) rows are excluded. */
-  totalScore: number | null;
+  /**
+   * The debate's length-normalised performance score (0-100); null
+   * (unfinished/legacy) rows are excluded.
+   *
+   * This is the NORMALISED measure on purpose. The raw per-turn XP total
+   * grows with the number of rounds, so averaging it would make a long debate
+   * look like a strong debate and would not be comparable with a sprint.
+   */
+  performanceScore: number | null;
 }
 
 export interface TopicInsight {
@@ -35,9 +42,9 @@ export function bestWorstTopics(
 
   const byCategory = new Map<string, number[]>();
   for (const row of rows) {
-    if (!row.category || row.totalScore === null || row.totalScore === undefined) continue;
+    if (!row.category || row.performanceScore === null || row.performanceScore === undefined) continue;
     const list = byCategory.get(row.category) ?? [];
-    list.push(row.totalScore);
+    list.push(row.performanceScore);
     byCategory.set(row.category, list);
   }
 

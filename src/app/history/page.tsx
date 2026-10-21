@@ -58,7 +58,11 @@ export default async function HistoryPage() {
       .or(`player_a.eq.${user.id},player_b.eq.${user.id}`)
       .order("created_at", { ascending: false })
       .limit(HISTORY_LIMIT),
-    db.from("profiles").select("timezone").eq("id", user.id).single(),
+    // The timezone only formats dates. A missing profile row is normal (the
+    // row is created on first use), so this read must never be able to blank
+    // the history: .maybeSingle() does not error on zero rows, and the error
+    // is deliberately excluded from loadError below.
+    db.from("profiles").select("timezone").eq("id", user.id).maybeSingle(),
   ]);
 
   const timeZone = normalizeIanaTimeZone(profileRes.data?.timezone);
@@ -72,11 +76,14 @@ export default async function HistoryPage() {
   // A failed read must not look like an empty history. Previously a DB error
   // produced `[]`, which rendered the same "No solo debates yet" empty state as
   // a genuine first visit — indistinguishable data loss.
+  // The timezone read is excluded on purpose: it only formats dates, so a
+  // missing profile row or a transient failure of that cosmetic read must not
+  // replace the learner's whole record with an error card.
   // PvP is parked behind the experimental flag. A new user with the flag off
   // should not see "0 PvP shown" for a mode they cannot reach; anyone with
   // real PvP records still sees them.
   const showPvp = experimentalSurfacesEnabled() || pvpMatches.length > 0;
-  const loadError = soloRes.error ?? pvpRes.error ?? profileRes.error ?? null;
+  const loadError = soloRes.error ?? pvpRes.error ?? null;
   const topicIds = [...new Set([...soloDebates, ...pvpMatches].map((row) => row.topic_id))];
   const topicTitles = new Map<string, string>();
   if (topicIds.length) {
@@ -201,19 +208,32 @@ export default async function HistoryPage() {
               isForfeit: verdict?.scoreStatus === "insufficient_evidence" && verdict.isTie !== true,
               isTie: verdict?.isTie === true,
             });
+            const isForfeit = verdict?.scoreStatus === "insufficient_evidence" && verdict.isTie !== true;
             // A one-line list label. The row is too narrow for the full
             // attribution sentence (that lives on the match page), so the
             // judge-scored reading keeps who it favoured and drops the
             // justification. "won"/"lost" only ever appear once a benchmarked
             // model has cleared every gate.
+            //
+            // A forfeit is NOT a judge decision: the framing module's own
+            // attribution says no judge score was produced, so the list must
+            // not say "judge scored". It ends by forfeit, and says so.
             const outcome =
               m.status !== "completed"
                 ? "in progress"
-                : framed.attribution
-                  ? m.winner_id === user.id
-                    ? "judge scored · for you"
-                    : "judge scored · for opponent"
-                  : framed.headline;
+                : isForfeit
+                  ? framed.headline
+                  : framed.attribution
+                    ? m.winner_id === user.id
+                      ? "judge scored · for you"
+                      : "judge scored · for opponent"
+                    : framed.headline;
+            // Colour only a real, gated win or loss. A tie, a forfeit and a
+            // match still running are neutral: colouring a draw as a loss
+            // says something the text does not.
+            const gatedOutcome =
+              m.status === "completed" && competitiveClaimsAllowed && !isForfeit && m.winner_id !== null;
+            const tone = !gatedOutcome ? "neutral" : m.winner_id === user.id ? "win" : "loss";
             return (
               <Link
                 key={m.id}
@@ -227,11 +247,7 @@ export default async function HistoryPage() {
                 <span className="shrink-0 text-right">
                   <span
                     className={`tabular font-medium ${
-                      outcome === "You won"
-                        ? "text-[var(--accent)]"
-                        : !competitiveClaimsAllowed || outcome === "in progress"
-                          ? ""
-                          : "text-[var(--bad)]"
+                      tone === "win" ? "text-[var(--accent)]" : tone === "loss" ? "text-[var(--bad)]" : ""
                     }`}
                   >
                     {outcome}

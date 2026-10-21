@@ -4,7 +4,8 @@ import type { LoopThreadView } from "@/lib/loopThread";
  * The training loop as a visible thread. The learner always sees where they
  * are in practice → diagnose → repair → retest → demonstrate, and what the
  * next move is. Derived entirely from the canonical learner model — a repair
- * is practice, not proof; only an unprompted later demonstration closes a loop.
+ * is practice, not proof; only a later demonstration, taken without a prompt,
+ * closes a loop.
  */
 export default function LoopThread({ thread }: { thread: LoopThreadView }) {
   return (
@@ -75,8 +76,8 @@ export default function LoopThread({ thread }: { thread: LoopThreadView }) {
         ))}
 
       <p className="mt-3 text-xs leading-4 text-ink3">
-        A repair is practice, not proof. Only a later, unprompted, different-topic debate closes the loop — one
-        demonstration is an observation, not a habit.
+        A repair is practice, not proof. Only a later, different-topic debate, taken without a prompt, closes the loop —
+        one demonstration is an observation, not a habit.
       </p>
     </section>
   );
