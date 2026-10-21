@@ -250,11 +250,15 @@ test("a withdrawn registration states why, and is exempt from execution validati
 
 test("the study runner refuses a withdrawn registration and creates nothing", () => {
   const base = JSON.parse(
-    fs.readFileSync(path.join(process.cwd(), "docs", "judge-experiments", "registrations", "grounding-two-pass-verbosity.json"), "utf8"),
+    fs.readFileSync(path.join(process.cwd(), "docs", "judge-experiments", "registrations", "grounding-two-pass-verbosity-v2.json"), "utf8"),
   );
   // A withdrawn copy of a HEALTHY registration: every field still validates.
   // Only the withdrawal marker differs - so the refusal cannot be an accident
-  // of a broken registration.
+  // of a broken registration. The base must itself be a live registration:
+  // basing this on an already-withdrawn one would make the copy's withdrawal
+  // ambiguous (is the runner refusing because of the copy's marker, or
+  // because the base was already dead?) and would stop proving anything.
+  assert.equal(isWithdrawn(base), false, "the base registration must be live for this test to mean anything");
   const withdrawn = {
     ...base,
     name: "withdrawn-runner-probe",
