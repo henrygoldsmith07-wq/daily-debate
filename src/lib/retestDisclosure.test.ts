@@ -20,9 +20,15 @@ import { buildLoopThread } from "./loopThread";
 import { pickPriority } from "./dailyFocus";
 import { pickRetestMotion } from "./topicPersonalisation";
 import { liveCoachingForTurn, LIVE_HINT_SKILLS } from "./liveCoaching";
-import { isUnderTest, retestDisclosureFor } from "./retestDisclosure";
+import { isUnderTest, retestDisclosureFor, skillUnderTest } from "./retestDisclosure";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { CoachDimension } from "./adaptiveCoach";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const readSource = (...parts: string[]) => readFileSync(path.join(REPO_ROOT, "src", ...parts), "utf8");
 
 const UNDER_TEST: CoachDimension = "evidence";
 
@@ -83,6 +89,31 @@ describe("retest disclosure policy", () => {
     expect(isUnderTest(null, disclosure)).toBe(false);
     expect(isUnderTest("evidence", retestDisclosureFor(null))).toBe(false);
     expect(isUnderTest("evidence", null)).toBe(false);
+  });
+
+  it("takes the skill from the OLDEST PENDING retest, not the topic-eligible one", () => {
+    // The leak this closes: today's motion can be the very topic the learner
+    // repaired, so the topic-eligible retest is empty while the app
+    // retargets the motion and the debate becomes the test. Excluding only
+    // the eligible one would name the skill on exactly that day.
+    const pending = [{ dimension: "evidence" as CoachDimension }, { dimension: "rebuttal" as CoachDimension }];
+    expect(skillUnderTest(pending)).toBe("evidence");
+    expect(skillUnderTest([])).toBeNull();
+    expect(skillUnderTest(null)).toBeNull();
+    expect(skillUnderTest(undefined)).toBeNull();
+  });
+
+  it("the pre-debate surfaces exclude the pending retest's skill, not the eligible one", () => {
+    // The three surfaces that read the coaching context (dashboard,
+    // progress, drill coach) must use the pending queue.
+    const dashboard = readSource("app", "page.tsx");
+    const progress = readSource("app", "progress", "page.tsx");
+    const drillCoach = readSource("app", "api", "coach", "today", "route.ts");
+    for (const source of [dashboard, progress, drillCoach]) {
+      expect(source).toContain("skillUnderTest(");
+      // The topic-eligible retest is NOT the exclusion source.
+      expect(source).not.toMatch(/buildCoachingGoal\([^)]*selectedRetest/);
+    }
   });
 
   it("keeps the skill under test out of the visible coaching goal", () => {

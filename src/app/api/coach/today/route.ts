@@ -11,6 +11,7 @@ import {
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getTodayTopic } from "@/lib/dailyTopic";
 import { getCurrentUser } from "@/lib/currentViewer";
+import { skillUnderTest } from "@/lib/retestDisclosure";
 import { dateKeyInTimeZone, normalizeIanaTimeZone } from "@/lib/timeZone";
 
 type DrillAssignmentRow = {
@@ -97,7 +98,11 @@ async function loadCoachTodayState(userId: string): Promise<CoachTodayState> {
 
   const ledger = context.ledger;
   const outcomes = context.drillOutcomes;
-  const pendingRetest = context.selectedRetest;
+  // The OLDEST PENDING retest, not the topic-eligible one: today's motion can
+  // be the very topic the learner repaired, in which case the app retargets
+  // the motion and the drill would otherwise train the skill under test
+  // (retestDisclosure.ts).
+  const pendingRetest = context.pendingRetests[0] ?? null;
   const { dims, slopes } = buildCoachProfile(ledger.points);
 
   let focus: CoachDim | null;
@@ -109,7 +114,7 @@ async function loadCoachTodayState(userId: string): Promise<CoachTodayState> {
     // as recall. So the skill under test is EXCLUDED from the drill focus,
     // exactly as it is excluded from the visible coaching goal
     // (retestDisclosure.ts).
-    const selected = selectFocus(dims, slopes, outcomes, pendingRetest?.dimension ?? null);
+    const selected = selectFocus(dims, slopes, outcomes, skillUnderTest(context.pendingRetests));
     focus = selected.focus;
     focusReason = selected.reason;
   }

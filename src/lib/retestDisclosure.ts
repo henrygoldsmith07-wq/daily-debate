@@ -71,6 +71,30 @@ export function isUnderTest(
 }
 
 /**
+ * The skill a pending deliberate retest is measuring.
+ *
+ * This is the OLDEST PENDING retest, not the oldest *topic-eligible* one.
+ *
+ * A pre-debate surface cannot know the final motion, and the eligible retest
+ * depends on it: when the day's motion is the very topic the learner
+ * repaired, the app retargets the motion to a different topic so the debate
+ * can carry the test. Excluding only the topic-eligible retest would
+ * therefore leak the skill on exactly the day the retest is about to happen.
+ *
+ * Over-excluding is the safe direction: a pending retest means the skill is
+ * being measured, so it must not be named or coached, and every focus
+ * selector falls back to the next real weakness rather than to nothing.
+ *
+ * `pending` must be ordered oldest-first, which is how the server orders it
+ * (`pendingRepairRetests` sorts by attempt time).
+ */
+export function skillUnderTest(
+  pending: ReadonlyArray<{ dimension: CoachDimension }> | null | undefined,
+): CoachDimension | null {
+  return pending?.[0]?.dimension ?? null;
+}
+
+/**
  * Copy used wherever the product used to announce that a retest was due.
  * It states the loop without stating the skill or the day.
  */

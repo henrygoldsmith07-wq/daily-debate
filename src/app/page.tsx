@@ -9,7 +9,7 @@ import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import SkillProfileBars from "@/components/SkillProfileBars";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
-import { NEUTRAL_GOAL_LINE } from "@/lib/retestDisclosure";
+import { NEUTRAL_GOAL_LINE, skillUnderTest } from "@/lib/retestDisclosure";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
 import { buildLearnerModel } from "@/lib/learnerModel";
@@ -234,7 +234,12 @@ export default async function DashboardPage() {
   // Daily coaching goal: one focus, grounded in the previous debate's
   // observed behaviour (not a wall of metrics — one line of evidence).
   const lastCoaching = (previousDebate?.coaching ?? null) as { snapshot?: CoachingSnapshot | null } | null;
-  const pendingRetest = coachingContext.selectedRetest;
+  // The OLDEST PENDING retest, not the topic-eligible one: today's motion can
+  // be the very topic the learner repaired, in which case the app retargets
+  // the motion to a different topic and this debate becomes the test. The
+  // dashboard must not name the skill on exactly that day
+  // (retestDisclosure.ts).
+  const pendingRetest = coachingContext.pendingRetests[0] ?? null;
   const goal = buildCoachingGoal(
     ledger?.points ?? [],
     lastCoaching?.snapshot ?? null,
@@ -243,7 +248,7 @@ export default async function DashboardPage() {
     // not forced into it: the goal line is an instruction, and an instruction
     // for the skill under silent test would prompt the very behaviour the
     // retest is meant to measure (retestDisclosure.ts).
-    pendingRetest?.dimension ?? null,
+    skillUnderTest(coachingContext.pendingRetests),
   );
 
   // The open-drill row was loaded in the parallel block above (loop latency:

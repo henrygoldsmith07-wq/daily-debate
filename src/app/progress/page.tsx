@@ -26,6 +26,7 @@ import { buildMilestones } from "@/lib/milestones";
 import { buildLearnerModel, CLAIM_KIND_LABEL } from "@/lib/learnerModel";
 import { EVIDENCE_LEVEL_LABEL } from "@/lib/skillTaxonomy";
 import { FORMATIVE_STATE_LABELS } from "@/lib/retest";
+import { skillUnderTest } from "@/lib/retestDisclosure";
 
 export const dynamic = "force-dynamic";
 
@@ -144,7 +145,11 @@ export default async function ProgressPage() {
     );
   }
   const drillOutcomes = coachingContext.drillOutcomes;
-  const pendingRetest = coachingContext.selectedRetest;
+  // The OLDEST PENDING retest, not the topic-eligible one, decides which
+  // skill the visible focus must exclude: the motion shown on the dashboard
+  // can be the very topic the learner repaired, in which case the app
+  // retargets it and the debate becomes the test. Progress must not name the
+  // skill on exactly that day (retestDisclosure.ts).
   const drillRows = drillRowsBundle.drillRows;
   const drillRowsError = drillRowsBundle.drillRowsError;
   const scoredDebates = scoredDebatesBundle.scoredDebates;
@@ -221,7 +226,7 @@ export default async function ProgressPage() {
     ledger.points,
     null,
     drillOutcomes,
-    pendingRetest?.dimension ?? null,
+    skillUnderTest(coachingContext.pendingRetests),
   );
   const focusLabel = goal?.dimension
     ? (summary.skills.find((s) => s.key === goal.dimension)?.label ?? goal.dimension)

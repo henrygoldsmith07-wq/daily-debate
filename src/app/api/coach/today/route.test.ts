@@ -68,6 +68,18 @@ vi.mock("@/lib/coachingContextServer", () => ({
   loadCoachingContext: vi.fn(async () => ({
     ledger: { points: [], debates: 4 },
     drillOutcomes: {},
+    repairAnchors: h.state.selectedRetest
+      ? [{
+          repairResultId: "repair-1",
+          debateId: "d1",
+          targetKind: "evidence",
+          attemptedAt: "2026-01-01T00:00:00Z",
+          topicId: "topic-1",
+        }]
+      : [],
+    // The pending queue is what decides the exclusion: the topic-eligible
+    // retest can be empty on the very day the debate becomes the test.
+    pendingRetests: h.state.selectedRetest ? [h.state.selectedRetest] : [],
     selectedRetest: h.state.selectedRetest,
     status: "ok",
     degradationReasons: [],
@@ -155,9 +167,11 @@ describe("/api/coach/today", () => {
     // the response must not name it — this is a pre-debate surface
     // (retestDisclosure.ts).
     h.state.selectedRetest = {
+      repairResultId: "repair-1",
+      debateId: "d1",
       dimension: "evidence",
       label: "Evidence",
-      debateId: "d1",
+      topicId: "topic-1",
       attemptedAt: "2026-01-01T00:00:00Z",
     };
     const response = await GET(new Request("https://daily-debate.test/api/coach/today"));
