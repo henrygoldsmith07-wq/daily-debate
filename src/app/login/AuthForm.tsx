@@ -130,6 +130,7 @@ export default function AuthForm({
             name="email"
             type="email"
             required
+            maxLength={254}
             autoComplete="email"
             autoCapitalize="none"
             autoCorrect="off"
