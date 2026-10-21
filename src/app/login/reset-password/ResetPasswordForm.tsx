@@ -56,6 +56,9 @@ export default function ResetPasswordForm() {
           <input
             name="newPassword"
             type="password"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             required
             minLength={8}
             maxLength={128}
