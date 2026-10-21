@@ -208,7 +208,7 @@ describe("retest disclosure policy", () => {
   it("keeps the skill under test out of the priority card and out of today's announcement", () => {
     const action = pickPriority({
       unfinishedRepair: null,
-      dueRetest: { label: "Evidence" },
+      dueRetest: {},
       openDrill: null,
       debateAvailable: true,
     });
@@ -216,6 +216,18 @@ describe("retest disclosure policy", () => {
     expect(action?.title ?? "").not.toMatch(/evidence/i);
     expect(action?.detail ?? "").not.toMatch(/evidence/i);
     expect(action?.detail ?? "").not.toMatch(/today/i);
+  });
+
+  it("the retest priority input cannot carry a skill name at all", () => {
+    // The dashboard used to build a label for the pending retest from the
+    // VISIBLE goal's dimension — which is by definition a different skill, so
+    // the label was wrong as well as unnecessary. The field is removed, and
+    // the input type no longer has a place to put one.
+    const dailyFocus = readSource("lib", "dailyFocus.ts");
+    expect(dailyFocus).not.toMatch(/dueRetest:\s*\{[^}]*label:/);
+    const dashboard = readSource("app", "page.tsx");
+    expect(dashboard).not.toMatch(/pendingRetestLabel/);
+    expect(dashboard).not.toMatch(/RETEST_SKILL_LABEL/);
   });
 
   it("does not announce a transfer test in the motion reason", () => {

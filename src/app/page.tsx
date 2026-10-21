@@ -32,21 +32,6 @@ import { dateKeyInTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
 
-const RETEST_SKILL_LABEL: Record<string, string> = {
-  evidence: "Evidence",
-  rebuttal: "Rebuttal",
-  logic: "Logic",
-  // Named after what is measured — see the note in skillTaxonomy.ts.
-  clarity: "Engagement",
-  impact: "Impact",
-  steelmanning: "Steelmanning",
-  structure: "Structure",
-};
-
-function pendingRetestLabel(dimension: string): string {
-  return RETEST_SKILL_LABEL[dimension] ?? dimension;
-}
-
 function formatShortDate(value: string | null | undefined, timeZone: string): string {
   if (!value) return "Date unknown";
   const date = new Date(value);
@@ -331,7 +316,14 @@ export default async function DashboardPage() {
           nextCue: unfinishedRepair.nextCue,
         }
       : null,
-    dueRetest: motion.servesRetest && pendingRetest ? { label: goal?.dimension ? pendingRetestLabel(goal.dimension) : "the repaired skill", attemptedAt: pendingRetest.attemptedAt } : null,
+    dueRetest:
+      motion.servesRetest && pendingRetest
+        ? // No skill label: the priority card states the loop without naming
+          // the skill under silent test (retestDisclosure.ts). A label here
+          // would also be the WRONG one — the visible goal is by definition a
+          // different skill — so the field is removed rather than fixed.
+          { attemptedAt: pendingRetest.attemptedAt }
+        : null,
     openDrill,
     debateAvailable: !activeDebate,
   });

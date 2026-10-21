@@ -9,7 +9,7 @@ const base: PriorityInputs = {
 };
 
 const repair = { debateId: "d5", label: "Evidence", nextCue: "name a specific source" };
-const retest = { label: "Rebuttal" };
+const retest = {};
 const drill = { title: "Answer the strongest argument" };
 
 describe("pickPriority", () => {
@@ -80,7 +80,7 @@ describe("pickPriority", () => {
 });
 
 describe("pickPriority retest age", () => {
-  const retestWithAge = (attemptedAt: string) => ({ label: "Rebuttal", attemptedAt });
+  const retestWithAge = (attemptedAt: string) => ({ attemptedAt });
 
   it("surfaces the age of a due retest so the nudge is auditable", () => {
     const action = pickPriority({
@@ -93,7 +93,7 @@ describe("pickPriority retest age", () => {
   });
 
   it("falls back to the label-only detail when no attempt timestamp is supplied", () => {
-    const action = pickPriority({ ...base, dueRetest: { label: "Rebuttal" } });
+    const action = pickPriority({ ...base, dueRetest: {} });
     expect(action?.detail).toBe(
       "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and the skill and the day are never signposted.",
     );
