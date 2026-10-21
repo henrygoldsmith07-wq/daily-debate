@@ -37,6 +37,69 @@ export function buildVerdictSystem(citationClause = CITATION_CLAUSE_DEFAULT) {
   return VERDICT_SYSTEM_BASE + citationClause + VERDICT_SYSTEM_TAIL;
 }
 
+/**
+ * The rate-limit headers a provider may use to state its own ceiling.
+ * Deliberately generous: providers disagree on the exact names, and a header
+ * we do not recognise costs us nothing to carry.
+ */
+export const RATE_LIMIT_HEADER_NAMES = [
+  "retry-after",
+  "x-ratelimit-limit-requests",
+  "x-ratelimit-remaining-requests",
+  "x-ratelimit-reset-requests",
+  "x-ratelimit-limit-tokens",
+  "x-ratelimit-remaining-tokens",
+  "x-ratelimit-reset-tokens",
+  "x-ratelimit-limit",
+  "x-ratelimit-remaining",
+  "x-ratelimit-reset",
+  "x-rate-limit-limit",
+  "x-rate-limit-remaining",
+  "x-rate-limit-reset",
+  "ratelimit-limit",
+  "ratelimit-remaining",
+  "ratelimit-reset",
+];
+
+/**
+ * Read the rate-limit headers off a response. Returns only the headers the
+ * provider actually sent - an absent header is not reported as a zero,
+ * because "not stated" and "stated as zero" are different facts and only
+ * one of them is actionable.
+ */
+export function readRateLimitHeaders(headers) {
+  const out = {};
+  if (!headers || typeof headers.get !== "function") return out;
+  const add = (name, value) => {
+    if (value == null) return;
+    const v = String(value).trim();
+    if (v !== "") out[name] = v;
+  };
+  for (const name of RATE_LIMIT_HEADER_NAMES) {
+    let value = null;
+    try {
+      value = headers.get(name);
+    } catch {
+      value = null;
+    }
+    add(name, value);
+  }
+  // Catch any other header whose NAME mentions a rate limit, even if it is
+  // not in the list above. A provider naming its own ceiling is the only
+  // ground truth about that ceiling, so an unfamiliar spelling must not be
+  // silently dropped.
+  try {
+    if (typeof headers.forEach === "function") {
+      headers.forEach((value, name) => {
+        if (/rate.?limit/i.test(String(name))) add(String(name).toLowerCase(), value);
+      });
+    }
+  } catch {
+    /* a headers object without iteration is still usable via get() */
+  }
+  return out;
+}
+
 /** Benchmark verdict-prompt wording. v5 (2026-09-14): fairness clauses added
  *  against live diagnostic evidence (label/format flips, ungrounded-citation
  *  influence, overconfidence) — general judge-policy wording only, never
@@ -106,6 +169,14 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
       const err = new Error(`${res.status}: ${bodyText.slice(0, 160)}`);
       err.httpStatus = res.status;
       err.retryAfterSec = Number(res.headers?.get?.("retry-after")) || null;
+      // The provider's OWN statement of its ceiling. A free tier's limit is
+      // not one number and not one window - cerebras answers "requests per
+      // hour", unorouter "5 request(s) every 1 min", openrouter "per day" -
+      // and on 2026-10-21 a run paced for a per-minute ceiling died against a
+      // per-hour one, after the budget was spent. The headers say what the
+      // ceiling actually IS, so the pace can be derived from the provider
+      // rather than guessed from a prose message.
+      err.rateLimitHeaders = readRateLimitHeaders(res.headers);
       throw err;
     }
     const data = JSON.parse(bodyText);
