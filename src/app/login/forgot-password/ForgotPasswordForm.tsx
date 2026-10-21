@@ -52,6 +52,7 @@ export default function ForgotPasswordForm() {
             autoCorrect="off"
             spellCheck={false}
             inputMode="email"
+            enterKeyHint="send"
             className="rounded border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
           />
         </label>

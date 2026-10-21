@@ -119,6 +119,7 @@ export default function AuthForm({
               type="text"
               autoComplete="nickname"
               autoCapitalize="words"
+              enterKeyHint="next"
               spellCheck={false}
               maxLength={40}
               placeholder="Optional · shown on the leaderboard"
@@ -138,6 +139,7 @@ export default function AuthForm({
             autoCorrect="off"
             spellCheck={false}
             inputMode="email"
+            enterKeyHint="next"
             className="rounded border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
           />
         </label>
@@ -152,6 +154,7 @@ export default function AuthForm({
             required
             minLength={8}
             maxLength={128}
+            enterKeyHint="go"
             autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
             className="rounded border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
           />

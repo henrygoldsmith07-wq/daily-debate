@@ -63,6 +63,7 @@ export default function ResetPasswordForm() {
             minLength={8}
             maxLength={128}
             autoComplete="new-password"
+            enterKeyHint="go"
             className="rounded border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
           />
         </label>
