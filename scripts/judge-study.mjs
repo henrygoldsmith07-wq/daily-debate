@@ -94,7 +94,9 @@ if (REPS < reg.runsPerArm) {
 // WHAT is measured: the same arms, the same fixtures, the same gates, the same
 // verdict rule. They exist so a long free-tier study can survive a job time
 // limit (--max-arms stops between arms) and a per-minute rate cap (--pace-ms
-// throttles the global call rate so 429s do not masquerade as judge quality).
+// throttles the global REQUEST rate so 429s do not masquerade as judge
+// quality; it counts requests, not judge calls, because one judge call can
+// issue several requests through the chain and its retries).
 const argInt = (name, dflt, min, max) => {
   const eq = args.find((x) => x.startsWith(`--${name}=`));
   const raw = eq !== undefined ? eq.split("=").slice(1).join("=") : (() => {

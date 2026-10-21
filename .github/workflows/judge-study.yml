@@ -40,13 +40,13 @@ on:
       registration:
         description: "Path to the sealed registration file to execute"
         required: true
-        default: "docs/judge-experiments/registrations/grounding-two-pass-verbosity.json"
+        default: "docs/judge-experiments/registrations/grounding-two-pass-verbosity-v2.json"
       budget_calls:
         description: "Explicit provider-call budget for the capacity gate (unknown capacity is refused)"
         required: true
         default: "3000"
       pace_ms:
-        description: "Minimum ms between provider calls (throttles to the free-tier rate ceiling)"
+        description: "Minimum ms between provider REQUESTS (free tiers cap requests per minute, and one judge call can issue several requests through the chain and its retries)"
         required: true
         default: "12000"
       concurrency:

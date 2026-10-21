@@ -88,6 +88,10 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
       if (reasoningToggle) payload.reasoning = { enabled: false };
       Object.assign(payload, extraBody);
     }
+    // The gate sits here, immediately before the fetch, so it counts the
+    // requests the provider actually receives - including the requests the
+    // chain walk and the transport retries make on top of the judge call.
+    await waitForRequestSlot();
     const res = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...extraHeaders },
@@ -183,6 +187,43 @@ export function usableProviders(env = process.env) {
   return PROVIDERS.filter((p) => providerUsable(p, env));
 }
 
+/**
+ * GLOBAL request-rate throttle, shared by every provider call in this process.
+ *
+ * Free tiers cap REQUESTS PER MINUTE, not judge calls. One judge call can
+ * issue several HTTP requests: the chain walks each model in turn (a retired
+ * model answers 404 and the walk continues) and each model may be retried on
+ * a transport error. Throttling only the judge call therefore let the real
+ * request rate exceed the documented ceiling several times over, and the
+ * provider answered 429 - which the benchmark then scored as a judge-quality
+ * signal instead of a transport fact.
+ *
+ * The gate is applied inside chat(), i.e. immediately before each fetch, so
+ * it counts exactly the requests the provider sees. It is deliberately
+ * process-global and provider-agnostic: one shared account is one shared
+ * budget, and the study runs one provider at a time anyway.
+ *
+ * 0 disables the gate entirely, which preserves the historical behaviour.
+ */
+let requestGateMs = 0;
+let lastRequestAt = 0;
+
+export function setRequestGateMs(ms) {
+  requestGateMs = Number.isFinite(ms) && ms > 0 ? Number(ms) : 0;
+  lastRequestAt = 0;
+}
+
+export function getRequestGateMs() {
+  return requestGateMs;
+}
+
+async function waitForRequestSlot() {
+  if (requestGateMs <= 0) return;
+  const wait = lastRequestAt + requestGateMs - Date.now();
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastRequestAt = Date.now();
+}
+
 /** Model chain for one provider entry: primary + fallbacks (env-overridable). */
 export function chainFor(provider, env = process.env) {
   const upper = provider.label.toUpperCase();
@@ -228,6 +269,16 @@ function isTransportError(e) {
 /** The request-shape fields chat() needs from a registry entry. */
 function requestCompat(provider) {
   return { reasoningToggle: provider.reasoningToggle !== false, extraBody: provider.extraBody ?? {} };
+}
+
+/**
+ * Test seam for the request-rate gate. The gate lives inside chat(), so the
+ * only way to prove it counts REQUESTS rather than judge calls is to drive a
+ * real chain judge against a stubbed fetch and measure the request times.
+ * Exported for scripts/lib/judge-request-gate.test.mjs; not used in production.
+ */
+export function makeChainJudgeForTest(opts) {
+  return makeChainJudge(opts);
 }
 
 function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVerdictSystem(), userFn = verdictUser, maxTokens = 900, stats = null, reasoningToggle = true, extraBody = {} }) {
