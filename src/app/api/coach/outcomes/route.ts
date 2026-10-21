@@ -4,12 +4,18 @@ import { movementAround, DIMENSION_LABELS, COACH_DIMENSIONS } from "@/lib/adapti
 import type { CoachDimension } from "@/lib/adaptiveCoach";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getCurrentUser } from "@/lib/currentViewer";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 // Read-only drill-outcome report. Movement is derived from later debates on
 // demand; GET never writes the derived value back into coaching history. The
 // recommendation engine consumes the same calculation through coaching context.
 
-export async function GET() {
+export async function GET(request: Request) {
+  // The report walks the learner's whole debate history, so it is bounded
+  // like the other authenticated reads.
+  const limited = await checkRateLimit(request, { name: "coach-outcomes", limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

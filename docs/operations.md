@@ -79,6 +79,30 @@ The blinded human corpus is the future ground truth for the judge, so its state 
 - `npm run repair:corpus [-- --apply]` fixes historical closure drift safely: dry-run first (reports ids/counts), flips `open -> rated` at the 3-rating target, reopens below-target `rated` rows so collection can finish, syncs `rating_count` to reality, never deletes or edits ratings, and is idempotent.
 - Real-Postgres concurrency coverage lives in `src/lib/corpusRatingStore.db.test.ts` and `src/lib/corpusVerdictStore.db.test.ts`: three-rating closure, simultaneous final raters, post-closure rejects, rollback atomicity, correction audit chains, adjudication preservation, and one-owner system-judge claims.
 
+## Admin access runbook
+
+Admin access needs **two independent factors**, and both must hold:
+
+1. the operator-granted database role `app_users.is_admin` (migration `039_admin_role.sql`), and
+2. the address being on the `CORPUS_ADMIN_EMAILS` allowlist.
+
+The allowlist alone is deliberately not enough. `app_users.email` is asserted by the person signing up and this product has **no email-verification flow**, so an allowlist-only gate was a self-claimed credential: registering an allowlisted address that had no account yet granted admin over the corpus, the ops report and the product funnel, and — because `app_users.email` is `UNIQUE` — simultaneously locked the legitimate administrator out. The role in the database cannot be asserted by a request: the sign-up path never writes it and no request body can set it.
+
+```text
+# grant (the account must already exist — sign up first, then grant)
+DATABASE_URL=... node scripts/set-admin.mjs grant you@example.com --actor "your-name" --note "corpus moderation shift"
+
+# revoke
+DATABASE_URL=... node scripts/set-admin.mjs revoke you@example.com --actor "your-name"
+
+# every grant/revocation is appended to admin_role_grants (append-only audit)
+```
+
+- The script is the only supported way to change the role; it warns loudly when the address is not on the allowlist, because the request-time gate would still deny it.
+- Removing the address from `CORPUS_ADMIN_EMAILS` revokes access immediately, without a database round-trip. That is the kill switch.
+- The gate fails **closed**: a missing role, a missing allowlist, or a missing identity all deny.
+- Relevant code: `src/lib/adminAccess.ts` (the gate), `src/lib/requestAuth.ts` (request context), `src/lib/backend/auth.ts` (session lookup reads the role).
+
 ## Branch protection (main)
 
 Enforced by repository ruleset `protect-main` (Settings → Rules → Rulesets, id 23355071), enforcement ACTIVE, **no bypass actors** — it applies to admins and owner accounts equally:
