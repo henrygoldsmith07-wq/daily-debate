@@ -12,7 +12,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const h = vi.hoisted(() => {
   type Row = Record<string, unknown>;
   const state = {
-    user: null as null | { id: string; email?: string },
+    user: null as null | { id: string; email?: string; is_admin?: boolean },
     tables: {} as Record<string, Row[]>,
   };
 
@@ -174,12 +174,23 @@ beforeEach(() => {
     corpus_items: [{ ...ITEM, side_mapping: { ...ITEM.side_mapping } }],
     corpus_ratings: [{ ...RATING, corrections: [], scores_a: { ...RATING.scores_a }, scores_b: { ...RATING.scores_b } }],
   });
-  h.state.user = { id: "admin-1", email: "admin@example.com" };
+  // An admin needs BOTH factors: the operator-granted database role AND the
+  // allowlist. See src/lib/adminAccess.ts.
+  h.state.user = { id: "admin-1", email: "admin@example.com", is_admin: true };
 });
 
 describe("correction route", () => {
   it("non-admins are forbidden", async () => {
     h.state.user = { id: "user-1", email: "user@example.com" };
+    const res = await postCorrect(correctBody());
+    expect(res.status).toBe(403);
+    expect((h.state.tables.corpus_ratings ?? [])[0].winner).toBe("b");
+  });
+
+  it("an allowlisted address with no database role is forbidden", async () => {
+    // The exact attack the two-factor gate closes: signing up with an
+    // allowlisted address used to be enough to become an administrator.
+    h.state.user = { id: "user-2", email: "admin@example.com" };
     const res = await postCorrect(correctBody());
     expect(res.status).toBe(403);
     expect((h.state.tables.corpus_ratings ?? [])[0].winner).toBe("b");

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/backend/server";
-import { checkRateLimit } from "@/lib/rateLimit";
+import { checkRateLimit, checkRateLimitKey } from "@/lib/rateLimit";
 import { levelForPoints, updateStreak, POINTS_PER_LEVEL } from "@/lib/gamification";
 import { isSuspiciousLength, repeatScore } from "@/lib/moderation";
 import { stampVerdict } from "@/lib/evaluationEnvelope";
@@ -50,8 +50,14 @@ async function awardPoints(userId: string, points: number) {
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
-  const limited = await checkRateLimit(request, { name: "pvp-turn", limit: 20, windowMs: 60_000 });
-  if (limited) return limited;
+  // Two independent ceilings. The IP bucket is the loose network ceiling
+  // (so a school/home/work NAT does not throttle its own members); the USER
+  // bucket is the one that actually bounds AI spend, because a single
+  // authenticated account rotating IPs would otherwise be able to drive
+  // unbounded free-tier judge calls. Every other AI-backed route pairs the
+  // same two buckets.
+  const ipLimited = await checkRateLimit(request, { name: "pvp-turn-ip", limit: 120, windowMs: 60_000, failClosed: true });
+  if (ipLimited) return ipLimited;
 
   const { matchId } = await params;
   const db = await createClient();
@@ -59,6 +65,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     data: { user },
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const userLimit = await checkRateLimitKey(user.id, { name: "pvp-turn-user", limit: 20, windowMs: 60_000, failClosed: true });
+  if (!userLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many turn submissions. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(userLimit.retryAfterSeconds), "Cache-Control": "no-store" } },
+    );
+  }
 
   const body = await request.json().catch(() => null);
   const message = typeof body?.message === "string" ? body.message.trim() : "";

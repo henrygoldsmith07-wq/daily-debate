@@ -6,12 +6,17 @@ import { resolveHumanGroundTruth } from "@/lib/humanGroundTruth";
 import { getRequestAuthContext } from "@/lib/requestAuth";
 import { writeCorpusAdjudication } from "@/lib/corpusVerdictStore";
 import { invalidatePublicCorpusMetrics } from "@/lib/publicCorpusMetrics";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 // Admin-only adjudication: after the 3-rater collection target, record either
 // a strict rater majority or an explicit moderator resolution as canonical
 // human ground truth without overwriting system-verdict provenance.
 
 export async function POST(request: Request) {
+  // Bounded: adjudication sets canonical ground truth.
+  const limited = await checkRateLimit(request, { name: "corpus-adjudicate", limit: 30, windowMs: 60_000 });
+  if (limited) return limited;
+
   const auth = await getRequestAuthContext();
   const user = auth.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

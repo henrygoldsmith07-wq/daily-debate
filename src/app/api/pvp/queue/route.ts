@@ -22,8 +22,14 @@ export async function POST(request: Request) {
 
   // Best-effort housekeeping: queue rows older than a day are stale (their
   // owners left without cancelling) and would accumulate forever.
+  //
+  // Scoped to the CALLER'S OWN rows. This used to be a service-role DELETE
+  // of every queue row older than 24h, triggered by any authenticated user:
+  // a write outside the caller's scope, repeated on every queue join, and a
+  // write-amplification lever against a shared table. Each user now clears
+  // their own stale entries, which is enough for them to leave the queue.
   const staleCutoff = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
-  await service.from("pvp_queue").delete().lt("joined_at", staleCutoff);
+  await service.from("pvp_queue").delete().eq("user_id", user.id).lt("joined_at", staleCutoff);
 
   // One database transaction now owns the entire join lifecycle:
   // active-match recovery, enqueue, opponent claim and match creation. This
@@ -47,7 +53,10 @@ export async function POST(request: Request) {
 
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const limited = await checkRateLimit(request, { name: "pvp-queue-read", limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   const db = await createClient();
   const {
     data: { user },
@@ -69,7 +78,10 @@ export async function GET() {
   return NextResponse.json({ waiting: Boolean(queueRow) });
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
+  const limited = await checkRateLimit(request, { name: "pvp-queue-leave", limit: 30, windowMs: 60_000 });
+  if (limited) return limited;
+
   const db = await createClient();
   const {
     data: { user },
