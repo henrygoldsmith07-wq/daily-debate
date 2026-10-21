@@ -65,7 +65,7 @@
     "adoptionRule": "supported iff usable runs >= 2/arm at reliability >= 0.75 AND target \"verbosity stability\" moves up by >= 0.2 AND the bootstrap 90% CI lower bound of the signed improvement is > 0 AND no protected metric regresses beyond its cap AND pooled run sd. Fewer usable runs, any unmet condition or missing data => INCONCLUSIVE. Gate thresholds are untouchable.",
     "budgetNote": "NOT YET EXECUTED. scripts/judge-capacity.mjs refuses to start without an explicit provider call budget, and treats unknown capacity as insufficient. 312 jobs/run x 2 runs x 2 arms x 1.5 calls/job (the two-pass arm averages 2) x 1.25 retry allowance = 2340 expected calls; GO additionally requires the budget to cover 125% of that, i.e. >= 2925 calls. At a 12s request gate the free tier (5 requests/minute) sustains roughly 5 calls/minute, so the full plan is a multi-hour run and is designed to be resumable across dispatches: raw runs are preserved in the study directory and the verdict is recomputed from ALL preserved runs against this same sealed rule. Registered and sealed rather than started on hope."
   },
-  "stoppedEarly": "provider probe failed before arm candidate; study stops cleanly and stays resumable under the same seal",
+  "stoppedEarly": "dispatch stopped after 1 of 3 planned arms (--max-arms); the study remains resumable and undecided",
   "verdict": {
     "status": "inconclusive",
     "reasons": [
@@ -80,9 +80,16 @@
         "excluded": []
       },
       "candidate": {
-        "totalRuns": 0,
+        "totalRuns": 1,
         "usableRuns": 0,
-        "excluded": []
+        "excluded": [
+          {
+            "file": "2026-10-21T193929911Z-cerebras.json",
+            "at": "2026-10-21T19:39:29.911Z",
+            "reliability": 0.519,
+            "reason": "reliability 0.519 < registered minimum 0.75"
+          }
+        ]
       }
     }
   },
@@ -119,8 +126,36 @@
       ]
     },
     "candidate": {
-      "runs": []
+      "runs": [
+        {
+          "at": "2026-10-21T19:39:29.911Z",
+          "file": "2026-10-21T193929911Z-cerebras.json",
+          "model": "cerebras:gpt-oss-120b",
+          "reliability": 0.519,
+          "metrics": {
+            "verbosity stability": 0.615,
+            "provider reliability": 0.519,
+            "fixture agreement": 0.4,
+            "ECE": 0.244,
+            "position stability": 0.5,
+            "names stability": 0.571,
+            "style stability": 0.786,
+            "prestige stability": 0.846,
+            "fake-citation influence": 0.385,
+            "latency p50 ms": 29968,
+            "prompt tokens": 150203
+          },
+          "gateSummary": {
+            "provider": 1,
+            "quality": 9,
+            "insufficient": 4
+          },
+          "allPassRun": false,
+          "usable": false,
+          "reason": "reliability 0.519 < registered minimum 0.75"
+        }
+      ]
     }
   },
-  "at": "2026-10-21T08:51:31.376Z"
+  "at": "2026-10-21T19:39:29.924Z"
 }
