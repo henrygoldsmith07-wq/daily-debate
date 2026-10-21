@@ -118,6 +118,8 @@ export default function AuthForm({
               name="displayName"
               type="text"
               autoComplete="nickname"
+              autoCapitalize="words"
+              spellCheck={false}
               maxLength={40}
               placeholder="Optional · shown on the leaderboard"
               className="rounded border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
