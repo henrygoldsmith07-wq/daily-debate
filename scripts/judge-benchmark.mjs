@@ -173,7 +173,7 @@ async function evaluateModel(judge) {
       if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
     } catch (e) {
       log(`  [base] ${f.id}: ${String(e?.message ?? e).slice(0, 120)}`);
-      bases.push({ fixture: f.id, expected: f.expectedWinner, error: String(e?.message ?? e) });
+      bases.push({ fixture: f.id, expected: f.expectedWinner, error: String(e?.message ?? e), rateLimitHeaders: e?.rateLimitHeaders ?? null });
     }
     tick("base");
     await sleep(250);
@@ -202,7 +202,7 @@ async function evaluateModel(judge) {
       };
     } catch (e) {
       tick("probes");
-      return { fixture: f.id, probe: probe.id, mirrored: probe.mirrored === true, error: String(e?.message ?? e).slice(0, 100) };
+      return { fixture: f.id, probe: probe.id, mirrored: probe.mirrored === true, error: String(e?.message ?? e).slice(0, 100), rateLimitHeaders: e?.rateLimitHeaders ?? null };
     }
   });
 
@@ -220,7 +220,7 @@ async function evaluateModel(judge) {
         return { id: t.id, fixture: f.id, winner: v.winner, flipped: v.winner !== base.winner };
       } catch (e) {
         tick("audits");
-        return { id: t.id, fixture: f.id, error: String(e?.message ?? e).slice(0, 100) };
+        return { id: t.id, fixture: f.id, error: String(e?.message ?? e).slice(0, 100), rateLimitHeaders: e?.rateLimitHeaders ?? null };
       }
     },
   );
@@ -567,6 +567,15 @@ async function main() {
     if (m.diagnostics?.counts) {
       const dc = m.diagnostics.counts;
       detailLines.push(`- diagnostics: ${dc.accuracy} accuracy issue(s), ${dc.calibration} calibration bin(s) flagged, ${dc.invariance} invariance flip(s), ${dc.provider} provider error call(s) — full detail in docs/latest-judge-benchmark.json`);
+    }
+    // The provider's stated ceiling, when it sent one. Naming the ceiling is
+    // what lets the NEXT run pick a pace from the provider's own statement
+    // instead of from an inference about its prose.
+    const stated = (m.diagnostics?.provider ?? [])
+      .map((e) => e.rateLimitHeaders)
+      .find((h) => h && Object.keys(h).length);
+    if (stated) {
+      detailLines.push(`- provider rate-limit headers: ${JSON.stringify(stated)}`);
     }
   }
   fs.writeFileSync(

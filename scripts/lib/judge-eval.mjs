@@ -334,6 +334,18 @@ export function buildDiagnostics(m) {
     const entry = (provider[cls] ??= { kind: cls, calls: 0, examples: [] });
     entry.calls += 1;
     if (entry.examples.length < 3) entry.examples.push(String(r.error).slice(0, 140));
+    // The provider's own statement of its ceiling, when it sent one. This is
+    // the ground truth about the limit: the error PROSE only says which
+    // WINDOW applies, and inferring the size of the ceiling from prose is
+    // what produced a pace that sat exactly on the ceiling and died at the
+    // boundary. The headers say the limit, the remainder and the reset.
+    if (r.rateLimitHeaders && typeof r.rateLimitHeaders === "object") {
+      const keys = Object.keys(r.rateLimitHeaders);
+      if (keys.length) {
+        entry.rateLimitHeaders ??= {};
+        for (const k of keys) entry.rateLimitHeaders[k] ??= r.rateLimitHeaders[k];
+      }
+    }
   }
 
   return {
