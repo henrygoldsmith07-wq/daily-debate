@@ -11,7 +11,7 @@ import {
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { getTodayTopic } from "@/lib/dailyTopic";
 import { getCurrentUser } from "@/lib/currentViewer";
-import { skillUnderTest } from "@/lib/retestDisclosure";
+import { skillsUnderTest } from "@/lib/retestDisclosure";
 import { dateKeyInTimeZone, normalizeIanaTimeZone } from "@/lib/timeZone";
 
 type DrillAssignmentRow = {
@@ -114,7 +114,7 @@ async function loadCoachTodayState(userId: string): Promise<CoachTodayState> {
     // as recall. So the skill under test is EXCLUDED from the drill focus,
     // exactly as it is excluded from the visible coaching goal
     // (retestDisclosure.ts).
-    const selected = selectFocus(dims, slopes, outcomes, skillUnderTest(context.pendingRetests));
+    const selected = selectFocus(dims, slopes, outcomes, skillsUnderTest(context.pendingRetests));
     focus = selected.focus;
     focusReason = selected.reason;
   }

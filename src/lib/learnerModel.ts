@@ -211,6 +211,13 @@ export interface LearnerModelInput {
   points: SkillMetricPoint[];
   repairs: RepairEpisodeInput[];
   retests: RetestInput[];
+  /**
+   * The skills under silent test, from the pending-retest queue
+   * (retestDisclosure.ts). They are excluded from the visible coaching focus
+   * and the practice target. Supplied by the caller so every surface uses the
+   * same queue and the same rule.
+   */
+  excludeSkills?: readonly SkillDimensionKey[];
   now?: string;
 }
 
@@ -514,13 +521,24 @@ function formatDate(iso: string | null): string {
 export function selectNextPractice(
   skills: SkillReading[],
   repairs: SkillRepairState[],
+  excludeSkills: readonly SkillDimensionKey[] = [],
 ): PracticeTarget | null {
-  // The skill whose transfer is being measured is off-limits for today's
-  // coaching. Excluding it here keeps the day's target off the skill under
-  // test without hiding the loop: the loop thread still shows that a repair is
-  // open, and the result card still shows the verdict.
-  const underTest = repairs.find((r) => r.awaitingRetest)?.skill ?? null;
-  const available = underTest ? skills.filter((s) => s.key !== underTest) : skills;
+  // The skills whose transfer is being measured are off-limits for today's
+  // coaching. Two sources, unioned:
+  //   - the caller's set: the pending-retest queue (retestDisclosure.ts), the
+  //     same queue every other surface excludes;
+  //   - the repair states: a successful repair with no completed observable
+  //     retest is under test even if its queue row has not been read yet.
+  // Deriving the exclusion here from the repair list ALONE meant the practice
+  // target could exclude a DIFFERENT skill than the goal did — and so could
+  // name the skill under silent test. Over-excluding is the safe direction:
+  // the selector falls back to the next real weakness, never to the skill
+  // being measured.
+  const excluded = new Set<SkillDimensionKey>([
+    ...excludeSkills,
+    ...repairs.filter((r) => r.awaitingRetest).map((r) => r.skill),
+  ]);
+  const available = skills.filter((s) => !excluded.has(s.key));
   if (!available.length) return null;
 
   const withEvidence = available.filter((s) => s.level !== null && s.sampleSize >= MIN_SKILL_SAMPLE);
@@ -588,7 +606,10 @@ function currentFocusFor(
       skill: awaiting.skill,
       label: awaiting.label,
       priority: "retest-due",
-      reason: `You repaired ${awaiting.label.toLowerCase()} and are now testing whether it holds without prompting.`,
+      // Neutral copy on purpose: this target names the skill, so it must not
+      // also announce that the skill is being tested (retestDisclosure.ts).
+      // The loop thread's own wording is the approved one.
+      reason: "A repair is waiting to be tested — a later debate, on a different topic, is the test.",
       observable: skillObservable(awaiting.skill),
       evidence: `Repair saved ${formatDate(awaiting.lastRepairedAt)}; the deliberate retest is still open.`,
       caveat: "You are inside the repair → retest loop. One later demonstration does not make a habit.",
@@ -654,7 +675,7 @@ export function buildLearnerModel(input: LearnerModelInput): LearnerModel {
   const repairs = buildRepairStates(episodes, input.retests);
   const retests = buildRetestRecords(input.retests);
 
-  const nextPractice = selectNextPractice(skills, repairs);
+  const nextPractice = selectNextPractice(skills, repairs, input.excludeSkills ?? []);
   const currentFocus = currentFocusFor(skills, repairs, nextPractice);
   const questions = questionsFor(skills, repairs, nextPractice);
 

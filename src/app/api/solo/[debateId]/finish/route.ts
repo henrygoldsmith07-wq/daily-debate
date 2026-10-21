@@ -349,7 +349,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
           )
         : null;
 
-    const assignment = retestAssignmentFor(outcome);
+    const assignment = retestAssignmentFor(outcome, {
+      // A sprint is too short to judge the skill, so it records no verdict and
+      // the repair stays pending — the test waits for a full debate.
+      format: format === "sprint" ? "sprint" : "full",
+    });
     retestCompletion = {
       repairResultId: coaching.repairRetest.repairResultId ?? null,
       observable: assignment.observable,

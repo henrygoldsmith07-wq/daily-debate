@@ -79,15 +79,23 @@ export function isUnderTest(
 }
 
 /**
- * The skill a pending deliberate retest is measuring.
+ * EVERY skill a pending deliberate retest is measuring.
  *
- * This is the OLDEST PENDING retest, not the oldest *topic-eligible* one.
+ * One debate carries one retest, but the learner does not know which one it
+ * will be — and a pending retest whose topic is not today's could still be
+ * the one the next eligible debate picks up. So a learner with two open
+ * loops has two skills under silent test, and the visible coaching must stay
+ * off BOTH: naming or coaching either one could prompt the behaviour the
+ * retest is meant to measure.
  *
- * A pre-debate surface cannot know the final motion, and the eligible retest
- * depends on it: when the day's motion is the very topic the learner
- * repaired, the app retargets the motion to a different topic so the debate
- * can carry the test. Excluding only the topic-eligible retest would
- * therefore leak the skill on exactly the day the retest is about to happen.
+ * This is the set every focus selector excludes, so the rule is applied
+ * identically everywhere. It is built from the WHOLE pending queue, not from
+ * the oldest *topic-eligible* retest: a pre-debate surface cannot know the
+ * final motion, and the eligible retest depends on it — when the day's
+ * motion is the very topic the learner repaired, the app retargets the
+ * motion to a different topic so the debate can carry the test. Excluding
+ * only the topic-eligible retest would therefore leak the skill on exactly
+ * the day the retest is about to happen.
  *
  * Over-excluding is the safe direction: a pending retest means the skill is
  * being measured, so it must not be named or coached, and every focus
@@ -96,10 +104,17 @@ export function isUnderTest(
  * `pending` must be ordered oldest-first, which is how the server orders it
  * (`pendingRepairRetests` sorts by attempt time).
  */
-export function skillUnderTest(
+export function skillsUnderTest(
   pending: ReadonlyArray<{ dimension: CoachDimension }> | null | undefined,
-): CoachDimension | null {
-  return pending?.[0]?.dimension ?? null;
+): CoachDimension[] {
+  if (!pending?.length) return [];
+  const out: CoachDimension[] = [];
+  for (const item of pending) {
+    if (!item?.dimension) continue;
+    if (out.includes(item.dimension)) continue;
+    out.push(item.dimension);
+  }
+  return out;
 }
 
 /**

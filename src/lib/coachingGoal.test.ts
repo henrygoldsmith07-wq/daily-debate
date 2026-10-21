@@ -132,7 +132,7 @@ describe("buildCoachingGoal", () => {
       point({ rebuttalCoverage: 0.2, unsupportedClaimRate: 0.1, clarity: 0.9 }, 0),
       point({ rebuttalCoverage: 0.2, unsupportedClaimRate: 0.1, clarity: 0.9 }, 1),
     ];
-    const goal = buildCoachingGoal(points, null, {}, "evidence");
+    const goal = buildCoachingGoal(points, null, {}, ["evidence"]);
     // The excluded skill is NOT the goal. A goal line is an instruction, and
     // an instruction for the skill under silent test would prompt the very
     // behaviour the retest is meant to measure (retestDisclosure.ts).
@@ -146,17 +146,17 @@ describe("buildCoachingGoal", () => {
     const points = [
       point({ unsupportedClaimRate: 0.1, evidenceGrounding: 0.9, uncitedEvidenceRate: 0 }, 0),
     ];
-    expect(buildCoachingGoal(points, null, {}, "evidence")).toBeNull();
+    expect(buildCoachingGoal(points, null, {}, ["evidence"])).toBeNull();
   });
 
 describe("focusUnavailableHeading", () => {
   it("returns nothing when there IS a focus line", () => {
     const points = [point({ unsupportedClaimRate: 0.1, evidenceGrounding: 0.9, uncitedEvidenceRate: 0 }, 0)];
-    expect(focusUnavailableHeading(points, {}, "rebuttal")).toBeNull();
+    expect(focusUnavailableHeading(points, {}, ["rebuttal"])).toBeNull();
   });
 
   it("returns nothing before any debate exists", () => {
-    expect(focusUnavailableHeading([], {}, null)).toBeNull();
+    expect(focusUnavailableHeading([], {}, [])).toBeNull();
   });
 
   it("does not tell a scored learner to complete a debate they already did", () => {
@@ -164,7 +164,7 @@ describe("focusUnavailableHeading", () => {
     // silent test. "Complete a debate to unlock your focus" would be a lie
     // here: the learner has already debated.
     const points = [point({ unsupportedClaimRate: 0.1, evidenceGrounding: 0.9, uncitedEvidenceRate: 0 }, 0)];
-    const heading = focusUnavailableHeading(points, {}, "evidence");
+    const heading = focusUnavailableHeading(points, {}, ["evidence"]);
     expect(heading).not.toMatch(/complete a debate/i);
     expect(heading).toMatch(/still worth doing/i);
   });
@@ -173,7 +173,7 @@ describe("focusUnavailableHeading", () => {
     // A debate with no usable metrics scores nothing, so there is no focus to
     // withhold — the learner simply has to argue once.
     const points = [point({}, 0)];
-    const heading = focusUnavailableHeading(points, {}, null);
+    const heading = focusUnavailableHeading(points, {}, []);
     expect(heading).toMatch(/complete a debate/i);
   });
 });

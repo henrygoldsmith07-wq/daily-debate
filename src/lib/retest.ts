@@ -231,8 +231,17 @@ export const RETEST_OUTCOME_DETAIL: Record<RetestOutcome, string> = {
  * demonstrated=null): the debate never gave the learner a chance to show the
  * skill, so it says nothing about whether the repair stuck — and a negative
  * verdict there would be a claim the evidence cannot support.
+ *
+ * A SPRINT records no verdict either, and this is the important part: a
+ * repair stays pending until a row with observable=true exists, so closing
+ * the repair on a sprint would consume the one measurement the learner is
+ * waiting for on a format that says it cannot judge the skill. The repair
+ * stays pending and the next full debate carries the test.
  */
-export function retestAssignmentFor(outcome: RetestOutcome | null): {
+export function retestAssignmentFor(
+  outcome: RetestOutcome | null,
+  opts: { format?: "sprint" | "full" } = {},
+): {
   observable: boolean;
   demonstrated: boolean | null;
 } {
@@ -242,6 +251,10 @@ export function retestAssignmentFor(outcome: RetestOutcome | null): {
     case "skill-not-observed":
       return { observable: true, demonstrated: false };
     case "not-enough-evidence":
+      // A sprint is too short to judge the skill. It observes nothing that
+      // counts as a verdict, so the repair must NOT close: the test waits
+      // for a full debate.
+      if (opts.format === "sprint") return { observable: false, demonstrated: null };
       // The skill was in play, but the sample cannot judge it: observe, and
       // record no pass/fail.
       return { observable: true, demonstrated: null };

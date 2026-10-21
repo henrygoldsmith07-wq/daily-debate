@@ -9,7 +9,7 @@ import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import SkillProfileBars from "@/components/SkillProfileBars";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
-import { NEUTRAL_GOAL_LINE, skillUnderTest } from "@/lib/retestDisclosure";
+import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
 import { buildLearnerModel } from "@/lib/learnerModel";
@@ -89,11 +89,11 @@ export default async function DashboardPage() {
     // The excluded skill is the oldest PENDING retest's skill, not the
     // topic-eligible one: the focus feeds the per-skill topic bonus, so
     // steering today's motion toward the skill under silent test would leak
-    // it. Every other surface uses skillUnderTest(pendingRetests) — one rule.
+    // it. Every other surface uses skillsUnderTest(pendingRetests) — one rule.
     focus: pickFocusDimension(
       coachingContext.ledger?.points ?? [],
       coachingContext.drillOutcomes,
-      skillUnderTest(coachingContext.pendingRetests),
+      skillsUnderTest(coachingContext.pendingRetests),
     ),
   });
   const topic = motion.topic;
@@ -242,7 +242,7 @@ export default async function DashboardPage() {
     // not forced into it: the goal line is an instruction, and an instruction
     // for the skill under silent test would prompt the very behaviour the
     // retest is meant to measure (retestDisclosure.ts).
-    skillUnderTest(coachingContext.pendingRetests),
+    skillsUnderTest(coachingContext.pendingRetests),
   );
 
   // The drill row was loaded in the parallel block above (loop latency: no
@@ -300,6 +300,9 @@ export default async function DashboardPage() {
           ]
         : [],
     ),
+    // The skills under silent test stay off the visible coaching: the same
+    // queue and the same rule every other surface uses.
+    excludeSkills: skillsUnderTest(coachingContext.pendingRetests),
   });
 
   // The training loop as a visible thread: practice → diagnose → repair →

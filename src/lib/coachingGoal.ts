@@ -55,19 +55,19 @@ export function snapshotFromAssessment(assessment: ObservableAssessment | null |
  * (shared with the drill-assignment coach so Today, Progress and the drill
  * system agree on what matters right now).
  *
- * `excludeDimension` is the skill under SILENT TEST (retestDisclosure.ts).
- * It is excluded rather than forced: the day's visible coaching must not be
- * the instruction for the skill whose transfer is being measured, or the
- * retest measures compliance with a prompt instead of the skill itself.
+ * `excludeDimensions` are the skills under SILENT TEST (retestDisclosure.ts).
+ * They are excluded rather than forced: the day's visible coaching must not be
+ * the instruction for a skill whose transfer is being measured, or the retest
+ * measures compliance with a prompt instead of the skill itself.
  */
 export function pickFocusDimension(
   points: SkillMetricPoint[],
   outcomes: Partial<Record<CoachDimension, number>> = {},
-  excludeDimension: CoachDimension | null = null,
+  excludeDimensions: readonly CoachDimension[] = [],
 ): CoachDimension | null {
   if (!points.length) return null;
   const { dims, slopes } = buildCoachProfile(points);
-  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimension);
+  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimensions);
   return focus?.key ?? null;
 }
 
@@ -77,17 +77,17 @@ export function pickFocusDimension(
  *
  * "Complete a debate to unlock your focus" is only true when nothing has been
  * scored yet. When the focus is withheld because the only dimension with data
- * is the one under silent test, that copy tells the learner to do something
- * they have already done — so those two situations need different words.
+ * is under silent test, that copy tells the learner to do something they have
+ * already done — so those two situations need different words.
  */
 export function focusUnavailableHeading(
   points: SkillMetricPoint[],
   outcomes: Partial<Record<CoachDimension, number>> = {},
-  excludeDimension: CoachDimension | null = null,
+  excludeDimensions: readonly CoachDimension[] = [],
 ): string | null {
   if (!points.length) return null;
   const { dims, slopes } = buildCoachProfile(points);
-  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimension);
+  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimensions);
   if (focus) return null;
   const scored = dims.some((d) => d.hasData && d.score !== null);
   return scored
@@ -148,7 +148,7 @@ function described(snapshot: CoachingSnapshot): string | null {
  * debate snapshot. Goals are numeric only where previous behaviour gives the
  * number meaning; otherwise they stay qualitative.
  *
- * `excludeDimension` is the skill under silent test (retestDisclosure.ts).
+ * `excludeDimensions` are the skills under silent test (retestDisclosure.ts).
  * The goal the learner SEES is a different skill, on purpose: the retest is
  * a measurement, and a measurement cannot be prompted.
  */
@@ -156,9 +156,9 @@ export function buildCoachingGoal(
   points: SkillMetricPoint[],
   lastSnapshot: CoachingSnapshot | null,
   outcomes: Partial<Record<CoachDimension, number>> = {},
-  excludeDimension: CoachDimension | null = null,
+  excludeDimensions: readonly CoachDimension[] = [],
 ): CoachingGoal | null {
-  const dimension = pickFocusDimension(points, outcomes, excludeDimension);
+  const dimension = pickFocusDimension(points, outcomes, excludeDimensions);
   if (!dimension) return null;
   const headline = GOAL_HEADLINES[dimension];
 

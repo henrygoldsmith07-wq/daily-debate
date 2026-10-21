@@ -5,7 +5,7 @@ import ArgumentDnaView from "@/components/ArgumentDnaView";
 import { buildArgumentDnaForUser } from "@/lib/argumentDnaServer";
 import { buildCoachingGoal } from "@/lib/coachingGoal";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
-import { skillUnderTest } from "@/lib/retestDisclosure";
+import { skillsUnderTest } from "@/lib/retestDisclosure";
 import { DIMENSION_LABELS } from "@/lib/adaptiveCoach";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +47,7 @@ export default async function ArgumentDnaPage() {
       context.ledger?.points ?? [],
       null,
       context.drillOutcomes,
-      skillUnderTest(context.pendingRetests),
+      skillsUnderTest(context.pendingRetests),
     );
     focus = goal?.dimension ? (DIMENSION_LABELS[goal.dimension] ?? goal.dimension) : null;
   } catch {
