@@ -125,6 +125,9 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
               Your password
               <input
                 type="password"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 maxLength={128}
