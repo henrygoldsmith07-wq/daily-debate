@@ -365,6 +365,7 @@ export default function CorpusAdmin() {
               value={comparisonLimit}
               onChange={(e) => setComparisonLimit(Number(e.target.value))}
               className="w-16 rounded border border-[var(--rule)] bg-transparent px-2 py-1 text-sm tabular"
+              inputMode="numeric"
               aria-label="Items to judge"
             />
           </label>
