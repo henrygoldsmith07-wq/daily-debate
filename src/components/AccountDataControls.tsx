@@ -116,6 +116,8 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
                 onChange={(e) => setConfirm(e.target.value)}
                 maxLength={20}
                 autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 className="mt-1 w-full rounded-md border border-ink3/40 bg-transparent px-2 py-1.5 text-sm text-ink2"
               />
             </label>
