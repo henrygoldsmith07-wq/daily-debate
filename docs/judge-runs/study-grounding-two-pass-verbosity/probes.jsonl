@@ -1,0 +1,2 @@
+{"at":"2026-10-21T07:51:33.081Z","provider":"cerebras","ok":true,"detail":"PROBE-OK cerebras={\"winner\":\"tie\",\"a\":20,\"b\":20,\"confidence\":0.55,\"model\":\"gpt"}
+{"at":"2026-10-21T08:51:31.374Z","provider":"cerebras","ok":false,"detail":"PROBE-FAIL (cerebras) 429: {\"message\":\"Requests per hour limit exceeded - too many requests sent.\",\"type\":\"too_many_requests_error\",\"param\":\"quota\",\"code\":\"reques chain={\"gpt-oss-120b\":\"429: {\\\"message\\\":\\\"Requests per h"}

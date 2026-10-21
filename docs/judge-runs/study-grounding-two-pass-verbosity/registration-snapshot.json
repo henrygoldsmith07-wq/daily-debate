@@ -1,0 +1,69 @@
+{
+  "registrationHash": "cbd4f04ae095e728",
+  "sealedAt": "2026-10-21T07:51:32.613Z",
+  "adoptionRule": "supported iff usable runs >= 2/arm at reliability >= 0.75 AND target \"verbosity stability\" moves up by >= 0.2 AND the bootstrap 90% CI lower bound of the signed improvement is > 0 AND no protected metric regresses beyond its cap AND pooled run sd. Fewer usable runs, any unmet condition or missing data => INCONCLUSIVE. Gate thresholds are untouchable.",
+  "registration": {
+    "schemaVersion": 2,
+    "name": "grounding-two-pass-verbosity-v2",
+    "kind": "architecture",
+    "registeredVia": "judge benchmark 2026-10-19, cerebras:gpt-oss-120b (the only transport that answered a live quota probe on 2026-10-20), re-registering the question in grounding-two-pass-verbosity after that registration's model was retired upstream",
+    "question": "Is the judge's sensitivity to padding that adds no argument an intrinsic property of scoring raw prose, or an artefact of one model's behaviour on one retired transport? Verbosity inflation appends one sentence of pure emphasis to every line and moved the verdict in 16 of 20 usable fixtures on the retired unorouter transport (flipRate 0.800, stability 0.200 against a 0.95 gate). If the judge scored a grounded claim representation instead of the raw prose, would that padding stop moving the verdict, rather than the judge merely becoming sensitive to something else?",
+    "hypothesis": "A two-pass judge - pass 1 extracts claims and classifies the supplied evidence, pass 2 scores the grounded representation - raises verbosity stability by at least 0.20 over the single-pass baseline measured in the same study on the same transport, without degrading agreement, ECE, position invariance, or provider reliability, accepting a measured latency and token cost.",
+    "singleVariable": "JUDGE ARCHITECTURE: single-pass v5 prompt vs the two-pass grounding pipeline. Identical provider (cerebras), model (gpt-oss-120b), fixtures, gates, temperature=0 and transport in both arms, with the request-rate gate identical in both arms. The pass-2 system prompt is byte-identical to shipped v5; only the extraction pass and the user framing are new. The grounding rule is inherent to the architecture, not a wording tweak, so this is one variable and not stacked prompt edits.",
+    "arms": {
+      "baseline": {
+        "experiment": "baseline"
+      },
+      "candidate": {
+        "experiment": "grounding-two-pass"
+      }
+    },
+    "models": "cerebras",
+    "runsPerArm": 2,
+    "order": "serialized interleaved A,B,A,B; arms never run concurrently (provider budgets are shared and rate-limited)",
+    "minimumUsableReliability": 0.75,
+    "designNote": "Re-registers the grounding-two-pass-verbosity question, which was withdrawn unexecuted on 2026-10-20 because its registered transport ceased to exist: unorouter's registered model nemotron-3.5-lightning:free answers 404 model_not_found (retired from the catalogue, the same failure mode that killed the kiraai slugs) and both unorouter fallbacks answer 429 on a 5-requests-per-minute free tier. This registration changes ONLY the transport, never the question, the variable, the arms, the fixtures, the gates, the protected caps or the adoption rule. The baseline is measured INSIDE this study on the same transport, so the candidate-vs-baseline comparison is internally controlled and does not depend on a baseline carried over from the retired transport. Transport choice is evidence-based: on 2026-10-20 a live quota probe found cerebras the only provider that answered (PROBE-OK) and openrouter answering a 429 free-models-per-day cap, and the 2026-10-19 artifact shows cerebras's failures were 150 rate-limits with zero judge-quality errors - a transport fact, not a verdict-quality result. cerebras is a single-model chain, so both arms necessarily run the same model. The study is paced at the REQUEST level (free tiers cap requests per minute, and one judge call can issue several requests through the chain and its retries), which is what makes a free tier able to answer at all.",
+    "target": {
+      "metric": "verbosity stability",
+      "direction": "up",
+      "minImprovement": 0.2,
+      "marginRationale": "The threshold is an improvement measured against the baseline arm of THIS study on THIS transport, so it does not inherit a number from the retired transport. 0.20 is well above the 0.02-0.07 per-arm run sd typical of this pack, so it cannot be produced by noise, and it is far below the 0.75 the hypothesis would need to reach the 0.95 gate, so it is not set to force a pass. Because the baseline is re-measured here, a baseline that turns out to be strong (high stability) makes the target HARDER to hit, not easier - the threshold is not weakened by the transport change."
+    },
+    "protected": {
+      "provider reliability": {
+        "maxRegression": 0.05
+      },
+      "fixture agreement": {
+        "maxRegression": 0.05
+      },
+      "ECE": {
+        "maxRegression": 0.04
+      },
+      "position stability": {
+        "maxRegression": 0.08
+      },
+      "names stability": {
+        "maxRegression": 0.08
+      },
+      "style stability": {
+        "maxRegression": 0.08
+      },
+      "prestige stability": {
+        "maxRegression": 0.08
+      },
+      "fake-citation influence": {
+        "maxRegression": 0.08
+      },
+      "latency p50 ms": {
+        "maxRegression": 25000
+      },
+      "prompt tokens": {
+        "maxRegression": 250000
+      }
+    },
+    "protectedRationale": "Caps exceed the largest per-arm run sd observed in the 2026-09/10 studies (typically 0.02-0.07) so noise cannot veto a real effect, while a regression beyond BOTH the cap and the pooled sd is still a legitimate rejection. The latency and token budgets admit the known ~2x cost of the second pass up front; exceeding them is a legitimate rejection, not an oversight. fake-citation influence is protected rather than targeted because the earlier study already asked about it and returned INCONCLUSIVE - re-asking it without new evidence would be re-litigating an unfinished experiment. whitespace stability is deliberately NOT protected: its pre-fix readings are meaningless, so capping a number that measures nothing would manufacture a false constraint.",
+    "bootstrapSeed": 42,
+    "adoptionRule": "supported iff usable runs >= 2/arm at reliability >= 0.75 AND target \"verbosity stability\" moves up by >= 0.2 AND the bootstrap 90% CI lower bound of the signed improvement is > 0 AND no protected metric regresses beyond its cap AND pooled run sd. Fewer usable runs, any unmet condition or missing data => INCONCLUSIVE. Gate thresholds are untouchable.",
+    "budgetNote": "NOT YET EXECUTED. scripts/judge-capacity.mjs refuses to start without an explicit provider call budget, and treats unknown capacity as insufficient. 312 jobs/run x 2 runs x 2 arms x 1.5 calls/job (the two-pass arm averages 2) x 1.25 retry allowance = 2340 expected calls; GO additionally requires the budget to cover 125% of that, i.e. >= 2925 calls. At a 12s request gate the free tier (5 requests/minute) sustains roughly 5 calls/minute, so the full plan is a multi-hour run and is designed to be resumable across dispatches: raw runs are preserved in the study directory and the verdict is recomputed from ALL preserved runs against this same sealed rule. Registered and sealed rather than started on hope."
+  }
+}
