@@ -7,6 +7,12 @@
 //
 //   node scripts/judge-benchmark.mjs [--limit N] [--concurrency N] [--enforce]
 //        [--out docs/judge-leaderboard.md] [--pack-only] [--allow-skip] [--help]
+//        [--pace-ms N] [--runs-dir DIR] [--models a,b] [--experiment NAME]
+//
+// --pace-ms throttles the GLOBAL rate of provider calls (0 = unpaced, the
+// historical default). Free tiers cap requests per minute; bursting past the
+// cap returns 429s, and a 429 counts against provider reliability - so an
+// unpaced run measures the rate limiter instead of the judge.
 //
 // Gates live in config/judge-gates.json; --enforce exits non-zero on breach.
 // --pack-only validates fixture-pack stratification without calling providers.
@@ -66,6 +72,20 @@ const argInt = (name, dflt, min, max) => {
 };
 const LIMIT = argInt("limit", FIXTURES.length, 1, FIXTURES.length);
 const CONCURRENCY = argInt("concurrency", 3, 1, 8);
+// Pacing: minimum milliseconds between successive provider calls, applied
+// globally (not per worker). Free tiers advertise ceilings like "5 requests
+// every 1 min"; a benchmark that bursts past that collects 429s instead of
+// verdicts, and a 429 is a transport failure that lands in the reliability
+// denominator - so an unpaced run measures the rate limiter, not the judge.
+// 0 (the default) preserves the historical unpaced behaviour exactly.
+const PACE_MS = argInt("pace-ms", 0, 0, 300_000);
+let lastCallAt = 0;
+async function pace() {
+  if (PACE_MS <= 0) return;
+  const wait = lastCallAt + PACE_MS - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastCallAt = Date.now();
+}
 const ENFORCE = args.includes("--enforce");
 const argVal = (name) => {
   const eq = args.find((x) => x.startsWith(`--${name}=`));
@@ -147,6 +167,7 @@ async function evaluateModel(judge) {
   };
   for (const f of fixtures) {
     try {
+      await pace();
       const v = await judge.fn(f.transcript);
       bases.push({ fixture: f.id, expected: f.expectedWinner, ...v });
       if (v.latencyMs != null) latencySamples.push(v.latencyMs);
@@ -165,6 +186,7 @@ async function evaluateModel(judge) {
     const base = okBases.find((b) => b.fixture === f.id);
     if (!base) { tick("probe"); return { fixture: f.id, probe: probe.id, mirrored: probe.mirrored === true, error: "no-base" }; }
     try {
+      await pace();
       const v = await judge.fn(probe.fn(f.transcript));
       if (v.latencyMs != null) latencySamples.push(v.latencyMs);
       if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
@@ -193,6 +215,7 @@ async function evaluateModel(judge) {
       const base = okBases.find((b) => b.fixture === f.id);
       if (!base) { tick("audits"); return { id: t.id, fixture: f.id, error: "no-base" }; }
       try {
+        await pace();
         const v = await judge.fn(t.fn(f.transcript));
         if (v.latencyMs != null) latencySamples.push(v.latencyMs);
         if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
@@ -425,7 +448,7 @@ async function main() {
     process.stdout.write(JSON.stringify({ skipped: true, error: "no judge configured" }) + "\n");
     process.exit(1);
   }
-  log(`[judge-benchmark] models=${judges.map((j) => j.id).join(", ")} limit=${LIMIT} concurrency=${CONCURRENCY} experiment=${EXPERIMENT} publish=${NO_PUBLISH ? "off" : "on"}`);
+  log(`[judge-benchmark] models=${judges.map((j) => j.id).join(", ")} limit=${LIMIT} concurrency=${CONCURRENCY} experiment=${EXPERIMENT} paceMs=${PACE_MS} publish=${NO_PUBLISH ? "off" : "on"}`);
 
   const results = [];
   for (const judge of judges) {

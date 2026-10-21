@@ -334,6 +334,7 @@ function GuestDebate({
                   placeholder="Write 2-4 sentences..."
                   rows={5}
                   aria-describedby="guest-response-count"
+                  maxLength={4000}
                   className="field mt-4 resize-none text-sm leading-6"
                 />
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -553,6 +554,7 @@ function GuestResult({
                   }}
                   rows={4}
                   placeholder="Rewrite the move here..."
+                  maxLength={4000}
                   className="field mt-2 resize-none text-sm leading-6"
                 />
                 <p id="guest-repair-count" aria-live="polite" className="mt-1 text-xs text-ink3">
@@ -692,6 +694,7 @@ function GuestRetest({
                   onChange={(event) => setResponse(event.target.value)}
                   placeholder="Write 2-4 sentences..."
                   rows={5}
+                  maxLength={4000}
                   className="field mt-2 resize-none text-sm leading-6"
                 />
                 <p id="guest-retest-count" aria-live="polite" className="mt-1 text-xs text-ink3">
