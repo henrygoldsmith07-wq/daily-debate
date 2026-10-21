@@ -9,7 +9,7 @@ const base: PriorityInputs = {
 };
 
 const repair = { debateId: "d5", label: "Evidence", nextCue: "name a specific source" };
-const retest = { label: "Rebuttal" };
+const retest = {};
 const drill = { title: "Answer the strongest argument" };
 
 describe("pickPriority", () => {
@@ -80,7 +80,7 @@ describe("pickPriority", () => {
 });
 
 describe("pickPriority retest age", () => {
-  const retestWithAge = (attemptedAt: string) => ({ label: "Rebuttal", attemptedAt });
+  const retestWithAge = (attemptedAt: string) => ({ attemptedAt });
 
   it("surfaces the age of a due retest so the nudge is auditable", () => {
     const action = pickPriority({
@@ -93,9 +93,9 @@ describe("pickPriority retest age", () => {
   });
 
   it("falls back to the label-only detail when no attempt timestamp is supplied", () => {
-    const action = pickPriority({ ...base, dueRetest: { label: "Rebuttal" } });
+    const action = pickPriority({ ...base, dueRetest: {} });
     expect(action?.detail).toBe(
-      "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and it isn't signposted.",
+      "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and the skill and the day are never signposted.",
     );
   });
 
@@ -104,8 +104,19 @@ describe("pickPriority retest age", () => {
     // A future anchor cannot be a real "waiting" retest; degrade to the generic
     // phrasing rather than inventing a negative or misleading age.
     expect(action?.detail).toBe(
-      "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and it isn't signposted.",
+      "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and the skill and the day are never signposted.",
     );
+  });
+
+  it("never ties the test to a specific day or a specific debate", () => {
+    const action = pickPriority({ ...base, dueRetest: retestWithAge("2026-09-01T12:00:00Z") });
+    // The product guarantees it does not signpost the skill or the day. It
+    // must not overstate that into "the test is not signposted" either — a
+    // loop the learner cannot see is a loop the learner cannot value.
+    expect(action?.detail).toMatch(/never signposted/i);
+    expect(action?.detail).not.toMatch(/it isn.t signposted/i);
+    expect(action?.detail).not.toMatch(/\btoday\b/i);
+    expect(action?.title).not.toMatch(/rebuttal|evidence|logic|clarity|impact/i);
   });
 });
 

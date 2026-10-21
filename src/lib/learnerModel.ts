@@ -672,7 +672,7 @@ export function buildLearnerModel(input: LearnerModelInput): LearnerModel {
     nextPractice,
     questions,
     honestyNote:
-      "Every reading here is drawn from your own stored debates: some counted directly from your moves, some read by a model, some deterministic formulas. None of it is a validated measure of your ability — it is an honest description of observed behaviour so far. A successful repair is practice; only a later, unprompted, different-topic debate demonstrates it.",
+      "Every reading here is drawn from your own stored debates: some counted directly from your moves, some read by a model, some deterministic formulas. None of it is a validated measure of your ability — it is an honest description of observed behaviour so far. A successful repair is practice; only a later, different-topic debate, taken without a prompt, demonstrates it.",
   };
 }
 

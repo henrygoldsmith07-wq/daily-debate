@@ -199,8 +199,8 @@ export function DebateResultCard({
           {view.repaired && (
             <p className="mt-1.5 text-xs text-ink3" data-testid="repair-next-step">
               Your next deliberate retest is the product&rsquo;s part of the bargain: a different topic,
-              then a real read on whether the same weakness reappears when you argue under time pressure.
-              It is triggered by your next debate, not by a calendar day.
+              then a real read on whether the same weakness reappears when you argue it again.
+              It arrives with a later debate, not on a calendar day.
             </p>
           )}
 

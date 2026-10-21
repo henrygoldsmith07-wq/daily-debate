@@ -62,6 +62,12 @@ export interface DnaPeriodSummary {
   debates: number;
   analysedDebates: number;
   score: number | null;
+  /**
+   * Which measure the period's score comes from. Solo periods are
+   * length-normalised; a period with only PvP matches uses the judge's score.
+   * The two are different constructs and are never averaged together.
+   */
+  format: "solo" | "pvp";
   graphStats: DnaGraphStats;
   firstSnapshotId: string;
   lastSnapshotId: string;
@@ -244,11 +250,19 @@ function buildPeriods(snapshots: DnaDebateSnapshot[]): DnaPeriodSummary[] {
     .map(([key, group]) => {
       const graphStats = blankStats();
       group.forEach((snapshot) => mergeStats(graphStats, snapshot.graphStats));
+      // A solo debate's score is length-normalised; a PvP match's score is the
+      // judge's. They are different constructs on the same 0-100 scale, so
+      // averaging them together produces a number that describes neither. The
+      // period reports ONE measure: solo when the month has any, otherwise
+      // the judge's score for a PvP-only month.
+      const solo = group.filter((snapshot) => snapshot.format === "solo");
+      const scored = solo.length ? solo : group.filter((snapshot) => snapshot.format === "pvp");
       return {
         key,
         debates: group.length,
         analysedDebates: group.filter((snapshot) => snapshot.analysed).length,
-        score: round(average(group.map((snapshot) => snapshot.score)), 1),
+        score: round(average(scored.map((snapshot) => snapshot.score)), 1),
+        format: scored.length && scored[0].format === "pvp" ? "pvp" : "solo",
         graphStats,
         firstSnapshotId: group[0].id,
         lastSnapshotId: group[group.length - 1].id,

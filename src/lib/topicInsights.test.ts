@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { bestWorstTopics, type TopicDebateResult } from "./topicInsights";
 
 const rows: TopicDebateResult[] = [
-  { category: "Science", totalScore: 80 },
-  { category: "Science", totalScore: 70 },
-  { category: "Science", totalScore: 90 },
-  { category: "Politics", totalScore: 55 },
-  { category: "Politics", totalScore: 65 },
-  { category: "Ethics", totalScore: 75 },
+  { category: "Science", performanceScore: 80 },
+  { category: "Science", performanceScore: 70 },
+  { category: "Science", performanceScore: 90 },
+  { category: "Politics", performanceScore: 55 },
+  { category: "Politics", performanceScore: 65 },
+  { category: "Ethics", performanceScore: 75 },
 ];
 
 describe("bestWorstTopics", () => {
@@ -23,9 +23,9 @@ describe("bestWorstTopics", () => {
   it("excludes single-debate categories and null scores/categories", () => {
     const insights = bestWorstTopics([
       ...rows,
-      { category: "Economics", totalScore: 100 },
-      { category: null, totalScore: 99 },
-      { category: "Science", totalScore: null },
+      { category: "Economics", performanceScore: 100 },
+      { category: null, performanceScore: 99 },
+      { category: "Science", performanceScore: null },
     ]);
     expect(insights.ranked.map((r) => r.category)).toEqual(["Science", "Politics"]);
     expect(insights.best?.debates).toBe(3); // the null-score row is excluded
@@ -33,9 +33,9 @@ describe("bestWorstTopics", () => {
 
   it("does not name a worst when only one category qualifies", () => {
     const insights = bestWorstTopics([
-      { category: "Science", totalScore: 80 },
-      { category: "Science", totalScore: 70 },
-      { category: "Politics", totalScore: 55 },
+      { category: "Science", performanceScore: 80 },
+      { category: "Science", performanceScore: 70 },
+      { category: "Politics", performanceScore: 55 },
     ]);
     expect(insights.best?.category).toBe("Science");
     expect(insights.worst).toBeNull();
@@ -43,7 +43,7 @@ describe("bestWorstTopics", () => {
   });
 
   it("returns an empty result with a note when nothing qualifies", () => {
-    const insights = bestWorstTopics([{ category: "Science", totalScore: 80 }]);
+    const insights = bestWorstTopics([{ category: "Science", performanceScore: 80 }]);
     expect(insights.best).toBeNull();
     expect(insights.worst).toBeNull();
     expect(insights.ranked).toEqual([]);

@@ -20,7 +20,8 @@ import { buildLoopThread } from "./loopThread";
 import { pickPriority } from "./dailyFocus";
 import { pickRetestMotion } from "./topicPersonalisation";
 import { liveCoachingForTurn, LIVE_HINT_SKILLS } from "./liveCoaching";
-import { isUnderTest, retestDisclosureFor, skillUnderTest } from "./retestDisclosure";
+import { isUnderTest, retestDisclosureFor, skillUnderTest, RETEST_PENDING_DETAIL } from "./retestDisclosure";
+import { repairSuccessTransition } from "./retest";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { CoachDimension } from "./adaptiveCoach";
 import { readFileSync } from "node:fs";
@@ -116,6 +117,60 @@ describe("retest disclosure policy", () => {
     }
   });
 
+  it("the dashboard's motion personalisation excludes the same skill", () => {
+    // The dashboard's focus feeds the per-skill topic bonus, so steering
+    // today's motion toward the skill under silent test leaks it — the one
+    // place that used to differ from every other surface.
+    const dashboard = readSource("app", "page.tsx");
+    expect(dashboard).not.toMatch(/pickFocusDimension\([\s\S]{0,200}selectedRetest\?\.dimension/);
+    expect(dashboard).toMatch(
+      /pickFocusDimension\([\s\S]{0,200}skillUnderTest\(coachingContext\.pendingRetests\)/,
+    );
+  });
+
+  it("the debate's own coaching goal excludes the same skill", () => {
+    // startDebate coaches the debate BEFORE it starts, so the exclusion has
+    // to hold there too — and it must be the oldest PENDING retest, not the
+    // topic-eligible one.
+    const startDebate = readSource("lib", "solo", "startDebate.ts");
+    expect(startDebate).toMatch(/pickFocusDimension\([\s\S]{0,220}skillUnderTest\(context\.pendingRetests\)/);
+    expect(startDebate).not.toMatch(/pickFocusDimension\([\s\S]{0,220}pendingRetest\?\.dimension/);
+  });
+
+  it("the Argument DNA page excludes the skill under test too", () => {
+    // /dna names the learner's "current focus". Leaving the exclusion out made
+    // it the one surface that could name the skill under silent test.
+    const dna = readSource("app", "dna", "page.tsx");
+    expect(dna).toContain("skillUnderTest(");
+    expect(dna).toContain("pendingRetests");
+  });
+
+  it("no pre-debate surface ties the test to a day or a specific debate", () => {
+    // The product guarantees it does not signpost the skill or the day. It
+    // must not overstate that into "the test is not signposted" either — a
+    // loop the learner cannot see is a loop the learner cannot value.
+    expect(RETEST_PENDING_DETAIL).toMatch(/never signposted/i);
+    expect(RETEST_PENDING_DETAIL).not.toMatch(/it isn.t signposted/i);
+    expect(RETEST_PENDING_DETAIL).not.toMatch(/\btoday\b/i);
+    expect(RETEST_PENDING_DETAIL).not.toMatch(/your next debate/i);
+
+    // The post-repair transition names the skill (the learner just repaired
+    // it) but must not tie the test to a debate.
+    const transition = repairSuccessTransition("rebuttal", "Rebuttal");
+    expect(transition.body).not.toMatch(/\btoday\b/i);
+    expect(transition.body).not.toMatch(/your next debate/i);
+
+    // The result card's post-repair line must not tie the test to the very
+    // next debate either.
+    const resultCard = readSource("components", "debate", "DebateResultCard.tsx");
+    expect(resultCard).not.toMatch(/triggered by your next debate/i);
+
+    // The loop thread's stage captions describe the method, never "now".
+    const loopThread = readSource("lib", "loopThread.ts");
+    expect(loopThread).not.toMatch(/no cues this time/i);
+    expect(loopThread).not.toMatch(/unprompted is the only thing/i);
+  });
+
   it("keeps the skill under test out of the visible coaching goal", () => {
     const goal = buildCoachingGoal(POINTS, null, {}, UNDER_TEST);
     expect(goal?.dimension).not.toBe(UNDER_TEST);
@@ -153,7 +208,7 @@ describe("retest disclosure policy", () => {
   it("keeps the skill under test out of the priority card and out of today's announcement", () => {
     const action = pickPriority({
       unfinishedRepair: null,
-      dueRetest: { label: "Evidence" },
+      dueRetest: {},
       openDrill: null,
       debateAvailable: true,
     });
@@ -161,6 +216,18 @@ describe("retest disclosure policy", () => {
     expect(action?.title ?? "").not.toMatch(/evidence/i);
     expect(action?.detail ?? "").not.toMatch(/evidence/i);
     expect(action?.detail ?? "").not.toMatch(/today/i);
+  });
+
+  it("the retest priority input cannot carry a skill name at all", () => {
+    // The dashboard used to build a label for the pending retest from the
+    // VISIBLE goal's dimension — which is by definition a different skill, so
+    // the label was wrong as well as unnecessary. The field is removed, and
+    // the input type no longer has a place to put one.
+    const dailyFocus = readSource("lib", "dailyFocus.ts");
+    expect(dailyFocus).not.toMatch(/dueRetest:\s*\{[^}]*label:/);
+    const dashboard = readSource("app", "page.tsx");
+    expect(dashboard).not.toMatch(/pendingRetestLabel/);
+    expect(dashboard).not.toMatch(/RETEST_SKILL_LABEL/);
   });
 
   it("does not announce a transfer test in the motion reason", () => {

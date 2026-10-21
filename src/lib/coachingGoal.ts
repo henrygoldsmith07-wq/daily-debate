@@ -71,8 +71,31 @@ export function pickFocusDimension(
   return focus?.key ?? null;
 }
 
-export const GOAL_HEADLINES: Record<CoachDimension, string> = {
-  evidence: "Ground every major claim in a named source.",
+/**
+ * The heading for a focus card that has NO focus line, or null when there is
+ * one.
+ *
+ * "Complete a debate to unlock your focus" is only true when nothing has been
+ * scored yet. When the focus is withheld because the only dimension with data
+ * is the one under silent test, that copy tells the learner to do something
+ * they have already done — so those two situations need different words.
+ */
+export function focusUnavailableHeading(
+  points: SkillMetricPoint[],
+  outcomes: Partial<Record<CoachDimension, number>> = {},
+  excludeDimension: CoachDimension | null = null,
+): string | null {
+  if (!points.length) return null;
+  const { dims, slopes } = buildCoachProfile(points);
+  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimension);
+  if (focus) return null;
+  const scored = dims.some((d) => d.hasData && d.score !== null);
+  return scored
+    ? "No focus line today — the debate is still worth doing."
+    : "Complete a debate to unlock your focus";
+}
+
+export const GOAL_HEADLINES: Record<CoachDimension, string> = {  evidence: "Ground every major claim in a named source.",
   rebuttal: "Answer the strongest opposing argument before adding another claim.",
   logic: "Make the reasoning step between facts and conclusions explicit.",
   // The clarity metric is the turn-projection engagement rate, so the goal

@@ -62,6 +62,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
   const [debatesAnalysed, setDebatesAnalysed] = useState<number | null>(null);
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([]);
   const [outcomeSummary, setOutcomeSummary] = useState<string | null>(null);
+  const [outcomesError, setOutcomesError] = useState<string | null>(null);
   const [attemptText, setAttemptText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [activating, setActivating] = useState(false);
@@ -95,6 +96,14 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
         const o = await outcomesRes.json();
         setOutcomes(o.outcomes ?? []);
         setOutcomeSummary(o.summary?.note ?? null);
+        setOutcomesError(null);
+      } else {
+        // A failed outcomes read must not silently delete the section: this is
+        // the only place the loop's measured skill movement is shown, and it
+        // vanished with no message while the rest of the page looked healthy.
+        setOutcomes([]);
+        setOutcomeSummary(null);
+        setOutcomesError("Your drill outcomes could not be loaded right now.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Coach unavailable.");
@@ -300,27 +309,35 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
         </section>
       )}
 
-      {(outcomes.length > 0 || outcomeSummary) && (
+      {(outcomes.length > 0 || outcomeSummary || outcomesError) && (
         <section className="surface-card p-5">
           <h2 className="text-sm font-semibold">Drill outcomes</h2>
-          {outcomeSummary && <p className="mt-1 text-xs text-ink3">{outcomeSummary}</p>}
-          <ul className="mt-3 flex flex-col gap-2 text-xs">
-            {outcomes.slice(0, 8).map((o) => (
-              <li key={o.id} className="flex items-center justify-between gap-3 border-b border-[var(--rule)] pb-2 last:border-0 last:pb-0">
-                <span>
-                  <span className="font-medium">{o.title}</span>{" "}
-                  <span className="text-ink3">· {o.label}</span>
-                </span>
-                <span
-                  className={`tabular shrink-0 ${
-                    !o.measured ? "text-ink3" : (o.movement ?? 0) > 0 ? "text-[var(--accent)]" : (o.movement ?? 0) < 0 ? "text-[var(--bad)]" : "text-ink3"
-                  }`}
-                >
-                  {o.measured ? `${(o.movement ?? 0) > 0 ? "+" : ""}${((o.movement ?? 0) * 100).toFixed(0)}% skill` : "awaiting debates"}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {outcomesError ? (
+            <p className="mt-1 text-xs text-ink3" role="status">
+              {outcomesError}
+            </p>
+          ) : (
+            <>
+              {outcomeSummary && <p className="mt-1 text-xs text-ink3">{outcomeSummary}</p>}
+              <ul className="mt-3 flex flex-col gap-2 text-xs">
+                {outcomes.slice(0, 8).map((o) => (
+                  <li key={o.id} className="flex items-center justify-between gap-3 border-b border-[var(--rule)] pb-2 last:border-0 last:pb-0">
+                    <span>
+                      <span className="font-medium">{o.title}</span>{" "}
+                      <span className="text-ink3">· {o.label}</span>
+                    </span>
+                    <span
+                      className={`tabular shrink-0 ${
+                        !o.measured ? "text-ink3" : (o.movement ?? 0) > 0 ? "text-[var(--accent)]" : (o.movement ?? 0) < 0 ? "text-[var(--bad)]" : "text-ink3"
+                      }`}
+                    >
+                      {o.measured ? `${(o.movement ?? 0) > 0 ? "+" : ""}${((o.movement ?? 0) * 100).toFixed(0)}% skill` : "awaiting debates"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </section>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/Skeleton";
+import MobileNav from "@/components/MobileNav";
 
 /**
  * Debate-room loading shape.
@@ -48,6 +49,11 @@ export default function DebateLoading() {
           <Skeleton className="h-28 w-full rounded-xl" />
         </div>
       </div>
+
+      {/* The sidebar is hidden below 1024px, so a skeleton without the tab bar
+          leaves a phone with no navigation at all while the page loads — and
+          a visible jump when the real shell mounts. */}
+      <MobileNav />
     </div>
   );
 }

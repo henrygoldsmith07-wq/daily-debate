@@ -47,12 +47,12 @@ const STAGES: { id: LoopStageId; label: string; caption: string }[] = [
   {
     id: "retest",
     label: "Retest",
-    caption: "A later, different-topic debate tests it — no cues this time.",
+    caption: "A later, different-topic debate tests it — the skill and the day are never signposted.",
   },
   {
     id: "demonstrate",
     label: "Demonstrate",
-    caption: "Using it unprompted is the only thing that closes the loop.",
+    caption: "Using it without a prompt is the only thing that closes the loop.",
   },
 ];
 
@@ -139,7 +139,7 @@ function headlineFor(model: LearnerModel, episode: SkillRepairState | null): { h
       return {
         headline: `One loop closed for ${label}.`,
         detail:
-          "You used it unprompted in a later debate. One demonstration is an observation, not a habit — later reps make it a pattern.",
+          "You used it without a prompt in a later debate. One demonstration is an observation, not a habit — later reps make it a pattern.",
       };
   }
 }

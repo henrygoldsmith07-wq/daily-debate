@@ -261,7 +261,7 @@ export function repairSuccessTransition(repairKind: string, label: string): {
 } {
   return {
     headline: "Repair demonstrated. Now prove you can use it without prompting.",
-    body: `Daily Debate will deliberately test ${label.toLowerCase()} in a later, different-topic debate — no reminder, no cue. Using it there is what counts: a skill you only show when prompted isn't yours yet.`,
+    body: `Daily Debate will deliberately test ${label.toLowerCase()} in a later, different-topic debate — with no instruction for it and no signposted day. Using it there is what counts: a skill you only show when prompted isn't yours yet.`,
   };
 }
 

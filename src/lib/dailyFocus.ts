@@ -28,13 +28,15 @@ export interface PriorityInputs {
   } | null;
   /** A successful repair whose deliberate retest is due on a different topic. */
   dueRetest: {
-    label: string;
     /**
      * When the repaired rewrite was completed (the repair_results.created_at the
      * retest anchors to). Optional: when present, the priority detail can say how
      * long the retest has been waiting so the nudge is auditable rather than
      * arbitrary. Callers that omit it (e.g. synthetic test inputs) get the
      * existing label-only detail, unchanged.
+     *
+     * There is deliberately NO skill field: the card must not name the skill
+     * under silent test (retestDisclosure.ts), so the input cannot carry one.
      */
     attemptedAt?: string | null;
   } | null;
@@ -116,8 +118,8 @@ export function pickPriority(input: PriorityInputs): PriorityAction | null {
     const age = retestAgeDays(input.dueRetest.attemptedAt);
     const detail =
       age >= 0
-        ? `You repaired a skill ${age} day${age === 1 ? "" : "s"} ago. A later debate, on a different topic, is the test — and it isn't signposted.`
-        : "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and it isn't signposted.";
+        ? `You repaired a skill ${age} day${age === 1 ? "" : "s"} ago. A later debate, on a different topic, is the test — and the skill and the day are never signposted.`
+        : "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and the skill and the day are never signposted.";
     return {
       kind: "retest",
       title: RETEST_PENDING_CARD_TITLE,
@@ -137,7 +139,7 @@ export function pickPriority(input: PriorityInputs): PriorityAction | null {
       title: `Today's drill: ${input.openDrill.title}`,
       detail,
       action: "Open the drill",
-      href: "/progress#coach",
+      href: "/progress#daily-drill",
     };
   }
   if (input.debateAvailable) {

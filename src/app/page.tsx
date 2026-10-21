@@ -17,6 +17,7 @@ import { buildLoopThread } from "@/lib/loopThread";
 import LoopThread from "@/components/LoopThread";
 import ClearGuestLoopHandoff from "@/components/ClearGuestLoopHandoff";
 import InlineDrillAttempt from "@/components/InlineDrillAttempt";
+import { DRILL_FEEDBACK_COPY, drillSignalsFromAttempt } from "@/lib/drillFeedback";
 import { isDatabaseConfigured } from "@/lib/backend/env";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { asRepairAttemptLite, latestUnfinishedRepair } from "@/lib/repairResume";
@@ -30,21 +31,6 @@ import { homeHeaderPills } from "@/lib/homeHeaderPills";
 import { dateKeyInTimeZone } from "@/lib/timeZone";
 
 export const dynamic = "force-dynamic";
-
-const RETEST_SKILL_LABEL: Record<string, string> = {
-  evidence: "Evidence",
-  rebuttal: "Rebuttal",
-  logic: "Logic",
-  // Named after what is measured — see the note in skillTaxonomy.ts.
-  clarity: "Engagement",
-  impact: "Impact",
-  steelmanning: "Steelmanning",
-  structure: "Structure",
-};
-
-function pendingRetestLabel(dimension: string): string {
-  return RETEST_SKILL_LABEL[dimension] ?? dimension;
-}
 
 function formatShortDate(value: string | null | undefined, timeZone: string): string {
   if (!value) return "Date unknown";
@@ -99,11 +85,16 @@ export default async function DashboardPage() {
     // branch above already retargets the motion to a different topic, so this
     // only affects ordinary practice days. Computed from the ledger + drill
     // outcomes (both already loaded) so it precedes the motion selection.
+    //
+    // The excluded skill is the oldest PENDING retest's skill, not the
+    // topic-eligible one: the focus feeds the per-skill topic bonus, so
+    // steering today's motion toward the skill under silent test would leak
+    // it. Every other surface uses skillUnderTest(pendingRetests) — one rule.
     focus: pickFocusDimension(
       coachingContext.ledger?.points ?? [],
       coachingContext.drillOutcomes,
-      coachingContext.selectedRetest?.dimension ?? null,
-   ),
+      skillUnderTest(coachingContext.pendingRetests),
+    ),
   });
   const topic = motion.topic;
 
@@ -162,10 +153,10 @@ export default async function DashboardPage() {
           const profileRow = await getProfileSummary(user.id);
           const { data: openRow } = await db
             .from("drill_assignments")
-            .select("id, title, minutes, prompt")
+            .select("id, title, minutes, prompt, status, dimension, attempt_text")
             .eq("user_id", user.id)
             .eq("assigned_date", dateKeyInTimeZone(profileRow?.timezone ?? "UTC"))
-            .eq("status", "open")
+            .in("status", ["open", "attempted"])
             .maybeSingle();
           return openRow
             ? {
@@ -173,6 +164,9 @@ export default async function DashboardPage() {
                 title: openRow.title,
                 minutes: typeof openRow.minutes === "number" ? openRow.minutes : null,
                 prompt: typeof openRow.prompt === "string" ? openRow.prompt : null,
+                status: openRow.status === "attempted" ? "attempted" : "open",
+                dimension: typeof openRow.dimension === "string" ? openRow.dimension : null,
+                attemptText: typeof openRow.attempt_text === "string" ? openRow.attempt_text : null,
               }
             : null;
         } catch {
@@ -251,16 +245,29 @@ export default async function DashboardPage() {
     skillUnderTest(coachingContext.pendingRetests),
   );
 
-  // The open-drill row was loaded in the parallel block above (loop latency:
-  // no second sequential await on the dashboard's critical path).
-  const openDrill = openDrillRow
-    ? {
-        title: openDrillRow.title,
-        ...(openDrillRow.minutes !== null ? { minutes: openDrillRow.minutes } : {}),
-        ...(openDrillRow.prompt !== null ? { prompt: openDrillRow.prompt } : {}),
-        assignmentId: openDrillRow.id,
-      }
-    : null;
+  // The drill row was loaded in the parallel block above (loop latency: no
+  // second sequential await on the dashboard's critical path). An ATTEMPTED
+  // drill is read too, so the feedback survives the refresh that follows the
+  // submission: the rubric is deterministic, so the server can reproduce the
+  // same observable signals from the stored attempt text. Without this the
+  // learner submits a drill, the page refreshes, the component unmounts, and
+  // the acknowledgement of what was observed disappears.
+  const openDrill =
+    openDrillRow && openDrillRow.status === "open"
+      ? {
+          title: openDrillRow.title,
+          ...(openDrillRow.minutes !== null ? { minutes: openDrillRow.minutes } : {}),
+          ...(openDrillRow.prompt !== null ? { prompt: openDrillRow.prompt } : {}),
+          assignmentId: openDrillRow.id,
+        }
+      : null;
+  const drillFeedback =
+    openDrillRow && openDrillRow.status === "attempted" && openDrillRow.attemptText
+      ? {
+          title: openDrillRow.title,
+          signals: drillSignalsFromAttempt(openDrillRow.dimension, openDrillRow.attemptText),
+        }
+      : null;
   // Canonical learner model — the same intelligence that drives Progress, so
   // Today leads with what to practise and why rather than a wall of cards.
   // Built from the same stored debates/repairs; a repair is practice, not mastery.
@@ -309,7 +316,14 @@ export default async function DashboardPage() {
           nextCue: unfinishedRepair.nextCue,
         }
       : null,
-    dueRetest: motion.servesRetest && pendingRetest ? { label: goal?.dimension ? pendingRetestLabel(goal.dimension) : "the repaired skill", attemptedAt: pendingRetest.attemptedAt } : null,
+    dueRetest:
+      motion.servesRetest && pendingRetest
+        ? // No skill label: the priority card states the loop without naming
+          // the skill under silent test (retestDisclosure.ts). A label here
+          // would also be the WRONG one — the visible goal is by definition a
+          // different skill — so the field is removed rather than fixed.
+          { attemptedAt: pendingRetest.attemptedAt }
+        : null,
     openDrill,
     debateAvailable: !activeDebate,
   });
@@ -362,14 +376,14 @@ export default async function DashboardPage() {
             the loop flagged <strong>{guestCarryover.label}</strong> as the move to work on.
             {guestCarryover.repaired
               ? guestCarryover.observed
-                ? " You repaired it and it showed up again under pressure — so today's debate checks whether that holds without the prompt."
-                : " You repaired it in the rewrite, though it did not reappear in the retest round — so it is still the thing to watch."
-              : " You have not repaired it yet, so it stays today's focus."}
+                ? " You repaired it, and it showed up again in the guest retest — so it is the first thing today’s debate watches for."
+                : " You repaired it in the rewrite, though it did not reappear in the guest retest — so it is still the thing to watch."
+              : " You have not repaired it yet, so it stays today’s focus."}
           </p>
           <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-4 text-ink3">
             A guest rep is one local practice run, not measured evidence — it is not counted in your
-            skill scores. It only decides what today&apos;s debate watches for; your own completed
-            debates are what build the profile.
+            skill scores, and it is not a deliberate retest. It only decides what today&apos;s debate
+            watches for; your own completed debates are what build the profile.
           </p>
         </section>
       )}
@@ -475,6 +489,33 @@ export default async function DashboardPage() {
               {priority.action} →
             </Link>
           )}
+        </section>
+      )}
+
+      {/* ── Today's drill: checked. The receipt for the loop's smallest step
+          must outlive the component that produced it — the drill row flips
+          from "open" to "attempted" on submit, so a client-only feedback
+          panel unmounts with the refresh and the learner is left with no
+          acknowledgement of what was observed. The signals are recomputed
+          server-side from the stored attempt (the rubric is deterministic), so
+          this survives a refresh, a reload and a return visit. ── */}
+      {drillFeedback && (
+        <section
+          className="surface-card flex flex-col gap-1 p-4"
+          aria-labelledby="drill-feedback-heading"
+          data-testid="drill-feedback"
+        >
+          <p className="home-secondary-kicker">Today&apos;s drill: {drillFeedback.title}</p>
+          <h2 id="drill-feedback-heading" className="text-base font-semibold">
+            {DRILL_FEEDBACK_COPY.heading}
+          </h2>
+          <p className="text-xs text-ink3">{DRILL_FEEDBACK_COPY.observationLabel}</p>
+          <ul className="list-inside list-disc text-xs text-ink3">
+            {drillFeedback.signals.map((s) => (
+              <li key={s}>{s}</li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-ink3">{DRILL_FEEDBACK_COPY.note}</p>
         </section>
       )}
 
