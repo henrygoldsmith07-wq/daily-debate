@@ -144,6 +144,9 @@ export default function AuthForm({
           <input
             name="password"
             type="password"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             required
             minLength={8}
             maxLength={128}
