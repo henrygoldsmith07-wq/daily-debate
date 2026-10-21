@@ -497,11 +497,16 @@ function formatDate(iso: string | null): string {
 /**
  * The one explainable selection policy. Priority, most urgent first:
  *
- *   1. retest-due         — a successful repair is waiting to be tested on a
- *                           new topic (the core loop's open promise);
- *   2. persistent-weakness — the weakest skill with enough observed evidence;
- *   3. needs-evidence      — a skill we cannot yet judge (thin sample);
- *   4. general             — a balanced rep on the weakest available skill.
+ *   1. persistent-weakness — the weakest skill with enough observed evidence;
+ *   2. needs-evidence      — a skill we cannot yet judge (thin sample);
+ *   3. general             — a balanced rep on the weakest available skill.
+ *
+ * The skill under SILENT TEST is excluded from every branch. A deliberate
+ * retest is a measurement, and a measurement cannot be prompted: naming the
+ * skill, printing its instruction, or announcing that a test is due would turn
+ * the verdict into compliance with a cue rather than a reading of behaviour.
+ * The open loop stays visible in the loop thread and is revealed in the result
+ * card — see retestDisclosure.ts for the full policy.
  *
  * Every branch returns its reason, observable behaviour, grounding evidence and
  * an honest caveat. This is a transparent policy, not a claim of optimality.
@@ -510,26 +515,16 @@ export function selectNextPractice(
   skills: SkillReading[],
   repairs: SkillRepairState[],
 ): PracticeTarget | null {
-  // 1. Close the open loop: the oldest successful repair still awaiting a real retest.
-  const awaiting = repairs
-    .filter((r) => r.awaitingRetest && r.lastRepairedAt)
-    .sort((a, b) => Date.parse(a.lastRepairedAt!) - Date.parse(b.lastRepairedAt!));
-  if (awaiting.length) {
-    const r = awaiting[0];
-    return {
-      skill: r.skill,
-      label: r.label,
-      priority: "retest-due",
-      reason: `You repaired ${r.label.toLowerCase()} on ${formatDate(r.lastRepairedAt)}. Today's debate will test whether you can use it unprompted on a new topic.`,
-      observable: skillObservable(r.skill),
-      evidence: `A successful repair is saved from ${formatDate(r.lastRepairedAt)}; no later debate has yet given it a real test.`,
-      caveat:
-        "A repair is practice, not proof. Only a later, different-topic debate where you use it without a cue counts as demonstration.",
-    };
-  }
+  // The skill whose transfer is being measured is off-limits for today's
+  // coaching. Excluding it here keeps the day's target off the skill under
+  // test without hiding the loop: the loop thread still shows that a repair is
+  // open, and the result card still shows the verdict.
+  const underTest = repairs.find((r) => r.awaitingRetest)?.skill ?? null;
+  const available = underTest ? skills.filter((s) => s.key !== underTest) : skills;
+  if (!available.length) return null;
 
-  const withEvidence = skills.filter((s) => s.level !== null && s.sampleSize >= MIN_SKILL_SAMPLE);
-  // 2. Persistent weakness: the weakest skill we actually have enough evidence for.
+  const withEvidence = available.filter((s) => s.level !== null && s.sampleSize >= MIN_SKILL_SAMPLE);
+  // 1. Persistent weakness: the weakest skill we actually have enough evidence for.
   if (withEvidence.length) {
     const weakest = [...withEvidence].sort((a, b) => (a.level as number) - (b.level as number))[0];
     if (weakest.level !== null && weakest.level <= 0.5) {
@@ -548,8 +543,8 @@ export function selectNextPractice(
     }
   }
 
-  // 3. Need more evidence: the skill we can least judge right now.
-  const thin = skills
+  // 2. Need more evidence: the skill we can least judge right now.
+  const thin = available
     .filter((s) => s.level === null || s.sampleSize < MIN_SKILL_SAMPLE)
     .sort((a, b) => a.sampleSize - b.sampleSize);
   if (thin.length) {
@@ -568,9 +563,9 @@ export function selectNextPractice(
     };
   }
 
-  // 4. General practice on the weakest available skill.
-  const scored = skills.filter((s) => s.level !== null);
-  const weakest = scored.length ? [...scored].sort((a, b) => (a.level as number) - (b.level as number))[0] : skills[0];
+  // 3. General practice on the weakest available skill.
+  const scored = available.filter((s) => s.level !== null);
+  const weakest = scored.length ? [...scored].sort((a, b) => (a.level as number) - (b.level as number))[0] : available[0];
   return {
     skill: weakest.key,
     label: weakest.label,

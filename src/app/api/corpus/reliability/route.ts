@@ -7,6 +7,7 @@ import { computeCorpusMetrics, type MetricItem, type MetricRating } from "@/lib/
 import type { WinnerLabel } from "@/lib/humanCorpus";
 import { getRequestAuthContext } from "@/lib/requestAuth";
 import { hasUsableHumanGroundTruth, resolveHumanGroundTruth } from "@/lib/humanGroundTruth";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 // Admin-only: human-human reliability FIRST. Per-dimension ICC and shared
 // human-validation stats (consensus readiness, pairwise winner κ, score-gap
@@ -26,7 +27,11 @@ interface RatingRow {
   corrections?: unknown;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // Bounded: this route aggregates the whole corpus and computes ICC.
+  const limited = await checkRateLimit(request, { name: "corpus-reliability", limit: 20, windowMs: 60_000 });
+  if (limited) return limited;
+
   const auth = await getRequestAuthContext();
   const user = auth.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

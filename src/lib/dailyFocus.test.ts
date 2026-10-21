@@ -35,16 +35,23 @@ describe("pickPriority", () => {
     expect(action?.detail).toContain("name a specific source");
   });
 
-  it("puts a due retest above drills and today's debate", () => {
+  it("puts a due retest above drills and today's debate without cueing the skill", () => {
     const action = pickPriority({
       ...base,
       dueRetest: retest,
       openDrill: drill,
     });
     expect(action?.kind).toBe("retest");
-    expect(action?.title).toMatch(/retest: rebuttal is due/i);
-    expect(action?.detail).toMatch(/different motion/i);
     expect(action?.href).toBe("/");
+    // A pending retest reorders the day's actions but must not PROMPT the
+    // behaviour the retest measures: the card may not name the skill under
+    // test, and it may not announce that today is the test
+    // (retestDisclosure.ts).
+    expect(action?.title).not.toMatch(/rebuttal/i);
+    expect(action?.detail).not.toMatch(/rebuttal/i);
+    expect(action?.detail).not.toMatch(/today/i);
+    expect(action?.detail).toMatch(/different topic/i);
+    expect(action?.action).not.toMatch(/retest/i);
   });
 
   it("puts an active drill above today's debate", () => {
@@ -81,20 +88,24 @@ describe("pickPriority retest age", () => {
       dueRetest: retestWithAge("2026-09-01T12:00:00Z"),
     });
     expect(action?.kind).toBe("retest");
-    expect(action?.detail).toMatch(/repaired this skill \d+ day/);
-    expect(action?.detail).toMatch(/on a different motion/i);
+    expect(action?.detail).toMatch(/repaired a skill \d+ day/);
+    expect(action?.detail).toMatch(/on a different topic/i);
   });
 
   it("falls back to the label-only detail when no attempt timestamp is supplied", () => {
     const action = pickPriority({ ...base, dueRetest: { label: "Rebuttal" } });
-    expect(action?.detail).toBe("You repaired this skill in an earlier debate. Today's goal is to see whether it shows up naturally, on a different motion.");
+    expect(action?.detail).toBe(
+      "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and it isn't signposted.",
+    );
   });
 
   it("never mislabels a future repair timestamp as a waited-for retest", () => {
     const action = pickPriority({ ...base, dueRetest: retestWithAge("2099-01-01T00:00:00Z") });
     // A future anchor cannot be a real "waiting" retest; degrade to the generic
     // phrasing rather than inventing a negative or misleading age.
-    expect(action?.detail).toBe("You repaired this skill in an earlier debate. Today's goal is to see whether it shows up naturally, on a different motion.");
+    expect(action?.detail).toBe(
+      "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and it isn't signposted.",
+    );
   });
 });
 

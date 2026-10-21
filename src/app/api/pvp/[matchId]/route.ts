@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/backend/server";
+import { checkRateLimit } from "@/lib/rateLimit";
 import type { PvpMatch, PvpTurn } from "@/lib/types";
 
 // Participant-only snapshot of a match + its turns. Powers the room's
 // reconnect/rejoin path when polling was interrupted or the tab missed updates.
-export async function GET(_request: Request, { params }: { params: Promise<{ matchId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
+  // The reconnect path polls; bound it so a stuck tab cannot hammer the
+  // database with full-transcript reads.
+  const limited = await checkRateLimit(request, { name: "pvp-match-read", limit: 120, windowMs: 60_000 });
+  if (limited) return limited;
+
   const { matchId } = await params;
   const db = await createClient();
   const {

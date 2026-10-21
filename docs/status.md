@@ -61,6 +61,32 @@ a new full-pack run lands).
 daily loop; see [docs/roadmap.md](roadmap.md) for the scorecard and the parked
 backlog.
 
+### The retest-timing lever: what the code does today, and what is not yet known
+
+The roadmap's day-1 retargeting lever is **partly implemented and not yet
+measured**. What the code does today:
+
+- a successful repair enters the pending-retest queue immediately
+  (`repair_retests`), oldest first, and the queue survives newer successes;
+- the next debate the learner starts carries the test, provided its topic
+  differs from the repaired debate's (`selectEligiblePendingRetest`);
+- the dashboard therefore serves a **retargeted motion** when a test is
+  pending, so the "different topic" rule does not cost a day
+  (`practiceMotion.pickRetestMotion`);
+- if the day offers no alternative motion, the test waits — and the wait is
+  now silent, because the disclosure policy forbids announcing it.
+
+So a retest *can* land on the next debate. What is **not** established is how
+often it actually does, and how much of the gap between "repair" and "retest"
+is scheduling versus the learner simply not returning. The `/analytics`
+repair loop already tracks "Retest timing: prompted vs incidental" as
+sample-gated observational association. The next step is to read that number
+with real weekly users before changing the schedule: a retest that lands on
+day 1 but is cued measures recall, and a retest that lands on day 14 but is
+un-cued measures something the learner may no longer care about. No code
+change to the schedule has been made on the strength of an unmeasured
+hypothesis, and none should be until the scorecard has a baseline.
+
 ## Experimental surfaces (flag-gated, default off)
 
 PvP navigation, friend challenges, voice input, and the corpus-validation
@@ -86,6 +112,7 @@ Elo remains code + tests only and was never rendered.
 - Weak-link repair: server-checked rewrite of the flagged move with formative states and observable signals; the internal numeric rubric stays hidden, persists in `repair_results`, and links to the day's drill assignment for later retest scheduling.
 - "Challenge me" side assignment: explainable, history-based side choice (side balance → performance gap → alternation → random when no data). Lightweight by design — not presented as optimised.
 - Daily coaching goal: shown before the debate, assessed after it, numeric only when the data supports the precision.
+- **The retest is a measurement, not a prompt.** While a deliberate retest is pending, no pre-debate surface names the skill under test, prints its instruction as the day's goal, or announces that today is the test; the skill is instead *excluded* from the visible coaching focus, the drill, the practice target, the priority card, the loop thread, the motion kicker and the live coaching hints. The verdict is behavioural — the canonical `retestOutcomeFor` detector over the merged argument graph — not compliance with the goal line that was displayed; the four canonical outcomes map onto the existing `repair_retests` columns with no migration, and the result screen reveals the verdict and the skill's name only after the debate. The rule, its enforcement points, its honest limit (a learner who knows what they repaired can still guess) and its one documented exception (guest practice, a demo rather than a measurement) are in `docs/product.md` § "The retest is a measurement, not a prompt" and `src/lib/retestDisclosure.ts`; the policy is executable as tests in `src/lib/retestDisclosure.test.ts`.
 - Engagement dimension coherence: the dimension named "Engagement" (persisted key `clarity`) measures the per-round argument-response rate — whether the learner answered the move the opponent actually made, on the round they made it. Its drills, its drill-attempt rubric, and its repair rubric all train and score that same behaviour (`src/lib/engagementSignals.ts` is the one shared definition). Sentence-length readability, which no metric observes, is gone from all three; a repair target is offered from the learner's unanswered engagement opportunity rather than their longest claim.
 - Engagement is measurable end-to-end: `clarity` was the only repair kind with no deterministic weakness detector, so every engagement repair was hard-classified "not currently measurable" and every engagement retest returned "not-enough-evidence" — while the repair asked the learner to fix exactly that. `src/lib/opportunity.ts` now owns one round-level engagement definition (`engagementRoundsFor`) that the skill score, the weakness detector, the repair target selection and the retest read together, so none of them can drift apart. Building it surfaced the underlying blocker: the canonical answer rule refuses impact targets, so "answer the weighing move" was structurally unobservable and the weakness unfixable through the metric. `engagementAnsweredIds` credits answering weighing moves for engagement only (rebuttal coverage, drop detection and rewards are untouched), and `NOT_CURRENTLY_MEASURABLE_KINDS` is now empty — with its machinery kept as the guard for any future kind that lacks a detector.
 - Progress screen: seven skills (Evidence, Rebuttal, Logic, Clarity, Impact, Steelmanning, Structure) with score + trend, strongest/weakest, current focus; raw metrics behind "How this was calculated". The live coaching ledger is explicitly bounded to the latest 100 completed debates and discloses when older history falls outside that window.
@@ -104,6 +131,7 @@ Elo remains code + tests only and was never rendered.
 - Skill scores and trends: deterministic and reproducible, but not yet validated against external measures of debating ability.
 - Opponent personas, pressure levels, and mid-debate coaching hints: deterministic and inspectable, but not yet validated against learning outcomes.
 - Coach focus selection and drill-outcome movement.
+- The deliberate-retest verdict: now computed from observed behaviour by the canonical detector rather than from goal-compliance, and now un-cued by the product. Whether an un-cued retest predicts anything about real skill retention is **not established** — no retention study, no A/B evidence, and no live user data exist for this or any comparable product.
 - Ensemble-judge confidence heuristics.
 
 ## Gated / future

@@ -54,18 +54,20 @@ export function snapshotFromAssessment(assessment: ObservableAssessment | null |
  * One focus for today: the lowest profile dimension, adjusted by movement
  * (shared with the drill-assignment coach so Today, Progress and the drill
  * system agree on what matters right now).
+ *
+ * `excludeDimension` is the skill under SILENT TEST (retestDisclosure.ts).
+ * It is excluded rather than forced: the day's visible coaching must not be
+ * the instruction for the skill whose transfer is being measured, or the
+ * retest measures compliance with a prompt instead of the skill itself.
  */
 export function pickFocusDimension(
   points: SkillMetricPoint[],
   outcomes: Partial<Record<CoachDimension, number>> = {},
-  priorityDimension: CoachDimension | null = null,
+  excludeDimension: CoachDimension | null = null,
 ): CoachDimension | null {
-  // A deliberate repair retest takes priority over the generic weakest-skill
-  // selector. Practice is only useful if the product actually tests transfer.
-  if (priorityDimension) return priorityDimension;
   if (!points.length) return null;
   const { dims, slopes } = buildCoachProfile(points);
-  const { focus } = selectFocus(dims, slopes, outcomes);
+  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimension);
   return focus?.key ?? null;
 }
 
@@ -122,28 +124,20 @@ function described(snapshot: CoachingSnapshot): string | null {
  * Build the coaching goal for today from the ledger and the most recent
  * debate snapshot. Goals are numeric only where previous behaviour gives the
  * number meaning; otherwise they stay qualitative.
+ *
+ * `excludeDimension` is the skill under silent test (retestDisclosure.ts).
+ * The goal the learner SEES is a different skill, on purpose: the retest is
+ * a measurement, and a measurement cannot be prompted.
  */
 export function buildCoachingGoal(
   points: SkillMetricPoint[],
   lastSnapshot: CoachingSnapshot | null,
   outcomes: Partial<Record<CoachDimension, number>> = {},
-  priorityDimension: CoachDimension | null = null,
+  excludeDimension: CoachDimension | null = null,
 ): CoachingGoal | null {
-  const dimension = pickFocusDimension(points, outcomes, priorityDimension);
+  const dimension = pickFocusDimension(points, outcomes, excludeDimension);
   if (!dimension) return null;
   const headline = GOAL_HEADLINES[dimension];
-
-  // Repair retests get explicit transfer copy. Do not pretend the drill itself
-  // proved improvement; the upcoming debate is the test.
-  if (priorityDimension) {
-    return {
-      dimension,
-      headline,
-      lastLine: "You practised this weak link after your last debate. Now test whether it transfers under debate pressure.",
-      goalLine: headline,
-      numeric: false,
-    };
-  }
 
   if (!lastSnapshot) {
     return { dimension, headline, lastLine: null, goalLine: headline, numeric: false };

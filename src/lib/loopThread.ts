@@ -4,9 +4,15 @@
 // second source of truth. The thread follows the one episode currently in
 // flight; when nothing is open it says so plainly rather than inventing
 // progress. A successful repair is practice, not proof: only a later,
-// unprompted, different-topic demonstration closes a loop.
+// different-topic demonstration closes a loop.
+//
+// While a retest is PENDING, the thread says the loop is open but does not
+// name the skill under test and does not say that today is the test day
+// (retestDisclosure.ts). The thread is a pre-debate surface, so it obeys the
+// same disclosure policy as the goal line and the drill.
 
 import type { LearnerModel, SkillRepairState } from "./learnerModel";
+import { RETEST_PENDING_DETAIL, RETEST_PENDING_HEADLINE } from "./retestDisclosure";
 
 export type LoopStageId = "practice" | "diagnose" | "repair" | "retest" | "demonstrate";
 
@@ -117,10 +123,11 @@ function headlineFor(model: LearnerModel, episode: SkillRepairState | null): { h
         detail: "The diagnosis is in; the repair exercise is the move that turns it into practice.",
       };
     case "repaired-awaiting-retest":
+      // The skill under silent test is not named and the day is not announced.
+      // The loop stays visible; the cue does not.
       return {
-        headline: `Loop open: ${label} is repaired and waiting to be tested.`,
-        detail:
-          "A repair is practice, not proof. Today's debate on a different topic is the test — use it without a cue and the loop closes.",
+        headline: RETEST_PENDING_HEADLINE,
+        detail: RETEST_PENDING_DETAIL,
       };
     case "repaired-not-yet-demonstrated":
       return {

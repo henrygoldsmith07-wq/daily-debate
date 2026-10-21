@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   isCorpusAdmin,
+  corpusItemContributorIds,
+  isCorpusContributor,
   lengthBucketFor,
   abilityBandFor,
   anonymiseTranscript,
@@ -29,6 +31,40 @@ describe("corpus admin gating", () => {
   it("is closed when unset", () => {
     expect(isCorpusAdmin("admin@example.com", undefined)).toBe(false);
     expect(isCorpusAdmin(null, "a@b.c")).toBe(false);
+  });
+});
+
+describe("corpus contributor exclusion", () => {
+  it("treats the account of record as a contributor", () => {
+    const item = { contributor_id: "author-9", side_mapping: { a: "user", b: "ai" } };
+    expect(corpusItemContributorIds(item)).toEqual(["author-9"]);
+    expect(isCorpusContributor(item, "author-9")).toBe(true);
+    expect(isCorpusContributor(item, "someone-else")).toBe(false);
+  });
+
+  it("treats EVERY player of a PvP item as a contributor, not just player A", () => {
+    // The import writes both players into side_mapping.contributors. That
+    // array used to be written and never read, so player B was offered their
+    // own transcript and their rating was accepted — self-judgement injected
+    // into the human ground truth the judge gates read.
+    const item = {
+      contributor_id: "player-a",
+      side_mapping: { contributors: ["player-a", "player-b"] },
+    };
+    expect(corpusItemContributorIds(item).sort()).toEqual(["player-a", "player-b"]);
+    expect(isCorpusContributor(item, "player-a")).toBe(true);
+    expect(isCorpusContributor(item, "player-b")).toBe(true);
+    expect(isCorpusContributor(item, "rater-x")).toBe(false);
+  });
+
+  it("is not fooled by a missing or malformed side mapping", () => {
+    expect(corpusItemContributorIds({ contributor_id: "a", side_mapping: null })).toEqual(["a"]);
+    expect(corpusItemContributorIds({ contributor_id: "a", side_mapping: {} })).toEqual(["a"]);
+    expect(corpusItemContributorIds({ contributor_id: "a", side_mapping: { contributors: "player-b" } })).toEqual(["a"]);
+    expect(corpusItemContributorIds({ contributor_id: "a", side_mapping: { contributors: [null, 7, "player-b"] } })).toEqual([
+      "a",
+      "player-b",
+    ]);
   });
 });
 

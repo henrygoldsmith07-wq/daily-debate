@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/backend/server";
-import { isCorpusAdmin } from "@/lib/corpus";
+import { createServiceClient } from "@/lib/backend/server";
+import { getRequestAuthContext } from "@/lib/requestAuth";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 // Admin-only CSV export of the human-rating corpus: ratings and items,
 // bounded and anonymised exactly like the rater view (no contributor ids).
@@ -18,13 +19,17 @@ function csvRow(cells: unknown[]): string {
   return cells.map(csvCell).join(",");
 }
 
-export async function GET() {
-  const db = await createClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+export async function GET(request: Request) {
+  // Bounded: a full export is an expensive read of the whole corpus.
+  const limited = await checkRateLimit(request, { name: "corpus-export", limit: 10, windowMs: 60_000 });
+  if (limited) return limited;
+
+  // Admin access is the TWO-FACTOR gate (database role + allowlist), not the
+  // email allowlist alone — see src/lib/adminAccess.ts.
+  const auth = await getRequestAuthContext();
+  const user = auth.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isCorpusAdmin(user.email, process.env.CORPUS_ADMIN_EMAILS)) {
+  if (!auth.isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

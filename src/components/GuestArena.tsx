@@ -581,7 +581,24 @@ function GuestResult({
             )}
           </section>
 
-          {/* The loop is only complete once the repair is deliberately retested. */}
+          {/* The loop is only complete once the repair is deliberately retested.
+
+              DELIBERATE, DOCUMENTED EXCEPTION to the disclosure policy
+              (retestDisclosure.ts). The guest arena is a guided DEMONSTRATION
+              of the loop, not a measurement, so it is deliberately not covered:
+
+              - the retest happens in the same session, immediately, on the same
+                device — there is no delayed, un-cued opportunity to protect;
+              - its verdict comes from a local heuristic over the learner's own
+                text (`assessGuestRetest`), not from the server's canonical
+                detector, and it never touches the learner's skill ledger;
+              - the copy already says what it is: "One observed instance. It is
+                not a validated measure of ability - that needs repeated
+                measurement, which an account provides."
+
+              Hiding the skill here would make the demo incoherent without
+              protecting a measurement that does not exist. The account path —
+              the one that IS measured — is fully covered by the policy. */}
           {repairSucceeded ? (
             <section className="surface-card flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between" aria-labelledby="guest-retest-cta" data-testid="guest-retest-cta">
               <div className="min-w-0">

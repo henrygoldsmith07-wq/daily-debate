@@ -6,6 +6,7 @@ import {
   CALIBRATION_RATERS_PER_ITEM,
   MIN_RATERS_PER_ITEM,
   assignPresentationSide,
+  isCorpusContributor,
   normalizeRatingToOriginal,
   swapTranscriptSides,
   validateRating,
@@ -43,14 +44,18 @@ export async function GET(request: Request) {
 
   const ratedIds = new Set((myRatings ?? []).map((r) => r.corpus_id));
   const myRatingsCount = ratedIds.size;
-  // Contributor exclusion: the import stores contributor_id; fetch it for the
-  // candidate slice only (service role can read it; we never return it).
+  // Contributor exclusion: the import stores contributor_id, and PvP items
+  // ALSO record both players in side_mapping.contributors. Both must be
+  // excluded — otherwise the second player of a PvP match is offered their
+  // own transcript and may rate it, injecting self-judgement into the human
+  // ground truth the judge gates read. (service role can read it; we never
+  // return it.)
   const { data: meta } = await service
     .from("corpus_items")
-    .select("id, contributor_id")
+    .select("id, contributor_id, side_mapping")
     .in("id", (candidates ?? []).length ? (candidates ?? []).map((c) => c.id) : ["00000000-0000-0000-0000-000000000000"]);
   const excludedContributor = new Set(
-    (meta ?? []).filter((m) => m.contributor_id === user.id).map((m) => m.id),
+    (meta ?? []).filter((m) => isCorpusContributor(m, user.id)).map((m) => m.id),
   );
 
   const next = (candidates ?? []).find((c) => !ratedIds.has(c.id) && !excludedContributor.has(c.id));
@@ -108,11 +113,17 @@ export async function POST(request: Request) {
 
   const service = createServiceClient();
 
-  // Contributor exclusion (metadata stays server-side).
-  const { data: item } = await service.from("corpus_items").select("id, contributor_id").eq("id", corpusId).single();
+  // Contributor exclusion (metadata stays server-side). Every contributor
+  // counts — the account of record AND any other participant recorded in
+  // side_mapping.contributors (both players of a PvP match).
+  const { data: item } = await service
+    .from("corpus_items")
+    .select("id, contributor_id, side_mapping")
+    .eq("id", corpusId)
+    .single();
   if (!item) return NextResponse.json({ error: "Item not found." }, { status: 404 });
-  if (item.contributor_id === user.id) {
-    return NextResponse.json({ error: "You cannot rate your own debate." }, { status: 403 });
+  if (isCorpusContributor(item, user.id)) {
+    return NextResponse.json({ error: "You cannot rate a debate you took part in." }, { status: 403 });
   }
 
   // Ratings arrive in PRESENTED coordinates (whichever side the rater saw
