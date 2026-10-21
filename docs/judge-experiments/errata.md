@@ -402,3 +402,93 @@ withdrawn registration was never executed, and the 2026-10-19 artifact's
 "no usable measurement" verdicts were already the honest outcome for the
 same underlying reason (rate-limits, not judge defects).
 
+## Erratum 2026-10-21 — the first real judge measurement, and three more instrument defects
+
+The v2 study was dispatched in CI on 2026-10-21 and **produced the first genuinely
+measurable judge data this repository has ever had**. It also exposed three more
+defects, all of them in the instrumentation rather than in the judge.
+
+### The baseline arm measured something real
+
+`cerebras:gpt-oss-120b`, 312 calls, **provider reliability 0.983** (295/300, gate
+min 0.75 — PASS), and **every one of the nine invariance probes became measurable**
+(22–23 usable samples each, against a minimum of 12). For comparison, on
+2026-10-19 every one of those gates read INSUFFICIENT DATA. The stability values
+measured, all FAILING their gates:
+
+| probe | stability | gate | verdict |
+|---|---|---|---|
+| position swap | 0.652 | min 0.97 | FAIL |
+| names removed | 0.565 | min 0.97 | FAIL |
+| verbosity inflated | 0.636 | min 0.95 | FAIL |
+| style: sophisticated wording | 0.609 | min 0.95 | FAIL |
+| confidence hedged | 0.565 | flip max 0.25 | FAIL |
+| confident tone added | 0.609 | flip max 0.25 | FAIL |
+| source prestige swapped | 0.565 | min 0.95 | FAIL |
+| whitespace normalised | 0.696 | min 0.98 | FAIL |
+| fake citation injected | 0.826 | influence max 0.05 | FAIL |
+
+plus fixture-label agreement 0.522 (n=23, min 0.75) and ECE 0.25 (max 0.08). Both
+FAIL. **This is a measurement, not a verdict**: the candidate arm never ran, so the
+study is still INCONCLUSIVE and the architecture question is still open. But it
+establishes that the instrument works and that the judge, on a live transport, is
+still close to a coin flip on most invariances — 36% of verdicts flip when a
+sentence of pure emphasis is appended, 35% when the players are swapped.
+
+### Defect 3: the free tier's ceiling can be per HOUR, not per minute
+
+The study stopped after the baseline arm with `STOPPING: provider probe failed
+before arm candidate`, and the probe's own detail is the finding:
+
+```
+429: {"message":"Requests per hour limit exceeded - too many requests sent."}
+```
+
+**cerebras caps at roughly 300 requests per HOUR**, not per minute. The study was
+paced at 12000 ms per request, which is exactly 300 requests/hour — so the run sat
+precisely on the ceiling and the hour rollover answered 429. The baseline arm
+itself had already consumed 312 calls in 59.8 minutes (313/hour).
+
+Two lessons, and the first is the general one:
+
+1. **A free tier's rate ceiling is not a single number, and "requests per minute"
+   is only one shape of it.** The throttle must sit comfortably UNDER the ceiling
+   that actually applies, whatever its window. A pace that exactly equals the
+   ceiling has zero headroom and fails at the boundary — which is the worst
+   possible place to fail, because it fails *after* the expensive calls have been
+   spent. The default pace is now 15000 ms (240/hour, 80% of the observed cap).
+2. **The failure lands in the wrong place.** The arm's own calls were the last
+   ones to be admitted; the 429 landed on the *probe* that runs before the next
+   arm. So the study blamed the transport for a budget that the transport had
+   already spent, and stopped. The arm that had just measured the judge was
+   nearly thrown away with it.
+
+### Defect 4: the second dispatch could not have saved its state
+
+The persistence step did `git checkout -B "$branch"` with no start point, which
+resets the branch to the current HEAD — **main**. The first dispatch pushed a
+commit whose parent was main, so a second dispatch would have committed on top
+of a *different* main commit and tried to push a **non-fast-forward**, which
+GitHub rejects. The result: the second dispatch would have measured the whole
+candidate arm and then lost every run of it, and the study could never have
+reached a verdict. The study is resumable **by design**; this defect made the
+resume path untested and, on the first real use, broken. The step now builds on
+`origin/$branch` when the branch exists.
+
+### Defect 5: the v2 study wrote into the v1 study directory
+
+The workflow's `study_dir` default still named the withdrawn v1 study
+(`docs/judge-runs/study-grounding-two-pass-verbosity`), so the v2 study wrote its
+seal and its baseline run into the v1 directory. The two studies then shared one
+directory on two different branches, each with its own `registration-snapshot.json`
+— a genuine collision waiting to be misread as drift. The default is now
+`.../study-grounding-two-pass-verbosity-v2`.
+
+**What this invalidates.** Nothing published. The v2 study has no verdict: the
+candidate arm never ran, so the verdict is INCONCLUSIVE by construction, and the
+registration was correctly NOT written back (the runner's `stoppedEarly` guard
+held). The baseline arm's data is preserved raw on the runs branch and is
+excluded from any inference, exactly as the protocol requires for an incomplete
+plan. **No gate was loosened and no threshold was touched to produce these
+numbers** — they are measurements that FAIL, which is the point of measuring.
+
