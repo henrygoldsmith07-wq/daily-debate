@@ -60,6 +60,10 @@ function norm(detail) {
  * Classify a rate-limit error.
  *
  * @param {string} detail the provider's error text (a 429 body, usually).
+ * @param {object} [opts]
+ * @param {object} [opts.headers] the provider's rate-limit response headers,
+ *   when it sent any. They are the provider's own statement of its ceiling
+ *   and therefore beat any inference from prose.
  * @returns {{
  *   window: "second"|"minute"|"hour"|"day"|"unknown",
  *   limit: number|null,
@@ -69,73 +73,100 @@ function norm(detail) {
  *   evidence: string|null,
  * }}
  */
-export function classifyRateLimit(detail) {
-  const text = norm(detail);
+export function classifyRateLimit(detail, opts = {}) {
+  const raw = String(detail ?? "");
+  const text = norm(raw);
+  const headers = opts.headers ?? {};
   const unknown = { window: "unknown", limit: null, limitSource: null, recommendedPaceMs: null, pacingHelps: false, evidence: null };
 
-  if (!text) return unknown;
+  if (!text && !Object.keys(headers).length) return unknown;
+
+  // 1. The WINDOW. The provider's structured error CODE names it outright
+  //    (cerebras answers "code":"requests_per_hour"), and its prose names it
+  //    next. The code is matched on the RAW text: normalising would turn
+  //    "requests_per_hour" into "requests per hour" and destroy the field.
+  const coded = raw.match(/"code"\s*:\s*"([A-Za-z0-9_.-]+)"/);
+  const code = coded ? coded[1].toLowerCase() : null;
+  let window = null;
+  let windowEvidence = null;
+  if (code) {
+    if (/per[_-]?second/.test(code)) { window = "second"; windowEvidence = "the provider's error code names a per-second window"; }
+    else if (/per[_-]?minute/.test(code)) { window = "minute"; windowEvidence = "the provider's error code names a per-minute window"; }
+    else if (/per[_-]?hour/.test(code)) { window = "hour"; windowEvidence = "the provider's error code names a per-hour window"; }
+    else if (/per[_-]?day/.test(code)) { window = "day"; windowEvidence = "the provider's error code names a per-day window"; }
+  }
 
   // "the free tier allows 5 request(s) every 1 min per account"
-  // "allows 100 requests every 1 hour"
   const explicit = text.match(/allows?\s+(\d+)\s+requests?\b[^.]*?\bevery\s+(\d+)\s*(second|sec|minute|min|hour|hr|day)s?\b/);
-  if (explicit) {
+  if (!window && explicit) {
     const limit = Number(explicit[1]);
     const count = Number(explicit[2]);
     const unit = explicit[3];
-    const window = unit.startsWith("s") && unit !== "second" && unit !== "sec" ? "second" : unit.startsWith("mi") ? "minute" : unit.startsWith("h") ? "hour" : "day";
-    const perWindow = Math.max(1, Math.floor(limit / count));
-    return {
-      window,
-      limit: perWindow,
-      limitSource: "provider",
-      recommendedPaceMs: paceFor(window, perWindow),
-      pacingHelps: true,
-      evidence: `provider stated ${limit} request(s) every ${count} ${unit}(s)`,
-    };
+    window = unit.startsWith("s") && unit !== "second" && unit !== "sec" ? "second" : unit.startsWith("mi") ? "minute" : unit.startsWith("h") ? "hour" : "day";
+    windowEvidence = `provider stated ${limit} request(s) every ${count} ${unit}(s)`;
+  }
+  if (!window && /per hour/.test(text)) { window = "hour"; windowEvidence = "provider named an hourly limit"; }
+  if (!window && /per minute/.test(text)) { window = "minute"; windowEvidence = "provider named a per-minute limit"; }
+  if (!window && (/per day/.test(text) || /daily/.test(text) || /free models per day/.test(text))) { window = "day"; windowEvidence = "provider named a daily limit"; }
+
+  // 2. The MAGNITUDE. The provider's rate-limit HEADERS are its own
+  //    statement of the ceiling, and they beat any default we would invent.
+  const headerLimit = num(headers["x-ratelimit-limit-requests"] ?? headers["x-ratelimit-limit"] ?? headers["x-rate-limit-limit"] ?? headers["ratelimit-limit"]);
+  const headerRemaining = num(headers["x-ratelimit-remaining-requests"] ?? headers["x-ratelimit-remaining"] ?? headers["x-rate-limit-remaining"] ?? headers["ratelimit-remaining"]);
+  const headerReset = headers["x-ratelimit-reset-requests"] ?? headers["x-ratelimit-reset"] ?? headers["x-rate-limit-reset"] ?? headers["ratelimit-reset"];
+  const resetSec = num(headerReset);
+
+  // A window we did not get from prose or code, but the headers can give us
+  // one: a large ceiling is an hour window, a small one is a minute window,
+  // and a reset of a day or more is a day window.
+  if (!window) {
+    if (resetSec != null && resetSec >= 86_400) { window = "day"; windowEvidence = "the provider's reset is a day away"; }
+    else if (headerLimit != null && headerLimit <= 60) { window = "minute"; windowEvidence = "the provider's header ceiling is a per-minute one"; }
+    else if (headerLimit != null || resetSec != null) { window = "hour"; windowEvidence = "the provider's headers state an hourly ceiling"; }
   }
 
-  // "requests per hour limit exceeded" - window known, ceiling not.
-  if (/per hour/.test(text) || /hourly limit/.test(text)) {
-    return {
-      window: "hour",
-      limit: DEFAULT_HOURLY_CEILING,
-      limitSource: "default",
-      recommendedPaceMs: paceFor("hour", DEFAULT_HOURLY_CEILING),
-      pacingHelps: true,
-      evidence: "provider named an hourly limit but not its size; using the empirically observed ceiling",
-    };
+  if (!window) {
+    // A 429 with no usable window information.
+    if (/429|too many requests|rate limit|too_many_requests/.test(text)) {
+      return { ...unknown, evidence: "the provider reported a rate limit without naming its window" };
+    }
+    return unknown;
   }
 
-  // "per minute" / "too many requests" with a minute window.
-  if (/per minute/.test(text) || /minute limit/.test(text)) {
-    return {
-      window: "minute",
-      limit: null,
-      limitSource: "default",
-      recommendedPaceMs: paceFor("minute", 5),
-      pacingHelps: true,
-      evidence: "provider named a per-minute limit but not its size; assuming the observed 5/minute ceiling",
-    };
+  // The magnitude for this window: the provider's header first, then the
+  // provider's prose, then the observed default.
+  let limit = headerLimit;
+  let limitSource = limit != null ? "provider" : null;
+  if (limit == null && explicit) {
+    limit = Math.max(1, Math.floor(Number(explicit[1]) / Math.max(1, Number(explicit[2]))));
+    limitSource = "provider";
+  }
+  if (limit == null) {
+    limit = window === "hour" ? DEFAULT_HOURLY_CEILING : window === "minute" ? 5 : null;
+    limitSource = limit == null ? null : "default";
   }
 
-  // "free-models-per-day", "per day", "daily limit" - NOT paceable.
-  if (/per day/.test(text) || /daily/.test(text) || /free models per day/.test(text)) {
-    return {
-      window: "day",
-      limit: null,
-      limitSource: "provider",
-      recommendedPaceMs: null,
-      pacingHelps: false,
-      evidence: "the ceiling is per DAY; no request pace can avoid it - the tier must recover or the provider must change",
-    };
-  }
+  const parts = [windowEvidence];
+  if (headerLimit != null) parts.push(`provider headers state limit=${headerLimit} remaining=${headerRemaining ?? "unstated"}`);
+  if (resetSec != null) parts.push(`reset=${resetSec}s`);
 
-  // A 429 with no usable window information.
-  if (/429|too many requests|rate limit|too_many_requests/.test(text)) {
-    return { ...unknown, evidence: "the provider reported a rate limit without naming its window" };
+  if (window === "day") {
+    return { window, limit, limitSource, recommendedPaceMs: null, pacingHelps: false, evidence: `${parts.join(" ")} - the ceiling is per DAY; no request pace can avoid it` };
   }
+  return {
+    window,
+    limit,
+    limitSource,
+    recommendedPaceMs: paceFor(window, limit),
+    pacingHelps: true,
+    evidence: parts.join(" "),
+  };
+}
 
-  return unknown;
+function num(v) {
+  if (v == null) return null;
+  const n = Number(String(v).trim());
+  return Number.isFinite(n) ? n : null;
 }
 
 /** The minimum milliseconds between requests that stays under `perWindow` per window. */

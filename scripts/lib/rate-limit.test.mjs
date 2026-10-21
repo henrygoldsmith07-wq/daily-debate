@@ -92,3 +92,47 @@ test("the summary states the window and the pace explicitly", () => {
   assert.match(describeRateLimit(classifyRateLimit(OPENROUTER_PER_DAY)), /no pace can satisfy it/);
   assert.match(describeRateLimit(classifyRateLimit("429")), /window=unknown/);
 });
+
+test("the provider's structured error CODE names the window outright", () => {
+  // cerebras's real body carries "code":"requests_per_hour". That is not a
+  // hint, it is the window - and it is present even when the prose is
+  // truncated away.
+  const c = classifyRateLimit('{"message":"Requests per hour limit exceeded","code":"requests_per_hour"}');
+  assert.equal(c.window, "hour");
+  assert.match(c.evidence, /error code names a per-hour window/);
+});
+
+test("a structured per-day code is still not paceable", () => {
+  const c = classifyRateLimit('{"message":"slow down","code":"requests_per_day"}');
+  assert.equal(c.window, "day");
+  assert.equal(c.pacingHelps, false);
+  assert.equal(c.recommendedPaceMs, null);
+});
+
+test("the provider's rate-limit HEADERS beat any inference from prose", () => {
+  const c = classifyRateLimit("429: too many requests", {
+    headers: { "x-ratelimit-limit-requests": "200", "x-ratelimit-remaining-requests": "0", "x-ratelimit-reset-requests": "1800" },
+  });
+  assert.equal(c.window, "hour");
+  assert.equal(c.limit, 200);
+  assert.equal(c.limitSource, "provider");
+  // 3600000/200 = 18000ms at the ceiling; with headroom it must be slower.
+  assert.ok(c.recommendedPaceMs > 18_000, `pace ${c.recommendedPaceMs}ms must leave headroom under 200/hour`);
+  assert.match(c.evidence, /limit=200 remaining=0/);
+});
+
+test("headers alone, with no prose, still classify", () => {
+  // A small ceiling is a per-minute one; a large one is hourly. The header
+  // is the provider's own statement, so it is used even with no prose.
+  const c = classifyRateLimit("", { headers: { "x-ratelimit-limit-requests": "5", "x-ratelimit-reset-requests": "45" } });
+  assert.equal(c.window, "minute");
+  assert.equal(c.limit, 5);
+  assert.equal(c.limitSource, "provider");
+  assert.equal(c.pacingHelps, true);
+});
+
+test("a day-window header is not paceable", () => {
+  const c = classifyRateLimit("429", { headers: { "x-ratelimit-reset-requests": "86400" } });
+  assert.equal(c.window, "day");
+  assert.equal(c.pacingHelps, false);
+});

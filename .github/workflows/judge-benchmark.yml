@@ -30,6 +30,14 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    # A PACED run is a long run. The request gate below spaces provider
+    # REQUESTS (not judge calls) so the free tier's ceiling is not blown; a
+    # paced full pack across the three providers this repository has keys for
+    # is ~936 requests, and at 15s between requests that is ~4 hours of
+    # wall-clock. The default 6h job timeout leaves no margin for a slow
+    # provider, and a killed job publishes NOTHING - so the timeout is set
+    # explicitly, above the paced runtime and below GitHub's 6h ceiling.
+    timeout-minutes: 350
     outputs:
       pr_number: ${{ steps.openpr.outputs.pr_number }}
       # Publication health is SEPARATE from benchmark health (item: a PR
@@ -80,7 +88,24 @@ jobs:
           UNOROUTER_MODEL: ${{ secrets.UNOROUTER_MODEL }}
           KIRAAI_API_KEY: ${{ secrets.KIRAAI_API_KEY }}
           KIRAAI_MODEL: ${{ secrets.KIRAAI_MODEL }}
-        run: node scripts/judge-benchmark.mjs --concurrency 3 --enforce
+        # --pace-ms paces provider REQUESTS, not judge calls. One judge call
+        # can issue several requests (the chain walks each model in turn, and
+        # each model may be retried), so an UNPACED run puts the real request
+        # rate several times over the free tier's ceiling and the provider
+        # answers 429 - and a 429 lands in the reliability denominator, so it
+        # is scored as a JUDGE-QUALITY failure.
+        #
+        # That is not hypothetical: the 2026-10-19 artifact recorded cerebras
+        # at reliability 0.219 with 150 rate-limits and zero judge-quality
+        # errors. The record said "free-tier availability", not judge quality.
+        # 15000ms is 240 requests/hour, which is 80% of the ~300/hour ceiling
+        # that BOTH paceable free tiers use (unorouter 5/minute = 300/hour,
+        # cerebras ~300/hour). A pace that exactly equals the ceiling has no
+        # headroom and fails at the window boundary, after the budget is spent.
+        #
+        # openrouter's cap is per DAY, which no pace can satisfy; it is left
+        # to fail honestly rather than being pretended away.
+        run: node scripts/judge-benchmark.mjs --concurrency 3 --enforce --pace-ms 15000
       - name: Open a PR carrying the refreshed validation record
         id: openpr
         if: always()

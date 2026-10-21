@@ -85,9 +85,15 @@ export async function runQuotaProbe(argv = process.argv.slice(2)) {
       // MINUTE, openrouter per DAY - and a run paced for the wrong window
       // dies at the boundary after the budget is spent. The probe states the
       // window and the pace it implies, so nobody has to infer it later.
+      //
+      // The provider's rate-limit HEADERS are included when it sent any:
+      // they are its own statement of the ceiling and its reset, which beats
+      // anything inferred from prose.
       const message = String(e?.message ?? e);
-      const limit = describeRateLimit(classifyRateLimit(message));
-      return { line: `PROBE-FAIL (${label}) ${message.slice(0, 140)} limit=${limit} chain=${JSON.stringify(e?.chainErrors ?? {})}`, code: 4 };
+      const headers = e?.rateLimitHeaders ?? {};
+      const limit = describeRateLimit(classifyRateLimit(message, { headers }));
+      const headerNote = Object.keys(headers).length ? ` headers=${JSON.stringify(headers)}` : "";
+      return { line: `PROBE-FAIL (${label}) ${message.slice(0, 140)} limit=${limit}${headerNote} chain=${JSON.stringify(e?.chainErrors ?? {})}`, code: 4 };
     }
   }
   return { line: `PROBE-OK ${okParts.join(" | ")}`, code: 0 };
