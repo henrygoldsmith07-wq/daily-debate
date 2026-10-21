@@ -6,6 +6,7 @@ const files = [
   "src/app/login/AuthForm.tsx",
   "src/app/login/forgot-password/ForgotPasswordForm.tsx",
   "src/components/AccountDataControls.tsx",
+  "src/app/login/reset-password/ResetPasswordForm.tsx",
 ];
 
 describe("account form input limits", () => {
