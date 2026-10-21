@@ -463,6 +463,25 @@ Two lessons, and the first is the general one:
    already spent, and stopped. The arm that had just measured the judge was
    nearly thrown away with it.
 
+**The window was never read — it was guessed.** The probe printed the provider's raw
+429 body and left the window to be inferred later, and the three providers this
+repository actually uses disagree about it:
+
+| provider | verbatim error body | window |
+|---|---|---|
+| cerebras | `Requests per hour limit exceeded - too many requests sent.` | **hour** |
+| unorouter | `The free tier allows 5 request(s) every 1 min per account` | **minute** |
+| openrouter | `Rate limit exceeded: free-models-per-day.` | **day** |
+
+`scripts/lib/rate-limit.mjs` now classifies a 429 body into its window, the ceiling
+when the provider states it, and the minimum pace that stays under that ceiling, and
+`scripts/quota-probe.mjs` states it in the `PROBE-FAIL` line
+(`limit=window=hour limit=240 (default) pace>=15000ms`). The pace is now *derived*
+rather than guessed. Two things it deliberately does not do: it never recommends a pace
+that exactly equals a ceiling, and it never invents a window it cannot find — a daily
+ceiling is reported as "no pace can satisfy it", because recommending a pace that cannot
+work would be worse than saying so.
+
 ### Defect 4: the second dispatch could not have saved its state
 
 The persistence step did `git checkout -B "$branch"` with no start point, which

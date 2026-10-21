@@ -22,6 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { allJudgeProviders } from "./lib/judge-providers.mjs";
+import { classifyRateLimit, describeRateLimit } from "./lib/rate-limit.mjs";
 
 export const PROBE_TRANSCRIPT =
   "Side A (round 1): Renewable subsidies cut emissions.\nSide B (round 1): They mainly shift them abroad.\nSide A (round 2): Border adjustments close that gap.\nSide B (round 2): Which collapses under compliance cost.";
@@ -78,7 +79,15 @@ export async function runQuotaProbe(argv = process.argv.slice(2)) {
     } catch (e) {
       // chainErrors: what each model in the chain actually returned - a
       // terminal 404 no longer masks which upstream model is out of quota.
-      return { line: `PROBE-FAIL (${label}) ${String(e?.message ?? e).slice(0, 140)} chain=${JSON.stringify(e?.chainErrors ?? {})}`, code: 4 };
+      //
+      // limit=: the provider's own words say WHICH WINDOW the ceiling uses.
+      // The three providers disagree - cerebras caps per HOUR, unorouter per
+      // MINUTE, openrouter per DAY - and a run paced for the wrong window
+      // dies at the boundary after the budget is spent. The probe states the
+      // window and the pace it implies, so nobody has to infer it later.
+      const message = String(e?.message ?? e);
+      const limit = describeRateLimit(classifyRateLimit(message));
+      return { line: `PROBE-FAIL (${label}) ${message.slice(0, 140)} limit=${limit} chain=${JSON.stringify(e?.chainErrors ?? {})}`, code: 4 };
     }
   }
   return { line: `PROBE-OK ${okParts.join(" | ")}`, code: 0 };
