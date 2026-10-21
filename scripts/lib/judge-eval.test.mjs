@@ -237,6 +237,56 @@ test("buildDiagnostics groups accuracy, calibration, invariance and provider fai
   assert.equal(d.counts.provider, 3);
 });
 
+test("buildDiagnostics records the provider's own rate-limit headers", () => {
+  // The provider states its ceiling in the headers; the error prose only
+  // names the WINDOW. Without the headers a run cannot report the ceiling
+  // it was paced against, and the next run has to guess it again.
+  const m = {
+    bases: [
+      {
+        fixture: "f1",
+        expected: "a",
+        error: '429: {"message":"Requests per hour limit exceeded","code":"requests_per_hour"}',
+        rateLimitHeaders: { "x-ratelimit-limit-requests": "200", "x-ratelimit-remaining-requests": "0", "retry-after": "42" },
+      },
+    ],
+    probeRows: [],
+    auditRows: [],
+  };
+  const d = buildDiagnostics(m);
+  const rl = d.provider.find((p) => p.kind === "rate-limit");
+  assert.ok(rl, "the 429 is classified as a rate limit");
+  assert.equal(rl.rateLimitHeaders["x-ratelimit-limit-requests"], "200");
+  assert.equal(rl.rateLimitHeaders["x-ratelimit-remaining-requests"], "0");
+});
+
+test("buildDiagnostics does not invent rate-limit headers when the provider sent none", () => {
+  // readRateLimitHeaders returns {} when the provider sent no rate-limit
+  // headers at all - that is the common case, not an error. An empty set
+  // must not become a recorded (and therefore quoted) ceiling.
+  const m = {
+    bases: [{ fixture: "f1", expected: "a", error: "429: too many requests", rateLimitHeaders: {} }],
+    probeRows: [],
+    auditRows: [],
+  };
+  const d = buildDiagnostics(m);
+  const rl = d.provider.find((p) => p.kind === "rate-limit");
+  assert.ok(rl);
+  assert.equal(rl.rateLimitHeaders, undefined);
+});
+
+test("buildDiagnostics does not invent rate-limit headers when the error carries none", () => {
+  const m = {
+    bases: [{ fixture: "f1", expected: "a", error: "429: too many requests", rateLimitHeaders: null }],
+    probeRows: [],
+    auditRows: [],
+  };
+  const d = buildDiagnostics(m);
+  const rl = d.provider.find((p) => p.kind === "rate-limit");
+  assert.ok(rl);
+  assert.equal(rl.rateLimitHeaders, undefined);
+});
+
 test("classifyProviderError buckets transport failures", () => {
   assert.equal(classifyProviderError("429: rate limited"), "rate-limit");
   assert.equal(classifyProviderError("400: bad request"), "4xx");
