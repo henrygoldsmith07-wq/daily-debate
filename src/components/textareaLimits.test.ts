@@ -21,4 +21,17 @@ describe("textarea limits", () => {
     }
     expect(missing).toEqual([]);
   });
+
+  it("every free-text <input> in src/components declares a maxLength", () => {
+    const missing: string[] = [];
+    const exempt = /type=["'](range|checkbox|radio|hidden|file|submit|button|number|date)["']/;
+    for (const file of tsxFiles(path.join(process.cwd(), "src", "components"))) {
+      const source = readFileSync(file, "utf8");
+      for (const match of source.matchAll(/<input\b[\s\S]*?\/>/g)) {
+        if (exempt.test(match[0]) || /maxLength=/.test(match[0])) continue;
+        missing.push(path.relative(process.cwd(), file));
+      }
+    }
+    expect(missing).toEqual([]);
+  });
 });
