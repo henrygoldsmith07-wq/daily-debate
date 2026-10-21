@@ -144,7 +144,7 @@ export default function CorpusAdmin() {
       const res = await fetch("/api/corpus/system-comparison", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: comparisonLimit }),
+        body: JSON.stringify({ limit: Math.min(10, Math.max(1, Math.round(comparisonLimit) || 1)) }),
       });
       const data = await res.json();
       if (!res.ok && !data.judged) throw new Error(data.error || "Comparison failed.");
