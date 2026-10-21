@@ -28,13 +28,15 @@ export interface PriorityInputs {
   } | null;
   /** A successful repair whose deliberate retest is due on a different topic. */
   dueRetest: {
-    label: string;
     /**
      * When the repaired rewrite was completed (the repair_results.created_at the
      * retest anchors to). Optional: when present, the priority detail can say how
      * long the retest has been waiting so the nudge is auditable rather than
      * arbitrary. Callers that omit it (e.g. synthetic test inputs) get the
      * existing label-only detail, unchanged.
+     *
+     * There is deliberately NO skill field: the card must not name the skill
+     * under silent test (retestDisclosure.ts), so the input cannot carry one.
      */
     attemptedAt?: string | null;
   } | null;
