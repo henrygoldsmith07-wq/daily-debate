@@ -5,14 +5,21 @@ import {
   LONGITUDINAL_MIN_OBSERVATIONS,
   pickPendingRetest,
   repairSuccessTransition,
+  retestAssignmentFor,
   retestNarrative,
   retestOutcomeFor,
   retestTopicIsEligible,
   weaknessPresentIn,
   type RepairRecord,
 } from "./retest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ArgEdge, ArgGraph, ArgNode } from "./argGraph";
 import type { DebateWeaknessRow } from "./repairEffectiveness";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const readSource = (...parts: string[]) => readFileSync(path.join(REPO_ROOT, "src", ...parts), "utf8");
 
 function graphOf(nodes: ArgNode[], edges: ArgEdge[] = [], unsupportedClaimIds: string[] = []): ArgGraph {
   return {
@@ -63,6 +70,43 @@ describe("formativeCheck", () => {
     const check = formativeCheck(85, true, []);
     expect(check.state).toBe("repair_demonstrated");
     expect(check.missing).toBeNull();
+  });
+});
+
+describe("retestAssignmentFor", () => {
+  it("encodes the four canonical outcomes into the two columns repair_retests has", () => {
+    // The reader — skillJourneyServer.outcomeFromAssignment — decodes exactly
+    // these pairs back into the same four states.
+    expect(retestAssignmentFor("skill-observed")).toEqual({ observable: true, demonstrated: true });
+    expect(retestAssignmentFor("skill-not-observed")).toEqual({ observable: true, demonstrated: false });
+    expect(retestAssignmentFor("not-enough-evidence")).toEqual({ observable: true, demonstrated: null });
+    // No opportunity says NOTHING about the skill, so it records no verdict —
+    // it must never look like a negative result.
+    expect(retestAssignmentFor("no-valid-opportunity")).toEqual({ observable: false, demonstrated: null });
+    expect(retestAssignmentFor(null)).toEqual({ observable: false, demonstrated: null });
+  });
+});
+
+describe("the finish route computes the retest verdict from behaviour, not goal-compliance", () => {
+  const source = readSource("app", "api", "solo", "[debateId]", "finish", "route.ts");
+
+  it("uses the canonical detector and the shared encoding", () => {
+    expect(source).toContain("retestOutcomeFor(");
+    expect(source).toContain("retestAssignmentFor(");
+  });
+
+  it("never reads the goal outcome to decide the retest verdict", () => {
+    const retestBlock = source.slice(source.indexOf("if (coaching.repairRetest)"));
+    expect(retestBlock.length).toBeGreaterThan(0);
+    // The verdict used to be `snapshot.goalOutcome.demonstrated` — compliance
+    // with the goal line the learner had just been shown.
+    expect(retestBlock).not.toMatch(/demonstrated:\s*snapshot\.goalOutcome\.demonstrated/);
+    expect(retestBlock).not.toMatch(/goalOutcome\.demonstrated\s*===/);
+  });
+
+  it("suppresses the live hints that cue the skill under test", () => {
+    const turn = readSource("app", "api", "solo", "[debateId]", "turn", "route.ts");
+    expect(turn).toContain("suppressDimension: retestDimension");
   });
 });
 

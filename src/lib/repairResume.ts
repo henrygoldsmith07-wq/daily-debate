@@ -18,7 +18,7 @@ export interface UnfinishedRepair {
   nextCue: string | null;
 }
 
-const REPAIR_KIND_LABELS: Record<RepairKind, string> = {
+export const REPAIR_KIND_LABELS: Record<RepairKind, string> = {
   evidence: "Evidence",
   rebuttal: "Rebuttal",
   logic: "Logic",

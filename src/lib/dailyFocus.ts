@@ -9,6 +9,13 @@
 //   4. today's normal debate
 //
 // Pure — the Today page feeds it rows and renders the single winner.
+//
+// A pending retest changes the ORDER (the debate stays at the top of the
+// queue) but not the COPY: naming the skill under test, or announcing that
+// today is the test, would prompt the behaviour the retest is meant to
+// measure. See retestDisclosure.ts.
+
+import { RETEST_PENDING_CARD_TITLE } from "./retestDisclosure";
 
 export type PriorityKind = "repair" | "retest" | "drill" | "debate";
 
@@ -100,15 +107,22 @@ export function pickPriority(input: PriorityInputs): PriorityAction | null {
     };
   }
   if (input.dueRetest) {
+    // A pending retest keeps today's debate at the top of the queue, but the
+    // card must not say WHY. Naming the skill under test, or announcing that
+    // today is the test day, would prompt the very behaviour the retest is
+    // meant to measure (retestDisclosure.ts). The card therefore states the
+    // loop — the age of the repair stays, because an auditable nudge is
+    // better than an arbitrary one — but never the skill and never the day.
     const age = retestAgeDays(input.dueRetest.attemptedAt);
-    const detail = age >= 0
-      ? `You repaired this skill ${age} day${age === 1 ? "" : "s"} ago. Today's goal is to see whether it shows up naturally, on a different motion.`
-      : "You repaired this skill in an earlier debate. Today's goal is to see whether it shows up naturally, on a different motion.";
+    const detail =
+      age >= 0
+        ? `You repaired a skill ${age} day${age === 1 ? "" : "s"} ago. A later debate, on a different topic, is the test — and it isn't signposted.`
+        : "You repaired a skill in an earlier debate. A later debate, on a different topic, is the test — and it isn't signposted.";
     return {
       kind: "retest",
-      title: `Retest: ${input.dueRetest.label.toLowerCase()} is due`,
+      title: RETEST_PENDING_CARD_TITLE,
       detail,
-      action: "Start today's retest",
+      action: "Start today's debate",
       href: "/",
     };
   }

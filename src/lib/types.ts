@@ -4,6 +4,7 @@ import type { DebateFormat } from "./sprint";
 import type { OpponentDifficulty, OpponentPersonaId } from "./opponentPersona";
 import type { ArgumentRoutingSummary } from "./argumentTaxonomy";
 import type { RepairKind } from "./argumentRepair";
+import type { RetestOutcome } from "./retest";
 import type { DebateModeId } from "./debateModes";
 import type { SpeechQualityScore, SpeechTurnAnalysis, TurnTiming } from "./speechAnalysis";
 
@@ -95,6 +96,19 @@ export interface CoachingRecord {
   } | null;
   /** Whether the goal behaviour was demonstrated (null = not measurable). */
   demonstrated?: boolean | null;
+  /**
+   * The deliberate retest's verdict for this debate, computed from BEHAVIOUR by
+   * the canonical detector (retest.ts) — never from compliance with the goal
+   * line. Set only for a debate that was a deliberate retest, and revealed to
+   * the learner only after the debate (retestDisclosure.ts).
+   */
+  retestOutcome?: {
+    outcome: RetestOutcome;
+    label: string;
+    detail: string;
+    /** The skill under test — named for the first time AFTER the debate. */
+    skillLabel: string;
+  } | null;
   /** The repair-kind of this debate's main weakness (longitudinal tracking). */
   weaknessKind?: string | null;
   /** How many recent prior debates showed the same weakness (0 = first). */

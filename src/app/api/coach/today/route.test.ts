@@ -4,6 +4,8 @@ const h = vi.hoisted(() => {
   const state = {
     user: { id: "11111111-1111-4111-8111-111111111111" } as { id: string } | null,
     existing: null as Record<string, unknown> | null,
+    // The pending deliberate retest, when one exists.
+    selectedRetest: null as Record<string, unknown> | null,
   };
   const insert = vi.fn(async (value: Record<string, unknown>) => ({
     data: { id: "assignment-1", status: "open", ...value, before_score: value.before_score ?? null },
@@ -66,19 +68,41 @@ vi.mock("@/lib/coachingContextServer", () => ({
   loadCoachingContext: vi.fn(async () => ({
     ledger: { points: [], debates: 4 },
     drillOutcomes: {},
-    selectedRetest: null,
+    repairAnchors: h.state.selectedRetest
+      ? [{
+          repairResultId: "repair-1",
+          debateId: "d1",
+          targetKind: "evidence",
+          attemptedAt: "2026-01-01T00:00:00Z",
+          topicId: "topic-1",
+        }]
+      : [],
+    // The pending queue is what decides the exclusion: the topic-eligible
+    // retest can be empty on the very day the debate becomes the test.
+    pendingRetests: h.state.selectedRetest ? [h.state.selectedRetest] : [],
+    selectedRetest: h.state.selectedRetest,
     status: "ok",
     degradationReasons: [],
   })),
 }));
 vi.mock("@/lib/adaptiveCoach", () => ({
-  DIMENSION_LABELS: { evidence: "Evidence" },
+  DIMENSION_LABELS: { evidence: "Evidence", rebuttal: "Rebuttal" },
   buildCoachProfile: vi.fn(() => ({
-    dims: [{ key: "evidence", label: "Evidence", score: 42, hasData: true }],
-    slopes: { evidence: -0.01 },
+    dims: [
+      { key: "evidence", label: "Evidence", score: 42, hasData: true },
+      { key: "rebuttal", label: "Rebuttal", score: 61, hasData: true },
+    ],
+    slopes: { evidence: -0.01, rebuttal: 0 },
   })),
-  selectFocus: vi.fn((dims: unknown[]) => ({
-    focus: dims[0],
+  // Mirrors the real selector: the excluded dimension (the skill under silent
+  // test) is never the focus.
+  selectFocus: vi.fn((
+    dims: Array<{ key: string }>,
+    _slopes: unknown,
+    _outcomes: unknown,
+    exclude?: string | null,
+  ) => ({
+    focus: (exclude ? dims.filter((d) => d.key !== exclude) : dims)[0] ?? null,
     reason: "lowest profile dimension (42/100)",
   })),
   todaysDrill: vi.fn(() => ({
@@ -96,6 +120,7 @@ import { GET, POST } from "./route";
 beforeEach(() => {
   h.state.user = { id: "11111111-1111-4111-8111-111111111111" };
   h.state.existing = null;
+  h.state.selectedRetest = null;
   h.insert.mockClear();
   h.update.mockClear();
 });
@@ -135,5 +160,28 @@ describe("/api/coach/today", () => {
         status: "open",
       },
     });
+  });
+
+  it("keeps the skill under silent test out of the drill and out of the response", async () => {
+    // A pending retest on Evidence. The drill must not train Evidence, and
+    // the response must not name it — this is a pre-debate surface
+    // (retestDisclosure.ts).
+    h.state.selectedRetest = {
+      repairResultId: "repair-1",
+      debateId: "d1",
+      dimension: "evidence",
+      label: "Evidence",
+      topicId: "topic-1",
+      attemptedAt: "2026-01-01T00:00:00Z",
+    };
+    const response = await GET(new Request("https://daily-debate.test/api/coach/today"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.retest).toBeUndefined();
+    expect(body.proposal?.dimension).not.toBe("evidence");
+    expect(body.proposal?.dimension).toBe("rebuttal");
+    expect(body.focusReason).not.toMatch(/retest/i);
+    expect(JSON.stringify(body)).not.toMatch(/deliberate retest/i);
   });
 });
