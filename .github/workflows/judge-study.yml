@@ -46,9 +46,9 @@ on:
         required: true
         default: "3000"
       pace_ms:
-        description: "Minimum ms between provider REQUESTS (free tiers cap requests per minute, and one judge call can issue several requests through the chain and its retries)"
+        description: "Minimum ms between provider REQUESTS. The free tier's ceiling may be per MINUTE (unorouter: 5/min) or per HOUR (cerebras: ~300/hour) - pace must sit comfortably UNDER whichever applies, because a request that answers 429 costs the whole run, not just that request."
         required: true
-        default: "12000"
+        default: "15000"
       concurrency:
         description: "Benchmark concurrency per arm"
         required: true
@@ -60,7 +60,7 @@ on:
       study_dir:
         description: "Study directory (must be STABLE across dispatches so the seal and runs resume)"
         required: true
-        default: "docs/judge-runs/study-grounding-two-pass-verbosity"
+        default: "docs/judge-runs/study-grounding-two-pass-verbosity-v2"
 
 permissions:
   contents: write
@@ -185,7 +185,18 @@ jobs:
           git config user.name "judge-study-bot"
           git config user.email "actions@users.noreply.github.com"
           branch="$STUDY_BRANCH"
-          git checkout -B "$branch"
+          # The commit must build on the PREVIOUS dispatch's commit on this
+          # branch, not on main. `git checkout -B` alone resets the branch to
+          # the current HEAD (main), so a second dispatch would try to push a
+          # NON-fast-forward and be REJECTED - losing every run it had just
+          # measured, and making the study unresumable in exactly the case it
+          # exists for. Build on the branch tip when one exists.
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch origin "$branch"
+            git checkout -B "$branch" "origin/$branch"
+          else
+            git checkout -B "$branch"
+          fi
           git add -A "$STUDY_DIR" || true
           if git diff --cached --quiet; then
             echo "no new study state; nothing to persist"
