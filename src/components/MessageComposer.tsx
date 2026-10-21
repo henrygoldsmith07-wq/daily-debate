@@ -168,6 +168,7 @@ export default function MessageComposer({
         onKeyDown={handleKeyDown}
         placeholder={placeholder ?? "Make your case… (Ctrl/⌘+Enter to send)"}
         rows={3}
+        maxLength={6000}
         disabled={busy || listening || timeExpired || resumeSavedSubmission}
         aria-label="Your debate response"
         className="w-full resize-none rounded-lg border border-[var(--rule)] bg-transparent px-3 py-2 text-sm disabled:opacity-50"
