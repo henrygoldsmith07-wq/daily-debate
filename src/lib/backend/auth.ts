@@ -11,7 +11,11 @@ const scrypt = promisify(scryptCallback);
 /** Reset tokens are single-use and short-lived: long enough for an email round-trip. */
 export const PASSWORD_RESET_TTL_SECONDS = 60 * 30;
 
-export type AppUser = { id: string; email: string };
+// `is_admin` is the operator-granted database role (migration 039). It is
+// OPTIONAL on the type because a session lookup may run against a schema that
+// predates the column; the admin gate treats a missing flag as "not admin",
+// so the check fails closed rather than open.
+export type AppUser = { id: string; email: string; is_admin?: boolean };
 export type AuthError = { message: string };
 
 export type ResetTokenSender = (email: string, token: string) => void | Promise<void>;
@@ -138,7 +142,7 @@ export class AuthApi {
     if (!token) return { data: { user: null }, error: null };
     try {
       const rows = await queryRows<AppUser>(
-        `SELECT u.id, u.email
+        `SELECT u.id, u.email, u.is_admin
          FROM app_sessions s
          JOIN app_users u ON u.id = s.user_id
          WHERE s.token_hash = $1 AND s.expires_at > now()
@@ -161,7 +165,7 @@ export class AuthApi {
     if (validationError) return { data: { user: null }, error: { message: validationError } };
     try {
       const rows = await queryRows<AppUser & { password_hash: string }>(
-        "SELECT id, email, password_hash FROM app_users WHERE email = $1 LIMIT 1",
+        "SELECT id, email, password_hash, is_admin FROM app_users WHERE email = $1 LIMIT 1",
         [email],
       );
       const row = rows[0];
@@ -170,7 +174,7 @@ export class AuthApi {
         return { data: { user: null }, error: { message: "Invalid email or password." } };
       }
       await createSession(row.id, this.cookieStore);
-      return { data: { user: { id: row.id, email: row.email } }, error: null };
+      return { data: { user: { id: row.id, email: row.email, is_admin: row.is_admin } }, error: null };
     } catch (error) {
       return { data: { user: null }, error: friendlyError(error) };
     }
@@ -193,12 +197,12 @@ export class AuthApi {
       const rows = await queryRows<AppUser>(
         `WITH new_user AS (
            INSERT INTO app_users (email, password_hash) VALUES ($1, $2)
-           RETURNING id, email
+           RETURNING id, email, is_admin
          ), new_profile AS (
            INSERT INTO profiles (id, username, timezone, timezone_initialized_at)
            SELECT id, $3, $4, now() FROM new_user
          )
-         SELECT id, email FROM new_user`,
+         SELECT id, email, is_admin FROM new_user`,
         [email, hash, displayName, timeZone],
       );
       const user = rows[0];

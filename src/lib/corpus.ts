@@ -62,6 +62,41 @@ export function isCorpusAdmin(email: string | null | undefined, adminList: strin
     .includes(email.toLowerCase());
 }
 
+/**
+ * Everyone who authored a corpus item: the account of record plus any other
+ * participant recorded in the side mapping.
+ *
+ * Solo items have only the account of record. PvP items record BOTH players
+ * in `side_mapping.contributors` — and that array used to be written and
+ * never read, so the second player was offered their own transcript to rate
+ * and their rating was accepted. A self-rating injects the author's own
+ * judgement into the human ground truth the judge-validation gates read, so
+ * every contributor is excluded, not just the account of record.
+ */
+export function corpusItemContributorIds(item: {
+  contributor_id?: string | null;
+  side_mapping?: unknown;
+}): string[] {
+  const ids = new Set<string>();
+  if (typeof item.contributor_id === "string" && item.contributor_id) {
+    ids.add(item.contributor_id);
+  }
+  const mapping = item.side_mapping as { contributors?: unknown } | null | undefined;
+  const contributors = Array.isArray(mapping?.contributors) ? mapping.contributors : [];
+  for (const id of contributors) {
+    if (typeof id === "string" && id) ids.add(id);
+  }
+  return [...ids];
+}
+
+/** True when this account authored any part of the item's transcript. */
+export function isCorpusContributor(
+  item: { contributor_id?: string | null; side_mapping?: unknown },
+  userId: string,
+): boolean {
+  return corpusItemContributorIds(item).includes(userId);
+}
+
 // --- Stratification --------------------------------------------------------
 
 export function lengthBucketFor(transcript: string): "short" | "medium" | "long" {

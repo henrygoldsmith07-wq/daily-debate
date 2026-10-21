@@ -334,6 +334,34 @@ describe("POST immutability and closure (append-once ratings)", () => {
     expect(h.state.tables.corpus_ratings ?? []).toHaveLength(0);
   });
 
+  it("neither player of a PvP debate may rate it", async () => {
+    // The import records BOTH players in side_mapping.contributors, but that
+    // array used to be written and never read — so player B was offered their
+    // own transcript and their rating was accepted. A self-rating injects the
+    // author's own judgement into the human ground truth the judge gates read.
+    const pvpItem = {
+      ...ITEM_A,
+      contributor_id: "player-a",
+      side_mapping: { contributors: ["player-a", "player-b"] },
+    };
+    h.reset({ corpus_items: [pvpItem], corpus_ratings: [] });
+
+    for (const player of ["player-a", "player-b"]) {
+      h.state.user = { id: player };
+      const res = await post(ratingBody());
+      expect(res.status).toBe(403);
+      expect(h.state.tables.corpus_ratings ?? []).toHaveLength(0);
+    }
+
+    // ...and neither of them is even OFFERED the item.
+    for (const player of ["player-a", "player-b"]) {
+      h.state.user = { id: player };
+      const res = await GET(new Request("http://localhost/api/corpus/rate"));
+      const json = (await res.json()) as { item: unknown };
+      expect(json.item).toBeNull();
+    }
+  });
+
   it("rejects malformed payloads before any write", async () => {
     h.state.user = { id: userWithAssignment("a") };
     const res = await post({ ...ratingBody(), scores_a: null });

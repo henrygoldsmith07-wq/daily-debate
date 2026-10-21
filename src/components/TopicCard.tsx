@@ -8,6 +8,7 @@ import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import { formatEstimateLabel, formatLabelFor, SPRINT_ESTIMATE_MINUTES, SPRINT_ROUNDS, type DebateFormat } from "@/lib/sprint";
 import { OPPONENT_DIFFICULTY_LIST, OPPONENT_PERSONA_LIST, type OpponentDifficulty, type OpponentPersonaId } from "@/lib/opponentPersona";
 import type { DailyTopic, DebateSide } from "@/lib/types";
+import { NEUTRAL_GOAL_LINE } from "@/lib/retestDisclosure";
 
 export interface EvidenceChecksView {
   supportsClaim?: boolean;
@@ -40,13 +41,11 @@ export default function TopicCard({
   topic,
   activeDebateId,
   evidenceCards = [],
-  goalLine = "Use evidence for major claims.",
+  goalLine = NEUTRAL_GOAL_LINE,
   lastLine,
   focusLabel = "Today's focus",
   isFirstVisit = false,
   motionReason = null,
-  retestMode = false,
-  retestRepairId = null,
 }: {
   topic: DailyTopic;
   activeDebateId: string | null;
@@ -60,10 +59,6 @@ export default function TopicCard({
   isFirstVisit?: boolean;
   /** Why this motion was picked for this user (null = shared daily motion). */
   motionReason?: string | null;
-  /** Deliberate retest: today measures transfer of a repaired skill. */
-  retestMode?: boolean;
-  /** Repair this debate deliberately retests; sent to /api/solo/start. */
-  retestRepairId?: string | null;
 }) {
   const router = useRouter();
   const [side, setSide] = useState<SideChoice>("challenge");
@@ -83,7 +78,10 @@ export default function TopicCard({
       const res = await fetch("/api/solo/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicId: topic.id, side, format, retestFor: retestRepairId, persona, difficulty }),
+        // No `retestFor` here: the deliberate retest is assigned server-side
+        // from the pending repair, so the client cannot nominate a debate to
+        // be scored as a transfer test (and no surface may announce one).
+        body: JSON.stringify({ topicId: topic.id, side, format, persona, difficulty }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start debate.");
@@ -105,7 +103,7 @@ export default function TopicCard({
     <section className="home-motion-card surface-card" aria-labelledby="today-motion">
       <div className="home-motion-heading">
         <div>
-          <p className="home-motion-kicker">{retestMode ? "Today's retest motion" : "Today's motion"}</p>
+          <p className="home-motion-kicker">Today&apos;s motion</p>
           <p className="home-motion-meta">Sprint: {SPRINT_ROUNDS} focused rounds · about {SPRINT_ESTIMATE_MINUTES} minutes · more formats below</p>
         </div>
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">

@@ -3,6 +3,7 @@ import { validateRating } from "@/lib/corpus";
 import { appendRatingCorrection } from "@/lib/corpusRatingStore";
 import { getRequestAuthContext } from "@/lib/requestAuth";
 import { invalidatePublicCorpusMetrics } from "@/lib/publicCorpusMetrics";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 // Admin-only correction of a corpus rating. Normal ratings are immutable
 // (first submission wins, duplicates rejected with 409); when a verdict is
@@ -11,6 +12,11 @@ import { invalidatePublicCorpusMetrics } from "@/lib/publicCorpusMetrics";
 // rating's corrections array. The original record stays reconstructable.
 
 export async function POST(request: Request) {
+  // Bounded: corrections rewrite ground truth, so the write path is rate
+  // limited like every other mutation in the product.
+  const limited = await checkRateLimit(request, { name: "corpus-correct", limit: 30, windowMs: 60_000 });
+  if (limited) return limited;
+
   const auth = await getRequestAuthContext();
   const user = auth.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

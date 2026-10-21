@@ -30,14 +30,19 @@ describe("pickRetestMotion", () => {
   it("never returns the repaired debate's motion", () => {
     const choice = pickRetestMotion([daily, edu], daily.id, daily.category);
     expect(choice?.motion.id).toBe("t-edu");
-    expect(choice?.reason).toMatch(/different topic/i);
+    // The reason may not announce that a transfer test is happening: the
+    // learner would then perform the skill rather than reveal it
+    // (retestDisclosure.ts).
+    expect(choice?.reason).toMatch(/different motion/i);
+    expect(choice?.reason).not.toMatch(/transfer|test/i);
   });
 
   it("prefers a different category for transfer", () => {
     const sameCategory: MotionCandidate = { ...edu, id: "t-edu2", category: "Transport" };
     const choice = pickRetestMotion([sameCategory, edu], daily.id, "Transport");
     expect(choice?.motion.id).toBe("t-edu");
-    expect(choice?.reason).toMatch(/transfer/i);
+    expect(choice?.reason).toMatch(/different motion/i);
+    expect(choice?.reason).not.toMatch(/transfer|test/i);
   });
 
   it("falls back to a different motion in the same category when nothing else exists", () => {

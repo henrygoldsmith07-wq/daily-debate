@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/backend/server";
 import { getRequestAuthContext } from "@/lib/requestAuth";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 // Admin-only review of one corpus item for adjudication: full transcript plus
 // its ratings. Rater identities are anonymised to Rater 1..N so the moderator
 // decides on arguments, not on who said it.
 
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const limited = await checkRateLimit(request, { name: "corpus-item", limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   const { id } = await params;
   const auth = await getRequestAuthContext();
   const user = auth.user;

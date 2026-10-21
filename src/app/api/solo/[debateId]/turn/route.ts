@@ -15,6 +15,7 @@ import {
 import { resolveDebateFormat, roundCapFor } from "@/lib/sprint";
 import { resolveDifficulty, resolvePersona, turnDirective } from "@/lib/opponentPersona";
 import { liveCoachingForTurn } from "@/lib/liveCoaching";
+import { repairKindToDimension } from "@/lib/repairRetest";
 import { checkModeConstraints, isDebateModeId, resolveMode, type DebateModeId } from "@/lib/debateModes";
 import { analyseSpeechTurn, parseTurnTiming, scoreSpeechQuality } from "@/lib/speechAnalysis";
 import {
@@ -217,10 +218,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   // Real-time coaching: the same deterministic evidence that scores the turn
   // becomes at most two hints for the NEXT round. Advisory only — never
   // persisted as ground truth, never altering scores.
+  //
+  // During a deliberate retest the hints that cue the skill under test are
+  // suppressed: a live hint IS a prompt for the behaviour the retest is
+  // supposed to measure unprompted (retestDisclosure.ts). The debate row was
+  // loaded with `select("*")`, so the retest assignment is already in memory —
+  // no extra query, and the client cannot influence this.
+  const retestTargetKind = (debate.coaching as { repairRetest?: { targetKind?: string } } | null | undefined)
+    ?.repairRetest?.targetKind;
+  const retestDimension = retestTargetKind ? repairKindToDimension(retestTargetKind) : null;
   const liveCoaching = liveCoachingForTurn({
     assessment: observable.assessment,
     round: pendingTurn.round_number,
     userMessage: message,
+    suppressDimension: retestDimension,
   });
 
   const wordCount = message.trim().split(/\s+/).filter(Boolean).length;
