@@ -94,6 +94,13 @@ function toSpec(entry: ProviderConfigEntry): ProviderSpec {
  *   unorouter nemotron-3.5-lightning:free    278/312 = 0.891   clears providerReliabilityMin (0.75)
  *   openrouter nvidia/nemotron-3-super:free    72/300 = 0.240   cannot clear it (mostly 429s)
  *
+ * That row is STALE for unorouter: a live quota probe on 2026-10-20 showed
+ * nemotron-3.5-lightning:free answering 404 model_not_found - the slug was
+ * retired from the provider's catalogue, the same failure mode that killed the
+ * kiraai slugs. It is demoted to the end of the chain in config/ai-providers.json
+ * rather than deleted, so it is skipped while it is dead and costs nothing if
+ * the provider restores it. Re-measure before reordering.
+ *
  * groq, cerebras, gemini and nvidia have no benchmark row and sit between the
  * two measured transports. Kirai is not in the app chain: its free slugs were
  * retired and the rest bill a wallet. Re-measure before reordering.

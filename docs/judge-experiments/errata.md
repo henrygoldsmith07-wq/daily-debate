@@ -344,3 +344,61 @@ above. A replacement pre-registration, `grounding-two-pass-verbosity`, is
 sealed in place. It targets the largest genuine invariance gap (verbosity
 stability 0.200 vs a 0.95 gate). No verdict changes as a result — both
 studies were unexecuted and therefore inconclusive by construction.
+
+## Erratum 2026-10-20 — the registered transport was retired; the throttle counted the wrong thing
+
+Two independent defects surfaced together when the CI study workflow was
+dispatched for real on 2026-10-20. Both concern the TRANSPORT, and both had
+been silently mis-scored as judge quality.
+
+**Defect 1: the throttle paced judge CALLS, not provider REQUESTS.**
+`--pace-ms` was applied once per judge call. But one judge call can issue
+several HTTP requests: the chain walks each model in turn (a retired model
+answers 404 and the walk continues) and each model may be retried on a
+transport error. With a three-model chain the real request rate was several
+times the configured ceiling, so the provider answered 429 — and 429 was
+recorded as a judge-quality failure. The fix moves the gate inside `chat()`,
+immediately before each `fetch`, so it counts exactly the requests the
+provider sees. The gate stays process-global and provider-agnostic: one shared
+account is one shared budget, and the study runs one provider at a time.
+`scripts/lib/judge-request-gate.test.mjs` pins this, and was proven
+non-vacuous by removing the gate and watching the tests fail.
+
+**Defect 2: unorouter's registered model was retired upstream.**
+The live quota probe on 2026-10-20 showed `nemotron-3.5-lightning:free`
+answering **404 model_not_found** — the slug was withdrawn from the
+provider's catalogue, the same failure mode that killed the kiraai slugs on
+2026-09-15. The chain walked past it to `nemotron-3-super-120b-a12b:free` and
+`nemotron-3-ultra-550b-a55b:free`, both of which answered **429**: the free
+tier allows 5 requests per minute. `config/ai-providers.json` still listed
+the dead slug as unorouter's `defaultModel`, so the app's own production
+chain was burning a request on a model that cannot answer. The slug is
+demoted to last in the chain rather than deleted, so it costs nothing if the
+provider restores it and is skipped entirely while it is dead.
+
+**What this invalidates.** The registration `grounding-two-pass-verbosity`
+named `nemotron-3.5-lightning:free` in its `singleVariable`, and its whole
+design rests on a 0.200 verbosity-stability baseline measured on that
+transport. That transport no longer serves the model, so the study could
+never have measured what it was registered to measure. It is **withdrawn,
+unexecuted**, with a substantive withdrawal reason; it was never sealed under
+its new status and produced no verdict. The QUESTION is not withdrawn: it is
+re-registered as `grounding-two-pass-verbosity-v2` against cerebras, the only
+transport that answered a live probe on 2026-10-20, with the same arms, the
+same fixtures, the same gates, the same protected caps, the same adoption
+rule and the same threshold — only the transport changes, and the baseline is
+now measured inside the study, so the comparison is internally controlled.
+
+**Why cerebras.** On 2026-10-20 a live probe found cerebras the only provider
+answering (`PROBE-OK`); openrouter answered a 429 `free-models-per-day` cap
+(a daily cap, not a per-minute one); groq, gemini and nvidia have no keys
+configured in this repository at all. The 2026-10-19 artifact independently
+shows cerebras's failures were **150 rate-limits and zero judge-quality
+errors** — a transport fact. cerebras is also a single-model chain, so both
+arms necessarily run the same model.
+
+**Nothing else is invalidated.** No verdict depended on any of this: the
+withdrawn registration was never executed, and the 2026-10-19 artifact's
+"no usable measurement" verdicts were already the honest outcome for the
+same underlying reason (rate-limits, not judge defects).
+

@@ -27,7 +27,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { FIXTURES, STRATA } from "./lib/judge-fixtures.mjs";
 import { PROBES, AUDIT_TRANSFORMS } from "./lib/judge-transforms.mjs";
-import { allJudgeProviders, estimatedCost, usableProviders, VERDICT_PROMPT_VERSION, buildVerdictSystem, verdictUser, RETRY_POLICY } from "./lib/judge-providers.mjs";
+import { allJudgeProviders, estimatedCost, usableProviders, VERDICT_PROMPT_VERSION, buildVerdictSystem, verdictUser, RETRY_POLICY, setRequestGateMs } from "./lib/judge-providers.mjs";
 import { EXPERIMENTS, experimentSystem } from "./lib/judge-experiments.mjs";
 import {
   GATE_DEFAULTS,
@@ -72,20 +72,20 @@ const argInt = (name, dflt, min, max) => {
 };
 const LIMIT = argInt("limit", FIXTURES.length, 1, FIXTURES.length);
 const CONCURRENCY = argInt("concurrency", 3, 1, 8);
-// Pacing: minimum milliseconds between successive provider calls, applied
-// globally (not per worker). Free tiers advertise ceilings like "5 requests
-// every 1 min"; a benchmark that bursts past that collects 429s instead of
-// verdicts, and a 429 is a transport failure that lands in the reliability
-// denominator - so an unpaced run measures the rate limiter, not the judge.
-// 0 (the default) preserves the historical unpaced behaviour exactly.
+// Pacing: minimum milliseconds between successive provider REQUESTS, applied
+// globally (not per worker) and enforced inside the provider layer, so it
+// counts the requests the provider actually receives. Free tiers advertise
+// ceilings like "5 requests every 1 min"; a benchmark that bursts past that
+// collects 429s instead of verdicts, and a 429 is a transport failure that
+// lands in the reliability denominator - so an unpaced run measures the rate
+// limiter, not the judge.
+//
+// The gate counts REQUESTS, not judge calls: one judge call can issue several
+// requests (the chain walks a retired model and each model may be retried),
+// so a call-level throttle let the true request rate exceed the ceiling
+// several times over. 0 (the default) preserves the historical behaviour.
 const PACE_MS = argInt("pace-ms", 0, 0, 300_000);
-let lastCallAt = 0;
-async function pace() {
-  if (PACE_MS <= 0) return;
-  const wait = lastCallAt + PACE_MS - Date.now();
-  if (wait > 0) await sleep(wait);
-  lastCallAt = Date.now();
-}
+setRequestGateMs(PACE_MS);
 const ENFORCE = args.includes("--enforce");
 const argVal = (name) => {
   const eq = args.find((x) => x.startsWith(`--${name}=`));
@@ -167,7 +167,6 @@ async function evaluateModel(judge) {
   };
   for (const f of fixtures) {
     try {
-      await pace();
       const v = await judge.fn(f.transcript);
       bases.push({ fixture: f.id, expected: f.expectedWinner, ...v });
       if (v.latencyMs != null) latencySamples.push(v.latencyMs);
@@ -186,7 +185,6 @@ async function evaluateModel(judge) {
     const base = okBases.find((b) => b.fixture === f.id);
     if (!base) { tick("probe"); return { fixture: f.id, probe: probe.id, mirrored: probe.mirrored === true, error: "no-base" }; }
     try {
-      await pace();
       const v = await judge.fn(probe.fn(f.transcript));
       if (v.latencyMs != null) latencySamples.push(v.latencyMs);
       if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
@@ -215,7 +213,6 @@ async function evaluateModel(judge) {
       const base = okBases.find((b) => b.fixture === f.id);
       if (!base) { tick("audits"); return { id: t.id, fixture: f.id, error: "no-base" }; }
       try {
-        await pace();
         const v = await judge.fn(t.fn(f.transcript));
         if (v.latencyMs != null) latencySamples.push(v.latencyMs);
         if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });

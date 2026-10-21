@@ -1,6 +1,8 @@
 {
   "schemaVersion": 2,
   "name": "grounding-two-pass-verbosity",
+  "status": "withdrawn",
+  "withdrawalReason": "WITHDRAWN 2026-10-20, never executed under this registration. The registered transport no longer exists: a live quota probe on 2026-10-20 showed unorouter's registered model nemotron-3.5-lightning:free answering 404 model_not_found (the slug was retired from the provider's catalogue - the same failure mode that killed the kiraai slugs), with both unorouter fallbacks answering 429 because the free tier allows only 5 requests per minute. The registration named that exact model in its singleVariable, so the study could never have measured what it was registered to measure: its whole design rests on a baseline of 0.200 verbosity stability measured on a transport that no longer serves it. The QUESTION is not withdrawn with it - the architecture question is still open and is re-registered against a transport that answers (see grounding-two-pass-verbosity-v2). This registration is kept byte-intact as the historical record of what was asked and of why it could not be run.",
   "kind": "architecture",
   "registeredVia": "judge benchmark 2026-10-04, unorouter:nemotron-3.5-lightning:free (the default transport after #81)",
   "question": "The default judge is strongly sensitive to padding that adds no argument: verbosity inflation appends one sentence of pure emphasis to every line and the verdict moves in 16 of 20 usable fixtures (flipRate 0.800, stability 0.200 against a 0.95 gate). Style sophistication (0.706) and name removal (0.688) are nearly as bad. If the judge scored a grounded claim representation instead of the raw prose, would that padding stop moving the verdict, rather than the judge merely becoming sensitive to something else?",
