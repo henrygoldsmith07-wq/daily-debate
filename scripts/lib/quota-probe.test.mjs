@@ -115,6 +115,45 @@ test("an empty label keeps the historical any-configured behaviour", () =>
     assert.match(seen[0], /api\.unorouter\.com/);
   }));
 
+test("a rate-limited probe states WHICH WINDOW the ceiling uses, and the pace it implies", () =>
+  withNetEnv(async () => {
+    // The three providers disagree about the window (cerebras per HOUR,
+    // unorouter per MINUTE, openrouter per DAY). A run paced for the wrong
+    // window dies at the boundary after the budget is spent, so the probe
+    // must name the window rather than leave it to be inferred later.
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({ message: "Requests per hour limit exceeded - too many requests sent.", type: "too_many_requests_error" }),
+        { status: 429, headers: { "content-type": "application/json" } },
+      );
+    const { line, code } = await runQuotaProbe(["unorouter"]);
+    assert.equal(code, 4);
+    assert.ok(line.startsWith("PROBE-FAIL"), line);
+    assert.match(line, /limit=window=hour/);
+    assert.match(line, /pace>=\d+ms/);
+  }));
+
+test("a per-DAY ceiling says so plainly - no pace can satisfy it", () =>
+  withNetEnv(async () => {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ error: { message: "Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free models requests per day." } }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    const { line, code } = await runQuotaProbe(["openrouter"]);
+    assert.equal(code, 4);
+    assert.match(line, /limit=window=day/);
+    assert.match(line, /no pace can satisfy it/);
+  }));
+
+test("the PROBE-OK prefix is untouched, so the study's probe gate still works", () =>
+  withNetEnv(async () => {
+    globalThis.fetch = async () => openAiResponse(verdict);
+    const { line, code } = await runQuotaProbe(["openrouter"]);
+    assert.equal(code, 0);
+    assert.ok(line.startsWith("PROBE-OK"), line);
+  }));
+
 test("resolveJudgeForLabel: strict match, no fuzzy fallthrough", () => {
   assert.equal(resolveJudgeForLabel("sneaky", {}), null, "an unknown label resolves to nothing");
 });

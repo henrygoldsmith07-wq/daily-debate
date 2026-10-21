@@ -221,7 +221,12 @@ export function ArgGraphInline({
                   </span>
                   {editable && editId === n.id ? (
                     <span className="flex flex-1 gap-2">
-                      <input maxLength={500} value={editText} onChange={(e) => setEditText(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--rule)] bg-transparent px-2 py-1 text-sm" aria-label={`Edit ${n.id}`} />
+                      <input maxLength={500} value={editText} onChange={(e) => setEditText(e.target.value)}
+                        enterKeyHint="done"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); commitEdit(n.id); }
+                          else if (e.key === "Escape") setEditId(null);
+                        }} className="min-w-0 flex-1 rounded border border-[var(--rule)] bg-transparent px-2 py-1 text-sm" aria-label={`Edit ${n.id}`} />
                       <button type="button" onClick={() => commitEdit(n.id)} className="btn btn-primary px-2 py-1 text-xs">Save</button>
                       <button type="button" onClick={() => setEditId(null)} className="btn btn-ghost px-2 py-1 text-xs">Cancel</button>
                     </span>
