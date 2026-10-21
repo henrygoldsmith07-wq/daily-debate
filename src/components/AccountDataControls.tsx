@@ -114,6 +114,7 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
                 type="text"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
+                maxLength={20}
                 autoComplete="off"
                 className="mt-1 w-full rounded-md border border-ink3/40 bg-transparent px-2 py-1.5 text-sm text-ink2"
               />
@@ -124,6 +125,7 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                maxLength={128}
                 autoComplete="current-password"
                 className="mt-1 w-full rounded-md border border-ink3/40 bg-transparent px-2 py-1.5 text-sm text-ink2"
               />
