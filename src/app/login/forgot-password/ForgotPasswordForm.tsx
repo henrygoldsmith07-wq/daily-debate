@@ -48,6 +48,10 @@ export default function ForgotPasswordForm() {
             required
             maxLength={254}
             autoComplete="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            inputMode="email"
             className="rounded border border-[var(--rule)] bg-transparent px-3 py-2 text-sm"
           />
         </label>
