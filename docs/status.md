@@ -61,6 +61,32 @@ a new full-pack run lands).
 daily loop; see [docs/roadmap.md](roadmap.md) for the scorecard and the parked
 backlog.
 
+### The retest-timing lever: what the code does today, and what is not yet known
+
+The roadmap's day-1 retargeting lever is **partly implemented and not yet
+measured**. What the code does today:
+
+- a successful repair enters the pending-retest queue immediately
+  (`repair_retests`), oldest first, and the queue survives newer successes;
+- the next debate the learner starts carries the test, provided its topic
+  differs from the repaired debate's (`selectEligiblePendingRetest`);
+- the dashboard therefore serves a **retargeted motion** when a test is
+  pending, so the "different topic" rule does not cost a day
+  (`practiceMotion.pickRetestMotion`);
+- if the day offers no alternative motion, the test waits — and the wait is
+  now silent, because the disclosure policy forbids announcing it.
+
+So a retest *can* land on the next debate. What is **not** established is how
+often it actually does, and how much of the gap between "repair" and "retest"
+is scheduling versus the learner simply not returning. The `/analytics`
+repair loop already tracks "Retest timing: prompted vs incidental" as
+sample-gated observational association. The next step is to read that number
+with real weekly users before changing the schedule: a retest that lands on
+day 1 but is cued measures recall, and a retest that lands on day 14 but is
+un-cued measures something the learner may no longer care about. No code
+change to the schedule has been made on the strength of an unmeasured
+hypothesis, and none should be until the scorecard has a baseline.
+
 ## Experimental surfaces (flag-gated, default off)
 
 PvP navigation, friend challenges, voice input, and the corpus-validation
