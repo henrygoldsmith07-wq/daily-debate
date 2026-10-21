@@ -115,6 +115,7 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 maxLength={20}
+                enterKeyHint="next"
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
@@ -131,6 +132,7 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 maxLength={128}
+                enterKeyHint="done"
                 autoComplete="current-password"
                 className="mt-1 w-full rounded-md border border-ink3/40 bg-transparent px-2 py-1.5 text-sm text-ink2"
               />
