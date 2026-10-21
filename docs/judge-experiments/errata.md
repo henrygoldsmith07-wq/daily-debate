@@ -511,3 +511,49 @@ excluded from any inference, exactly as the protocol requires for an incomplete
 plan. **No gate was loosened and no threshold was touched to produce these
 numbers** — they are measurements that FAIL, which is the point of measuring.
 
+### Defect 7: the weekly benchmark never turned the request gate on
+
+Found while fixing the study, and it is the same defect as #1 in a different place.
+
+The request gate added on 2026-10-21 sits inside `chat()`, immediately before each
+`fetch`, and it counts exactly the requests a provider receives. It is enabled by
+`--pace-ms`, and **`--pace-ms` defaults to 0, which disables the gate entirely.**
+
+The weekly `judge-benchmark` workflow ran:
+
+```yaml
+run: node scripts/judge-benchmark.mjs --concurrency 3 --enforce
+```
+
+— no `--pace-ms`, so the gate was **off** for every weekly run. The real request
+rate ran several times over the free tier's ceiling, the provider answered **429**,
+and a 429 lands in the reliability **denominator** — so it was scored as a
+**judge-quality failure**.
+
+**This is what the 2026-10-19 artifact actually was.** It recorded cerebras at
+provider reliability **0.219** with **150 rate-limits and zero judge-quality
+errors**, and every model failing the reliability floor (cerebras 0.219, openrouter
+0.244, unorouter 0.000, kiraai 0.000). Those numbers were a measurement of the
+**rate limiter**, published in a column that reads as judge quality — which is
+precisely why the erratum had to say "the 2026-10-19 record shows free-tier
+availability, not judge quality". Now the cause is fixed at the source rather than
+explained away after the fact.
+
+The weekly run now passes `--pace-ms 15000` (240 requests/hour, 80% of the ~300/hour
+ceiling that **both** paceable free tiers use — unorouter at 5/minute is 300/hour,
+cerebras at ~300/hour). A paced full pack across the three providers this repository
+has keys for is ~936 requests, i.e. ~4 hours of wall-clock, so the job's
+`timeout-minutes` is now explicit at 350 — under GitHub's 6-hour ceiling and above
+the paced runtime, because a job killed at the default timeout publishes **nothing**.
+
+`scripts/lib/judge-benchmark-workflow.test.mjs` states the invariant over the
+workflows rather than over one file: **any workflow that runs the live judge
+benchmark must pace provider requests.** A new workflow cannot silently skip it.
+
+**What this invalidates.** The 2026-10-19 artifact's *provider reliability* column is
+now explained rather than merely annotated, and it should be read as a rate-limit
+record. Its quality columns remain valid. The 2026-10-21 cerebras baseline in this
+erratum is the first reliability figure in the repository that was measured with the
+gate on, and it read **0.983** — against 0.219 for the same provider two days
+earlier. That gap is the size of this defect.
+
