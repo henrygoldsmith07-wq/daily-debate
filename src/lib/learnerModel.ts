@@ -149,6 +149,7 @@ export interface PracticeTarget {
   caveat: string;
   priority:
     | "retest-due"
+    | "coaching-focus"
     | "persistent-weakness"
     | "needs-evidence"
     | "general";
@@ -218,6 +219,12 @@ export interface LearnerModelInput {
    * same queue and the same rule.
    */
   excludeSkills?: readonly SkillDimensionKey[];
+  /**
+   * The skill today's coaching line names (the goal dimension). The practice
+   * target follows it, so the two cards on Progress describe one instruction
+   * rather than two.
+   */
+  preferSkill?: SkillDimensionKey | null;
   now?: string;
 }
 
@@ -522,26 +529,56 @@ export function selectNextPractice(
   skills: SkillReading[],
   repairs: SkillRepairState[],
   excludeSkills: readonly SkillDimensionKey[] = [],
+  preferSkill?: SkillDimensionKey | null,
 ): PracticeTarget | null {
   // The skills whose transfer is being measured are off-limits for today's
-  // coaching. Two sources, unioned:
-  //   - the caller's set: the pending-retest queue (retestDisclosure.ts), the
-  //     same queue every other surface excludes;
-  //   - the repair states: a successful repair with no completed observable
-  //     retest is under test even if its queue row has not been read yet.
-  // Deriving the exclusion here from the repair list ALONE meant the practice
-  // target could exclude a DIFFERENT skill than the goal did — and so could
-  // name the skill under silent test. Over-excluding is the safe direction:
-  // the selector falls back to the next real weakness, never to the skill
-  // being measured.
-  const excluded = new Set<SkillDimensionKey>([
-    ...excludeSkills,
-    ...repairs.filter((r) => r.awaitingRetest).map((r) => r.skill),
-  ]);
+  // coaching. The caller supplies them from the pending-retest queue — the
+  // same queue, and the same rule, every other surface uses
+  // (retestDisclosure.ts). Deriving the exclusion here from the repair list
+  // instead meant the practice target could exclude a DIFFERENT skill than
+  // the goal did — and so could name the skill under silent test.
+  const excluded = new Set<SkillDimensionKey>(excludeSkills);
+  // Defence in depth: the repair states know which skills are awaiting a
+  // test too. They agree with the queue in production; when a caller does not
+  // pass the queue, this still keeps the skill being measured out of the
+  // target. It is NOT applied to the coaching line below — that line is
+  // already on the learner's screen, and it was computed with the queue's
+  // exclusion, so following it discloses nothing new.
+  const awaiting = new Set<SkillDimensionKey>(
+    repairs.filter((r) => r.awaitingRetest).map((r) => r.skill),
+  );
   const available = skills.filter((s) => !excluded.has(s.key));
   if (!available.length) return null;
 
-  const withEvidence = available.filter((s) => s.level !== null && s.sampleSize >= MIN_SKILL_SAMPLE);
+  // Today's coaching line wins. The goal line is what the debate is graded
+  // against, and this card says what today's debate will work on — so when
+  // the two disagreed, the learner got two instructions for one debate, on
+  // one screen, naming two different skills. The target now follows the goal.
+  if (preferSkill) {
+    const preferred = available.find((s) => s.key === preferSkill);
+    if (preferred) {
+      return {
+        skill: preferred.key,
+        label: preferred.label,
+        priority: "coaching-focus",
+        reason: `Today's coaching line is ${preferred.label.toLowerCase()}, so that is the skill today's debate will work on.`,
+        observable: skillObservable(preferred.key),
+        evidence:
+          preferred.sampleSize === 0
+            ? `No debate has produced a ${preferred.label} signal yet.`
+            : `${preferred.label} is drawn from ${preferred.sampleSize} observed debate${preferred.sampleSize === 1 ? "" : "s"} (${preferred.instrument === "extracted" ? "partly model-read structure" : "counted from your moves"}).`,
+        caveat:
+          preferred.claim === "inference"
+            ? "This reading leans on a model reading your argument structure — useful, not certain."
+            : "This describes your observed behaviour so far, not a fixed ability.",
+      };
+    }
+  }
+
+  const open = available.filter((s) => !awaiting.has(s.key));
+  if (!open.length) return null;
+
+  const withEvidence = open.filter((s) => s.level !== null && s.sampleSize >= MIN_SKILL_SAMPLE);
   // 1. Persistent weakness: the weakest skill we actually have enough evidence for.
   if (withEvidence.length) {
     const weakest = [...withEvidence].sort((a, b) => (a.level as number) - (b.level as number))[0];
@@ -562,7 +599,7 @@ export function selectNextPractice(
   }
 
   // 2. Need more evidence: the skill we can least judge right now.
-  const thin = available
+  const thin = open
     .filter((s) => s.level === null || s.sampleSize < MIN_SKILL_SAMPLE)
     .sort((a, b) => a.sampleSize - b.sampleSize);
   if (thin.length) {
@@ -582,8 +619,8 @@ export function selectNextPractice(
   }
 
   // 3. General practice on the weakest available skill.
-  const scored = available.filter((s) => s.level !== null);
-  const weakest = scored.length ? [...scored].sort((a, b) => (a.level as number) - (b.level as number))[0] : available[0];
+  const scored = open.filter((s) => s.level !== null);
+  const weakest = scored.length ? [...scored].sort((a, b) => (a.level as number) - (b.level as number))[0] : open[0];
   return {
     skill: weakest.key,
     label: weakest.label,
@@ -675,7 +712,12 @@ export function buildLearnerModel(input: LearnerModelInput): LearnerModel {
   const repairs = buildRepairStates(episodes, input.retests);
   const retests = buildRetestRecords(input.retests);
 
-  const nextPractice = selectNextPractice(skills, repairs, input.excludeSkills ?? []);
+  const nextPractice = selectNextPractice(
+    skills,
+    repairs,
+    input.excludeSkills ?? [],
+    input.preferSkill ?? null,
+  );
   const currentFocus = currentFocusFor(skills, repairs, nextPractice);
   const questions = questionsFor(skills, repairs, nextPractice);
 
