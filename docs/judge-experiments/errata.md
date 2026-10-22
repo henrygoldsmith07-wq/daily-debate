@@ -742,5 +742,77 @@ merely unrecorded."*
 from the provider instead of inferred from how fast a run happened to survive. This adds a
 field; it changes no measurement.
 
+### Defect 12 — the request gate is charged to the JUDGE's latency, and to its timeout
+
+`chat()` starts its clock (`const started = Date.now()`) and its **abort timer**
+(`setTimeout(() => controller.abort(), timeoutMs)`) at the top of the function — **before**
+`await waitForRequestSlot()`. So the gate's waiting is charged to the model, twice.
+
+**Consequence 1 — the published "judge latency" is the PACE.** A local probe with a stub
+provider that answers in **100 ms**:
+
+| gate | measured latency |
+|---|---|
+| 0 ms | **109 ms** |
+| 200 ms | **180 ms** |
+| 400 ms | **336 ms** |
+
+The measured latency tracks the gate, not the model. The study artifacts show the same
+thing exactly:
+
+| run | pace | requests per judge call | measured p50 |
+|---|---|---|---|
+| baseline run 1 | 12 000 ms | 1 | **12 002 ms** |
+| baseline run 2 | 25 000 ms | 1 | **25 008 ms** |
+| candidate (excluded) | 15 000 ms | **2** | **29 968 ms** ≈ 2 × 15 000 |
+
+**The registered "latency p50 ms" protected metric (cap 25 000) was therefore measuring
+`pace × requests-per-call`, not the judge.** The candidate's "17 966 ms regression" over the
+baseline is one extra gated request, not a slower judge. The verdict does not change (the
+regression is inside the cap either way, and it is also inside the cap under the correct
+measurement), but the *number* is mislabeled — and the run artifact's `latency` block, which
+is rendered on `/metrics`, is off by the pace.
+
+**Consequence 2 — the request timeout is `timeoutMs − gate`, not `timeoutMs`.** The abort
+timer starts before the gate wait, so a paced run's fetch gets whatever is left of the
+35-second budget. **A gate at or above the timeout aborts every request.** Demonstrated
+with the default 35 000 ms timeout and a provider that answers in 300 ms:
+
+| gate | outcome |
+|---|---|
+| 34 000 ms | ok (measured 34 110 ms) |
+| 36 000 ms | **FAILED: This operation was aborted** |
+
+The study's 25 000 ms pace left a 10 000 ms effective budget — enough for the observed
+~2 100 ms worst case, which is why no request timed out, but the margin was an accident of
+the pace rather than a designed one.
+
+> The first version of this probe reported "ok" at a 36 000 ms gate, because the test's
+> `fetch` stub ignored a signal that was **already aborted** — the abort event had fired
+> before the listener was attached, so it never fired again. The real `fetch` rejects
+> immediately in that state. **The stub was the unfaithful part, not the code.** It is
+> recorded here because a probe that does not model the failure it claims to test will
+> confidently report the wrong answer — which is the whole subject of this file.
+
+**Why this is not fixed in this PR.** The two candidate arms of the v2 study must measure
+latency the **same** way or their comparison is meaningless — and the first candidate arm
+is already running under the current definition. Changing the measurement now would make
+the two candidate arms incomparable and corrupt the study's per-metric table. **So the fix
+lands after the study reports**, and the study's latency numbers are read with this note
+attached.
+
+**The fix (one move).** Start both the clock and the abort timer **after** the gate:
+
+```js
+await waitForRequestSlot();          // the transport's wait is the transport's
+const started = Date.now();          // the judge's latency starts here
+const timer = setTimeout(() => controller.abort(), timeoutMs);
+```
+
+**Two instances of the same lesson again**: the instrument's *unit* was wrong (calls vs
+requests), and now the instrument's *clock* is wrong (pace vs provider). **Prove what the
+instrument measures, not just that it runs.**
+
+
 
 
