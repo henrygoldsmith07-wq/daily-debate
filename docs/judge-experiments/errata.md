@@ -546,6 +546,12 @@ has keys for is ~936 requests, i.e. ~4 hours of wall-clock, so the job's
 `timeout-minutes` is now explicit at 350 — under GitHub's 6-hour ceiling and above
 the paced runtime, because a job killed at the default timeout publishes **nothing**.
 
+> ⚠️ **That "~300/hour" was an inference, and it was wrong — see Defect 8 below.** It was
+> read off the rate at which a run happened to survive, not off the provider's statement
+> of its ceiling, and the two disagree in a way that matters. The pace here is therefore
+> also known to be too fast for a two-pass arm. Do not quote 300/hour as cerebras's
+> ceiling — read it from the provider's own headers.
+
 `scripts/lib/judge-benchmark-workflow.test.mjs` states the invariant over the
 workflows rather than over one file: **any workflow that runs the live judge
 benchmark must pace provider requests.** A new workflow cannot silently skip it.
@@ -634,5 +640,179 @@ it is worth a usable run before anyone concludes anything about grounding. Getti
 one needs a pace derived from the provider's stated ceiling — which is now
 readable — and enough wall-clock per arm, since the two-pass arm issues roughly
 twice the requests of the single-pass arm.
+
+---
+
+## Erratum 2026-10-21 (later) — the second baseline run, and two more instrument defects
+
+**The baseline arm ran again at `pace_ms=25000` (144 requests/hour), and it was clean:
+312 calls, 300 requests, reliability 0.993, and — the number that matters — **zero
+rate-limit errors**, where the first baseline at 300/hour had three.**
+
+| baseline run | pace | requests/hour | rate-limit errors | reliability |
+|---|---|---|---|---|
+| `2026-10-21T085123210Z` | 12000 | 300 | 3 | 0.983 |
+| `2026-10-21T224834687Z` | 25000 | 144 | **0** | **0.993** |
+
+**And the two runs agree to three decimal places on every judge-quality metric:**
+verbosity stability 0.636, names 0.565, style 0.609, prestige 0.565, position 0.652,
+fake-citation influence 0.174, agreement 0.522, ECE 0.25. The judge is deterministic
+at temperature 0, so the measurement is reproducible — which is the precondition for
+any of this to mean anything.
+
+**The provider's effective ceiling is now bracketed:** 144 requests/hour is clean,
+240 requests/hour loses 22%. The ceiling is somewhere in that band, and the study is
+now paced inside it.
+
+### Defect 9 — the request gate did not space CONCURRENT judge calls
+
+`waitForRequestSlot()` updated `lastRequestAt` **after** its `await`. Two callers
+arriving together therefore read the same `lastRequestAt`, computed the same wait,
+and fired together. The gate spaced requests **within** one judge call but not
+**across** concurrent ones — and the benchmark runs its probes through `mapLimit`
+with `CONCURRENCY` workers, and the weekly benchmark uses **3**.
+
+A test that drives three concurrent judge calls measured requests **0 ms apart**.
+
+This was invisible while the study ran at `concurrency=1` (one worker ⇒ no overlap),
+so it did not invalidate the v2 study. It does mean the *weekly* benchmark could
+still issue up to 3× the paced request rate — the same class of defect as the gate
+being off entirely (Defect 7), and the same consequence: 429s scored as judge
+quality.
+
+**The fix.** The gate is now a **promise chain**: each caller waits for the previous
+caller's slot to be taken and then computes its wait against the previous caller's
+**actual** start time. The spacing is a property of the requests as they leave, not
+of the timers as they were scheduled.
+
+> A first attempt at the fix merely **reserved** a slot (`startAt = max(now,
+> lastRequestAt + gate)`) and published the reservation before awaiting. That is not
+> sufficient: Node's timers fire *late* under load, and two timers scheduled 120 ms
+> apart can land 1 ms apart. The reservation guarantees the *schedule*; only the
+> chain guarantees the *requests*. Measured with the reservation version: gaps of
+> 181, 157, 146 … and one pair **1 ms apart**. Measured with the chain version: every
+> gap ≥ 130 ms across ten runs. The first attempt was caught by running the test
+> under load, not by reading it.
+
+### Defect 10 — the arm plan counted RAW runs, so an excluded run burned a slot
+
+The registered rule requires **`runsPerArm` USABLE runs per arm** ("usable =
+reliability ≥ the registered floor … fewer usable runs never proceed to inference").
+But `nextArmPlan()` was planned from **raw** run counts, so an excluded run
+consumed a slot in the requirement even though it contributes no evidence.
+
+On 2026-10-21 22:48 the study stood at: baseline **2 usable**, candidate **1 raw /
+0 usable**. The raw-count plan owed `["candidate"]` — one arm. After that arm the
+study would hold **1 usable candidate run of the 2 the rule requires**, the plan
+would be *complete*, and the verdict would be **INCONCLUSIVE forever**: a study that
+could never satisfy its own registered rule and would never say why.
+
+**The fix.** The plan is computed from usable counts (`nextArmPlanForRuns`), so an
+excluded run is **replaced** rather than counted. Against the real study state the
+two plans differ exactly where it matters:
+
+```
+RAW-count plan (old):     ["candidate"]
+USABLE-count plan (fix):  ["candidate","candidate"]
+```
+
+The verdict rule is untouched — this decides only **which arms get run**, never how
+a result is scored, and the gate thresholds remain untouchable.
+
+**What this invalidates.** Nothing published; the v2 study still has no verdict.
+
+### Defect 11 — the provider's stated ceiling was only captured on the FAILURE path
+
+PR #201 taught the transport to carry the provider's rate-limit headers, but only on the
+**error** it threw. A run that stayed *under* the ceiling therefore reported **nothing**
+about it — and the run you most want to copy is exactly the one that never hit the
+ceiling.
+
+That is why the ceiling stayed an inference for so long. The two clean baseline runs
+(zero rate-limit errors) could not tell us the ceiling even though the provider may have
+been stating it on every 200.
+
+**The fix.** `chat()` reads the rate-limit headers on **every** response, and the
+benchmark records the first non-empty set it sees on the model result. A run now reports
+`rateLimitHeaders: null` when the provider stated nothing, and the run summary says so
+explicitly — *"the provider stated no ceiling on this run, so the ceiling is UNKNOWN, not
+merely unrecorded."*
+
+**The ceiling becomes a measurement on every clean run**, and the next pace can be derived
+from the provider instead of inferred from how fast a run happened to survive. This adds a
+field; it changes no measurement.
+
+### Defect 12 — the request gate is charged to the JUDGE's latency, and to its timeout
+
+`chat()` starts its clock (`const started = Date.now()`) and its **abort timer**
+(`setTimeout(() => controller.abort(), timeoutMs)`) at the top of the function — **before**
+`await waitForRequestSlot()`. So the gate's waiting is charged to the model, twice.
+
+**Consequence 1 — the published "judge latency" is the PACE.** A local probe with a stub
+provider that answers in **100 ms**:
+
+| gate | measured latency |
+|---|---|
+| 0 ms | **109 ms** |
+| 200 ms | **180 ms** |
+| 400 ms | **336 ms** |
+
+The measured latency tracks the gate, not the model. The study artifacts show the same
+thing exactly:
+
+| run | pace | requests per judge call | measured p50 |
+|---|---|---|---|
+| baseline run 1 | 12 000 ms | 1 | **12 002 ms** |
+| baseline run 2 | 25 000 ms | 1 | **25 008 ms** |
+| candidate (excluded) | 15 000 ms | **2** | **29 968 ms** ≈ 2 × 15 000 |
+
+**The registered "latency p50 ms" protected metric (cap 25 000) was therefore measuring
+`pace × requests-per-call`, not the judge.** The candidate's "17 966 ms regression" over the
+baseline is one extra gated request, not a slower judge. The verdict does not change (the
+regression is inside the cap either way, and it is also inside the cap under the correct
+measurement), but the *number* is mislabeled — and the run artifact's `latency` block, which
+is rendered on `/metrics`, is off by the pace.
+
+**Consequence 2 — the request timeout is `timeoutMs − gate`, not `timeoutMs`.** The abort
+timer starts before the gate wait, so a paced run's fetch gets whatever is left of the
+35-second budget. **A gate at or above the timeout aborts every request.** Demonstrated
+with the default 35 000 ms timeout and a provider that answers in 300 ms:
+
+| gate | outcome |
+|---|---|
+| 34 000 ms | ok (measured 34 110 ms) |
+| 36 000 ms | **FAILED: This operation was aborted** |
+
+The study's 25 000 ms pace left a 10 000 ms effective budget — enough for the observed
+~2 100 ms worst case, which is why no request timed out, but the margin was an accident of
+the pace rather than a designed one.
+
+> The first version of this probe reported "ok" at a 36 000 ms gate, because the test's
+> `fetch` stub ignored a signal that was **already aborted** — the abort event had fired
+> before the listener was attached, so it never fired again. The real `fetch` rejects
+> immediately in that state. **The stub was the unfaithful part, not the code.** It is
+> recorded here because a probe that does not model the failure it claims to test will
+> confidently report the wrong answer — which is the whole subject of this file.
+
+**Why this is not fixed in this PR.** The two candidate arms of the v2 study must measure
+latency the **same** way or their comparison is meaningless — and the first candidate arm
+is already running under the current definition. Changing the measurement now would make
+the two candidate arms incomparable and corrupt the study's per-metric table. **So the fix
+lands after the study reports**, and the study's latency numbers are read with this note
+attached.
+
+**The fix (one move).** Start both the clock and the abort timer **after** the gate:
+
+```js
+await waitForRequestSlot();          // the transport's wait is the transport's
+const started = Date.now();          // the judge's latency starts here
+const timer = setTimeout(() => controller.abort(), timeoutMs);
+```
+
+**Two instances of the same lesson again**: the instrument's *unit* was wrong (calls vs
+requests), and now the instrument's *clock* is wrong (pace vs provider). **Prove what the
+instrument measures, not just that it runs.**
+
+
 
 
