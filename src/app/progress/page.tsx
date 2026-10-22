@@ -182,6 +182,12 @@ export default async function ProgressPage() {
   // next and why", assembled from the same stored debates as every other
   // surface. Repair episodes and deliberate-retest outcomes feed it so a
   // successful repair is never read as mastery.
+  const goal = buildCoachingGoal(
+    ledger.points,
+    null,
+    drillOutcomes,
+    skillsUnderTest(coachingContext.pendingRetests),
+  );
   const learnerModel = buildLearnerModel({
     points: ledger.points,
     repairs: journeyInputs.repairs.map((r) => ({
@@ -213,6 +219,9 @@ export default async function ProgressPage() {
     // The skills under silent test stay off the visible coaching: the same
     // queue and the same rule every other surface uses.
     excludeSkills: skillsUnderTest(coachingContext.pendingRetests),
+    // The practice target follows the coaching line, so the two cards on this
+    // screen describe one instruction instead of two.
+    preferSkill: goal?.dimension ?? null,
   });
   const milestones = buildMilestones({
     repairs: journeyInputs.repairs,
@@ -228,12 +237,6 @@ export default async function ProgressPage() {
       : sourceWindow.truncated === null
         ? `Current signals analyze ${ledger.debates} debate${ledger.debates === 1 ? "" : "s"} with usable assessment data from a bounded latest-${sourceWindow.limit} debate window. Your lifetime completed-debate total is temporarily unavailable.`
         : `Built from ${ledger.debates} completed debate${ledger.debates === 1 ? "" : "s"} with usable assessment data — headline reads show observed direction and relative focus; raw metrics are available below.`;
-  const goal = buildCoachingGoal(
-    ledger.points,
-    null,
-    drillOutcomes,
-    skillsUnderTest(coachingContext.pendingRetests),
-  );
   const focusLabel = goal?.dimension
     ? (summary.skills.find((s) => s.key === goal.dimension)?.label ?? goal.dimension)
     : null;
@@ -285,9 +288,11 @@ export default async function ProgressPage() {
                 meant to measure (retestDisclosure.ts). */}
             {learnerModel.nextPractice.priority === "needs-evidence"
               ? "Gather evidence"
-              : learnerModel.nextPractice.priority === "persistent-weakness"
-                ? "Focus now"
-                : "Next practice"}
+              : learnerModel.nextPractice.priority === "coaching-focus"
+                ? "Today's focus"
+                : learnerModel.nextPractice.priority === "persistent-weakness"
+                  ? "Focus now"
+                  : "Next practice"}
           </p>
           <h2 id="next-practice-heading" className="mt-1 text-lg font-semibold">
             {learnerModel.nextPractice.label}

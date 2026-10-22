@@ -75,6 +75,14 @@ export default async function DashboardPage() {
         dimension: oldestPending.dimension,
       }
     : null;
+  // One focus for today, shared by the motion bonus, the visible coaching
+  // goal and the training target — so no two of them can name different
+  // skills on the same screen.
+  const focusDimension = pickFocusDimension(
+    coachingContext.ledger?.points ?? [],
+    coachingContext.drillOutcomes,
+    skillsUnderTest(coachingContext.pendingRetests),
+  );
   const motion = await resolvePracticeMotion({
     userId: user.id,
     shared: sharedTopic,
@@ -86,15 +94,11 @@ export default async function DashboardPage() {
     // only affects ordinary practice days. Computed from the ledger + drill
     // outcomes (both already loaded) so it precedes the motion selection.
     //
-    // The excluded skill is the oldest PENDING retest's skill, not the
+    // The excluded skills are the PENDING retests' skills, not the
     // topic-eligible one: the focus feeds the per-skill topic bonus, so
-    // steering today's motion toward the skill under silent test would leak
+    // steering today's motion toward a skill under silent test would leak
     // it. Every other surface uses skillsUnderTest(pendingRetests) — one rule.
-    focus: pickFocusDimension(
-      coachingContext.ledger?.points ?? [],
-      coachingContext.drillOutcomes,
-      skillsUnderTest(coachingContext.pendingRetests),
-    ),
+    focus: focusDimension,
   });
   const topic = motion.topic;
 
@@ -303,6 +307,9 @@ export default async function DashboardPage() {
     // The skills under silent test stay off the visible coaching: the same
     // queue and the same rule every other surface uses.
     excludeSkills: skillsUnderTest(coachingContext.pendingRetests),
+    // The training target follows the coaching line, so the target card and
+    // the goal line describe one instruction.
+    preferSkill: focusDimension,
   });
 
   // The training loop as a visible thread: practice → diagnose → repair →
