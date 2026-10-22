@@ -6,6 +6,8 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "tests/**/*.test.ts"],
     environment: "node",
+    // Source-scanning guard tests read every file under src/ and can exceed 5s on busy CI runners.
+    testTimeout: 30000,
   },
   resolve: {
     alias: {
