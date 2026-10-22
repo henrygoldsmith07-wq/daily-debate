@@ -221,7 +221,7 @@ export function ArgGraphInline({
                   </span>
                   {editable && editId === n.id ? (
                     <span className="flex flex-1 gap-2">
-                      <input maxLength={500} value={editText} onChange={(e) => setEditText(e.target.value)}
+                      <input maxLength={500} autoComplete="off" value={editText} onChange={(e) => setEditText(e.target.value)}
                         enterKeyHint="done"
                         onKeyDown={(e) => {
                           if (e.key === "Enter") { e.preventDefault(); commitEdit(n.id); }
