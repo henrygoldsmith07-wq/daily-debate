@@ -721,5 +721,26 @@ a result is scored, and the gate thresholds remain untouchable.
 
 **What this invalidates.** Nothing published; the v2 study still has no verdict.
 
+### Defect 11 — the provider's stated ceiling was only captured on the FAILURE path
+
+PR #201 taught the transport to carry the provider's rate-limit headers, but only on the
+**error** it threw. A run that stayed *under* the ceiling therefore reported **nothing**
+about it — and the run you most want to copy is exactly the one that never hit the
+ceiling.
+
+That is why the ceiling stayed an inference for so long. The two clean baseline runs
+(zero rate-limit errors) could not tell us the ceiling even though the provider may have
+been stating it on every 200.
+
+**The fix.** `chat()` reads the rate-limit headers on **every** response, and the
+benchmark records the first non-empty set it sees on the model result. A run now reports
+`rateLimitHeaders: null` when the provider stated nothing, and the run summary says so
+explicitly — *"the provider stated no ceiling on this run, so the ceiling is UNKNOWN, not
+merely unrecorded."*
+
+**The ceiling becomes a measurement on every clean run**, and the next pace can be derived
+from the provider instead of inferred from how fast a run happened to survive. This adds a
+field; it changes no measurement.
+
 
 
