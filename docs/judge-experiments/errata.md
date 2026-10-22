@@ -546,6 +546,12 @@ has keys for is ~936 requests, i.e. ~4 hours of wall-clock, so the job's
 `timeout-minutes` is now explicit at 350 — under GitHub's 6-hour ceiling and above
 the paced runtime, because a job killed at the default timeout publishes **nothing**.
 
+> ⚠️ **That "~300/hour" was an inference, and it was wrong — see Defect 8 below.** It was
+> read off the rate at which a run happened to survive, not off the provider's statement
+> of its ceiling, and the two disagree in a way that matters. The pace here is therefore
+> also known to be too fast for a two-pass arm. Do not quote 300/hour as cerebras's
+> ceiling — read it from the provider's own headers.
+
 `scripts/lib/judge-benchmark-workflow.test.mjs` states the invariant over the
 workflows rather than over one file: **any workflow that runs the live judge
 benchmark must pace provider requests.** A new workflow cannot silently skip it.
@@ -634,5 +640,86 @@ it is worth a usable run before anyone concludes anything about grounding. Getti
 one needs a pace derived from the provider's stated ceiling — which is now
 readable — and enough wall-clock per arm, since the two-pass arm issues roughly
 twice the requests of the single-pass arm.
+
+---
+
+## Erratum 2026-10-21 (later) — the second baseline run, and two more instrument defects
+
+**The baseline arm ran again at `pace_ms=25000` (144 requests/hour), and it was clean:
+312 calls, 300 requests, reliability 0.993, and — the number that matters — **zero
+rate-limit errors**, where the first baseline at 300/hour had three.**
+
+| baseline run | pace | requests/hour | rate-limit errors | reliability |
+|---|---|---|---|---|
+| `2026-10-21T085123210Z` | 12000 | 300 | 3 | 0.983 |
+| `2026-10-21T224834687Z` | 25000 | 144 | **0** | **0.993** |
+
+**And the two runs agree to three decimal places on every judge-quality metric:**
+verbosity stability 0.636, names 0.565, style 0.609, prestige 0.565, position 0.652,
+fake-citation influence 0.174, agreement 0.522, ECE 0.25. The judge is deterministic
+at temperature 0, so the measurement is reproducible — which is the precondition for
+any of this to mean anything.
+
+**The provider's effective ceiling is now bracketed:** 144 requests/hour is clean,
+240 requests/hour loses 22%. The ceiling is somewhere in that band, and the study is
+now paced inside it.
+
+### Defect 9 — the request gate did not space CONCURRENT judge calls
+
+`waitForRequestSlot()` updated `lastRequestAt` **after** its `await`. Two callers
+arriving together therefore read the same `lastRequestAt`, computed the same wait,
+and fired together. The gate spaced requests **within** one judge call but not
+**across** concurrent ones — and the benchmark runs its probes through `mapLimit`
+with `CONCURRENCY` workers, and the weekly benchmark uses **3**.
+
+A test that drives three concurrent judge calls measured requests **0 ms apart**.
+
+This was invisible while the study ran at `concurrency=1` (one worker ⇒ no overlap),
+so it did not invalidate the v2 study. It does mean the *weekly* benchmark could
+still issue up to 3× the paced request rate — the same class of defect as the gate
+being off entirely (Defect 7), and the same consequence: 429s scored as judge
+quality.
+
+**The fix.** The gate is now a **promise chain**: each caller waits for the previous
+caller's slot to be taken and then computes its wait against the previous caller's
+**actual** start time. The spacing is a property of the requests as they leave, not
+of the timers as they were scheduled.
+
+> A first attempt at the fix merely **reserved** a slot (`startAt = max(now,
+> lastRequestAt + gate)`) and published the reservation before awaiting. That is not
+> sufficient: Node's timers fire *late* under load, and two timers scheduled 120 ms
+> apart can land 1 ms apart. The reservation guarantees the *schedule*; only the
+> chain guarantees the *requests*. Measured with the reservation version: gaps of
+> 181, 157, 146 … and one pair **1 ms apart**. Measured with the chain version: every
+> gap ≥ 130 ms across ten runs. The first attempt was caught by running the test
+> under load, not by reading it.
+
+### Defect 10 — the arm plan counted RAW runs, so an excluded run burned a slot
+
+The registered rule requires **`runsPerArm` USABLE runs per arm** ("usable =
+reliability ≥ the registered floor … fewer usable runs never proceed to inference").
+But `nextArmPlan()` was planned from **raw** run counts, so an excluded run
+consumed a slot in the requirement even though it contributes no evidence.
+
+On 2026-10-21 22:48 the study stood at: baseline **2 usable**, candidate **1 raw /
+0 usable**. The raw-count plan owed `["candidate"]` — one arm. After that arm the
+study would hold **1 usable candidate run of the 2 the rule requires**, the plan
+would be *complete*, and the verdict would be **INCONCLUSIVE forever**: a study that
+could never satisfy its own registered rule and would never say why.
+
+**The fix.** The plan is computed from usable counts (`nextArmPlanForRuns`), so an
+excluded run is **replaced** rather than counted. Against the real study state the
+two plans differ exactly where it matters:
+
+```
+RAW-count plan (old):     ["candidate"]
+USABLE-count plan (fix):  ["candidate","candidate"]
+```
+
+The verdict rule is untouched — this decides only **which arms get run**, never how
+a result is scored, and the gate thresholds remain untouchable.
+
+**What this invalidates.** Nothing published; the v2 study still has no verdict.
+
 
 

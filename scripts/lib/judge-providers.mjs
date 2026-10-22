@@ -276,23 +276,52 @@ export function usableProviders(env = process.env) {
  *
  * 0 disables the gate entirely, which preserves the historical behaviour.
  */
+/**
+ * The request gate.
+ *
+ * The gate must guarantee that the requests the PROVIDER receives are spaced
+ * apart - not that the timers we schedule fire on time. Node's timers fire
+ * late under load, and two late timers that were scheduled 120ms apart can
+ * land 1ms apart. A gate that only reserves a schedule therefore still emits
+ * the burst it exists to prevent.
+ *
+ * So the gate is a promise chain: each caller waits for the previous
+ * caller's slot to be taken, then computes its own wait against the previous
+ * caller's ACTUAL start time. The spacing is therefore a property of the
+ * requests as they leave, not of the timers as they were scheduled.
+ *
+ * The gate is off by default, and off means off: no chain, no waiting, no
+ * behaviour change.
+ */
 let requestGateMs = 0;
 let lastRequestAt = 0;
+let gateChain = Promise.resolve();
 
 export function setRequestGateMs(ms) {
   requestGateMs = Number.isFinite(ms) && ms > 0 ? Number(ms) : 0;
   lastRequestAt = 0;
+  gateChain = Promise.resolve();
 }
 
 export function getRequestGateMs() {
   return requestGateMs;
 }
 
-async function waitForRequestSlot() {
-  if (requestGateMs <= 0) return;
-  const wait = lastRequestAt + requestGateMs - Date.now();
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastRequestAt = Date.now();
+function waitForRequestSlot() {
+  if (requestGateMs <= 0) return Promise.resolve();
+  const gate = requestGateMs;
+  const mine = gateChain.then(async () => {
+    const wait = lastRequestAt + gate - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastRequestAt = Date.now();
+  });
+  // The chain must survive a failed link, or one failed request would wedge
+  // the gate for every later one.
+  gateChain = mine.then(
+    () => undefined,
+    () => undefined,
+  );
+  return mine;
 }
 
 /** Model chain for one provider entry: primary + fallbacks (env-overridable). */
