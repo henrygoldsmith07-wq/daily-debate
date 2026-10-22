@@ -100,9 +100,9 @@ vi.mock("@/lib/adaptiveCoach", () => ({
     dims: Array<{ key: string }>,
     _slopes: unknown,
     _outcomes: unknown,
-    exclude?: string | null,
+    exclude?: readonly string[] | null,
   ) => ({
-    focus: (exclude ? dims.filter((d) => d.key !== exclude) : dims)[0] ?? null,
+    focus: (exclude?.length ? dims.filter((d) => !exclude.includes(d.key)) : dims)[0] ?? null,
     reason: "lowest profile dimension (42/100)",
   })),
   todaysDrill: vi.fn(() => ({

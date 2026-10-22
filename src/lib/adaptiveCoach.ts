@@ -193,18 +193,22 @@ export function selectFocus(
   slopes: Partial<Record<CoachDimension, number | null>>,
   outcomes: Partial<Record<CoachDimension, number>> = {},
   /**
-   * A dimension that must NOT be focused: the skill currently under silent
-   * test (retestDisclosure.ts). Excluding it keeps the day's visible coaching
-   * off the skill whose transfer is being measured — the Khan model, where a
-   * mixed-skill session silently assesses one skill.
+   * Dimensions that must NOT be focused: the skills currently under silent
+   * test (retestDisclosure.ts). Excluding them keeps the day's visible
+   * coaching off a skill whose transfer is being measured — the Khan model,
+   * where a mixed-skill session silently assesses one skill.
+   *
+   * A SET, not one dimension: a learner with two open loops has two skills
+   * under silent test, and the next debate may carry either.
    */
-  exclude: CoachDimension | null = null,
+  exclude: readonly CoachDimension[] = [],
 ): { focus: CoachDim | null; reason: string } {
-  const usable = dims.filter((d) => d.hasData && d.score !== null && d.key !== exclude);
+  const excluded = new Set<CoachDimension>(exclude);
+  const usable = dims.filter((d) => d.hasData && d.score !== null && !excluded.has(d.key));
   if (!usable.length) {
     return {
       focus: null,
-      reason: exclude
+      reason: excluded.size
         ? "No focus line today — the debate is still worth doing."
         : "No scored debates yet — complete a debate to unlock training.",
     };

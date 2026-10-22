@@ -85,6 +85,27 @@ describe("retestAssignmentFor", () => {
     expect(retestAssignmentFor("no-valid-opportunity")).toEqual({ observable: false, demonstrated: null });
     expect(retestAssignmentFor(null)).toEqual({ observable: false, demonstrated: null });
   });
+
+  it("a sprint records no verdict, so the repair stays pending for a real test", () => {
+    // A repair stays pending until a row with observable=true exists. A
+    // sprint says the sample is too small to judge the skill, so closing the
+    // repair on it would consume the one measurement the learner is waiting
+    // for, on the one format that cannot make it.
+    expect(retestAssignmentFor("not-enough-evidence", { format: "sprint" })).toEqual({
+      observable: false,
+      demonstrated: null,
+    });
+    // A full debate behaves as before.
+    expect(retestAssignmentFor("not-enough-evidence", { format: "full" })).toEqual({
+      observable: true,
+      demonstrated: null,
+    });
+    // A real verdict is a real verdict in either format.
+    expect(retestAssignmentFor("skill-observed", { format: "sprint" })).toEqual({
+      observable: true,
+      demonstrated: true,
+    });
+  });
 });
 
 describe("the finish route computes the retest verdict from behaviour, not goal-compliance", () => {

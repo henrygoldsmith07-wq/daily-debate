@@ -26,7 +26,7 @@ import { buildMilestones } from "@/lib/milestones";
 import { buildLearnerModel, CLAIM_KIND_LABEL } from "@/lib/learnerModel";
 import { EVIDENCE_LEVEL_LABEL } from "@/lib/skillTaxonomy";
 import { FORMATIVE_STATE_LABELS } from "@/lib/retest";
-import { skillUnderTest } from "@/lib/retestDisclosure";
+import { skillsUnderTest } from "@/lib/retestDisclosure";
 
 export const dynamic = "force-dynamic";
 
@@ -210,6 +210,9 @@ export default async function ProgressPage() {
           ]
         : [],
     ),
+    // The skills under silent test stay off the visible coaching: the same
+    // queue and the same rule every other surface uses.
+    excludeSkills: skillsUnderTest(coachingContext.pendingRetests),
   });
   const milestones = buildMilestones({
     repairs: journeyInputs.repairs,
@@ -229,7 +232,7 @@ export default async function ProgressPage() {
     ledger.points,
     null,
     drillOutcomes,
-    skillUnderTest(coachingContext.pendingRetests),
+    skillsUnderTest(coachingContext.pendingRetests),
   );
   const focusLabel = goal?.dimension
     ? (summary.skills.find((s) => s.key === goal.dimension)?.label ?? goal.dimension)
@@ -241,7 +244,7 @@ export default async function ProgressPage() {
     focusUnavailableHeading(
       ledger.points,
       drillOutcomes,
-      skillUnderTest(coachingContext.pendingRetests),
+      skillsUnderTest(coachingContext.pendingRetests),
     ) ??
     "Complete a debate to unlock your focus";
 

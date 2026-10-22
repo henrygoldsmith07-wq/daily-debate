@@ -10,7 +10,7 @@ import type {
   SoloDebateTurn,
 } from "@/lib/types";
 import type { RepairKind } from "@/lib/argumentRepair";
-import { skillUnderTest } from "@/lib/retestDisclosure";
+import { skillsUnderTest } from "@/lib/retestDisclosure";
 import type { DebateFormat } from "@/lib/sprint";
 import {
   DEFAULT_DIFFICULTY,
@@ -262,7 +262,7 @@ export async function startSoloDebate(params: {
       coachingDimension = pickFocusDimension(
         context.ledger.points,
         context.drillOutcomes,
-        skillUnderTest(context.pendingRetests),
+        skillsUnderTest(context.pendingRetests),
       );
 
       if (pendingRetest) {
@@ -280,7 +280,7 @@ export async function startSoloDebate(params: {
           if (!degradationReasons.includes("repair-retest-unavailable")) {
             degradationReasons.push("repair-retest-unavailable");
           }
-          coachingDimension = pickFocusDimension(context.ledger.points, context.drillOutcomes, null);
+          coachingDimension = pickFocusDimension(context.ledger.points, context.drillOutcomes, []);
         }
       }
     }

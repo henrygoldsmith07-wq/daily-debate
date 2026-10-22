@@ -20,7 +20,7 @@ import { buildLoopThread } from "./loopThread";
 import { pickPriority } from "./dailyFocus";
 import { pickRetestMotion } from "./topicPersonalisation";
 import { liveCoachingForTurn, LIVE_HINT_SKILLS } from "./liveCoaching";
-import { isUnderTest, retestDisclosureFor, skillUnderTest, RETEST_PENDING_DETAIL } from "./retestDisclosure";
+import { isUnderTest, retestDisclosureFor, skillsUnderTest, RETEST_PENDING_DETAIL } from "./retestDisclosure";
 import { repairSuccessTransition } from "./retest";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { CoachDimension } from "./adaptiveCoach";
@@ -92,16 +92,23 @@ describe("retest disclosure policy", () => {
     expect(isUnderTest("evidence", null)).toBe(false);
   });
 
-  it("takes the skill from the OLDEST PENDING retest, not the topic-eligible one", () => {
+  it("takes EVERY pending retest's skill, not just the topic-eligible one", () => {
     // The leak this closes: today's motion can be the very topic the learner
     // repaired, so the topic-eligible retest is empty while the app
     // retargets the motion and the debate becomes the test. Excluding only
-    // the eligible one would name the skill on exactly that day.
+    // the eligible one would name the skill on exactly that day. And with two
+    // open loops, BOTH skills are under test — the learner cannot know which
+    // one the next debate will carry.
     const pending = [{ dimension: "evidence" as CoachDimension }, { dimension: "rebuttal" as CoachDimension }];
-    expect(skillUnderTest(pending)).toBe("evidence");
-    expect(skillUnderTest([])).toBeNull();
-    expect(skillUnderTest(null)).toBeNull();
-    expect(skillUnderTest(undefined)).toBeNull();
+    expect(skillsUnderTest(pending)).toEqual(["evidence", "rebuttal"]);
+    // A duplicate skill is one skill, not two.
+    expect(skillsUnderTest([...pending, { dimension: "evidence" as CoachDimension }])).toEqual([
+      "evidence",
+      "rebuttal",
+    ]);
+    expect(skillsUnderTest([])).toEqual([]);
+    expect(skillsUnderTest(null)).toEqual([]);
+    expect(skillsUnderTest(undefined)).toEqual([]);
   });
 
   it("the pre-debate surfaces exclude the pending retest's skill, not the eligible one", () => {
@@ -111,7 +118,7 @@ describe("retest disclosure policy", () => {
     const progress = readSource("app", "progress", "page.tsx");
     const drillCoach = readSource("app", "api", "coach", "today", "route.ts");
     for (const source of [dashboard, progress, drillCoach]) {
-      expect(source).toContain("skillUnderTest(");
+      expect(source).toContain("skillsUnderTest(");
       // The topic-eligible retest is NOT the exclusion source.
       expect(source).not.toMatch(/buildCoachingGoal\([^)]*selectedRetest/);
     }
@@ -124,16 +131,16 @@ describe("retest disclosure policy", () => {
     const dashboard = readSource("app", "page.tsx");
     expect(dashboard).not.toMatch(/pickFocusDimension\([\s\S]{0,200}selectedRetest\?\.dimension/);
     expect(dashboard).toMatch(
-      /pickFocusDimension\([\s\S]{0,200}skillUnderTest\(coachingContext\.pendingRetests\)/,
+      /pickFocusDimension\([\s\S]{0,200}skillsUnderTest\(coachingContext\.pendingRetests\)/,
     );
   });
 
   it("the debate's own coaching goal excludes the same skill", () => {
     // startDebate coaches the debate BEFORE it starts, so the exclusion has
-    // to hold there too — and it must be the oldest PENDING retest, not the
+    // to hold there too — and it must be the whole PENDING queue, not the
     // topic-eligible one.
     const startDebate = readSource("lib", "solo", "startDebate.ts");
-    expect(startDebate).toMatch(/pickFocusDimension\([\s\S]{0,220}skillUnderTest\(context\.pendingRetests\)/);
+    expect(startDebate).toMatch(/pickFocusDimension\([\s\S]{0,220}skillsUnderTest\(context\.pendingRetests\)/);
     expect(startDebate).not.toMatch(/pickFocusDimension\([\s\S]{0,220}pendingRetest\?\.dimension/);
   });
 
@@ -141,7 +148,7 @@ describe("retest disclosure policy", () => {
     // /dna names the learner's "current focus". Leaving the exclusion out made
     // it the one surface that could name the skill under silent test.
     const dna = readSource("app", "dna", "page.tsx");
-    expect(dna).toContain("skillUnderTest(");
+    expect(dna).toContain("skillsUnderTest(");
     expect(dna).toContain("pendingRetests");
   });
 
@@ -172,7 +179,7 @@ describe("retest disclosure policy", () => {
   });
 
   it("keeps the skill under test out of the visible coaching goal", () => {
-    const goal = buildCoachingGoal(POINTS, null, {}, UNDER_TEST);
+    const goal = buildCoachingGoal(POINTS, null, {}, [UNDER_TEST]);
     expect(goal?.dimension).not.toBe(UNDER_TEST);
     expect(goal?.goalLine ?? "").not.toMatch(/source|evidence|cite|citation/i);
   });
@@ -183,6 +190,33 @@ describe("retest disclosure policy", () => {
     expect(target?.label ?? "").not.toMatch(/evidence/i);
     expect(target?.reason ?? "").not.toMatch(/evidence|repaired|test/i);
     expect(target?.observable ?? "").not.toMatch(/evidence|source|cite/i);
+  });
+
+  it("keeps BOTH open loops out of the practice target, not just the first one", () => {
+    // The leak this closes: the practice target derived its own exclusion
+    // from the repair list, which orders skills by taxonomy key. The pending
+    // queue orders them by age — the one the next debate will carry. With two
+    // open loops the two orders disagree, and the target could name the
+    // oldest pending skill — the exact skill the next debate will test.
+    const twoLoops: SkillRepairState[] = [
+      { ...AWAITING, skill: "impact", label: "Impact" },
+      { ...AWAITING, skill: "rebuttal", label: "Rebuttal" },
+    ];
+    const skills: SkillReading[] = [
+      reading("impact", "Impact", 0.2),
+      reading("rebuttal", "Rebuttal", 0.3),
+      reading("evidence", "Evidence", 0.9),
+    ];
+    // The pending queue, oldest first: impact is the next debate's retest.
+    const pending = skillsUnderTest([
+      { dimension: "impact" as CoachDimension },
+      { dimension: "rebuttal" as CoachDimension },
+    ]);
+    const target = selectNextPractice(skills, twoLoops, pending);
+    expect(pending).toEqual(["impact", "rebuttal"]);
+    expect(target?.skill).not.toBe("impact");
+    expect(target?.skill).not.toBe("rebuttal");
+    expect(target?.label ?? "").not.toMatch(/impact|rebuttal/i);
   });
 
   it("keeps the skill under test out of the loop thread and says nothing about today", () => {
