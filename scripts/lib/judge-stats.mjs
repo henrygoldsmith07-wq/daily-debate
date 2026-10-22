@@ -214,3 +214,31 @@ export function nextArmPlan(baselineCount, candidateCount, reps) {
   }
   return plan;
 }
+
+/**
+ * The arm sequence a study still owes, counted in USABLE runs.
+ *
+ * The registered rule needs `runsPerArm` USABLE runs per arm - "usable =
+ * reliability >= the registered floor", and fewer usable runs never proceed
+ * to inference. A run that was EXCLUDED (a transport failure, a broken
+ * measurement) therefore cannot discharge a slot: it contributes no evidence,
+ * so it has to be replaced.
+ *
+ * Planning on raw run counts instead lets an excluded run consume a slot and
+ * the plan complete with too few usable runs to ever satisfy the registered
+ * rule - a study that is permanently INCONCLUSIVE with nothing left to run.
+ * That is exactly what happened on 2026-10-21: the candidate arm's first run
+ * was excluded at reliability 0.519, and the raw-count plan had one arm left
+ * while the rule still needed two usable candidate runs.
+ *
+ * The plan still alternates and stays balanced, and the verdict is unchanged -
+ * this only decides which arms get RUN, never how the result is scored.
+ */
+export function nextArmPlanForRuns(runsByArm, registration) {
+  const reps = Number(registration.runsPerArm);
+  const usable = {};
+  for (const [arm, runs] of Object.entries(runsByArm)) {
+    usable[arm] = (runs ?? []).filter((r) => runUsability(r, registration).usable).length;
+  }
+  return nextArmPlan(usable.baseline ?? 0, usable.candidate ?? 0, reps);
+}

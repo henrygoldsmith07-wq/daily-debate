@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { basicStats, bootstrapDeltaCi, decideFromRegistration, metricValue, nextArmPlan, runUsability } from "./judge-stats.mjs";
+import { basicStats, bootstrapDeltaCi, decideFromRegistration, metricValue, nextArmPlan, nextArmPlanForRuns, runUsability } from "./judge-stats.mjs";
 
 const REG = {
   runsPerArm: 3,
@@ -158,6 +158,61 @@ test("interleave plan resumes balanced and never double-runs a trailing arm", ()
   assert.deepEqual(nextArmPlan(2, 1, 3), ["candidate", "baseline", "candidate"]);
   assert.deepEqual(nextArmPlan(3, 1, 3), ["candidate", "candidate"]);
   assert.deepEqual(nextArmPlan(3, 3, 3), []);
+});
+
+test("the plan counts USABLE runs, so an excluded run is replaced not counted", () => {
+  // The registered rule needs runsPerArm USABLE runs per arm. An excluded run
+  // contributes no evidence, so it cannot discharge a slot.
+  const REG2 = { runsPerArm: 2, minimumUsableReliability: 0.75 };
+  const usable = (rel) => ({ file: `f${rel}`, reliability: rel, metrics: {} });
+
+  // Exactly the state of the v2 study on 2026-10-21 22:48: two usable
+  // baseline runs and one EXCLUDED candidate run (reliability 0.519).
+  const state = { baseline: [usable(0.983), usable(0.993)], candidate: [usable(0.519)] };
+
+  // The registered rule still needs two USABLE candidate runs, so the plan
+  // owes two candidate arms.
+  assert.deepEqual(nextArmPlanForRuns(state, REG2), ["candidate", "candidate"]);
+
+  // The RAW-count plan owes only ONE: it spends the excluded run's slot.
+  // After that arm the study would have 1 usable candidate of the 2 the
+  // registered rule requires, and the plan would be "complete" - a study
+  // that could never satisfy its own rule, and never say why.
+  assert.deepEqual(nextArmPlan(state.baseline.length, state.candidate.length, 2), ["candidate"]);
+
+  // Both candidate runs excluded: the plan still owes two usable ones.
+  assert.deepEqual(
+    nextArmPlanForRuns({ baseline: [usable(0.9)], candidate: [usable(0.519), usable(0.4)] }, REG2),
+    ["candidate", "baseline", "candidate"],
+  );
+});
+
+test("the plan on usable runs is empty only when both arms have enough usable runs", () => {
+  const REG2 = { runsPerArm: 2, minimumUsableReliability: 0.75 };
+  const usable = (rel) => ({ file: `f${rel}`, reliability: rel, metrics: {} });
+  assert.deepEqual(
+    nextArmPlanForRuns({ baseline: [usable(0.9), usable(0.9)], candidate: [usable(0.9), usable(0.9)] }, REG2),
+    [],
+  );
+  assert.deepEqual(
+    nextArmPlanForRuns({ baseline: [usable(0.9), usable(0.9)], candidate: [usable(0.9)] }, REG2),
+    ["candidate"],
+  );
+});
+
+test("the usable-count plan still balances the arms and never trails one", () => {
+  const REG3 = { runsPerArm: 3, minimumUsableReliability: 0.75 };
+  const usable = (rel) => ({ file: `f${rel}`, reliability: rel, metrics: {} });
+  const plan = nextArmPlanForRuns({ baseline: [usable(0.9)], candidate: [usable(0.9)] }, REG3);
+  assert.deepEqual(plan, ["baseline", "candidate", "baseline", "candidate"]);
+  // no arm may run twice more than the other while the other trails
+  let b = 1;
+  let c = 1;
+  for (const arm of plan) {
+    if (arm === "baseline") b += 1;
+    else c += 1;
+    assert.ok(Math.abs(b - c) <= 1, `arms must stay within one of each other, saw baseline=${b} candidate=${c}`);
+  }
 });
 
 test("metricValue reads the documented result shape", () => {
