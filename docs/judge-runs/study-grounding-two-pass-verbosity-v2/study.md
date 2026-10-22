@@ -16,26 +16,26 @@
 | arm | total runs | usable | excluded |
 |---|---|---|---|
 | baseline | 2 | 2 | — |
-| candidate | 1 | 0 | 2026-10-21T193929911Z-cerebras.json (reliability 0.519 < registered minimum 0.75) |
+| candidate | 2 | 1 | 2026-10-21T193929911Z-cerebras.json (reliability 0.519 < registered minimum 0.75) |
 
 ## Reasons
-- registered requirement not met: usable runs baseline 2/2, candidate 0/2 (reliability >= 0.75); INCONCLUSIVE - fewer usable runs never proceed to inference
+- registered requirement not met: usable runs baseline 2/2, candidate 1/2 (reliability >= 0.75); INCONCLUSIVE - fewer usable runs never proceed to inference
 
 ## Per-metric uncertainty (all raw values shown; excluded rows marked; stats/CIs from usable rows only)
 
 | Metric | dir | baseline usable mean/med/sd | candidate usable mean/med/sd | Δ cand-base | bootstrap 90% CI |
 |---|---|---|---|---|---|
-| verbosity stability | up | 0.636/0.636/0 (n=2) | — | — | — |
-| provider reliability | up | 0.988/0.988/0.0071 (n=2) | — | — | — |
-| fixture agreement | up | 0.522/0.522/0 (n=2) | — | — | — |
-| ECE | down | 0.25/0.25/0 (n=2) | — | — | — |
-| position stability | up | 0.652/0.652/0 (n=2) | — | — | — |
-| names stability | up | 0.565/0.565/0 (n=2) | — | — | — |
-| style stability | up | 0.609/0.609/0 (n=2) | — | — | — |
-| prestige stability | up | 0.565/0.565/0 (n=2) | — | — | — |
-| fake-citation influence | down | 0.174/0.174/0 (n=2) | — | — | — |
-| latency p50 ms | down | 18505/18505/9196.6308 (n=2) | — | — | — |
-| prompt tokens | down | 145599/145599/1070.5597 (n=2) | — | — | — |
+| verbosity stability | up | 0.636/0.636/0 (n=2) | 0.65/0.65/0 (n=1) | 0.014 | [0.014, 0.014] |
+| provider reliability | up | 0.988/0.988/0.0071 (n=2) | 0.947/0.947/0 (n=1) | -0.041 | [-0.046, -0.036] |
+| fixture agreement | up | 0.522/0.522/0 (n=2) | 0.522/0.522/0 (n=1) | 0 | [0, 0] |
+| ECE | down | 0.25/0.25/0 (n=2) | 0.18/0.18/0 (n=1) | -0.07 | [-0.07, -0.07] |
+| position stability | up | 0.652/0.652/0 (n=2) | 0.714/0.714/0 (n=1) | 0.062 | [0.062, 0.062] |
+| names stability | up | 0.565/0.565/0 (n=2) | 0.619/0.619/0 (n=1) | 0.054 | [0.054, 0.054] |
+| style stability | up | 0.609/0.609/0 (n=2) | 0.682/0.682/0 (n=1) | 0.073 | [0.073, 0.073] |
+| prestige stability | up | 0.565/0.565/0 (n=2) | 0.714/0.714/0 (n=1) | 0.149 | [0.149, 0.149] |
+| fake-citation influence | down | 0.174/0.174/0 (n=2) | 0.522/0.522/0 (n=1) | 0.348 | [0.348, 0.348] |
+| latency p50 ms | down | 18505/18505/9196.6308 (n=2) | 50032/50032/0 (n=1) | 31527 | [25024, 38030] |
+| prompt tokens | down | 145599/145599/1070.5597 (n=2) | 313728/313728/0 (n=1) | 168129 | [167372, 168886] |
 
 ## Every raw run
 
@@ -45,3 +45,4 @@
 
 ### candidate
 - [EXCLUDED] `2026-10-21T193929911Z-cerebras.json` 2026-10-21T19:39:29.911Z model=cerebras:gpt-oss-120b reliability=0.519 reason: reliability 0.519 < registered minimum 0.75 gates={"provider":1,"quality":9,"insufficient":4} metrics={"verbosity stability":0.615,"provider reliability":0.519,"fixture agreement":0.4,"ECE":0.244,"position stability":0.5,"names stability":0.571,"style stability":0.786,"prestige stability":0.846,"fake-citation influence":0.385,"latency p50 ms":29968,"prompt tokens":150203}
+- [USABLE] `2026-10-22T183622072Z-cerebras.json` 2026-10-22T18:36:22.072Z model=cerebras:gpt-oss-120b reliability=0.947 gates={"provider":0,"quality":12,"insufficient":0} metrics={"verbosity stability":0.65,"provider reliability":0.947,"fixture agreement":0.522,"ECE":0.18,"position stability":0.714,"names stability":0.619,"style stability":0.682,"prestige stability":0.714,"fake-citation influence":0.522,"latency p50 ms":50032,"prompt tokens":313728}

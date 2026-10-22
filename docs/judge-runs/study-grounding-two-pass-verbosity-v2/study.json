@@ -69,7 +69,7 @@
   "verdict": {
     "status": "inconclusive",
     "reasons": [
-      "registered requirement not met: usable runs baseline 2/2, candidate 0/2 (reliability >= 0.75); INCONCLUSIVE - fewer usable runs never proceed to inference"
+      "registered requirement not met: usable runs baseline 2/2, candidate 1/2 (reliability >= 0.75); INCONCLUSIVE - fewer usable runs never proceed to inference"
     ],
     "audit": {
       "minimumUsableReliability": 0.75,
@@ -80,8 +80,8 @@
         "excluded": []
       },
       "candidate": {
-        "totalRuns": 1,
-        "usableRuns": 0,
+        "totalRuns": 2,
+        "usableRuns": 1,
         "excluded": [
           {
             "file": "2026-10-21T193929911Z-cerebras.json",
@@ -180,9 +180,36 @@
           "allPassRun": false,
           "usable": false,
           "reason": "reliability 0.519 < registered minimum 0.75"
+        },
+        {
+          "at": "2026-10-22T18:36:22.072Z",
+          "file": "2026-10-22T183622072Z-cerebras.json",
+          "model": "cerebras:gpt-oss-120b",
+          "reliability": 0.947,
+          "metrics": {
+            "verbosity stability": 0.65,
+            "provider reliability": 0.947,
+            "fixture agreement": 0.522,
+            "ECE": 0.18,
+            "position stability": 0.714,
+            "names stability": 0.619,
+            "style stability": 0.682,
+            "prestige stability": 0.714,
+            "fake-citation influence": 0.522,
+            "latency p50 ms": 50032,
+            "prompt tokens": 313728
+          },
+          "gateSummary": {
+            "provider": 0,
+            "quality": 12,
+            "insufficient": 0
+          },
+          "allPassRun": false,
+          "usable": true,
+          "reason": null
         }
       ]
     }
   },
-  "at": "2026-10-21T22:48:34.698Z"
+  "at": "2026-10-22T18:36:22.120Z"
 }
