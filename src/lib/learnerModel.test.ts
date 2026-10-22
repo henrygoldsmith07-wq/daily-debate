@@ -58,6 +58,7 @@ describe("learnerModel — adaptive practice selection", () => {
         { targetKind: "evidence", debateId: "d3", createdAt: "2026-01-03T10:00:00Z", succeeded: true },
       ],
       retests: [],
+      excludeSkills: ["evidence"],
     });
     // The loop is still open — the repair is still awaiting a real test — but
     // the day's TARGET must not be the skill under test, and must not announce
@@ -66,6 +67,37 @@ describe("learnerModel — adaptive practice selection", () => {
     expect(model.nextPractice?.skill ?? null).not.toBe("evidence");
     expect(model.nextPractice?.reason ?? "").not.toMatch(/repaired/i);
     expect(model.nextPractice?.reason ?? "").not.toMatch(/test/i);
+  });
+
+  it("the target follows the coaching line, so no two cards name two skills", () => {
+    // The goal line is what the debate is graded against, and the target card
+    // says what today's debate will work on. When the two rankings disagreed,
+    // one screen gave the learner two instructions naming two different
+    // skills. The target now follows the goal.
+    const model = buildLearnerModel({
+      points: weakEvidencePoints,
+      repairs: [],
+      retests: [],
+      preferSkill: "logic",
+    });
+    expect(model.nextPractice?.skill).toBe("logic");
+    expect(model.nextPractice?.priority).toBe("coaching-focus");
+    // Without a coaching line, the target keeps its own policy.
+    const unanchored = buildLearnerModel({
+      points: weakEvidencePoints,
+      repairs: [],
+      retests: [],
+    });
+    expect(unanchored.nextPractice?.priority).toBe("persistent-weakness");
+    // A coaching line that names a skill under silent test is never followed.
+    const blocked = buildLearnerModel({
+      points: weakEvidencePoints,
+      repairs: [],
+      retests: [],
+      excludeSkills: ["logic"],
+      preferSkill: "logic",
+    });
+    expect(blocked.nextPractice?.skill ?? null).not.toBe("logic");
   });
 
   it("targets the persistent weakness when no retest is owed", () => {
