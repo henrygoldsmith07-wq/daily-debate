@@ -162,6 +162,12 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
       signal: controller.signal,
     });
     const bodyText = await res.text();
+    // The provider's rate-limit headers are read on EVERY response, not only
+    // on a failure. A provider that states its ceiling on a 200 tells us what
+    // that ceiling IS; capturing it only on the error path meant a run that
+    // stayed under the ceiling reported nothing about it, so the ceiling had
+    // to be inferred from the rate at which a run happened to survive.
+    const rateLimitHeaders = readRateLimitHeaders(res.headers);
     if (!res.ok) {
       if (disableReasoning && res.status === 400 && /reasoning/i.test(bodyText)) {
         return chat({ url, key, model, system, user, maxTokens, extraHeaders, timeoutMs, disableReasoning: false, reasoningToggle, extraBody });
@@ -176,7 +182,7 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
       // per-hour one, after the budget was spent. The headers say what the
       // ceiling actually IS, so the pace can be derived from the provider
       // rather than guessed from a prose message.
-      err.rateLimitHeaders = readRateLimitHeaders(res.headers);
+      err.rateLimitHeaders = rateLimitHeaders;
       throw err;
     }
     const data = JSON.parse(bodyText);
@@ -188,6 +194,7 @@ async function chat({ url, key, model, system, user, maxTokens, extraHeaders = {
       promptTokens: data?.usage?.prompt_tokens ?? null,
       completionTokens: data?.usage?.completion_tokens ?? null,
       latencyMs: Date.now() - started,
+      rateLimitHeaders,
     };
   } finally {
     clearTimeout(timer);
@@ -394,11 +401,11 @@ function makeChainJudge({ url, key, models, extraHeaders = {}, system = buildVer
             stats.attempts += 1;
             stats.byModel[model] = (stats.byModel[model] ?? 0) + 1;
           }
-          const { content, tokens, promptTokens, completionTokens, latencyMs } = await chat({
+          const { content, tokens, promptTokens, completionTokens, latencyMs, rateLimitHeaders } = await chat({
             url, key, model, system, user: userFn(input), maxTokens, extraHeaders, reasoningToggle, extraBody,
           });
           if (stats) stats.succeeded += 1;
-          return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs };
+          return { ...normaliseVerdict(extractJson(content)), model, tokens, promptTokens, completionTokens, latencyMs, rateLimitHeaders };
         } catch (e) {
           if (stats) stats.errors += 1;
           chainErrors[model] = String(e?.message ?? e).slice(0, 90);
@@ -447,12 +454,12 @@ function makeGroundingJudge({ url, key, models, extraHeaders = {}, system = buil
       if (stats) stats.jobs += 1;
       try {
         if (stats) { stats.attempts += 1; stats.byModel[model] = (stats.byModel[model] ?? 0) + 1; }
-        const { content, tokens, promptTokens, completionTokens, latencyMs } = await chat({
+        const { content, tokens, promptTokens, completionTokens, latencyMs, rateLimitHeaders } = await chat({
           url, key, model, system: EXTRACT_SYSTEM, user: `Transcript:\n\n${transcript}\n\nReturn only the JSON.`,
           maxTokens: 1_200, extraHeaders, reasoningToggle, extraBody,
         });
         if (stats) stats.succeeded += 1;
-        return { grounding: extractJson(content), tokens, promptTokens, completionTokens, latencyMs };
+        return { grounding: extractJson(content), tokens, promptTokens, completionTokens, latencyMs, rateLimitHeaders };
       } catch (e) {
         if (stats) stats.errors += 1;
         lastError = e;
@@ -474,6 +481,9 @@ function makeGroundingJudge({ url, key, models, extraHeaders = {}, system = buil
       promptTokens: (g.promptTokens ?? 0) + (v.promptTokens ?? 0),
       completionTokens: (g.completionTokens ?? 0) + (v.completionTokens ?? 0),
       latencyMs: (g.latencyMs ?? 0) + (v.latencyMs ?? 0),
+      // The two passes are two requests, so either may carry the provider's
+      // stated ceiling. Keep the first one that says something.
+      rateLimitHeaders: { ...(g.rateLimitHeaders ?? {}), ...(v.rateLimitHeaders ?? {}) },
     };
   };
 }

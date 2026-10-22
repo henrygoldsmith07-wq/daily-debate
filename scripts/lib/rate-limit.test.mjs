@@ -10,6 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { classifyRateLimit, describeRateLimit, RATE_LIMIT_HEADROOM } from "./rate-limit.mjs";
+import { makeChainJudgeForTest } from "./judge-providers.mjs";
 
 /** cerebras - live, 2026-10-21. The one that cost the study an arm. */
 const CEREBRAS_PER_HOUR =
@@ -135,4 +136,55 @@ test("a day-window header is not paceable", () => {
   const c = classifyRateLimit("429", { headers: { "x-ratelimit-reset-requests": "86400" } });
   assert.equal(c.window, "day");
   assert.equal(c.pacingHelps, false);
+});
+
+// The ceiling must be a MEASUREMENT, not an inference. Capturing the headers
+// only on the error path meant a run that stayed under the ceiling reported
+// nothing about it - and a run that never hits the ceiling is exactly the run
+// whose pace you want to copy.
+const originalFetch = globalThis.fetch;
+
+function fetchWithHeaders(headers) {
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: (name) => headers[String(name).toLowerCase()] ?? null },
+    text: async () =>
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ winner: "tie", playerAScore: 50, playerBScore: 50, confidence: 0.5 }) } }],
+      }),
+  });
+}
+
+test.afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+test("a SUCCESSFUL response still carries the provider's stated rate-limit headers", async () => {
+  fetchWithHeaders({
+    "x-ratelimit-limit-requests": "200",
+    "x-ratelimit-remaining-requests": "137",
+    "x-ratelimit-reset-requests": "1832",
+  });
+  const judge = makeChainJudgeForTest({
+    url: "https://example.invalid/v1/chat/completions",
+    key: "k",
+    models: ["model-a"],
+  });
+  const v = await judge("Side A: a claim.\nSide B: a counter-claim.");
+  assert.ok(v.rateLimitHeaders, "a successful call must report the headers the provider sent");
+  assert.equal(v.rateLimitHeaders["x-ratelimit-limit-requests"], "200");
+  assert.equal(v.rateLimitHeaders["x-ratelimit-remaining-requests"], "137");
+  assert.equal(v.rateLimitHeaders["x-ratelimit-reset-requests"], "1832");
+});
+
+test("a successful response with no rate-limit headers reports none, and does not invent any", async () => {
+  fetchWithHeaders({});
+  const judge = makeChainJudgeForTest({
+    url: "https://example.invalid/v1/chat/completions",
+    key: "k",
+    models: ["model-a"],
+  });
+  const v = await judge("Side A: a claim.\nSide B: a counter-claim.");
+  assert.deepEqual(v.rateLimitHeaders ?? {}, {}, "no headers must mean no headers, never a guess");
 });

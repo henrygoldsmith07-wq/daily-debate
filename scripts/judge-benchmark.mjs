@@ -154,6 +154,20 @@ async function evaluateModel(judge) {
   const bases = [];
   const latencySamples = [];
   const tokenSamples = [];
+  // The provider's OWN statement of its ceiling, captured from the first
+  // successful response that carries it. A provider that names its ceiling on
+  // a 200 tells us what that ceiling IS - so the ceiling becomes a
+  // measurement on every run, not an inference from the rate at which a run
+  // happened to survive.
+  const providerRateLimitHeaders = {};
+  const noteRateLimitHeaders = (v) => {
+    const h = v?.rateLimitHeaders;
+    if (!h || typeof h !== "object") return;
+    if (Object.keys(providerRateLimitHeaders).length) return;
+    for (const [k, val] of Object.entries(h)) {
+      if (val != null && String(val).trim() !== "") providerRateLimitHeaders[k] = val;
+    }
+  };
   // Progress visibility: the probe/audit phases are silent, so a slow free
   // pool looked like a hang. Count every completed call against the judge's
   // total budget (base + probes + audits).
@@ -169,6 +183,7 @@ async function evaluateModel(judge) {
     try {
       const v = await judge.fn(f.transcript);
       bases.push({ fixture: f.id, expected: f.expectedWinner, ...v });
+      noteRateLimitHeaders(v);
       if (v.latencyMs != null) latencySamples.push(v.latencyMs);
       if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
     } catch (e) {
@@ -186,6 +201,7 @@ async function evaluateModel(judge) {
     if (!base) { tick("probe"); return { fixture: f.id, probe: probe.id, mirrored: probe.mirrored === true, error: "no-base" }; }
     try {
       const v = await judge.fn(probe.fn(f.transcript));
+      noteRateLimitHeaders(v);
       if (v.latencyMs != null) latencySamples.push(v.latencyMs);
       if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
       const flip = probe.mirrored ? v.winner !== mirror(base.winner) : v.winner !== base.winner;
@@ -214,6 +230,7 @@ async function evaluateModel(judge) {
       if (!base) { tick("audits"); return { id: t.id, fixture: f.id, error: "no-base" }; }
       try {
         const v = await judge.fn(t.fn(f.transcript));
+        noteRateLimitHeaders(v);
         if (v.latencyMs != null) latencySamples.push(v.latencyMs);
         if (v.promptTokens != null || v.completionTokens != null) tokenSamples.push({ prompt: v.promptTokens ?? 0, completion: v.completionTokens ?? 0 });
         tick("audits");
@@ -349,6 +366,11 @@ async function evaluateModel(judge) {
     totalTokens: allTokens || null,
     promptTokens: promptTokens || null,
     completionTokens: completionTokens || null,
+    // What the provider says its ceiling IS, read from its own response
+    // headers. Null means the provider stated nothing on this run - which is
+    // itself worth recording, because it means the ceiling is still unknown
+    // rather than merely unrecorded.
+    rateLimitHeaders: Object.keys(providerRateLimitHeaders).length ? providerRateLimitHeaders : null,
     estimatedCostUsd: costUsd,
     latency: latencies,
     probes: probeReports,
@@ -576,6 +598,14 @@ async function main() {
       .find((h) => h && Object.keys(h).length);
     if (stated) {
       detailLines.push(`- provider rate-limit headers: ${JSON.stringify(stated)}`);
+    } else if (m.rateLimitHeaders && Object.keys(m.rateLimitHeaders).length) {
+      // The provider stated its ceiling on a SUCCESSFUL response. This is the
+      // better case: it says what the ceiling is even when the run never hit
+      // it, so the next pace can be derived from the provider instead of
+      // inferred from how fast a run happened to survive.
+      detailLines.push(`- provider rate-limit headers (from a successful response): ${JSON.stringify(m.rateLimitHeaders)}`);
+    } else {
+      detailLines.push(`- provider rate-limit headers: none - the provider stated no ceiling on this run, so the ceiling is UNKNOWN, not merely unrecorded`);
     }
   }
   fs.writeFileSync(
