@@ -125,3 +125,22 @@ test("the gate is what spaces the retired-model walk: with it off, the walk burs
   const burst = times[times.length - 1] - times[0];
   assert.ok(burst < GATE_MS - 20, `without the gate the walk must burst, saw a ${burst}ms spread`);
 });
+
+test("concurrent judge calls do not bypass the gate", async () => {
+  // The gate is process-global, and the benchmark runs its probes through
+  // mapLimit with CONCURRENCY workers - the weekly benchmark uses 3. If the
+  // gate only spaces requests WITHIN one judge call, then N concurrent calls
+  // issue N requests at once and the real request rate is N times the paced
+  // rate, which is exactly the overrun the gate exists to prevent.
+  const times = recordingFetch({});
+  setRequestGateMs(GATE_MS);
+
+  const judge = makeChainJudgeForTest({
+    url: "https://example.invalid/v1/chat/completions",
+    key: "k",
+    models: ["model-a"],
+  });
+  await Promise.all([judge(PROMPT), judge(PROMPT), judge(PROMPT)]);
+
+  assertSpaced(times, "concurrent-calls");
+});

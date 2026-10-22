@@ -32,7 +32,7 @@ import {
   bootstrapDeltaCi,
   decideFromRegistration,
   metricValue,
-  nextArmPlan,
+  nextArmPlanForRuns,
   runUsability,
   METRIC_DIRECTION,
 } from "./lib/judge-stats.mjs";
@@ -201,11 +201,20 @@ function probeProvider(models) {
 
 let stoppedEarly = null;
 if (!REANALYZE) {
-  let counts = {
-    baseline: collectArm(dirs.baseline).length,
-    candidate: collectArm(dirs.candidate).length,
+  // The plan is counted in USABLE runs, not raw ones: an excluded run
+  // (reliability below the registered floor) contributes no evidence, so it
+  // cannot discharge a slot in the registered `runsPerArm` requirement. See
+  // nextArmPlanForRuns.
+  const armRuns = {
+    baseline: collectArm(dirs.baseline),
+    candidate: collectArm(dirs.candidate),
   };
-  const plan = nextArmPlan(counts.baseline, counts.candidate, REPS);
+  const counts = {
+    baseline: armRuns.baseline.filter((r) => runUsability(r, reg).usable).length,
+    candidate: armRuns.candidate.filter((r) => runUsability(r, reg).usable).length,
+  };
+  const rawCounts = { baseline: armRuns.baseline.length, candidate: armRuns.candidate.length };
+  const plan = nextArmPlanForRuns(armRuns, reg);
   // --max-arms stops the dispatch after N arms, BETWEEN arms. The arms that
   // already ran are preserved raw in the study dir, so the next dispatch
   // resumes from the same seal with balanced counts. Stopping between arms
@@ -215,7 +224,7 @@ if (!REANALYZE) {
   if (MAX_ARMS > 0 && planned.length < plan.length) {
     log(`--max-arms ${MAX_ARMS}: running ${planned.join(",") || "(none)"} of ${plan.join(",")}; the rest stay planned for the next dispatch`);
   }
-  log(`resume counts: baseline=${counts.baseline} candidate=${counts.candidate}; plan=${planned.join(",") || "(complete)"}`);
+  log(`resume counts: baseline=${counts.baseline} candidate=${counts.candidate} usable (of ${rawCounts.baseline} baseline / ${rawCounts.candidate} candidate raw runs); plan=${planned.join(",") || "(complete)"}`);
   for (const arm of planned) {
     const exp = reg.arms[arm].experiment;
     // Per-arm provider selection: an arm may pin its own `models` (e.g. a

@@ -143,6 +143,9 @@ Elo remains code + tests only and was never rendered.
 
 ## Known inconsistencies (analysed, deliberately not changed yet)
 
+- **A pending retest never expires.** A repair with no completed observable assignment stays pending forever, so its skill stays excluded from the visible coaching, and a learner who quits and returns months later can meet "No focus line today". Expiring it would re-open the coaching on a skill whose transfer is still unmeasured — that weakens the measurement — so the honest fix is to let the learner resolve the open loop, which is a product decision and a new surface, not a silent timeout.
+- **Closure and reporting read different rows.** A repair resolves on *any* `repair_retests` row with `observable=true` while the journey layer reports the *latest* assignment, so the loop can close on a verdict the learner is never shown. The fix touches the durable assignment lifecycle (the roll-forward write has no `completed_at IS NULL` guard) and is recorded rather than half-patched.
+- **The retest assignment's conflict target does not match its unique index.** The insert uses `on conflict (repair_result_id, assigned_debate_id)`, while the index is on `assigned_debate_id` alone, so re-assigning one debate to a different repair would abort the start transaction with a 500 instead of starting unmeasured. Reachability is unestablished, so it is flagged rather than migrated blind.
 
 
 ## Gated / future
