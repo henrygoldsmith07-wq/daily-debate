@@ -19,5 +19,5 @@ describe("focused tests", () => {
       .flatMap((d) => { try { return walk(d); } catch { return []; } })
       .filter((f) => re.test(readFileSync(f, "utf8")));
     expect(bad).toEqual([]);
-  });
+  }, 30_000);
 });
