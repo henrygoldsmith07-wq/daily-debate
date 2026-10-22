@@ -14,7 +14,7 @@ function walk(dir: string, out: string[] = []): string[] {
 
 describe("skipped tests", () => {
   it("no test or spec file commits an unconditional .skip, which hides failures", () => {
-    const re = /\b(?:it|test|describe)\.skip\s*\(/;
+    const re = /\b(?:it|test|describe)\.skip\s*\(\s*["'`]/; // conditional test.skip(cond, reason) is allowed
     const bad = ["src", "e2e", "tests"]
       .flatMap((d) => { try { return walk(d); } catch { return []; } })
       .filter((f) => re.test(readFileSync(f, "utf8")));
