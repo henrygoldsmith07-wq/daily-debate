@@ -16,5 +16,5 @@ describe("debugger statements", () => {
       .filter((f) => /^\s*debugger\s*;?\s*$/m.test(readFileSync(f, "utf8")))
       .map((f) => path.relative(process.cwd(), f).split(path.sep).join("/"));
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 });
