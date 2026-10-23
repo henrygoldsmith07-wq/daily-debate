@@ -13,7 +13,7 @@ import { assessArgumentGraph, mergeAssessmentGraphs } from "./observableAssessme
 import type { ObservableAssessment } from "./observableAssessment";
 import { countWeaknessesForSide, debateOpportunities, type DebateWeaknessRow } from "./repairEffectiveness";
 import type { RepairRecord } from "./retest";
-import type { RetestOutcome } from "./retest";
+import { retestOutcomeFromAssignment } from "./retest";
 
 export interface JourneyInputs {
   repairs: RepairRecord[];
@@ -35,19 +35,6 @@ interface RetestRow {
  */
 function isoString(value: unknown): string {
   return value instanceof Date ? value.toISOString() : typeof value === "string" ? value : new Date().toISOString();
-}
-
-/**
- * Map main's assignment-row semantics to the four truthful retest outcomes.
- * `demonstrated: null` means the debate did not support a judgement — a
- * 3-round sprint is too small a sample to judge the skill either way — so it
- * reads "not enough evidence", never a clean failure or success claim.
- */
-function outcomeFromAssignment(row: RetestRow, format: string | null): RetestOutcome | null {
-  if (!row.completed_at || row.observable === null) return null;
-  if (!row.observable) return "no-valid-opportunity";
-  if (format === "sprint" || row.demonstrated === null) return "not-enough-evidence";
-  return row.demonstrated ? "skill-observed" : "skill-not-observed";
 }
 
 /** Load repairs + per-debate weakness counts for one user (bounded history). */
@@ -102,7 +89,7 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
       created_at: isoString(r.created_at),
       retest_debate_id: retest?.assigned_debate_id ?? null,
       retest_outcome: retest
-        ? outcomeFromAssignment(retest, debateFormat.get(retest.assigned_debate_id) ?? null)
+        ? retestOutcomeFromAssignment(retest, debateFormat.get(retest.assigned_debate_id) ?? null)
         : null,
       retest_completed_at: retest?.completed_at ? isoString(retest.completed_at) : null,
     };
