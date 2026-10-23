@@ -141,3 +141,53 @@ export function assignChallengeSide(
     reason: `Last time you argued ${label(lastSide)} — alternating sides keeps both directions sharp.`,
   };
 }
+
+/**
+ * Deterministic [0, 1) source for the cold-start / history-unavailable coin
+ * flip, keyed on (user, motion).
+ *
+ * The home screen reveals the "Challenge me" side BEFORE the debate starts,
+ * and the start route recomputes it. With `Math.random` the two could
+ * disagree on a cold start — the screen would promise FOR and the debate
+ * would open on AGAINST. Seeding the flip on the same key makes the preview
+ * a promise the start keeps, while different motions (and different users)
+ * still land on both sides roughly evenly. Not a security boundary: a user
+ * who wants a specific side can simply pick it.
+ */
+export function seededChallengeRandom(seed: string): () => number {
+  // FNV-1a (32-bit) — tiny, stable across runtimes, good enough spread for a
+  // coin flip.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  // Final avalanche so seeds differing only in their last character still
+  // spread across both halves of [0, 1).
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  const value = (hash >>> 0) / 0x1_0000_0000;
+  return () => value;
+}
+
+/** The (user, motion) key both the preview and the start use. */
+export function challengeSeed(userId: string, topicId: string): string {
+  return `challenge:${userId}:${topicId}`;
+}
+
+/** What the start screen shows for "Challenge me" before the debate begins. */
+export interface ChallengePreview {
+  side: DebateSide;
+  reason: string;
+  rule: ChallengeRule;
+}
+
+/**
+ * Start-screen headline for a previewed side. The assignment's own `reason`
+ * follows it, and already says "at random" for random picks, so the reveal
+ * never reads as a personalised judgement it isn't.
+ */
+export function challengePreviewHeadline(preview: Pick<ChallengePreview, "side">): string {
+  return `You'll argue ${label(preview.side)}`;
+}

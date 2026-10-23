@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   assignChallengeSide,
+  challengePreviewHeadline,
+  challengeSeed,
+  seededChallengeRandom,
   normaliseSoloPerformance,
   type SideHistoryItem,
 } from "./challengeMe";
@@ -113,5 +116,35 @@ describe("assignChallengeSide", () => {
     ]);
     const result = assignChallengeSide(recent);
     expect(result.rule).not.toBe("side-balance");
+  });
+});
+
+describe("seeded Challenge me coin flip", () => {
+  it("is deterministic for a seed and stays in [0, 1)", () => {
+    const a = seededChallengeRandom("challenge:u:t")();
+    expect(seededChallengeRandom("challenge:u:t")()).toBe(a);
+    expect(a).toBeGreaterThanOrEqual(0);
+    expect(a).toBeLessThan(1);
+  });
+
+  it("spreads across both sides over many motions instead of pinning one side", () => {
+    let forCount = 0;
+    const n = 400;
+    for (let i = 0; i < n; i++) {
+      const side = assignChallengeSide([], { random: seededChallengeRandom(challengeSeed("user-1", `topic-${i}`)) }).side;
+      if (side === "for") forCount++;
+    }
+    expect(forCount / n).toBeGreaterThan(0.35);
+    expect(forCount / n).toBeLessThan(0.65);
+  });
+
+  it("keys on both user and motion", () => {
+    expect(challengeSeed("u1", "t1")).not.toBe(challengeSeed("u2", "t1"));
+    expect(challengeSeed("u1", "t1")).not.toBe(challengeSeed("u1", "t2"));
+  });
+
+  it("headline names the side in the same FOR/AGAINST vocabulary as the reason", () => {
+    expect(challengePreviewHeadline({ side: "against" })).toBe("You'll argue AGAINST");
+    expect(challengePreviewHeadline({ side: "for" })).toBe("You'll argue FOR");
   });
 });
