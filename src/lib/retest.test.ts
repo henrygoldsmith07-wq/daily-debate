@@ -7,6 +7,8 @@ import {
   repairSuccessTransition,
   retestAssignmentFor,
   retestNarrative,
+  retestComparisonFor,
+  RETEST_QUOTE_MAX_CHARS,
   retestOutcomeFor,
   retestTopicIsEligible,
   weaknessPresentIn,
@@ -343,5 +345,26 @@ describe("pickPendingRetest", () => {
 
   it("returns null when everything is retested or unsuccessful", () => {
     expect(pickPendingRetest([rec({ succeeded: false }), rec({ retest_debate_id: "d9" })])).toBeNull();
+  });
+});
+
+describe("retestComparisonFor", () => {
+  it("returns the learner's before and after with whitespace collapsed", () => {
+    expect(retestComparisonFor({ source_text: "  Cities  are\nbetter. ", rewrite_text: "Cities are better (WHO, 2020)." })).toEqual({
+      before: "Cities are better.",
+      after: "Cities are better (WHO, 2020).",
+    });
+  });
+  it("never shows a half comparison", () => {
+    expect(retestComparisonFor({ source_text: "x", rewrite_text: "  " })).toBeNull();
+    expect(retestComparisonFor({ source_text: null, rewrite_text: "y" })).toBeNull();
+    expect(retestComparisonFor(null)).toBeNull();
+  });
+  it("truncates long quotes on a word boundary within the cap", () => {
+    const long = "word ".repeat(200);
+    const out = retestComparisonFor({ source_text: long, rewrite_text: "ok" });
+    expect(out!.before.length).toBeLessThanOrEqual(RETEST_QUOTE_MAX_CHARS);
+    expect(out!.before.endsWith("\u2026")).toBe(true);
+    expect(out!.before.endsWith(" \u2026")).toBe(false);
   });
 });
