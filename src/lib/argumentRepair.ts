@@ -26,6 +26,8 @@ export interface RepairTarget {
   prompt: string;
   sourceText: string;
   sourceNodeId?: string;
+  /** Debate round the quoted text came from, when known. */
+  sourceRound?: number;
 }
 
 export interface RepairScore {
@@ -119,6 +121,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
       prompt: "Rewrite this claim with one concrete, named source or data point. Keep the claim, add the support.",
       sourceText: unsupported.text,
       sourceNodeId: unsupported.id,
+      sourceRound: unsupported.round,
     };
   }
 
@@ -133,6 +136,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
         prompt: `Rewrite this move without the ${displayFallacy(ownFallacy.fallacy)}. Make the reasoning step explicit instead of relying on the shortcut.`,
         sourceText: node.text,
         sourceNodeId: node.id,
+        sourceRound: node.round,
       };
     }
   }
@@ -149,6 +153,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
         prompt: "Reconcile these two lines in two sentences. Add the condition or distinction that makes your position consistent.",
         sourceText: `${first.text} / ${second.text}`,
         sourceNodeId: first.id,
+        sourceRound: first.round,
       };
     }
   }
@@ -168,6 +173,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
       prompt: "Answer this opposing move directly. Identify its strongest point, test the key assumption, and explain what follows. Revise your position if the objection is sound.",
       sourceText: unansweredOpportunity.text,
       sourceNodeId: unansweredOpportunity.id,
+      sourceRound: unansweredOpportunity.round,
     };
   }
 
@@ -182,6 +188,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
         prompt: "Add the consequence of this claim, then weigh it against the likely downside. End with why it matters for the decision.",
         sourceText: claim.text,
         sourceNodeId: claim.id,
+        sourceRound: claim.round,
       };
     }
   }
@@ -209,6 +216,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
         "Name the opposing move this debate left unanswered, then answer it: state what it claims, test its key assumption, and explain why your position still holds. Add nothing of your own until that move is answered.",
       sourceText: engagementGap.text,
       sourceNodeId: engagementGap.id,
+      sourceRound: engagementGap.round,
     };
   }
 
@@ -222,6 +230,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
       "Take the opponent's last move and answer it before anything else: name what they claimed, test the assumption it rests on, and say why your answer follows. Keep your own claim for the sentence after.",
     sourceText: longest.text,
     sourceNodeId: longest.id,
+    sourceRound: longest.round,
   };
 }
 
@@ -250,6 +259,7 @@ export function repairForArgumentRole(
         prompt: "Add a named source or concrete data point, then explain which part of the claim it supports.",
         sourceText: source || claim.text,
         sourceNodeId: claim.id,
+        sourceRound: claim.round,
       };
     }
   }
@@ -264,6 +274,7 @@ export function repairForArgumentRole(
         prompt: "Name the earlier argument you are answering, identify its strongest premise, and explain whether your response defeats or narrows it.",
         sourceText: opportunity.text,
         sourceNodeId: opportunity.id,
+        sourceRound: opportunity.round,
       };
     }
   }

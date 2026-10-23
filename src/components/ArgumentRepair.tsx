@@ -125,7 +125,7 @@ export default function ArgumentRepair({
       <ValidationStatusLine validation={validation} testId="repair-validation-state" />
 
       <div className="repair-target" data-testid="repair-source">
-        <p className="repair-target-label">From your debate</p>
+        <p className="repair-target-label">From your debate{typeof target.sourceRound === "number" ? ` · round ${target.sourceRound}` : ""}</p>
         <p className="mt-1 text-sm leading-6 text-ink2">“{target.sourceText}”</p>
       </div>
 

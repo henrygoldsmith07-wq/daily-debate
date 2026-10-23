@@ -33,10 +33,20 @@ describe("argument repair targets", () => {
     expect(target?.sourceNodeId).toBe("b1");
   });
 
+  it("records the round of the user's own words so the quote can be located", () => {
+    const target = pickRepairTarget(graph({
+      nodes: [{ id: "a3", kind: "claim", owner: "a", text: "The policy improves access.", round: 3 }],
+      evidenceStats: { ...emptyGraph().evidenceStats, unsupportedClaimIds: ["a3"] },
+    }));
+    expect(target?.sourceText).toBe("The policy improves access.");
+    expect(target?.sourceRound).toBe(3);
+  });
+
   it("prioritises an unsupported claim and scores a named source", () => {
     const target = pickRepairTarget(graph({ evidenceStats: { ...emptyGraph().evidenceStats, unsupportedClaimIds: ["a1"] } }));
     expect(target?.kind).toBe("evidence");
     expect(target?.sourceNodeId).toBe("a1");
+    expect(target?.sourceRound).toBe(1);
     const result = scoreRepair(target!, "Pew Research Center reported in 2025 that the access gap fell by 12 percent, which supports the policy because fewer low-income students remained excluded.");
     expect(result.score).toBeGreaterThanOrEqual(60);
     expect(result.state).toBe("repair_demonstrated");
