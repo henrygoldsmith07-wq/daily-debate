@@ -153,6 +153,18 @@ export function DebateResultCard({
                     <span className="mr-1 text-[var(--review)]">→</span>
                   )}
                   <span className="font-semibold">{retestOutcome.skillLabel}</span> — {retestOutcome.detail}
+                  {retestOutcome.comparison && (
+                    <dl className="mt-2 space-y-1 text-xs" data-testid="repair-retest-comparison">
+                      <div>
+                        <dt className="font-semibold text-ink3">Your original line</dt>
+                        <dd className="italic">&ldquo;{retestOutcome.comparison.before}&rdquo;</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-ink3">Your repair</dt>
+                        <dd className="italic">&ldquo;{retestOutcome.comparison.after}&rdquo;</dd>
+                      </div>
+                    </dl>
+                  )}
                 </>
               ) : (
                 <>

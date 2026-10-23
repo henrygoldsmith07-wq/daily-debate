@@ -290,3 +290,30 @@ export function pickPendingRetest(repairs: RepairRecord[]): RepairRecord | null 
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
   return pending[0] ?? null;
 }
+
+/** Longest quote shown in the before/after comparison. */
+export const RETEST_QUOTE_MAX_CHARS = 260;
+
+function tidyQuote(text: string | null | undefined): string {
+  const flat = (text ?? "").replace(/\s+/g, " ").trim();
+  if (flat.length <= RETEST_QUOTE_MAX_CHARS) return flat;
+  const cut = flat.slice(0, RETEST_QUOTE_MAX_CHARS - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > RETEST_QUOTE_MAX_CHARS * 0.6 ? cut.slice(0, space) : cut).trimEnd()}\u2026`;
+}
+
+/**
+ * The learner's own words from the repair, for the retest result card: the
+ * sentence that carried the weakness, and the rewrite that fixed it. Showing
+ * both beside the verdict lets the learner compare before and after on the
+ * SAME weakness instead of reading an abstract label. Returns null unless
+ * both sides have text, so a half-comparison is never shown.
+ */
+export function retestComparisonFor(
+  repair: { source_text?: string | null; rewrite_text?: string | null } | null | undefined,
+): { before: string; after: string } | null {
+  if (!repair) return null;
+  const before = tidyQuote(repair.source_text);
+  const after = tidyQuote(repair.rewrite_text);
+  return before && after ? { before, after } : null;
+}

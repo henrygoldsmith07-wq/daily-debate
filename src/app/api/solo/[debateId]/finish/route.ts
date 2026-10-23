@@ -14,7 +14,7 @@ import { snapshotFromAssessment } from "@/lib/coachingGoal";
 import { type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
 import { loadSoloFinalizationContext } from "@/lib/solo/finalizationContext";
 import { repairKindToDimension } from "@/lib/repairRetest";
-import { retestAssignmentFor, retestOutcomeFor, RETEST_OUTCOME_DETAIL, RETEST_OUTCOME_LABELS, type RetestOutcome } from "@/lib/retest";
+import { retestAssignmentFor, retestOutcomeFor, RETEST_OUTCOME_DETAIL, RETEST_OUTCOME_LABELS, retestComparisonFor, type RetestOutcome } from "@/lib/retest";
 import { countWeaknessesForSide, debateOpportunities } from "@/lib/repairEffectiveness";
 import { isRepairKind, type RepairKind } from "@/lib/argumentRepair";
 import { REPAIR_KIND_LABELS } from "@/lib/repairResume";
@@ -378,6 +378,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
         skillLabel: REPAIR_KIND_LABELS[retestTargetKind as RepairKind] ?? "your repair",
       },
     };
+  }
+  if (retestCompletion?.outcome && retestCompletion.repairResultId && coachingUpdate?.retestOutcome) {
+    // Best-effort: the verdict stands without the quote, so a lookup failure
+    // must never block finishing the debate.
+    try {
+      const { data: repairRow } = await db
+        .from("repair_results")
+        .select("source_text, rewrite_text")
+        .eq("id", retestCompletion.repairResultId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      coachingUpdate = {
+        ...coachingUpdate,
+        retestOutcome: { ...coachingUpdate.retestOutcome, comparison: retestComparisonFor(repairRow) },
+      };
+    } catch (err) {
+      console.error("Retest comparison lookup failed:", err);
+    }
   }
   const resultPayload: PersistedSoloResult = {
     totalScore,
