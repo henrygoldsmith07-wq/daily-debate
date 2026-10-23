@@ -9,6 +9,7 @@ import { formatEstimateLabel, formatLabelFor, SPRINT_ESTIMATE_MINUTES, SPRINT_RO
 import { OPPONENT_DIFFICULTY_LIST, OPPONENT_PERSONA_LIST, type OpponentDifficulty, type OpponentPersonaId } from "@/lib/opponentPersona";
 import type { DailyTopic, DebateSide } from "@/lib/types";
 import { NEUTRAL_GOAL_LINE } from "@/lib/retestDisclosure";
+import { challengePreviewHeadline, type ChallengePreview } from "@/lib/challengeMe";
 
 export interface EvidenceChecksView {
   supportsClaim?: boolean;
@@ -46,6 +47,7 @@ export default function TopicCard({
   focusLabel = "Today's focus",
   isFirstVisit = false,
   motionReason = null,
+  challengePreview = null,
 }: {
   topic: DailyTopic;
   activeDebateId: string | null;
@@ -59,6 +61,12 @@ export default function TopicCard({
   isFirstVisit?: boolean;
   /** Why this motion was picked for this user (null = shared daily motion). */
   motionReason?: string | null;
+  /**
+   * The side "Challenge me" will assign, resolved server-side with the same
+   * resolver the start route uses. Null = could not resolve; the card falls
+   * back to promising the reveal at start.
+   */
+  challengePreview?: ChallengePreview | null;
 }) {
   const router = useRouter();
   const [side, setSide] = useState<SideChoice>("challenge");
@@ -154,9 +162,23 @@ export default function TopicCard({
               ))}
             </div>
             {side === "challenge" ? (
-              <p className="home-start-note" data-testid="challenge-side-note">
-                We pick For or Against from your recent debates, and show it when you start.
-              </p>
+              challengePreview ? (
+                <p
+                  className="home-start-note"
+                  data-testid="challenge-side-note"
+                  data-challenge-side={challengePreview.side}
+                  aria-live="polite"
+                >
+                  <strong className="text-ink" data-testid="challenge-side-preview">
+                    {challengePreviewHeadline(challengePreview)}.
+                  </strong>{" "}
+                  {challengePreview.reason} Prefer the other side? Pick it above.
+                </p>
+              ) : (
+                <p className="home-start-note" data-testid="challenge-side-note">
+                  We pick For or Against from your recent debates, and show it when you start.
+                </p>
+              )
             ) : null}
 
             <details className="home-motion-details">

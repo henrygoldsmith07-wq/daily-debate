@@ -87,6 +87,8 @@ test.describe("solo full-flow", () => {
     await expect(page.getByText(/Today.*debate|Today.*topic/i).first()).toBeVisible({ timeout: 15_000 });
     await expect(page.locator(".home-motion-card").first()).toBeVisible();
     await expect(page.getByTestId("challenge-side-note")).toBeVisible();
+    // Challenge me reveals the assigned side BEFORE the debate starts.
+    await expect(page.getByTestId("challenge-side-preview")).toContainText(/You.ll argue (FOR|AGAINST)/);
     await page.getByRole("button", { name: /^against/i }).first().click();
     await expect(page.getByTestId("challenge-side-note")).toHaveCount(0);
     await page.getByRole("button", { name: /^challenge me/i }).first().click();

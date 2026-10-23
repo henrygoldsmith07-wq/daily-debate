@@ -6,6 +6,8 @@ import PageHeader from "@/components/PageHeader";
 import GuestArena from "@/components/GuestArena";
 import PageViewEvent from "@/components/PageViewEvent";
 import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
+import { loadChallengeAssignment } from "@/lib/solo/challengeSide";
+import type { ChallengePreview } from "@/lib/challengeMe";
 import SkillProfileBars from "@/components/SkillProfileBars";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
@@ -102,7 +104,7 @@ export default async function DashboardPage() {
   });
   const topic = motion.topic;
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, previousDebateBundle, openDrillRow] =
+  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, previousDebateBundle, openDrillRow, challengePreview] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -177,6 +179,18 @@ export default async function DashboardPage() {
           return null;
         }
       })(),
+      // "Challenge me" reveal: resolve the side NOW with the same resolver the
+      // start route uses (same history, same seeded coin flip), so the learner
+      // sees which side they'll argue — and why — before committing. Any
+      // failure degrades to the old "we'll show it when you start" note
+      // rather than blocking the dashboard.
+      loadChallengeAssignment({ db, userId: user.id, topicId: topic.id })
+        .then((assignment): ChallengePreview => ({
+          side: assignment.side,
+          reason: assignment.reason,
+          rule: assignment.rule,
+        }))
+        .catch(() => null),
     ]);
   // Unpack the previous-debate bundle fired inside the parallel block above.
   const previousDebate = previousDebateBundle.previousDebate;
@@ -450,6 +464,7 @@ export default async function DashboardPage() {
         focusLabel="Today's focus"
         motionReason={motion.reasonLine}
         isFirstVisit={!previousDebate}
+        challengePreview={challengePreview}
       />
       {coachingContext.status !== "ok" && (
         <p className="text-xs text-ink3" role="status">

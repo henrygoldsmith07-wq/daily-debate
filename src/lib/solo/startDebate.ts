@@ -19,12 +19,8 @@ import {
   type OpponentDifficulty,
   type OpponentPersonaId,
 } from "@/lib/opponentPersona";
-import {
-  assignChallengeSide,
-  normaliseSoloPerformance,
-  type ChallengeRule,
-  type SideHistoryItem,
-} from "@/lib/challengeMe";
+import type { ChallengeRule } from "@/lib/challengeMe";
+import { loadChallengeAssignment } from "@/lib/solo/challengeSide";
 import { pickFocusDimension } from "@/lib/coachingGoal";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { FALLBACK_IN_MEMORY_TOPIC_ID } from "@/lib/dailyTopic";
@@ -184,53 +180,9 @@ export async function startSoloDebate(params: {
     let sideRule: ChallengeRule | null = null;
 
     if (sideChoice === "challenge") {
-      const { data: historyRows, error: historyError } = await db
-        .from("solo_debates")
-        .select("id, side, total_score, performance_score")
-        .eq("user_id", userId)
-        .eq("status", "completed")
-        .order("completed_at", { ascending: false })
-        .limit(8);
-      let historyUnavailable = historyError !== null;
-      if (historyError) {
-        console.warn("Challenge Me history unavailable; using a random side.");
-      }
-
-      const legacyIds = (historyRows ?? [])
-        .filter((row) => typeof row.performance_score !== "number")
-        .map((row) => row.id);
-      const answeredByDebate = new Map<string, number>();
-
-      if (legacyIds.length) {
-        const { data: answeredTurns, error: answeredTurnsError } = await db
-          .from("solo_debate_turns")
-          .select("debate_id, id")
-          .in("debate_id", legacyIds)
-          .not("user_message", "is", null);
-        if (answeredTurnsError) {
-          historyUnavailable = true;
-          console.warn("Challenge Me legacy turn history unavailable; using a random side.");
-        } else {
-          for (const row of answeredTurns ?? []) {
-            answeredByDebate.set(row.debate_id, (answeredByDebate.get(row.debate_id) ?? 0) + 1);
-          }
-        }
-      }
-
-      const history: SideHistoryItem[] = [...(historyRows ?? [])]
-        .reverse()
-        .map((row) => ({
-          side: row.side as DebateSide,
-          performanceScore:
-            typeof row.performance_score === "number"
-              ? row.performance_score
-              : normaliseSoloPerformance(
-                  typeof row.total_score === "number" ? row.total_score : null,
-                  answeredByDebate.get(row.id) ?? 0,
-                ),
-        }));
-
-      const assignment = assignChallengeSide(history, { historyUnavailable });
+      // Same resolver as the home screen's pre-start reveal, so the side the
+      // learner was shown is the side this debate opens on.
+      const assignment = await loadChallengeAssignment({ db, userId, topicId });
       side = assignment.side;
       sideReason = assignment.reason;
       sideRule = assignment.rule;
