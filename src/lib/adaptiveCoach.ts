@@ -140,6 +140,8 @@ function dimScore(
 export function buildCoachProfile(points: SkillMetricPoint[]): {
   dims: CoachDim[];
   slopes: Record<CoachDimension, number | null>;
+  /** Debates in which each skill was actually observable (null metric = not observed). */
+  observations: Record<CoachDimension, number>;
 } {
   const dims = COACH_DIMENSIONS.map((key) => {
     let score: number | null;
@@ -180,7 +182,16 @@ export function buildCoachProfile(points: SkillMetricPoint[]): {
     }),
   ) as Record<CoachDimension, number | null>;
 
-  return { dims, slopes };
+  const observations = Object.fromEntries(
+    COACH_DIMENSIONS.map((key) => {
+      const metric = DIMENSION_METRIC[key];
+      const metrics: MetricKey[] = key === "structure" ? ["droppedArguments", "contradictions"] : [metric];
+      const n = points.filter((p) => metrics.some((m) => observedMetricValue(p, key, m) !== null)).length;
+      return [key, n];
+    }),
+  ) as Record<CoachDimension, number>;
+
+  return { dims, slopes, observations };
 }
 
 /**

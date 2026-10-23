@@ -29,6 +29,13 @@ export interface ProgressSummary {
 
 const TREND_THRESHOLD = 0.01;
 
+/**
+ * A direction needs at least this many debates in which the skill was
+ * actually observable. A line through 3 noisy points is not a trend; below
+ * this the row says how far along the evidence is instead of an arrow.
+ */
+export const MIN_OBSERVATIONS_FOR_TREND = 4;
+
 /** Simple trend from a per-debate goodness slope. */
 export function trendFor(slope: number | null): { trend: Trend; label: string } {
   if (slope === null) return { trend: "no-data", label: "not enough debates yet" };
@@ -38,10 +45,20 @@ export function trendFor(slope: number | null): { trend: Trend; label: string } 
 }
 
 export function buildProgressSummary(points: SkillMetricPoint[]): ProgressSummary {
-  const { dims, slopes } = buildCoachProfile(points);
+  const { dims, slopes, observations } = buildCoachProfile(points);
 
   const skills: ProgressSkill[] = dims.map((d: CoachDim) => {
-    const { trend, label } = trendFor(slopes[d.key] ?? null);
+    const seen = observations[d.key] ?? 0;
+    const gated = seen < MIN_OBSERVATIONS_FOR_TREND;
+    const { trend, label } = gated
+      ? {
+          trend: "no-data" as Trend,
+          label:
+            seen === 0
+              ? "not observed yet"
+              : `early read — seen in ${seen} of ${MIN_OBSERVATIONS_FOR_TREND} debates needed for a direction`,
+        }
+      : trendFor(slopes[d.key] ?? null);
     return { key: d.key, label: DIMENSION_LABELS[d.key], score: d.score, trend, trendLabel: label };
   });
 
