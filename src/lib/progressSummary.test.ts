@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProgressSummary, trendFor } from "./progressSummary";
+import { buildProgressSummary, trendFor, MIN_OBSERVATIONS_FOR_TREND } from "./progressSummary";
 import type { SkillMetricPoint, MetricKey } from "./skillLedger";
 
 function point(metrics: Partial<Record<MetricKey, number | null>>, i = 0): SkillMetricPoint {
@@ -73,6 +73,7 @@ describe("buildProgressSummary", () => {
       point({ fallacyRate: 0.4, droppedArguments: 2 }, 0),
       point({ fallacyRate: 0.2, droppedArguments: 1 }, 1),
       point({ fallacyRate: 0.05, droppedArguments: 0 }, 2),
+      point({ fallacyRate: 0.02, droppedArguments: 0 }, 3),
     ]);
     expect(summary.skills.find((s) => s.key === "logic")?.trend).toBe("up");
     expect(summary.skills.find((s) => s.key === "structure")?.trend).toBe("up");
@@ -85,5 +86,35 @@ describe("buildProgressSummary", () => {
       expect.arrayContaining(["evidence", "rebuttal", "logic", "clarity", "impact", "steelmanning", "structure"]),
     );
     expect(keys).toHaveLength(7);
+  });
+
+  it("gives no direction from fewer than the minimum observed debates, and says how far along it is", () => {
+    const summary = buildProgressSummary([
+      point({ unsupportedClaimRate: 0.8 }, 0),
+      point({ unsupportedClaimRate: 0.4 }, 1),
+      point({ unsupportedClaimRate: 0.1 }, 2),
+    ]);
+    const evidence = summary.skills.find((s) => s.key === "evidence");
+    expect(MIN_OBSERVATIONS_FOR_TREND).toBe(4);
+    expect(evidence?.trend).toBe("no-data");
+    expect(evidence?.trendLabel).toContain("3 of 4");
+    expect(evidence?.trendLabel).not.toMatch(/improving|slipping|steady/);
+  });
+
+  it("counts only debates where the skill was observable toward the gate", () => {
+    // 5 debates, but unsupportedClaimRate is observed in only 3 of them.
+    const summary = buildProgressSummary([
+      point({ unsupportedClaimRate: 0.8 }, 0),
+      point({ clarity: 0.5 }, 1),
+      point({ unsupportedClaimRate: 0.4 }, 2),
+      point({ clarity: 0.5 }, 3),
+      point({ unsupportedClaimRate: 0.1 }, 4),
+    ]);
+    expect(summary.skills.find((s) => s.key === "evidence")?.trend).toBe("no-data");
+  });
+
+  it("labels a never-observed skill honestly", () => {
+    const summary = buildProgressSummary([point({ clarity: 0.7 }, 0)]);
+    expect(summary.skills.find((s) => s.key === "impact")?.trendLabel).toBe("not observed yet");
   });
 });
