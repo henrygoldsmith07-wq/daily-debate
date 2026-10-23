@@ -6,6 +6,7 @@ import { resolveMode } from "@/lib/debateModes";
 import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import type { InputMode } from "@/lib/types";
 import type { TurnTiming } from "@/lib/speechAnalysis";
+import { clearDraft, loadDraft, saveDraft } from "@/lib/composerDraft";
 
 export interface ComposerSubmitData {
   message: string;
@@ -23,6 +24,7 @@ export default function MessageComposer({
   startedAtMs = null,
   initialText = "",
   resumeSavedSubmission = false,
+  draftKey,
 }: {
   onSubmit: (data: ComposerSubmitData) => void | boolean | Promise<void | boolean>;
   disabled: boolean;
@@ -31,9 +33,14 @@ export default function MessageComposer({
   startedAtMs?: number | null;
   initialText?: string;
   resumeSavedSubmission?: boolean;
+  /** When set, unsent text survives reloads (this tab only). */
+  draftKey?: string;
 }) {
   const mode = resolveMode(modeId);
-  const [text, setText] = useState(initialText);
+  const [text, setText] = useState(() => initialText || (draftKey ? loadDraft(draftKey) : ""));
+  useEffect(() => {
+    if (draftKey) saveDraft(draftKey, text);
+  }, [draftKey, text]);
   const [usedVoice, setUsedVoice] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const busy = disabled || submitting;
@@ -101,6 +108,7 @@ export default function MessageComposer({
       // user explicitly retry it.
       if (accepted === false) return;
       setText("");
+      if (draftKey) clearDraft(draftKey);
       setUsedVoice(false);
       voiceStartedAt.current = null;
       voiceEndedAt.current = null;

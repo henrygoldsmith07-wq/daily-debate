@@ -206,6 +206,7 @@ export function DebateLivePanel({
             onSubmit={submitTurn}
             disabled={sending || opponentSpeaking || modeWindowStarting || waitingForModeWindow}
             modeId={debateMode}
+            draftKey={`solo:${debate.id}:${pending?.id ?? "open"}`}
             startedAtMs={modeStartedAt}
             initialText={pending?.staged_user_message ?? ""}
             resumeSavedSubmission={submissionSaved}
