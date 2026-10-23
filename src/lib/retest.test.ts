@@ -6,6 +6,7 @@ import {
   pickPendingRetest,
   repairSuccessTransition,
   retestAssignmentFor,
+  retestOutcomeFromAssignment,
   retestNarrative,
   retestComparisonFor,
   RETEST_QUOTE_MAX_CHARS,
@@ -366,5 +367,23 @@ describe("retestComparisonFor", () => {
     expect(out!.before.length).toBeLessThanOrEqual(RETEST_QUOTE_MAX_CHARS);
     expect(out!.before.endsWith("\u2026")).toBe(true);
     expect(out!.before.endsWith(" \u2026")).toBe(false);
+  });
+});
+
+describe("retest writer/reader round trip", () => {
+  const outcomes = ["skill-observed", "skill-not-observed", "not-enough-evidence", "no-valid-opportunity"] as const;
+  for (const format of ["full", "sprint"] as const) {
+    for (const outcome of outcomes) {
+      it(`${format}: ${outcome} decodes to what a ${format} can honestly say`, () => {
+        const cols = retestAssignmentFor(outcome, { format });
+        const back = retestOutcomeFromAssignment({ completed_at: "2026-01-01", ...cols }, format);
+        // A sprint never claims a missing opportunity for a no-verdict row.
+        expect(back).toBe(format === "sprint" && outcome === "no-valid-opportunity" ? "not-enough-evidence" : outcome);
+      });
+    }
+  }
+  it("an unfinished assignment has no outcome", () => {
+    expect(retestOutcomeFromAssignment({ completed_at: null, observable: true, demonstrated: true }, "full")).toBeNull();
+    expect(retestOutcomeFromAssignment({ completed_at: "x", observable: null, demonstrated: null }, "full")).toBeNull();
   });
 });

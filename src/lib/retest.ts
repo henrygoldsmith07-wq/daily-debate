@@ -317,3 +317,21 @@ export function retestComparisonFor(
   const after = tidyQuote(repair.rewrite_text);
   return before && after ? { before, after } : null;
 }
+
+/**
+ * Decode a `repair_retests` row back into the canonical outcome. Exact
+ * inverse of `retestAssignmentFor`, including its sprint rules: a sprint's
+ * "no verdict" row (observable=false) reads as not-enough-evidence, not as
+ * a missing opportunity, and a real verdict recorded on a sprint stays a
+ * real verdict instead of being flattened.
+ */
+export function retestOutcomeFromAssignment(
+  row: { completed_at?: string | Date | null; observable: boolean | null; demonstrated: boolean | null },
+  format: string | null,
+): RetestOutcome | null {
+  if (!row.completed_at || row.observable === null) return null;
+  const sprint = format === "sprint";
+  if (!row.observable) return sprint ? "not-enough-evidence" : "no-valid-opportunity";
+  if (row.demonstrated === null) return "not-enough-evidence";
+  return row.demonstrated ? "skill-observed" : "skill-not-observed";
+}
