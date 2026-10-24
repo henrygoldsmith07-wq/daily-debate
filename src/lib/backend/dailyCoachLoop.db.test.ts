@@ -516,6 +516,133 @@ d("daily coach loop schema", () => {
     ]);
   });
 
+  it("never overwrites a roll-forward-closed retest when the abandoned debate finalizes late", async () => {
+    // The measurement-integrity guard in finalize_solo_debate_v4 (migration 040).
+    //
+    // complete_solo_debate_start closes a repair's still-open assignment
+    // (completed/unobservable) when a NEWER debate takes over the repair —
+    // correct: an abandoned debate must not block transfer testing forever.
+    // The unguarded finalizer then let the abandoned debate's late finish
+    // OVERWRITE that closed row, so the retest record named a debate that
+    // never carried the measurement, with a verdict computed from the wrong
+    // graph. The guard: a verdict may only land on a row that is still OPEN.
+    const userId = userIds.get("coach-a@test.local")!;
+    const topicId = await todayTopicId();
+    const sourceDebate = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, status, format, completed_at)
+       VALUES ($1, $2, 'against', 'completed', 'full', now()) RETURNING id`,
+      [userId, topicId],
+    );
+    const repair = await pool.query<{ id: string }>(
+      `INSERT INTO repair_results (
+         user_id, debate_id, target_kind, source_text, rewrite_text, score, succeeded
+       ) VALUES ($1, $2, 'evidence', 'old response', 'better response', 90, true)
+       RETURNING id`,
+      [userId, sourceDebate.rows[0].id],
+    );
+
+    // The debate that owned the test...
+    const abandoned = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format, coaching)
+       VALUES ($1, $2, 'for', 'full', $3::jsonb) RETURNING id`,
+      [
+        userId,
+        topicId,
+        JSON.stringify({
+          dimension: "evidence",
+          repairRetest: {
+            repairResultId: repair.rows[0].id,
+            repairDebateId: sourceDebate.rows[0].id,
+            targetKind: "evidence",
+            attemptedAt: new Date().toISOString(),
+          },
+        }),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO repair_retests (
+         repair_result_id, user_id, repair_debate_id, target_kind, assigned_debate_id
+       ) VALUES ($1, $2, $3, 'evidence', $4)`,
+      [repair.rows[0].id, userId, sourceDebate.rows[0].id, abandoned.rows[0].id],
+    );
+
+    // ...and the roll-forward: a newer debate takes over the repair, closing
+    // the abandoned assignment exactly as complete_solo_debate_start does.
+    // A DIFFERENT topic, because the one-active-per-user-topic constraint
+    // forbids two active debates on the same topic — and because the whole
+    // point of a retest is that it happens on a different topic. Get-or-insert
+    // (DO NOTHING, never UPDATE: the sibling db.test file can touch the same
+    // topic_date row from a parallel worker).
+    const secondDay = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    await pool.query(
+      `INSERT INTO daily_topics (topic_date, title, prompt)
+       VALUES ($1, 'Roll-forward test topic', 'Used by dailyCoachLoop.db.test')
+       ON CONFLICT (topic_date) DO NOTHING`,
+      [secondDay],
+    );
+    const secondTopic = await pool.query<{ id: string }>(
+      "SELECT id FROM daily_topics WHERE topic_date = $1",
+      [secondDay],
+    );
+    const newer = await pool.query<{ id: string }>(
+      `INSERT INTO solo_debates (user_id, topic_id, side, format)
+       VALUES ($1, $2, 'for', 'full') RETURNING id`,
+      [userId, secondTopic.rows[0].id],
+    );
+    await pool.query(
+      `UPDATE repair_retests
+       SET completed_at = now(), observable = false, demonstrated = null, updated_at = now()
+       WHERE repair_result_id = $1 AND completed_at IS NULL`,
+      [repair.rows[0].id],
+    );
+
+    // The abandoned debate finalizes LATE, with a "demonstrated" verdict it
+    // did not earn. Its two turns satisfy the minimum for a full debate.
+    await pool.query(
+      `INSERT INTO solo_debate_turns (debate_id, round_number, ai_message, user_message, turn_score)
+       VALUES ($1, 1, 'AI opening', 'User reply', 50), ($1, 2, 'AI follow-up', 'User reply', 50)`,
+      [abandoned.rows[0].id],
+    );
+    const token = randomUUID();
+    const claim = await pool.query<{ claimed: boolean }>(
+      "SELECT claim_solo_debate_finalization($1, $2, $3, 180) AS claimed",
+      [abandoned.rows[0].id, userId, token],
+    );
+    expect(claim.rows[0].claimed).toBe(true);
+
+    const finalized = await pool.query<{ finalized: boolean }>(
+      `SELECT finalize_solo_debate_v4(
+         $1, $2, $3, 10, 0, 500, $4::timestamptz,
+         '{}'::jsonb, '{"performanceScore":20}'::jsonb, true, $5::uuid, true, true,
+         'Tech'
+       ) AS finalized`,
+      [abandoned.rows[0].id, userId, token, new Date().toISOString(), repair.rows[0].id],
+    );
+    // The debate still completes — the learner must not lose a finished
+    // debate because a newer one started first.
+    expect(finalized.rows[0].finalized).toBe(true);
+
+    // But the closed row is UNTOUCHED: no verdict from the abandoned debate.
+    const retest = await pool.query<{ observable: boolean | null; demonstrated: boolean | null }>(
+      "SELECT observable, demonstrated FROM repair_retests WHERE assigned_debate_id = $1",
+      [abandoned.rows[0].id],
+    );
+    expect(retest.rows[0].observable).toBe(false);
+    expect(retest.rows[0].demonstrated).toBeNull();
+
+    // And no retest event claims the test happened in the abandoned debate.
+    const events = await pool.query<{ name: string }>(
+      `SELECT name FROM product_events
+       WHERE debate_id = $1 AND name IN ('retest_completed', 'retest_skill_demonstrated')`,
+      [abandoned.rows[0].id],
+    );
+    expect(events.rows).toHaveLength(0);
+
+    await pool.query("DELETE FROM solo_debates WHERE id = ANY($1::uuid[])", [
+      [sourceDebate.rows[0].id, abandoned.rows[0].id, newer.rows[0].id],
+    ]);
+  });
+
   it("keeps challenge invites unique by code and lifecycle-honest", async () => {
     const challengerId = userIds.get("coach-a@test.local")!;
     const opponentId = userIds.get("coach-b@test.local")!;

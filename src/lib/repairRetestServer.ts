@@ -113,3 +113,35 @@ export async function completeRepairRetestAssignment(input: {
     ? { ok: false, message: error?.message ?? "repair retest assignment was not found" }
     : { ok: true };
 }
+
+/**
+ * Whether the given debate still owns an OPEN retest assignment.
+ *
+ * The roll-forward in `complete_solo_debate_start` closes a repair's previous
+ * assignment (completed, unobservable) when a newer debate takes over the
+ * repair. The guarded finalizer therefore refuses to write the abandoned
+ * debate's verdict to that closed row — the newer debate owns the test now.
+ * This read tells the caller which world it is in, so the result card can
+ * show the verdict only when THIS debate actually carries the measurement.
+ *
+ * Service client on purpose: this runs inside finalization, not in a request
+ * the learner can forge.
+ */
+export async function retestAssignmentStillOpen(input: {
+  userId: string;
+  assignedDebateId: string;
+  repairResultId?: string | null;
+}): Promise<boolean> {
+  const service = createServiceClient();
+  let query = service
+    .from("repair_retests")
+    .select("id")
+    .eq("user_id", input.userId)
+    .eq("assigned_debate_id", input.assignedDebateId)
+    .is("completed_at", null)
+    .limit(1);
+  if (input.repairResultId) query = query.eq("repair_result_id", input.repairResultId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(error.message ?? "repair retest assignment state unavailable");
+  return Boolean(data);
+}
