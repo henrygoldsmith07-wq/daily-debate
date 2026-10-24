@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   ledgerFails: false,
@@ -77,7 +77,13 @@ vi.mock("./adaptiveCoachServer", () => ({
 import { loadCoachingContext } from "./coachingContextServer";
 
 describe("loadCoachingContext", () => {
+  afterEach(() => vi.useRealTimers());
+
   beforeEach(() => {
+    // Fixtures are dated June 2026; pin "now" so the 14-day retest expiry
+    // does not release them as the calendar moves on.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-05T12:00:00Z"));
     h.ledgerFails = false;
     h.repairsFail = false;
     h.drillsFail = false;

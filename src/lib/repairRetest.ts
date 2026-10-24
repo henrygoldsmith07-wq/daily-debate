@@ -148,6 +148,8 @@ export function pointMeasuresDimension(
   }
 }
 
+export const REPAIR_RETEST_EXPIRY_DAYS = 14;
+
 /**
  * Return the repaired dimension while it still needs a real debate retest.
  * The repaired debate itself never satisfies the retest even if timestamps are
@@ -156,6 +158,7 @@ export function pointMeasuresDimension(
 export function pendingRepairRetest(
   points: SkillMetricPoint[],
   anchor: RepairRetestAnchor | null | undefined,
+  nowMs: number = Date.now(),
 ): PendingRepairRetest | null {
   if (!anchor) return null;
   const dimension = repairKindToDimension(anchor.targetKind);
@@ -164,9 +167,13 @@ export function pendingRepairRetest(
   const anchorMs = Date.parse(anchor.attemptedAt);
   if (!Number.isFinite(anchorMs)) return null;
 
-  const observedLater = !!observedRepairRetestPoint(points, anchor);
+  if (observedRepairRetestPoint(points, anchor)) return null;
+  // Honest release: a retest with no observable opportunity for two weeks is
+  // closed as "insufficient opportunity" (not failure, not success), so the
+  // skill is coached again instead of being excluded forever.
+  if (nowMs - anchorMs > REPAIR_RETEST_EXPIRY_DAYS * 86_400_000) return null;
 
-  return observedLater ? null : { ...anchor, dimension };
+  return { ...anchor, dimension };
 }
 
 /**
@@ -220,9 +227,10 @@ export function repairRetestMatchesAnchor(
 export function pendingRepairRetests(
   points: SkillMetricPoint[],
   anchors: RepairRetestAnchor[],
+  nowMs: number = Date.now(),
 ): PendingRepairRetest[] {
   return anchors
-    .map((anchor) => pendingRepairRetest(points, anchor))
+    .map((anchor) => pendingRepairRetest(points, anchor, nowMs))
     .filter((value): value is PendingRepairRetest => value !== null)
     .sort((a, b) => Date.parse(a.attemptedAt) - Date.parse(b.attemptedAt));
 }
@@ -231,9 +239,10 @@ export function selectEligiblePendingRetest(
   points: SkillMetricPoint[],
   anchors: RepairRetestAnchor[],
   currentTopicId: string | null | undefined,
+  nowMs: number = Date.now(),
 ): PendingRepairRetest | null {
   return (
-    pendingRepairRetests(points, anchors).find((anchor) =>
+    pendingRepairRetests(points, anchors, nowMs).find((anchor) =>
       isDifferentRetestContext(anchor.topicId, currentTopicId),
     ) ?? null
   );

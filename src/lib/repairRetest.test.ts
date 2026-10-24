@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   isDifferentRetestContext,
   pendingRepairRetest,
@@ -46,6 +46,12 @@ const anchor: RepairRetestAnchor = {
 };
 
 describe("repair retest policy", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-12T12:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
   it("requires a different topic before calling a later debate a transfer retest", () => {
     expect(isDifferentRetestContext("topic-a", "topic-b")).toBe(true);
     expect(isDifferentRetestContext("topic-a", "topic-a")).toBe(false);
@@ -340,5 +346,21 @@ describe("failedRetestDimensions", () => {
   });
   it("ignores unobservable or undecided verdicts", () => {
     expect(failedRetestDimensions([v("evidence", "2026-10-01T10:00:00Z", false, false), v("evidence", "2026-10-02T10:00:00Z", null)])).toEqual([]);
+  });
+});
+
+describe("repair retest expiry", () => {
+  const day = 86_400_000;
+  const base = Date.parse("2026-06-10T12:00:00Z");
+  const a: RepairRetestAnchor = { ...anchor, attemptedAt: "2026-06-10T12:00:00Z" };
+
+  it("stays pending inside the window", () => {
+    expect(pendingRepairRetest([], a, base + 13 * day)?.dimension).toBe("evidence");
+  });
+
+  it("releases an unobserved retest after 14 days so the skill is coached again", () => {
+    expect(pendingRepairRetest([], a, base + 15 * day)).toBeNull();
+    expect(pendingRepairRetests([], [a], base + 15 * day)).toEqual([]);
+    expect(selectEligiblePendingRetest([], [a], "topic-today", base + 15 * day)).toBeNull();
   });
 });
