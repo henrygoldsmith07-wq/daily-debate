@@ -132,6 +132,11 @@ export function DebateResultCard({
               {snapshot.goalOutcome.demonstrated === true && <span className="mr-1 text-[var(--success)]">✓</span>}
               {snapshot.goalOutcome.demonstrated === false && <span className="mr-1 text-[var(--review)]">→</span>}
               {snapshot.goalOutcome.detail}
+              {snapshot.goalOutcome.provenance && (
+                <span className="mt-1 block text-xs text-ink3" data-testid="goal-provenance">
+                  {snapshot.goalOutcome.provenance}
+                </span>
+              )}
             </div>
           )}
           {/* The deliberate retest verdict — REVEALED, not signposted. This is
