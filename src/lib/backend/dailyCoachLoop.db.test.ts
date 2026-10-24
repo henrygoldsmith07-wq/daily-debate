@@ -568,10 +568,26 @@ d("daily coach loop schema", () => {
 
     // ...and the roll-forward: a newer debate takes over the repair, closing
     // the abandoned assignment exactly as complete_solo_debate_start does.
+    // A DIFFERENT topic, because the one-active-per-user-topic constraint
+    // forbids two active debates on the same topic — and because the whole
+    // point of a retest is that it happens on a different topic. Get-or-insert
+    // (DO NOTHING, never UPDATE: the sibling db.test file can touch the same
+    // topic_date row from a parallel worker).
+    const secondDay = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    await pool.query(
+      `INSERT INTO daily_topics (topic_date, title, prompt)
+       VALUES ($1, 'Roll-forward test topic', 'Used by dailyCoachLoop.db.test')
+       ON CONFLICT (topic_date) DO NOTHING`,
+      [secondDay],
+    );
+    const secondTopic = await pool.query<{ id: string }>(
+      "SELECT id FROM daily_topics WHERE topic_date = $1",
+      [secondDay],
+    );
     const newer = await pool.query<{ id: string }>(
       `INSERT INTO solo_debates (user_id, topic_id, side, format)
        VALUES ($1, $2, 'for', 'full') RETURNING id`,
-      [userId, topicId],
+      [userId, secondTopic.rows[0].id],
     );
     await pool.query(
       `UPDATE repair_retests
