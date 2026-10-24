@@ -165,7 +165,7 @@ export default function TopicCard({
                 "Argue freely — the coach still flags one weakness afterwards."}
             </strong>
             <span className="home-coaching-lastline">
-              {firstFocus.label === GUEST_FOCUS_LABEL
+              {focusChoice === firstFocus.suggested && firstFocus.label === GUEST_FOCUS_LABEL
                 ? "Picked from one guest practice run — not measured evidence, not scored, and not a retest. "
                 : null}
               <label className="inline-flex items-center gap-1">
