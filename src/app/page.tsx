@@ -85,6 +85,7 @@ export default async function DashboardPage() {
     coachingContext.ledger?.points ?? [],
     coachingContext.drillOutcomes,
     skillsUnderTest(coachingContext.pendingRetests),
+    coachingContext.reRepairDimensions,
   );
   const motion = await resolvePracticeMotion({
     userId: user.id,
@@ -275,6 +276,7 @@ export default async function DashboardPage() {
     // for the skill under silent test would prompt the very behaviour the
     // retest is meant to measure (retestDisclosure.ts).
     skillsUnderTest(coachingContext.pendingRetests),
+    coachingContext.reRepairDimensions,
   );
 
   // The drill row was loaded in the parallel block above (loop latency: no

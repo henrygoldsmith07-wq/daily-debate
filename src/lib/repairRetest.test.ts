@@ -327,3 +327,18 @@ describe("repair retest policy", () => {
     ).toBeNull();
   });
 });
+
+import { failedRetestDimensions } from "./repairRetest";
+describe("failedRetestDimensions", () => {
+  const v = (targetKind: string, completedAt: string, demonstrated: boolean | null, observable: boolean | null = true) =>
+    ({ targetKind, completedAt, demonstrated, observable }) as never;
+  it("returns the skill whose latest verdict failed", () => {
+    expect(failedRetestDimensions([v("evidence", "2026-10-01T10:00:00Z", false)])).toEqual(["evidence"]);
+  });
+  it("a later demonstrated verdict clears it", () => {
+    expect(failedRetestDimensions([v("evidence", "2026-10-01T10:00:00Z", false), v("evidence", "2026-10-03T10:00:00Z", true)])).toEqual([]);
+  });
+  it("ignores unobservable or undecided verdicts", () => {
+    expect(failedRetestDimensions([v("evidence", "2026-10-01T10:00:00Z", false, false), v("evidence", "2026-10-02T10:00:00Z", null)])).toEqual([]);
+  });
+});

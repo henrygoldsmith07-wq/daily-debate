@@ -64,10 +64,11 @@ export function pickFocusDimension(
   points: SkillMetricPoint[],
   outcomes: Partial<Record<CoachDimension, number>> = {},
   excludeDimensions: readonly CoachDimension[] = [],
+  reRepairDimensions: readonly CoachDimension[] = [],
 ): CoachDimension | null {
   if (!points.length) return null;
   const { dims, slopes } = buildCoachProfile(points);
-  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimensions);
+  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimensions, reRepairDimensions);
   return focus?.key ?? null;
 }
 
@@ -157,8 +158,9 @@ export function buildCoachingGoal(
   lastSnapshot: CoachingSnapshot | null,
   outcomes: Partial<Record<CoachDimension, number>> = {},
   excludeDimensions: readonly CoachDimension[] = [],
+  reRepairDimensions: readonly CoachDimension[] = [],
 ): CoachingGoal | null {
-  const dimension = pickFocusDimension(points, outcomes, excludeDimensions);
+  const dimension = pickFocusDimension(points, outcomes, excludeDimensions, reRepairDimensions);
   if (!dimension) return null;
   const headline = GOAL_HEADLINES[dimension];
 

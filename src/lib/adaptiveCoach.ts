@@ -213,6 +213,14 @@ export function selectFocus(
    * under silent test, and the next debate may carry either.
    */
   exclude: readonly CoachDimension[] = [],
+  /**
+   * Dimensions whose latest observable retest said the repair did NOT transfer
+   * (repairRetest.failedRetestDimensions). They take focus ahead of the
+   * ledger ordering so the learner is routed back to re-repair the skill
+   * instead of it silently dropping out of coaching. Skills under silent test
+   * still win the exclusion.
+   */
+  reRepair: readonly CoachDimension[] = [],
 ): { focus: CoachDim | null; reason: string } {
   const excluded = new Set<CoachDimension>(exclude);
   const usable = dims.filter((d) => d.hasData && d.score !== null && !excluded.has(d.key));
@@ -222,6 +230,17 @@ export function selectFocus(
       reason: excluded.size
         ? "No focus line today — the debate is still worth doing."
         : "No scored debates yet — complete a debate to unlock training.",
+    };
+  }
+
+  const reRepairSet = new Set<CoachDimension>(reRepair);
+  const reRepairPool = usable
+    .filter((d) => reRepairSet.has(d.key))
+    .sort((a, b) => (a.score as number) - (b.score as number));
+  if (reRepairPool.length) {
+    return {
+      focus: reRepairPool[0],
+      reason: "your last repair did not show up in a later debate (unvalidated single retest) — try it again",
     };
   }
 
