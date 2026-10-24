@@ -15,6 +15,7 @@ import { type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
 import { loadSoloFinalizationContext } from "@/lib/solo/finalizationContext";
 import { repairKindToDimension } from "@/lib/repairRetest";
 import { retestAssignmentFor, retestOutcomeFor, RETEST_OUTCOME_DETAIL, RETEST_OUTCOME_LABELS, retestComparisonFor, type RetestOutcome } from "@/lib/retest";
+import { retestAssignmentStillOpen } from "@/lib/repairRetestServer";
 import { countWeaknessesForSide, debateOpportunities } from "@/lib/repairEffectiveness";
 import { isRepairKind, type RepairKind } from "@/lib/argumentRepair";
 import { REPAIR_KIND_LABELS } from "@/lib/repairResume";
@@ -354,6 +355,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       // the repair stays pending — the test waits for a full debate.
       format: format === "sprint" ? "sprint" : "full",
     });
+
+    // Does THIS debate still own the open assignment? The roll-forward in
+    // complete_solo_debate_start closes a repair's previous assignment when a
+    // newer debate takes over the repair, and the guarded finalizer then
+    // refuses to write this debate's verdict to the closed row. When that has
+    // happened, the result card must not reveal a verdict either: the
+    // measurement belongs to the newer debate now, and showing one here would
+    // be a claim the durable state does not back.
+    let assignmentStillOpen = true;
+    try {
+      assignmentStillOpen = await retestAssignmentStillOpen({
+        userId: user.id,
+        assignedDebateId: debateId,
+        repairResultId: coaching.repairRetest.repairResultId ?? null,
+      });
+    } catch (error) {
+      // Fail CLOSED on the reveal, not on the debate: a state read failure must
+      // not destroy a completed debate, but it must not show an unverified
+      // verdict either.
+      console.error("Retest assignment state unavailable during finalization:", error);
+      assignmentStillOpen = false;
+    }
+
     retestCompletion = {
       repairResultId: coaching.repairRetest.repairResultId ?? null,
       observable: assignment.observable,
@@ -362,7 +386,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       // pass/fail the evidence cannot support. "no-valid-opportunity" and a
       // missing assessment both record no verdict at all.
       demonstrated: assignment.demonstrated,
-      outcome,
+      outcome: assignmentStillOpen ? outcome : null,
     };
   }
   // The retest verdict travels with the coaching record so the result card

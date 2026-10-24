@@ -23,6 +23,7 @@ import type { DebateWeaknessRow } from "./repairEffectiveness";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const readSource = (...parts: string[]) => readFileSync(path.join(REPO_ROOT, "src", ...parts), "utf8");
+const readMigration = (name: string) => readFileSync(path.join(REPO_ROOT, "database", "migrations", name), "utf8");
 
 function graphOf(nodes: ArgNode[], edges: ArgEdge[] = [], unsupportedClaimIds: string[] = []): ArgGraph {
   return {
@@ -131,6 +132,25 @@ describe("the finish route computes the retest verdict from behaviour, not goal-
   it("suppresses the live hints that cue the skill under test", () => {
     const turn = readSource("app", "api", "solo", "[debateId]", "turn", "route.ts");
     expect(turn).toContain("suppressDimension: retestDimension");
+  });
+});
+
+describe("a roll-forward-closed retest cannot be overwritten by the abandoned debate", () => {
+  // The guard in migration 040: a verdict may only land on an assignment that
+  // is still OPEN. complete_solo_debate_start closes a repair's previous
+  // assignment when a newer debate takes over the repair; the unguarded
+  // finalizer then let the abandoned debate's late finish overwrite that row,
+  // so the retest record named a debate that never carried the measurement.
+  it("the SQL guard is present in the live finalizer", () => {
+    const migration = readMigration("040_guarded_retest_finalization.sql");
+    expect(migration).toMatch(/completed_at\s+is\s+null/);
+  });
+
+  it("the result card reveals a verdict only when this debate still owns the open assignment", () => {
+    const source = readSource("app", "api", "solo", "[debateId]", "finish", "route.ts");
+    expect(source).toContain("retestAssignmentStillOpen(");
+    const retestBlock = source.slice(source.indexOf("if (coaching.repairRetest)"));
+    expect(retestBlock).toMatch(/assignmentStillOpen\s*\?\s*outcome\s*:\s*null/);
   });
 });
 
