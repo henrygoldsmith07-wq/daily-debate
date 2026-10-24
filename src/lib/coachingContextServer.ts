@@ -8,6 +8,7 @@ import {
 import {
   observedRepairRetestPoint,
   pendingRepairRetests,
+  lapsedRepairRetests,
   selectEligiblePendingRetest,
   type PendingRepairRetest,
   type RepairRetestAnchor,
@@ -26,6 +27,8 @@ export interface CoachingContext {
   ledger: LedgerWithSeries | null;
   repairAnchors: RepairRetestAnchor[];
   pendingRetests: PendingRepairRetest[];
+  /** Retests closed untested (expired, no opportunity); shown once as a notice. */
+  lapsedRetests: PendingRepairRetest[];
   selectedRetest: PendingRepairRetest | null;
   drillOutcomes: Partial<Record<CoachDimension, number>>;
   /** Skills whose latest observable retest did not demonstrate the repair. */
@@ -56,6 +59,7 @@ export async function loadCoachingContext(
       ledger: null,
       repairAnchors: repairResult.status === "fulfilled" ? repairResult.value : [],
       pendingRetests: [],
+      lapsedRetests: [],
       selectedRetest: null,
       drillOutcomes: {},
       reRepairDimensions: [],
@@ -124,6 +128,7 @@ export async function loadCoachingContext(
     ledger,
     repairAnchors,
     pendingRetests,
+    lapsedRetests: repairResult.status === "fulfilled" ? lapsedRepairRetests(ledger.points, repairAnchors) : [],
     selectedRetest,
     drillOutcomes,
     reRepairDimensions,
