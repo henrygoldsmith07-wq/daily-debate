@@ -12,6 +12,7 @@ import SkillProfileBars from "@/components/SkillProfileBars";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
+import { lapsedRetestNotice } from "@/lib/lapsedRetestNotice";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
 import { buildLearnerModel } from "@/lib/learnerModel";
@@ -269,6 +270,10 @@ export default async function DashboardPage() {
       }
     : null;
 
+  const lapsedSkillKey = coachingContext.lapsedRetests[0]
+    ? canonicalSkillKey(coachingContext.lapsedRetests[0].dimension)
+    : null;
+
   const skillProfile = ledger ? computeSkillProfile(ledger.points) : null;
   // "Improving" needs more than a two-debate delta to be worth printing:
   // hold the label until scores have started to settle.
@@ -503,6 +508,18 @@ export default async function DashboardPage() {
         challengePreview={challengePreview}
         firstFocus={firstFocus}
       />
+      {lapsedSkillKey && (
+        <p
+          className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink3"
+          role="status"
+          data-testid="lapsed-retest-notice"
+        >
+          {lapsedRetestNotice(
+            SKILL_DIMENSIONS[lapsedSkillKey].label,
+            coachingContext.lapsedRetests.length,
+          )}
+        </p>
+      )}
       {coachingContext.status !== "ok" && (
         <p className="text-xs text-ink3" role="status">
           Coaching context is temporarily {coachingContext.status}; today&apos;s debate is still available without treating missing data as progress.

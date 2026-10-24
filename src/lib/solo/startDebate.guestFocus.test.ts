@@ -16,6 +16,7 @@ const context: { value: CoachingContext } = {
     ledger: { points: [], debates: 0, improvements: [] } as unknown as CoachingContext["ledger"],
     repairAnchors: [],
     pendingRetests: [],
+    lapsedRetests: [],
     selectedRetest: null,
     drillOutcomes: {},
     reRepairDimensions: [],

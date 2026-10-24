@@ -176,6 +176,35 @@ export function pendingRepairRetest(
   return { ...anchor, dimension };
 }
 
+/** How long after expiry the "closed untested" notice stays on Today. */
+export const LAPSED_NOTICE_DAYS = 14;
+
+/**
+ * Repairs whose retest was closed as "insufficient opportunity": never
+ * observed, and past the expiry window, but recent enough (another
+ * LAPSED_NOTICE_DAYS) that the learner should hear about it once instead of
+ * the loop silently vanishing. Not a pass, not a failure, never scored.
+ * Newest first.
+ */
+export function lapsedRepairRetests(
+  points: SkillMetricPoint[],
+  anchors: RepairRetestAnchor[],
+  nowMs: number = Date.now(),
+): PendingRepairRetest[] {
+  const out: PendingRepairRetest[] = [];
+  for (const anchor of anchors) {
+    const dimension = repairKindToDimension(anchor.targetKind);
+    const anchorMs = Date.parse(anchor.attemptedAt);
+    if (!dimension || !Number.isFinite(anchorMs)) continue;
+    if (observedRepairRetestPoint(points, anchor)) continue;
+    const age = nowMs - anchorMs;
+    if (age <= REPAIR_RETEST_EXPIRY_DAYS * 86_400_000) continue;
+    if (age > (REPAIR_RETEST_EXPIRY_DAYS + LAPSED_NOTICE_DAYS) * 86_400_000) continue;
+    out.push({ ...anchor, dimension });
+  }
+  return out.sort((a, b) => Date.parse(b.attemptedAt) - Date.parse(a.attemptedAt));
+}
+
 /**
  * Find the explicit assigned debate that genuinely observed this repaired
  * dimension. This is also used once to reconcile pre-025 assignments into the
