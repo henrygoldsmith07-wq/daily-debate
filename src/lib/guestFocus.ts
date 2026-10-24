@@ -103,3 +103,26 @@ export function firstFocusView(
     })),
   };
 }
+
+/**
+ * The focus that steers TODAY'S MOTION choice. The account's own evidence
+ * always wins; only when it names no focus at all (a brand-new account whose
+ * first debate will be coached on the guest seed) does the guest seed steer
+ * the motion, so the motion offered matches the focus the debate is started
+ * with. Same eligibility rule as guestSeededFocus (unvalidated, never scored).
+ */
+export function motionFocusWithGuestSeed(input: {
+  accountFocus: CoachDimension | null;
+  guestContext: GuestLoopSummary | null;
+  completedDebates: number;
+  ledgerPointCount: number;
+  excluded?: readonly CoachDimension[];
+}): CoachDimension | null {
+  if (input.accountFocus) return input.accountFocus;
+  return guestSeededFocus({
+    guestContext: input.guestContext,
+    hasCompletedDebate: input.completedDebates > 0,
+    ledgerPointCount: input.ledgerPointCount,
+    excluded: input.excluded,
+  });
+}
