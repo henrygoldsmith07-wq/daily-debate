@@ -95,17 +95,29 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
     };
   });
 
-  const rows: DebateWeaknessRow[] = [];
-  for (const debate of debates ?? []) {
+  // One batched read for every debate's turns (was one sequential query per
+  // debate: up to 30 round-trips before Today/Progress could paint).
+  const debateIds = (debates ?? []).map((d) => d.id as string);
+  const turnsByDebate = new Map<string, ObservableAssessment["graph"][]>();
+  if (debateIds.length) {
     const { data: turns } = await db
       .from("solo_debate_turns")
-      .select("assessment")
-      .eq("debate_id", debate.id)
+      .select("debate_id, assessment, round_number")
+      .in("debate_id", debateIds)
       .not("assessment", "is", null)
       .order("round_number", { ascending: true });
-    const graphs = ((turns ?? []) as Array<{ assessment: unknown }>)
-      .map((t) => (t.assessment as ObservableAssessment)?.graph)
-      .filter((g): g is ObservableAssessment["graph"] => !!g);
+    for (const t of (turns ?? []) as Array<{ debate_id: string; assessment: unknown }>) {
+      const graph = (t.assessment as ObservableAssessment)?.graph;
+      if (!graph) continue;
+      const list = turnsByDebate.get(t.debate_id) ?? [];
+      list.push(graph);
+      turnsByDebate.set(t.debate_id, list);
+    }
+  }
+
+  const rows: DebateWeaknessRow[] = [];
+  for (const debate of debates ?? []) {
+    const graphs = turnsByDebate.get(debate.id as string) ?? [];
     if (!graphs.length) continue;
     const merged = assessArgumentGraph(mergeAssessmentGraphs(graphs), {
       sideA: "a",
