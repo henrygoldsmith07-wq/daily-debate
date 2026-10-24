@@ -63,6 +63,10 @@ export default async function DashboardPage() {
   // nothing is pre-stored, so the dashboard always has content. Motion
   // personalisation then picks (and explains) the best motion for this user,
   // enforcing the retest different-topic rule at the motion layer.
+  // The journey read depends only on the user, so start it now and let it
+  // overlap the topic + coaching-context round-trips instead of trailing them.
+  const journeyInputsPromise = buildJourneyInputsForUser(user.id);
+  journeyInputsPromise.catch(() => undefined); // awaited (and surfaced) below
   const sharedTopic = await getTodayTopic();
 
   const coachingContext = await loadCoachingContext(user.id, { currentTopicId: sharedTopic.id });
@@ -305,7 +309,7 @@ export default async function DashboardPage() {
   // Canonical learner model — the same intelligence that drives Progress, so
   // Today leads with what to practise and why rather than a wall of cards.
   // Built from the same stored debates/repairs; a repair is practice, not mastery.
-  const journeyInputs = await buildJourneyInputsForUser(user.id);
+  const journeyInputs = await journeyInputsPromise;
   const learnerModel = buildLearnerModel({
     points: ledger?.points ?? [],
     repairs: journeyInputs.repairs.map((r) => ({
