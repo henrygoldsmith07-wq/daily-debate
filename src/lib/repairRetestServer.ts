@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createServiceClient } from "@/lib/backend/server";
-import type { RepairRetestAnchor } from "./repairRetest";
+import type { CompletedRetestVerdict, RepairRetestAnchor } from "./repairRetest";
 import { isRepairKind } from "./argumentRepair";
 
 /**
@@ -144,4 +144,33 @@ export async function retestAssignmentStillOpen(input: {
   const { data, error } = await query.maybeSingle();
   if (error) throw new Error(error.message ?? "repair retest assignment state unavailable");
   return Boolean(data);
+}
+
+/** Completed retest verdicts (bounded) joined to the repaired kind. */
+export async function failedRetestVerdictsForUser(userId: string): Promise<CompletedRetestVerdict[]> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("repair_retests")
+    .select("repair_result_id, completed_at, observable, demonstrated")
+    .eq("user_id", userId)
+    .eq("observable", true)
+    .not("completed_at", "is", null)
+    .order("completed_at", { ascending: false })
+    .limit(30);
+  if (error) throw new Error(error.message ?? "retest verdicts unavailable");
+  const rows = data ?? [];
+  if (!rows.length) return [];
+  const { data: repairs, error: repairError } = await service
+    .from("repair_results")
+    .select("id, target_kind")
+    .eq("user_id", userId)
+    .in("id", rows.map((r) => r.repair_result_id));
+  if (repairError) throw new Error(repairError.message ?? "retest repairs unavailable");
+  const kinds = new Map((repairs ?? []).map((r) => [r.id, r.target_kind]));
+  return rows.flatMap((row) => {
+    const kind = kinds.get(row.repair_result_id);
+    return isRepairKind(kind)
+      ? [{ targetKind: kind, completedAt: isoString(row.completed_at), observable: row.observable, demonstrated: row.demonstrated }]
+      : [];
+  });
 }

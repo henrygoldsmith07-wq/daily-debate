@@ -238,3 +238,30 @@ export function selectEligiblePendingRetest(
     ) ?? null
   );
 }
+
+export interface CompletedRetestVerdict {
+  targetKind: RepairKind;
+  completedAt: string;
+  observable: boolean | null;
+  demonstrated: boolean | null;
+}
+
+/**
+ * Skills whose most recent observable retest verdict is "did not demonstrate".
+ * A later demonstrated verdict on the same skill clears it; verdicts without a
+ * definite true/false (no valid opportunity, unscored) never count either way.
+ * One failed retest is a single unvalidated reading, so this only STEERS
+ * coaching toward a re-repair; it is never shown as a score.
+ */
+export function failedRetestDimensions(verdicts: CompletedRetestVerdict[]): CoachDimension[] {
+  const latest = new Map<CoachDimension, { at: number; demonstrated: boolean }>();
+  for (const v of verdicts) {
+    if (v.observable !== true || v.demonstrated === null) continue;
+    const dimension = repairKindToDimension(v.targetKind);
+    const at = Date.parse(v.completedAt);
+    if (!dimension || Number.isNaN(at)) continue;
+    const current = latest.get(dimension);
+    if (!current || at > current.at) latest.set(dimension, { at, demonstrated: v.demonstrated });
+  }
+  return [...latest.entries()].filter(([, v]) => !v.demonstrated).map(([d]) => d);
+}

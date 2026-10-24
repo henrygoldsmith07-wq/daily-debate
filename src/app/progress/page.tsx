@@ -187,6 +187,7 @@ export default async function ProgressPage() {
     null,
     drillOutcomes,
     skillsUnderTest(coachingContext.pendingRetests),
+    coachingContext.reRepairDimensions,
   );
   const learnerModel = buildLearnerModel({
     points: ledger.points,

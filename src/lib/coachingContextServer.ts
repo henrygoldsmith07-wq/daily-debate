@@ -12,6 +12,8 @@ import {
   type PendingRepairRetest,
   type RepairRetestAnchor,
 } from "./repairRetest";
+import { failedRetestVerdictsForUser } from "./repairRetestServer";
+import { failedRetestDimensions } from "./repairRetest";
 import { latestDrillOutcomes } from "./adaptiveCoachServer";
 import type { CoachDimension } from "./adaptiveCoach";
 import type { CoachingContextDegradationReason } from "./types";
@@ -26,6 +28,8 @@ export interface CoachingContext {
   pendingRetests: PendingRepairRetest[];
   selectedRetest: PendingRepairRetest | null;
   drillOutcomes: Partial<Record<CoachDimension, number>>;
+  /** Skills whose latest observable retest did not demonstrate the repair. */
+  reRepairDimensions: CoachDimension[];
 }
 
 /**
@@ -54,6 +58,7 @@ export async function loadCoachingContext(
       pendingRetests: [],
       selectedRetest: null,
       drillOutcomes: {},
+      reRepairDimensions: [],
     };
   }
 
@@ -66,6 +71,13 @@ export async function loadCoachingContext(
     drillOutcomes = await latestDrillOutcomes(userId, ledger.points);
   } catch {
     degradationReasons.push("drill-outcomes-unavailable");
+  }
+
+  let reRepairDimensions: CoachDimension[] = [];
+  try {
+    reRepairDimensions = failedRetestDimensions(await failedRetestVerdictsForUser(userId));
+  } catch {
+    // Steering is advisory; ledger ordering still works without it.
   }
 
   const pendingRetests = repairResult.status === "fulfilled"
@@ -114,5 +126,6 @@ export async function loadCoachingContext(
     pendingRetests,
     selectedRetest,
     drillOutcomes,
+    reRepairDimensions,
   };
 }

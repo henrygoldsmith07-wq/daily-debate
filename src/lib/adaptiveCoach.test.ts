@@ -321,3 +321,23 @@ describe("movementAround", () => {
     expect(movementAround(points, "logic", points[1].completedAt)).toBeNull();
   });
 });
+
+describe("focus selection: failed retest steers re-repair", () => {
+  const dims = COACH_DIMENSIONS.map((key) => ({ key, label: key, score: key === "impact" ? 20 : key === "clarity" ? 60 : 80, hasData: true }));
+
+  it("focuses the not-transferred skill ahead of the lowest dimension", () => {
+    const { focus, reason } = selectFocus(dims as never, {}, {}, [], ["clarity"]);
+    expect(focus?.key).toBe("clarity");
+    expect(reason).toMatch(/unvalidated/);
+  });
+
+  it("still never focuses a skill under silent test", () => {
+    const { focus } = selectFocus(dims as never, {}, {}, ["clarity"], ["clarity"]);
+    expect(focus?.key).toBe("impact");
+  });
+
+  it("overrides the non-producing drill skip", () => {
+    const { focus } = selectFocus(dims as never, {}, { clarity: -0.1 }, [], ["clarity"]);
+    expect(focus?.key).toBe("clarity");
+  });
+});

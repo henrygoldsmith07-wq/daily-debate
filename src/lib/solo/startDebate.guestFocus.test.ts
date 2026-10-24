@@ -18,6 +18,7 @@ const context: { value: CoachingContext } = {
     pendingRetests: [],
     selectedRetest: null,
     drillOutcomes: {},
+    reRepairDimensions: [],
   },
 };
 
