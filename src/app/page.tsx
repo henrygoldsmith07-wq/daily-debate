@@ -31,7 +31,7 @@ import { pickPriority } from "@/lib/dailyFocus";
 import { canonicalSkillKey } from "@/lib/skillTaxonomy";
 import { homeHeaderPills } from "@/lib/homeHeaderPills";
 import { dateKeyInTimeZone } from "@/lib/timeZone";
-import { firstFocusView, guestKindToDimension, guestSeededFocus } from "@/lib/guestFocus";
+import { firstFocusView, guestKindToDimension, guestSeededFocus, motionFocusWithGuestSeed } from "@/lib/guestFocus";
 
 export const dynamic = "force-dynamic";
 
@@ -85,12 +85,25 @@ export default async function DashboardPage() {
   // One focus for today, shared by the motion bonus, the visible coaching
   // goal and the training target — so no two of them can name different
   // skills on the same screen.
-  const focusDimension = pickFocusDimension(
+  const accountFocus = pickFocusDimension(
     coachingContext.ledger?.points ?? [],
     coachingContext.drillOutcomes,
     skillsUnderTest(coachingContext.pendingRetests),
     coachingContext.reRepairDimensions,
   );
+  // A brand-new account has no focus of its own; its first debate is coached
+  // on the guest-seeded focus, so steer the motion by that same skill. Read
+  // only when the account has no evidence (the common case skips the query).
+  const ledgerPoints = coachingContext.ledger?.points ?? [];
+  const earlyGuestContext =
+    !accountFocus && ledgerPoints.length === 0 ? await getGuestContext(user.id).catch(() => null) : null;
+  const focusDimension = motionFocusWithGuestSeed({
+    accountFocus,
+    guestContext: earlyGuestContext,
+    completedDebates: coachingContext.ledger?.debates ?? 0,
+    ledgerPointCount: ledgerPoints.length,
+    excluded: skillsUnderTest(coachingContext.pendingRetests),
+  });
   const motion = await resolvePracticeMotion({
     userId: user.id,
     shared: sharedTopic,

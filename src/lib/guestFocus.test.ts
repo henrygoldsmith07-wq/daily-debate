@@ -4,6 +4,7 @@ import {
   firstFocusView,
   guestKindToDimension,
   guestSeededFocus,
+  motionFocusWithGuestSeed,
   resolveFirstFocus,
 } from "./guestFocus";
 import type { GuestLoopSummary } from "./guestLoop";
@@ -60,5 +61,22 @@ describe("guest-seeded first focus", () => {
     expect(view?.options.map((o) => o.key)).not.toContain("rebuttal");
     expect(view?.options.map((o) => o.key)).toContain("logic");
     expect(firstFocusView(null)).toBeNull();
+  });
+});
+
+describe("motion focus with guest seed", () => {
+  const base = { guestContext: guest("evidence"), completedDebates: 0, ledgerPointCount: 0 };
+  it("steers a brand-new account's motion by the guest seed", () => {
+    expect(motionFocusWithGuestSeed({ ...base, accountFocus: null })).toBe("evidence");
+  });
+  it("account evidence always wins over the guest seed", () => {
+    expect(motionFocusWithGuestSeed({ ...base, accountFocus: "logic" })).toBe("logic");
+    expect(motionFocusWithGuestSeed({ ...base, accountFocus: null, ledgerPointCount: 2 })).toBeNull();
+    expect(motionFocusWithGuestSeed({ ...base, accountFocus: null, completedDebates: 1 })).toBeNull();
+  });
+  it("never steers toward a skill under silent test or an unmapped kind", () => {
+    expect(motionFocusWithGuestSeed({ ...base, accountFocus: null, excluded: ["evidence"] })).toBeNull();
+    expect(motionFocusWithGuestSeed({ ...base, guestContext: guest("claim"), accountFocus: null })).toBeNull();
+    expect(motionFocusWithGuestSeed({ ...base, guestContext: null, accountFocus: null })).toBeNull();
   });
 });
