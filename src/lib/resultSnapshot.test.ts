@@ -163,3 +163,15 @@ describe("graph turn helpers used by the snapshot", () => {
     expect(snapshot.honesty.format).toBe("full");
   });
 });
+
+describe("goal outcome provenance", () => {
+  it("labels guest-seeded and learner-chosen focus; ledger focus gets no label", () => {
+    const base = { format: "full" as const, goalDimension: "rebuttal" as const };
+    const guest = buildResultSnapshot(assess(SUPPORTED_GRAPH), { ...base, goalSource: "guest-practice" });
+    expect(guest.goalOutcome.provenance).toMatch(/guest practice.*unvalidated/);
+    const chosen = buildResultSnapshot(assess(SUPPORTED_GRAPH), { ...base, goalSource: "learner-choice" });
+    expect(chosen.goalOutcome.provenance).toMatch(/you chose/i);
+    const ledger = buildResultSnapshot(assess(SUPPORTED_GRAPH), base);
+    expect(ledger.goalOutcome.provenance).toBeNull();
+  });
+});

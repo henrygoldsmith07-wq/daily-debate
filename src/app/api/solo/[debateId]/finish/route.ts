@@ -274,6 +274,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     summary,
     priorDebates: priorDebateKinds,
     goalDimension,
+    goalSource: coaching.focusSource ?? null,
   });
   let coachingUpdate: CoachingRecord = { ...coaching, snapshot: null, demonstrated: null };
   if (goalDimension && finalAssessment?.features?.a) {

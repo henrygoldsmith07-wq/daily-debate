@@ -86,6 +86,7 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
       ? buildResultSnapshot(finalAssessment, {
           format: debate.format === "sprint" ? "sprint" : "full",
           goalDimension,
+          goalSource: coaching?.focusSource ?? null,
         })
       : null;
     const persistedSnapshot = persisted?.snapshot && typeof persisted.snapshot === "object"

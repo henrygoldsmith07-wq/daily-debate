@@ -42,7 +42,7 @@ export interface ResultSnapshot {
   /** Secondary feedback list (model summary) — full analysis only. */
   secondary: { strengths: string[]; improvements: string[]; overallFeedback: string };
   /** Whether the pre-debate coaching goal was demonstrated. */
-  goalOutcome: { demonstrated: boolean | null; detail: string | null };
+  goalOutcome: { demonstrated: boolean | null; detail: string | null; provenance?: string | null };
   goal: CoachingGoal | null;
   honesty: MeasurementHonesty;
   /** How many graph evidence references back the weakness claim. */
@@ -102,6 +102,13 @@ const WEAKNESS_WHY: Record<string, string> = {
  * debate) enables repeated-weakness detection. The story still works without
  * any of them.
  */
+/** Honest label for a focus that was not picked by the ledger. Coaching only, never evidence. */
+export function goalProvenance(source: "guest-practice" | "learner-choice" | null | undefined): string | null {
+  if (source === "guest-practice") return "Focus seeded from your guest practice (unvalidated; not scored).";
+  if (source === "learner-choice") return "Focus you chose for your first debate.";
+  return null;
+}
+
 export function buildResultSnapshot(
   assessment: ObservableAssessment | null | undefined,
   opts: {
@@ -109,6 +116,8 @@ export function buildResultSnapshot(
     summary?: { overallFeedback: string; strengths: string[]; improvements: string[] } | null;
     ledgerPoints?: SkillMetricPoint[];
     goalDimension?: CoachDimension | null;
+    /** Where the focus came from (CoachingRecord.focusSource); only guest/learner picks get a label. */
+    goalSource?: "guest-practice" | "learner-choice" | null;
     /** Prior debates, oldest last: { completedAt, kinds } from countWeaknessesForSide. */
     priorDebates?: Array<{ completedAt: string; kinds: Record<string, number> }>;
   },
@@ -235,7 +244,10 @@ export function buildResultSnapshot(
   const goal = opts.ledgerPoints ? buildCoachingGoal(opts.ledgerPoints, snapshot) : null;
   const goalOutcome =
     opts.goalDimension && snapshot
-      ? assessGoalOutcome(opts.goalDimension, snapshot)
+      ? {
+          ...assessGoalOutcome(opts.goalDimension, snapshot),
+          provenance: goalProvenance(opts.goalSource),
+        }
       : { demonstrated: null as boolean | null, detail: null as string | null };
 
   return {
