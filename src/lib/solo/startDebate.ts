@@ -24,6 +24,9 @@ import { loadChallengeAssignment } from "@/lib/solo/challengeSide";
 import { pickFocusDimension } from "@/lib/coachingGoal";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { FALLBACK_IN_MEMORY_TOPIC_ID } from "@/lib/dailyTopic";
+import { parseGuestLoopSummary } from "@/lib/guestLoop";
+import { guestSeededFocus, resolveFirstFocus, type FirstFocusSource } from "@/lib/guestFocus";
+import type { CoachDimension } from "@/lib/adaptiveCoach";
 
 export type SoloStartSideChoice = DebateSide | "challenge";
 
@@ -60,6 +63,42 @@ function failure(
   return { ok: false, status, error, ...(code ? { code } : {}), ...(retryAfterSeconds ? { retryAfterSeconds } : {}) };
 }
 
+/**
+ * The guest-seeded first focus for an account with no evidence of its own
+ * (guestFocus.ts). Best effort: any read failure (including a database that
+ * has not applied migration 036) degrades to "no seed", never a failed start.
+ */
+async function loadGuestSeededFocus(
+  db: BackendClient,
+  userId: string,
+  excluded: readonly CoachDimension[],
+): Promise<CoachDimension | null> {
+  try {
+    const [profileResult, completedResult] = await Promise.all([
+      db.from("profiles").select("guest_context").eq("id", userId).maybeSingle(),
+      db
+        .from("solo_debates")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("status", "completed")
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (profileResult.error || completedResult.error) return null;
+    const guestContext = parseGuestLoopSummary(
+      (profileResult.data as { guest_context?: unknown } | null)?.guest_context ?? null,
+    );
+    return guestSeededFocus({
+      guestContext,
+      hasCompletedDebate: !!completedResult.data,
+      ledgerPointCount: 0,
+      excluded,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function existingPayload(existing: ExistingStart): SoloStartPayload {
   const coaching = (existing.debate.coaching ?? {}) as CoachingRecord;
   return {
@@ -88,8 +127,14 @@ export async function startSoloDebate(params: {
   format: DebateFormat;
   persona: OpponentPersonaId;
   difficulty: OpponentDifficulty;
+  /**
+   * The learner's change to the guest-seeded first focus (a coach dimension,
+   * or "none"). Ignored unless the account has a guest seed and no evidence
+   * of its own — see guestFocus.ts.
+   */
+  firstFocus?: unknown;
 }): Promise<SoloStartServiceResult> {
-  const { db, userId, topicId, sideChoice, format, persona, difficulty } = params;
+  const { db, userId, topicId, sideChoice, format, persona, difficulty, firstFocus } = params;
 
   // The in-memory topic fallback was never persisted, so no debate can be
   // anchored to it. Answer 503 (retryable) instead of 404: the store may
@@ -237,8 +282,23 @@ export async function startSoloDebate(params: {
       }
     }
 
+    // First signed-in debate after guest practice: the account has no
+    // evidence of its own, so the ledger picks no focus. The guest repair
+    // pre-selects one (labelled unvalidated; the learner may change it). It
+    // is coaching only — the guest rep never enters the ledger, a score, a
+    // retest or an improvement (guestFocus.ts).
+    let focusSource: FirstFocusSource | null = null;
+    if (context.ledger && context.ledger.points.length === 0 && coachingDimension === null && !repairRetest) {
+      const excluded = skillsUnderTest(context.pendingRetests);
+      const seeded = await loadGuestSeededFocus(db, userId, excluded);
+      const resolved = resolveFirstFocus({ seeded, requested: firstFocus, excluded });
+      coachingDimension = resolved.dimension;
+      focusSource = resolved.source;
+    }
+
     const coaching: CoachingRecord = {
       dimension: coachingDimension,
+      ...(focusSource ? { focusSource } : {}),
       sideReason,
       repairRetest,
       degradationReasons: degradationReasons.length ? degradationReasons : null,

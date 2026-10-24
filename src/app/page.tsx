@@ -31,6 +31,7 @@ import { pickPriority } from "@/lib/dailyFocus";
 import { canonicalSkillKey } from "@/lib/skillTaxonomy";
 import { homeHeaderPills } from "@/lib/homeHeaderPills";
 import { dateKeyInTimeZone } from "@/lib/timeZone";
+import { firstFocusView, guestKindToDimension, guestSeededFocus } from "@/lib/guestFocus";
 
 export const dynamic = "force-dynamic";
 
@@ -227,13 +228,26 @@ export default async function DashboardPage() {
   // It never enters the ledger or a score — see guestContextServer.ts.
   // (The guest context was loaded inside the previous-debate parallel branch
   // above so the value is already resolved; only the short-circuit lives here.)
-  const guestSkillKey = guestContext ? canonicalSkillKey(guestContext.weaknessKind) : null;
-  const guestCarryover = guestContext && guestSkillKey
+  const guestDimension = guestContext ? guestKindToDimension(guestContext.weaknessKind) : null;
+  const guestSkillKey = guestDimension ? canonicalSkillKey(guestDimension) : null;
+  // The guest repair pre-selects the first signed-in focus (guestFocus.ts):
+  // same eligibility rule the start route applies, so the focus shown here is
+  // the focus the debate is started with.
+  const underTest = skillsUnderTest(coachingContext.pendingRetests);
+  const guestFocus = guestSeededFocus({
+    guestContext,
+    hasCompletedDebate: !!previousDebate,
+    ledgerPointCount: coachingContext.ledger ? coachingContext.ledger.points.length : 1,
+    excluded: underTest,
+  });
+  const firstFocus = firstFocusView(guestFocus, underTest);
+  const guestCarryover = guestContext
     ? {
-        label: SKILL_DIMENSIONS[guestSkillKey].label,
+        label: guestSkillKey ? SKILL_DIMENSIONS[guestSkillKey].label : guestContext.weaknessLabel || "One move",
         motion: guestContext.motion,
         repaired: guestContext.repairState === "repair_demonstrated",
         observed: guestContext.retestOutcome === "observed",
+        seedsFocus: !!guestFocus,
       }
     : null;
 
@@ -400,14 +414,17 @@ export default async function DashboardPage() {
             the loop flagged <strong>{guestCarryover.label}</strong> as the move to work on.
             {guestCarryover.repaired
               ? guestCarryover.observed
-                ? " You repaired it, and it showed up again in the guest retest — so it is the first thing today’s debate watches for."
-                : " You repaired it in the rewrite, though it did not reappear in the guest retest — so it is still the thing to watch."
-              : " You have not repaired it yet, so it stays today’s focus."}
+                ? " You repaired it, and it showed up again in the guest retest."
+                : " You repaired it in the rewrite, though it did not reappear in the guest retest."
+              : " You have not fully repaired it yet."}
+            {guestCarryover.seedsFocus
+              ? " It is pre-selected as your first debate’s focus below — change it there if you’d rather work on something else."
+              : " Your first debate here starts without a set focus; the coach will flag one weakness from your own arguments."}
           </p>
           <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-4 text-ink3">
             A guest rep is one local practice run, not measured evidence — it is not counted in your
-            skill scores, and it is not a deliberate retest. It only decides what today&apos;s debate
-            watches for; your own completed debates are what build the profile.
+            skill scores, and it is not a deliberate retest or an improvement. At most it suggests what
+            your first debate focuses on; your own completed debates are what build the profile.
           </p>
         </section>
       )}
@@ -465,6 +482,7 @@ export default async function DashboardPage() {
         motionReason={motion.reasonLine}
         isFirstVisit={!previousDebate}
         challengePreview={challengePreview}
+        firstFocus={firstFocus}
       />
       {coachingContext.status !== "ok" && (
         <p className="text-xs text-ink3" role="status">

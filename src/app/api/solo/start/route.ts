@@ -71,6 +71,9 @@ export async function POST(request: Request) {
     format,
     persona,
     difficulty,
+    // Validated inside the service: honoured only for a guest-seeded first
+    // focus (guestFocus.ts), otherwise ignored.
+    firstFocus: body?.firstFocus,
   });
   if (!result.ok) {
     return NextResponse.json(
