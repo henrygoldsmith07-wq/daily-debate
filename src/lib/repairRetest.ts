@@ -76,6 +76,36 @@ export function isDifferentRetestContext(
   );
 }
 
+/**
+ * How today's practice motion treats a due retest. Product decision (Henry,
+ * 24 Oct 2026; docs/roadmap.md — day-1 retargeting is the lever):
+ *
+ * - "serve-shared": today's shared motion is a DIFFERENT topic from the
+ *   repaired debate, so it carries the retest — INCLUDING on the day of the
+ *   repair. Transfer is a different context, not a later calendar day.
+ * - "swap-motion": the shared motion IS the repaired topic and the repair was
+ *   made on an earlier day — serve a different motion so the retest can run.
+ * - "keep-queued": the shared motion is the repaired topic and the repair was
+ *   made today (a same-day replay of the repaired motion is practice, not
+ *   transfer, and the motion is not swapped away on the repair day), or the
+ *   repaired topic is unknown. The retest stays pending.
+ *
+ * Days are YYYY-MM-DD keys supplied by the caller.
+ */
+export type RetestMotionPlan = "serve-shared" | "swap-motion" | "keep-queued";
+
+export function planRetestMotion(input: {
+  repairTopicId: string | null | undefined;
+  repairedOn: string;
+  sharedTopicId: string;
+  today: string;
+}): RetestMotionPlan {
+  const { repairTopicId, repairedOn, sharedTopicId, today } = input;
+  if (isDifferentRetestContext(repairTopicId, sharedTopicId)) return "serve-shared";
+  if (repairTopicId && repairTopicId === sharedTopicId && repairedOn !== today) return "swap-motion";
+  return "keep-queued";
+}
+
 export function pointMeasuresDimension(
   point: SkillMetricPoint,
   dimension: CoachDimension,

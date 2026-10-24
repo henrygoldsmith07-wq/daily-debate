@@ -10,6 +10,12 @@ import { OPPONENT_DIFFICULTY_LIST, OPPONENT_PERSONA_LIST, type OpponentDifficult
 import type { DailyTopic, DebateSide } from "@/lib/types";
 import { NEUTRAL_GOAL_LINE } from "@/lib/retestDisclosure";
 import { challengePreviewHeadline, type ChallengePreview } from "@/lib/challengeMe";
+import {
+  GUEST_FOCUS_LABEL,
+  LEARNER_FOCUS_LABEL,
+  NO_FIRST_FOCUS,
+  type FirstFocusView,
+} from "@/lib/guestFocusCopy";
 
 export interface EvidenceChecksView {
   supportsClaim?: boolean;
@@ -48,6 +54,7 @@ export default function TopicCard({
   isFirstVisit = false,
   motionReason = null,
   challengePreview = null,
+  firstFocus = null,
 }: {
   topic: DailyTopic;
   activeDebateId: string | null;
@@ -67,8 +74,15 @@ export default function TopicCard({
    * back to promising the reveal at start.
    */
   challengePreview?: ChallengePreview | null;
+  /**
+   * First signed-in debate after guest practice: the focus pre-selected from
+   * the guest repair (guestFocus.ts). Labelled unvalidated; the learner may
+   * change it or turn it off, and the choice is sent with Start.
+   */
+  firstFocus?: FirstFocusView | null;
 }) {
   const router = useRouter();
+  const [focusChoice, setFocusChoice] = useState<string>(firstFocus?.suggested ?? NO_FIRST_FOCUS);
   const [side, setSide] = useState<SideChoice>("challenge");
   const [persona, setPersona] = useState<OpponentPersonaId>("balanced");
   const [difficulty, setDifficulty] = useState<OpponentDifficulty>("challenging");
@@ -89,7 +103,14 @@ export default function TopicCard({
         // No `retestFor` here: the deliberate retest is assigned server-side
         // from the pending repair, so the client cannot nominate a debate to
         // be scored as a transfer test (and no surface may announce one).
-        body: JSON.stringify({ topicId: topic.id, side, format, persona, difficulty }),
+        body: JSON.stringify({
+          topicId: topic.id,
+          side,
+          format,
+          persona,
+          difficulty,
+          ...(firstFocus ? { firstFocus: focusChoice } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start debate.");
@@ -130,15 +151,53 @@ export default function TopicCard({
           )}
         </div>
 
-        <div className="home-coaching-focus">
-          <span className="home-coaching-label">{isFirstVisit ? "How it works" : focusLabel}</span>
-          <strong>
-            {isFirstVisit
-              ? "Pick a side, argue three short rounds, then repair the one weakness the coach flags."
-              : goalLine}
-          </strong>
-          {isFirstVisit ? null : (lastLine && <span className="home-coaching-lastline">{lastLine}</span>)}
-        </div>
+        {firstFocus && !activeDebateId ? (
+          <div className="home-coaching-focus" data-testid="first-focus" data-focus={focusChoice}>
+            <span className="home-coaching-label" data-testid="first-focus-label">
+              {focusChoice === firstFocus.suggested
+                ? firstFocus.label
+                : focusChoice === NO_FIRST_FOCUS
+                  ? "No focus for this debate"
+                  : LEARNER_FOCUS_LABEL}
+            </span>
+            <strong>
+              {firstFocus.options.find((option) => option.key === focusChoice)?.headline ??
+                "Argue freely — the coach still flags one weakness afterwards."}
+            </strong>
+            <span className="home-coaching-lastline">
+              {focusChoice === firstFocus.suggested && firstFocus.label === GUEST_FOCUS_LABEL
+                ? "Picked from one guest practice run — not measured evidence, not scored, and not a retest. "
+                : null}
+              <label className="inline-flex items-center gap-1">
+                <span>Change focus:</span>
+                <select
+                  value={focusChoice}
+                  onChange={(event) => setFocusChoice(event.target.value)}
+                  className="rounded border border-[var(--rule)] bg-surface-2 px-1 py-0.5 text-xs"
+                  data-testid="first-focus-select"
+                >
+                  {firstFocus.options.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.headline}
+                      {option.key === firstFocus.suggested ? " (from guest practice)" : ""}
+                    </option>
+                  ))}
+                  <option value={NO_FIRST_FOCUS}>No focus for this debate</option>
+                </select>
+              </label>
+            </span>
+          </div>
+        ) : (
+          <div className="home-coaching-focus">
+            <span className="home-coaching-label">{isFirstVisit ? "How it works" : focusLabel}</span>
+            <strong>
+              {isFirstVisit
+                ? "Pick a side, argue three short rounds, then repair the one weakness the coach flags."
+                : goalLine}
+            </strong>
+            {isFirstVisit ? null : (lastLine && <span className="home-coaching-lastline">{lastLine}</span>)}
+          </div>
+        )}
 
         {activeDebateId ? (
           <Link href={`/debate/${activeDebateId}`} className="home-start-button btn btn-primary px-4 py-3 text-center text-sm">

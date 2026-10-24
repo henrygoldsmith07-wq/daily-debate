@@ -8,8 +8,12 @@
 //     repaired debate — if today's shared motion collides with that topic, a
 //     different motion is served so the retest can actually happen (the
 //     different-topic rule is the measurement, never decoration);
-//   - a repair made today never becomes a same-day "retest": the retest stays
-//     queued for a later session, and the shared motion stands;
+//   - a repair made today CAN be retested today when the shared motion is a
+//     different topic (transfer means a different context, not a later day —
+//     day-1 retargeting is the roadmap's lever). Only a same-day replay of the
+//     repaired topic is excluded: on the repair day the motion is not swapped
+//     away, the shared motion stands and the retest stays queued
+//     (repairRetest.planRetestMotion pins both rules);
 //   - with no retest due, repeated exposure to the same category is softened
 //     by a personalised pick, and the reason is always one honest sentence.
 //
@@ -25,7 +29,7 @@ import {
   type MotionChoice,
 } from "./topicPersonalisation";
 import type { CoachDimension } from "./adaptiveCoach";
-import { isDifferentRetestContext } from "./repairRetest";
+import { isDifferentRetestContext, planRetestMotion } from "./repairRetest";
 import type { DailyTopic } from "./types";
 
 export interface ResolvedMotion {
@@ -115,17 +119,20 @@ export async function resolvePracticeMotion(input: {
 
   // ── A retest is due: the different-topic rule decides the motion ─────────
   if (dueRetest) {
-    // Canonical eligibility (repairRetest.ts): the retest only counts on a
-    // genuinely different topic, and a repair made today never retests today —
-    // a same-day replay of the repaired motion is practice, not transfer.
-    const eligibleNow = isDifferentRetestContext(dueRetest.topicId, shared.id);
-    if (eligibleNow) {
+    // Canonical plan (repairRetest.planRetestMotion): a different shared
+    // topic carries the retest even on the repair day; a same-day replay of
+    // the repaired topic never does.
+    const plan = planRetestMotion({
+      repairTopicId: dueRetest.topicId,
+      repairedOn: dayOf(dueRetest.attemptedAt),
+      sharedTopicId: shared.id,
+      today: todayIso(),
+    });
+    if (plan === "serve-shared") {
       return { topic: shared, reasonLine: null, isShared: true, servesRetest: true };
     }
 
-    const repairedToday = dayOf(dueRetest.attemptedAt) === todayIso();
-    const collides = dueRetest.topicId === shared.id;
-    if (collides && !repairedToday && dueRetest.topicId) {
+    if (plan === "swap-motion" && dueRetest.topicId) {
       // The retest is due but today's motion would reuse the repaired topic.
       // Serve a different motion so the retest can actually happen.
       const repairedCategory = pool.find((m) => m.id === dueRetest.topicId)?.category ?? null;

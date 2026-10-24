@@ -73,6 +73,13 @@ export interface SoloDebate {
 export interface CoachingRecord {
   /** The dimension this debate was supposed to train (set at start). */
   dimension?: string | null;
+  /**
+   * Where `dimension` came from when it was NOT picked from the account's own
+   * ledger: the guest-practice seed, or the learner's change to it on their
+   * first signed-in debate (guestFocus.ts). Absent = ledger-picked. Coaching
+   * provenance only — never evidence, a score, a retest or an improvement.
+   */
+  focusSource?: "guest-practice" | "learner-choice" | null;
   /** Explainable side assignment, when the user picked "Challenge me". */
   sideReason?: string | null;
   /** If present, this debate deliberately retests a recently repaired weakness. */
