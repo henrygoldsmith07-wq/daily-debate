@@ -15,6 +15,7 @@ import {
   type RepairRow,
 } from "./repairEffectiveness";
 import type { RepairKind } from "./argumentRepair";
+import { compareIsoAsc } from "./isoTimestamp";
 
 export interface FunnelEventRow {
   user_id: string;
@@ -987,12 +988,15 @@ export function buildRepairOutcomeRows(
 ): RepairOutcomeRow[] {
   const byUser = new Map<string, DebateWeaknessRow[]>();
   for (const d of debates) {
+    // A debate with an unparseable completion time can't be placed before or
+    // after a repair; counting it would fabricate recurrence exposure.
+    if (!Number.isFinite(Date.parse(d.completedAt))) continue;
     const list = byUser.get(d.userId) ?? [];
     list.push(d);
     byUser.set(d.userId, list);
   }
   for (const list of byUser.values()) {
-    list.sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
+    list.sort((a, b) => compareIsoAsc(a.completedAt, b.completedAt));
   }
   const starts = events.filter((e) => e.name === "repair_started" && e.debate_id);
   const episodes = collapseRepairAttempts(repairs).filter(
@@ -1001,12 +1005,13 @@ export function buildRepairOutcomeRows(
   const retestsByRepair = new Map<string, RepairRetestAnalyticsRow[]>();
   for (const retest of retests) {
     if (retest.observable !== true || !retest.completed_at) continue;
+    if (!Number.isFinite(Date.parse(retest.completed_at))) continue;
     const list = retestsByRepair.get(retest.repair_result_id) ?? [];
     list.push(retest);
     retestsByRepair.set(retest.repair_result_id, list);
   }
   for (const list of retestsByRepair.values()) {
-    list.sort((a, b) => Date.parse(a.completed_at!) - Date.parse(b.completed_at!));
+    list.sort((a, b) => compareIsoAsc(a.completed_at, b.completed_at));
   }
   // Every durable assignment (completed or still open) — the basis for the
   // prompted-vs-incidental arm split below. A pending assignment keeps the
