@@ -1,3 +1,4 @@
+import { compareIsoAsc } from "./isoTimestamp";
 import type { RepairKind } from "./argumentRepair";
 import type { RepairRetestAnchor } from "./repairRetest";
 
@@ -37,5 +38,5 @@ export function collapseRepairAnchors(rows: RawRepairAnchorRow[]): RepairRetestA
       });
     }
   }
-  return [...byEpisode.values()].sort((a, b) => Date.parse(a.attemptedAt) - Date.parse(b.attemptedAt));
+  return [...byEpisode.values()].sort((a, b) => compareIsoAsc(a.attemptedAt, b.attemptedAt));
 }
