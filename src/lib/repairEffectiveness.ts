@@ -1,3 +1,4 @@
+import { compareIsoAsc } from "./isoTimestamp";
 // Does repair actually work? — observational measure over repair_results.
 //
 // For each completed repair we look at whether the SAME weakness kind shows up
@@ -88,7 +89,7 @@ export function collapseRepairAttempts(repairs: RepairRow[]): RepairEpisodeRow[]
   const episodes: RepairEpisodeRow[] = [];
   for (const rows of grouped.values()) {
     const chronological = [...rows].sort(
-      (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at),
+      (a, b) => compareIsoAsc(a.created_at, b.created_at),
     );
     const first = chronological[0];
     const firstSuccess = chronological.find((row) => row.succeeded) ?? null;
@@ -105,7 +106,7 @@ export function collapseRepairAttempts(repairs: RepairRow[]): RepairEpisodeRow[]
     });
   }
 
-  return episodes.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  return episodes.sort((a, b) => compareIsoAsc(a.created_at, b.created_at));
 }
 
 /** Weakness counts per debate, keyed by weakness kind (side-scoped). */

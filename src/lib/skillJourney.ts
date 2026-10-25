@@ -1,3 +1,4 @@
+import { compareIsoAsc, compareIsoDesc } from "./isoTimestamp";
 // Skill Journey — the consumer-facing story of deliberate practice.
 //
 // Answers "what changed in my arguing?" per skill with a concrete, evidence-
@@ -99,7 +100,7 @@ export function journeyObservationsFor(
       const met = Math.max(0, Math.min(opportunities, opportunities - (kind === "rebuttal" ? (d.kinds.dropped ?? 0) : unmet)));
       return { debateId: d.debateId, completedAt: d.completedAt, opportunities, met };
     })
-    .sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt));
+    .sort((a, b) => compareIsoDesc(a.completedAt, b.completedAt));
 }
 
 function storyFor(kind: string, obs: JourneyObservation[], repairSucceeded: boolean, retest: SkillJourneyEntry["retest"]): string | null {
@@ -138,7 +139,7 @@ export function buildSkillJourney(
   void opts;
   const byDimension = new Map<CoachDimension, SkillJourneyEntry>();
 
-  const sorted = [...repairs].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const sorted = [...repairs].sort((a, b) => compareIsoAsc(a.created_at, b.created_at));
   for (const repair of sorted) {
     const dimension = REPAIR_KIND_TO_DIMENSION[repair.target_kind];
     if (!dimension) continue;

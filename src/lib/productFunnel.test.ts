@@ -480,6 +480,25 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     expect(rows[0].eligibleRetests).toBe(2);
   });
 
+  it("ignores debates and retests with unparseable timestamps instead of counting them as exposure", () => {
+    const repairs = [repair("u1", "d0", "rebuttal", "2026-06-01T12:00:00Z")];
+    const debates = [
+      debateRow("u1", "d0", "2026-05-31T12:00:00Z", { rebuttal: 1 }),
+      debateRow("u1", "d1", "2026-06-04T12:00:00Z", { rebuttal: 1 }),
+      debateRow("u1", "dBad", "not-a-date", { rebuttal: 1 }),
+    ];
+    const events = [ev("u1", "repair_started", "2026-06-01T11:00:00Z", "d0")];
+    const retests = [
+      retestRow(repairs[0], "dBad", "garbage"),
+      retestRow(repairs[0], "d1", "2026-06-04T12:00:00Z"),
+    ];
+    const rows = buildRepairOutcomeRows(repairs, debates, events, retests);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].firstRetestDebateId).toBe("d1");
+    expect(rows[0].retestRecurrences).toEqual([true]);
+    expect(rows[0].eligibleRetests).toBe(1);
+  });
+
   it("collapses retry submissions into one training-loop repair episode", () => {
     const repairs: RepairRow[] = [
       { ...repair("u1", "d0", "evidence", T0), score: 35, succeeded: false },

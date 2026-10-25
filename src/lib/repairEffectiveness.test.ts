@@ -62,6 +62,16 @@ function retest(
 }
 
 describe("collapseRepairAttempts", () => {
+  it("never anchors an episode on a malformed timestamp (unparseable sorts last)", () => {
+    const attempts: RepairRow[] = [
+      { ...repair("u1", "evidence", "garbage", "d-m"), score: 40, succeeded: false },
+      { ...repair("u1", "evidence", "2026-06-10T12:00:00.000Z", "d-m"), score: 70, succeeded: true },
+      { ...repair("u1", "evidence", "2026-06-10T12:05:00.000Z", "d-m"), score: 60, succeeded: true },
+    ];
+    const [ep] = collapseRepairAttempts(attempts);
+    expect(ep.firstAttemptAt).toBe("2026-06-10T12:00:00.000Z");
+    expect(ep.firstSuccessAt).toBe("2026-06-10T12:00:00.000Z");
+  });
   it("treats retries on the same debate and weakness as one repair episode", () => {
     const attempts: RepairRow[] = [
       { ...repair("u1", "evidence", "2026-06-10T12:00:00Z", "d-r"), score: 35, succeeded: false },
