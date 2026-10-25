@@ -71,19 +71,36 @@ function maxRound(graph: ArgGraph | null, fallback: number): number {
   return Math.max(fallback, ...graph.nodes.map((node) => node.round));
 }
 
+type TurnRow = {
+  debate_id: string;
+  assessment: unknown;
+  scores: unknown;
+  turn_score: number | null;
+  round_number: number;
+};
+
 async function soloSnapshots(
   db: Awaited<ReturnType<typeof createClient>>,
   rows: SoloRow[],
   topicTitles: Map<string, string>,
 ): Promise<DnaDebateSnapshot[]> {
+  // One batched read for every debate's turns (was one query per debate).
+  const turnsByDebate = new Map<string, TurnRow[]>();
+  if (rows.length) {
+    const { data } = await db
+      .from("solo_debate_turns")
+      .select("debate_id, assessment, scores, turn_score, round_number")
+      .in("debate_id", rows.map((row) => row.id))
+      .order("round_number", { ascending: true });
+    for (const turn of (data ?? []) as unknown as TurnRow[]) {
+      const list = turnsByDebate.get(turn.debate_id) ?? [];
+      list.push(turn);
+      turnsByDebate.set(turn.debate_id, list);
+    }
+  }
   return Promise.all(
     rows.map(async (row) => {
-      const { data: turns } = await db
-        .from("solo_debate_turns")
-        .select("assessment, scores, turn_score, round_number")
-        .eq("debate_id", row.id)
-        .order("round_number", { ascending: true });
-
+      const turns = turnsByDebate.get(row.id) ?? [];
       const assessments = (turns ?? [])
         .map((turn) => turn.assessment)
         .filter(isAssessment);
@@ -194,19 +211,21 @@ export async function buildArgumentDnaForUser(userId: string): Promise<ArgumentD
       .select("id, topic_id, total_score, round_count, status, completed_at, created_at")
       .eq("user_id", userId)
       .eq("status", "completed")
-      .order("completed_at", { ascending: true })
+      .order("completed_at", { ascending: false })
       .limit(100),
     db
       .from("pvp_matches")
       .select("id, topic_id, player_a, player_b, winner_id, judge_verdict, status, completed_at, created_at")
       .or(`player_a.eq.${userId},player_b.eq.${userId}`)
       .eq("status", "completed")
-      .order("completed_at", { ascending: true })
+      .order("completed_at", { ascending: false })
       .limit(100),
   ]);
 
-  const solo = (soloRows ?? []) as unknown as SoloRow[];
-  const pvp = (pvpRows ?? []) as unknown as PvpRow[];
+  // Newest 100 of each format (so a heavy user's recent debates are not
+  // dropped), then back to chronological order for the DNA timeline.
+  const solo = ((soloRows ?? []) as unknown as SoloRow[]).slice().reverse();
+  const pvp = ((pvpRows ?? []) as unknown as PvpRow[]).slice().reverse();
   const topicIds = [...new Set([...solo, ...pvp].map((row) => row.topic_id))];
   const topicTitles = new Map<string, string>();
   if (topicIds.length) {
