@@ -471,7 +471,15 @@ function buildRetestRecords(retests: RetestInput[]): RetestRecord[] {
       } satisfies RetestRecord;
     })
     .filter((v): v is RetestRecord => v !== null)
-    .sort((a, b) => Date.parse(b.at ?? "0") - Date.parse(a.at ?? "0"));
+    .sort((a, b) => {
+      // Newest first; an unparseable timestamp sinks to the end.
+      const x = Date.parse(a.at ?? "");
+      const y = Date.parse(b.at ?? "");
+      if (Number.isFinite(x) && Number.isFinite(y)) return y - x;
+      if (Number.isFinite(x)) return -1;
+      if (Number.isFinite(y)) return 1;
+      return 0;
+    });
 }
 
 // ---------------------------------------------------------------------------
