@@ -33,6 +33,9 @@ export function buildLedgerPointsFromRows(
 
   const points: SkillMetricPoint[] = [];
   for (const debate of completed) {
+    // A debate with no completion time cannot be placed on the learner's timeline;
+    // stamping "now" would fabricate trend order and retest windows, so leave it out.
+    if (!debate.completed_at) continue;
     const debateTurns = [...(turnsByDebate.get(debate.id) ?? [])].sort(
       (a, b) => a.round_number - b.round_number,
     );
@@ -78,7 +81,7 @@ export function buildLedgerPointsFromRows(
     points.push({
       ...extractSkillPoint(
         debate.id,
-        debate.completed_at ?? new Date().toISOString(),
+        debate.completed_at,
         merged,
         "a",
         avgClarity,
