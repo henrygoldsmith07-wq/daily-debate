@@ -51,7 +51,10 @@ function observedChange(
   weightKey: "speechTurns" | "timedTurns",
 ): number | null {
   if (!trendReady(rows, weightKey)) return null;
+  // Only turns that actually contributed to this metric may anchor the change:
+  // a debate with no spoken/timed turns must not supply the first or last value.
   const values = rows
+    .filter((row) => row[weightKey] > 0)
     .map((row) => row[key])
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (values.length < MIN_MODE_TREND_DEBATES) return null;
@@ -59,7 +62,17 @@ function observedChange(
 }
 
 export function buildTrainingProgress(points: SkillMetricPoint[]): TrainingProgressSummary {
-  const withTraining = points.filter((point) => point.training && point.training.totalTurns > 0);
+  // First-vs-last change is only meaningful in time order; callers must not
+  // be trusted to pass chronological points.
+  const withTraining = points
+    .filter((point) => point.training && point.training.totalTurns > 0)
+    .map((point, index) => ({ point, index, at: Date.parse(point.completedAt) }))
+    .sort((a, b) => {
+      const ax = Number.isFinite(a.at) ? a.at : Infinity;
+      const bx = Number.isFinite(b.at) ? b.at : Infinity;
+      return ax - bx || a.index - b.index;
+    })
+    .map((entry) => entry.point);
   const modeTurns: Partial<Record<DebateModeId, number>> = {};
   for (const point of withTraining) {
     for (const [mode, count] of Object.entries(point.training?.modeCounts ?? {})) {
