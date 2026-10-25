@@ -3,6 +3,7 @@ import { assessArgumentGraph, mergeAssessmentGraphs } from "./observableAssessme
 import type { ObservableAssessment } from "./observableAssessment";
 import { isRepairKind } from "./argumentRepair";
 import { buildTrainingSummary } from "./trainingSummary";
+import { toIsoOrNull } from "./isoTimestamp";
 
 export interface CompletedLedgerDebateRow {
   id: string;
@@ -35,7 +36,8 @@ export function buildLedgerPointsFromRows(
   for (const debate of completed) {
     // A debate with no completion time cannot be placed on the learner's timeline;
     // stamping "now" would fabricate trend order and retest windows, so leave it out.
-    if (!debate.completed_at) continue;
+    const completedAt = toIsoOrNull(debate.completed_at);
+    if (!completedAt) continue;
     const debateTurns = [...(turnsByDebate.get(debate.id) ?? [])].sort(
       (a, b) => a.round_number - b.round_number,
     );
@@ -69,19 +71,19 @@ export function buildLedgerPointsFromRows(
       rawRetest &&
       typeof rawRetest.repairDebateId === "string" &&
       isRepairKind(rawRetest.targetKind) &&
-      typeof rawRetest.attemptedAt === "string"
+      toIsoOrNull(rawRetest.attemptedAt) !== null
         ? {
             repairResultId: typeof rawRetest.repairResultId === "string" ? rawRetest.repairResultId : null,
             repairDebateId: rawRetest.repairDebateId,
             targetKind: rawRetest.targetKind,
-            attemptedAt: rawRetest.attemptedAt,
+            attemptedAt: rawRetest.attemptedAt as string,
           }
         : null;
 
     points.push({
       ...extractSkillPoint(
         debate.id,
-        debate.completed_at,
+        completedAt,
         merged,
         "a",
         avgClarity,
