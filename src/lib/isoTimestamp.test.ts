@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toIsoOrNull } from "./isoTimestamp";
+import { compareIsoAsc, toIsoOrNull } from "./isoTimestamp";
 
 describe("toIsoOrNull", () => {
   it("converts valid Dates and keeps parseable strings", () => {
@@ -13,5 +13,18 @@ describe("toIsoOrNull", () => {
     expect(toIsoOrNull("not a date")).toBeNull();
     expect(toIsoOrNull(new Date("nope"))).toBeNull();
     expect(toIsoOrNull(42)).toBeNull();
+  });
+});
+
+describe("compareIsoAsc", () => {
+  it("orders valid timestamps ascending and puts unparseable ones last, even when mixed", () => {
+    const rows = ["2026-10-03T00:00:00Z", "garbage", "2026-10-01T00:00:00Z", "", "2026-10-02T00:00:00Z"];
+    expect([...rows].sort(compareIsoAsc)).toEqual([
+      "2026-10-01T00:00:00Z",
+      "2026-10-02T00:00:00Z",
+      "2026-10-03T00:00:00Z",
+      "garbage",
+      "",
+    ]);
   });
 });
