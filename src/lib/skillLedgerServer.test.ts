@@ -96,4 +96,19 @@ describe("buildLedgerPointsFromRows", () => {
     );
     expect(points).toEqual([]);
   });
+
+  it("leaves out debates with no completion time instead of stamping them as now", () => {
+    const a = assessment();
+    const points = buildLedgerPointsFromRows(
+      [
+        { id: "d1", completed_at: null, topic_id: "topic-a" },
+        { id: "d2", completed_at: "Tue 2026-06-02 11:00 AM BST (UTC+01:00)", topic_id: "topic-b" },
+      ],
+      [
+        { debate_id: "d1", round_number: 1, assessment: a, scores: { clarity: 6 } },
+        { debate_id: "d2", round_number: 1, assessment: a, scores: { clarity: 6 } },
+      ],
+    );
+    expect(points.map((point) => point.debateId)).toEqual(["d2"]);
+  });
 });
