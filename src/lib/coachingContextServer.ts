@@ -79,7 +79,7 @@ export async function loadCoachingContext(
 
   let reRepairDimensions: CoachDimension[] = [];
   try {
-    reRepairDimensions = failedRetestDimensions(await failedRetestVerdictsForUser(userId));
+    reRepairDimensions = failedRetestDimensions(await failedRetestVerdictsForUser(userId), { repairAnchors });
   } catch {
     // Steering is advisory; ledger ordering still works without it.
   }
