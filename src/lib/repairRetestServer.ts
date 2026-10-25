@@ -4,16 +4,7 @@ import { createServiceClient } from "@/lib/backend/server";
 import type { CompletedRetestVerdict, RepairRetestAnchor } from "./repairRetest";
 import { isRepairKind } from "./argumentRepair";
 import { collapseRepairAnchors } from "./repairAnchors";
-
-/**
- * timestamptz columns come back from the Postgres layer as Date objects, but
- * every consumer in this module's public shape (and repairRetest's
- * Date.parse calls) expects ISO strings. Normalise once at the boundary.
- */
-function isoString(value: unknown): string {
-  if (value instanceof Date) return value.toISOString();
-  return typeof value === "string" ? value : new Date().toISOString();
-}
+import { toIsoOrNull } from "./isoTimestamp";
 
 /**
  * Successful repair episodes that may still need transfer testing. Multiple
@@ -160,8 +151,11 @@ export async function failedRetestVerdictsForUser(userId: string): Promise<Compl
   const kinds = new Map((repairs ?? []).map((r) => [r.id, r.target_kind]));
   return rows.flatMap((row) => {
     const kind = kinds.get(row.repair_result_id);
-    return isRepairKind(kind)
-      ? [{ targetKind: kind, completedAt: isoString(row.completed_at), observable: row.observable, demonstrated: row.demonstrated }]
+    const completedAt = toIsoOrNull(row.completed_at);
+    // A verdict without a valid completion time cannot be placed in order, so
+    // it is dropped rather than stamped "now" (which would look newest).
+    return isRepairKind(kind) && completedAt
+      ? [{ targetKind: kind, completedAt, observable: row.observable, demonstrated: row.demonstrated }]
       : [];
   });
 }
