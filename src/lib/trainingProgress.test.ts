@@ -65,4 +65,28 @@ describe("buildTrainingProgress", () => {
     expect(summary.perMode.speech?.responseTimeChangeSeconds).toBe(-15);
     expect(summary.avgPaceWpm).toBe(130);
   });
+
+  it("computes change in time order even when points arrive newest-first", () => {
+    const pts = [
+      point("2026-10-04T10:00:00Z", speechSummary(2, 80, 40)),
+      point("2026-10-03T10:00:00Z", speechSummary(2, 70, 45)),
+      point("2026-10-02T10:00:00Z", speechSummary(2, 60, 50)),
+      point("2026-10-01T10:00:00Z", speechSummary(2, 50, 55)),
+    ];
+    const speech = buildTrainingProgress(pts).perMode.speech!;
+    expect(speech.speechQualityChange).toBe(30);
+    expect(speech.responseTimeChangeSeconds).toBe(-15);
+  });
+
+  it("does not anchor change on a debate with no spoken turns", () => {
+    const silent = speechSummary(2, 0, 40);
+    silent.byMode!.speech!.speechTurns = 0;
+    const pts = [
+      point("2026-10-01T10:00:00Z", silent),
+      point("2026-10-02T10:00:00Z", speechSummary(3, 60, 40)),
+      point("2026-10-03T10:00:00Z", speechSummary(3, 62, 40)),
+      point("2026-10-04T10:00:00Z", speechSummary(3, 64, 40)),
+    ];
+    expect(buildTrainingProgress(pts).perMode.speech!.speechQualityChange).toBe(4);
+  });
 });
