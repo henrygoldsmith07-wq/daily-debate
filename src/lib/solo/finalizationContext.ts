@@ -88,17 +88,30 @@ export async function loadSoloFinalizationContext(params: {
     .map((debate) => mergedByDebate.get(debate.id) ?? null)
     .filter((assessment): assessment is ObservableAssessment => assessment !== null);
 
-  const priorDebateKinds = priorDebates
+  const priorDebateKinds = buildPriorDebateKinds(priorDebates, mergedByDebate);
+
+  return { ok: true, topic, priorAssessments, priorDebateKinds };
+}
+
+/**
+ * Oldest-first weakness-kind counts per prior debate. A debate whose completion
+ * time is missing or unparseable is left out: stamping "now" on it would place
+ * it at the end of the timeline and distort repair-effectiveness windows.
+ */
+export function buildPriorDebateKinds(
+  priorDebates: Array<{ id: string; completed_at: string | null }>,
+  mergedByDebate: Map<string, ObservableAssessment>,
+): Array<{ completedAt: string; kinds: Record<string, number> }> {
+  return priorDebates
     .map((debate) => {
       const merged = mergedByDebate.get(debate.id);
       if (!merged) return null;
+      if (!debate.completed_at || !Number.isFinite(Date.parse(debate.completed_at))) return null;
       return {
-        completedAt: debate.completed_at ?? new Date().toISOString(),
+        completedAt: debate.completed_at,
         kinds: countWeaknessesForSide(merged.graph, "a"),
       };
     })
     .filter((value): value is { completedAt: string; kinds: Record<string, number> } => value !== null)
     .reverse();
-
-  return { ok: true, topic, priorAssessments, priorDebateKinds };
 }
