@@ -29,7 +29,7 @@ import {
   type MotionChoice,
 } from "./topicPersonalisation";
 import type { CoachDimension } from "./adaptiveCoach";
-import { isDifferentRetestContext, planRetestMotion } from "./repairRetest";
+import { isDifferentRetestContext, planRetestMotionForAnchor } from "./repairRetest";
 import type { DailyTopic } from "./types";
 
 export interface ResolvedMotion {
@@ -57,15 +57,6 @@ const HISTORY_LIMIT = 10;
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-/**
- * Calendar day of a timestamp. The Postgres layer returns timestamptz values
- * as Date objects, so never assume a string — normalise through Date.
- */
-function dayOf(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toISOString().slice(0, 10);
 }
 
 /**
@@ -122,9 +113,9 @@ export async function resolvePracticeMotion(input: {
     // Canonical plan (repairRetest.planRetestMotion): a different shared
     // topic carries the retest even on the repair day; a same-day replay of
     // the repaired topic never does.
-    const plan = planRetestMotion({
+    const plan = planRetestMotionForAnchor({
       repairTopicId: dueRetest.topicId,
-      repairedOn: dayOf(dueRetest.attemptedAt),
+      attemptedAt: dueRetest.attemptedAt,
       sharedTopicId: shared.id,
       today: todayIso(),
     });

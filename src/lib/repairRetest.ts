@@ -106,6 +106,38 @@ export function planRetestMotion(input: {
   return "keep-queued";
 }
 
+/**
+ * Calendar day (UTC, YYYY-MM-DD) of a repair timestamp. Postgres returns
+ * timestamptz as Date, other paths as strings. An unparseable value yields
+ * null, never a sliced garbage string that could accidentally equal "today".
+ */
+export function repairDayOf(value: string | Date | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+}
+
+/**
+ * Plan the motion for a due retest from the raw anchor. When the repair day
+ * is unknown we cannot prove a same-day replay, so a same-topic collision
+ * swaps to a different motion (always safe for the different-topic rule)
+ * rather than guessing it was today.
+ */
+export function planRetestMotionForAnchor(input: {
+  repairTopicId: string | null | undefined;
+  attemptedAt: string | Date | null | undefined;
+  sharedTopicId: string;
+  today: string;
+}): RetestMotionPlan {
+  const day = repairDayOf(input.attemptedAt);
+  return planRetestMotion({
+    repairTopicId: input.repairTopicId,
+    repairedOn: day ?? "unknown-day",
+    sharedTopicId: input.sharedTopicId,
+    today: input.today,
+  });
+}
+
 export function pointMeasuresDimension(
   point: SkillMetricPoint,
   dimension: CoachDimension,
