@@ -51,6 +51,9 @@ export async function loadSoloFinalizationContext(params: {
     .eq("user_id", userId)
     .eq("status", "completed")
     .neq("id", debateId)
+    // Postgres sorts NULLs first on DESC; an untimed debate must not eat one of
+    // the five history slots or be stamped as "now" on the learner's timeline.
+    .not("completed_at", "is", null)
     .order("completed_at", { ascending: false })
     .limit(5);
   if (priorDebatesError) {
@@ -91,9 +94,9 @@ export async function loadSoloFinalizationContext(params: {
   const priorDebateKinds = priorDebates
     .map((debate) => {
       const merged = mergedByDebate.get(debate.id);
-      if (!merged) return null;
+      if (!merged || !debate.completed_at) return null;
       return {
-        completedAt: debate.completed_at ?? new Date().toISOString(),
+        completedAt: debate.completed_at,
         kinds: countWeaknessesForSide(merged.graph, "a"),
       };
     })
