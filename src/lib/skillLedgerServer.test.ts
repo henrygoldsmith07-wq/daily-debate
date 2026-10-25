@@ -102,7 +102,7 @@ describe("buildLedgerPointsFromRows", () => {
     const points = buildLedgerPointsFromRows(
       [
         { id: "d1", completed_at: null, topic_id: "topic-a" },
-        { id: "d2", completed_at: "Tue 2026-06-02 11:00 AM BST (UTC+01:00)", topic_id: "topic-b" },
+        { id: "d2", completed_at: "2026-06-02T10:00:00.000Z", topic_id: "topic-b" },
       ],
       [
         { debate_id: "d1", round_number: 1, assessment: a, scores: { clarity: 6 } },
@@ -117,7 +117,7 @@ describe("buildLedgerPointsFromRows", () => {
     const points = buildLedgerPointsFromRows(
       [
         { id: "d1", completed_at: "garbage", topic_id: "topic-a" },
-        { id: "d2", completed_at: "Tue 2026-06-02 11:00 AM BST (UTC+01:00)", topic_id: "topic-b" },
+        { id: "d2", completed_at: "2026-06-02T10:00:00.000Z", topic_id: "topic-b" },
       ],
       [
         { debate_id: "d1", round_number: 1, assessment: a, scores: { clarity: 6 } },
@@ -133,7 +133,7 @@ describe("buildLedgerPointsFromRows", () => {
       [
         {
           id: "d1",
-          completed_at: "Mon 2026-06-01 11:00 AM BST (UTC+01:00)",
+          completed_at: "2026-06-01T10:00:00.000Z",
           topic_id: "topic-b",
           coaching: {
             repairRetest: { repairDebateId: "rd", targetKind: "evidence", attemptedAt: "not a date" },
