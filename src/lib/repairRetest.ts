@@ -291,7 +291,17 @@ export interface CompletedRetestVerdict {
  * One failed retest is a single unvalidated reading, so this only STEERS
  * coaching toward a re-repair; it is never shown as a score.
  */
-export function failedRetestDimensions(verdicts: CompletedRetestVerdict[]): CoachDimension[] {
+export const FAILED_RETEST_STEER_DAYS = 21;
+
+export function failedRetestDimensions(
+  verdicts: CompletedRetestVerdict[],
+  opts: {
+    nowMs?: number;
+    /** Repairs the learner has made; one made after the failed verdict ends the steering. */
+    repairAnchors?: Pick<RepairRetestAnchor, "targetKind" | "attemptedAt">[];
+  } = {},
+): CoachDimension[] {
+  const nowMs = opts.nowMs ?? Date.now();
   const latest = new Map<CoachDimension, { at: number; demonstrated: boolean }>();
   for (const v of verdicts) {
     if (v.observable !== true || v.demonstrated === null) continue;
@@ -301,5 +311,17 @@ export function failedRetestDimensions(verdicts: CompletedRetestVerdict[]): Coac
     const current = latest.get(dimension);
     if (!current || at > current.at) latest.set(dimension, { at, demonstrated: v.demonstrated });
   }
-  return [...latest.entries()].filter(([, v]) => !v.demonstrated).map(([d]) => d);
+  const reRepairedAfter = (dimension: CoachDimension, at: number) =>
+    (opts.repairAnchors ?? []).some((a) => {
+      const attempted = Date.parse(a.attemptedAt);
+      return repairKindToDimension(a.targetKind) === dimension && Number.isFinite(attempted) && attempted > at;
+    });
+  // A failed reading is one unvalidated data point: it steers for a bounded
+  // window, and stops once the learner has already re-repaired the skill (that
+  // repair has its own pending retest).
+  return [...latest.entries()]
+    .filter(([, v]) => !v.demonstrated)
+    .filter(([, v]) => nowMs - v.at <= FAILED_RETEST_STEER_DAYS * 86_400_000)
+    .filter(([d, v]) => !reRepairedAfter(d, v.at))
+    .map(([d]) => d);
 }
