@@ -1134,3 +1134,18 @@ describe("exact artifact scheduler-witness (items 17-18)", () => {
     expect(startOnly?.actualStartedAt).toBe("2026-09-20T22:05:00Z");
   });
 });
+
+describe("assessTopicSlo ordering with malformed timestamps", () => {
+  it("a malformed telemetry timestamp is never chosen as the latest schedule delay", () => {
+    const telemetry = [
+      { event: "schedule", at: "not-a-date", result: "success", delayMs: 99 * 60_000, targetDate: "2026-09-16", completedBeforeDeadline: true },
+      { event: "schedule", at: "2026-09-15T08:00:00Z", result: "success", delayMs: 5 * 3_600_000, targetDate: "2026-09-16", completedBeforeDeadline: true },
+      { event: "schedule", at: "2026-09-14T03:20:00Z", result: "success", delayMs: 20 * 60_000, targetDate: "2026-09-15", completedBeforeDeadline: true },
+    ];
+    const s = assessTopicSlo(
+      { runs: [], productionDbReadable: true, tomorrowReady: true, todayReady: true, telemetry },
+      "2026-09-15T13:00:00Z",
+    );
+    expect(s.scheduling.latestDelayMs).toBe(5 * 3_600_000);
+  });
+});

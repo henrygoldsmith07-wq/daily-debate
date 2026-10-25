@@ -29,3 +29,18 @@ export function compareIsoAsc(a: string | null | undefined, b: string | null | u
   if (yOk) return 1;
   return 0;
 }
+
+/**
+ * Descending (newest first) comparator. Unparseable values sort last, so a
+ * malformed row can never be picked as "latest" or break the order of valid rows.
+ */
+export function compareIsoDesc(a: string | null | undefined, b: string | null | undefined): number {
+  const x = a ? Date.parse(a) : NaN;
+  const y = b ? Date.parse(b) : NaN;
+  const xOk = Number.isFinite(x);
+  const yOk = Number.isFinite(y);
+  if (xOk && yOk) return y - x;
+  if (xOk) return -1;
+  if (yOk) return 1;
+  return 0;
+}

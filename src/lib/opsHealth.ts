@@ -1,4 +1,5 @@
 import type { CoachingContextDegradationReason } from "./types";
+import { compareIsoDesc } from "./isoTimestamp";
 
 // Operational health — explicit states for critical background systems.
 //
@@ -584,7 +585,7 @@ function assessScheduling(telemetry: TopicRunTelemetryRow[]): TopicSlo["scheduli
   const sorted = delays.slice().sort((a, b) => a - b);
   const latest = telemetry
     .filter((r) => r.event === "schedule" && typeof r.delayMs === "number")
-    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+    .sort((a, b) => compareIsoDesc(a.at, b.at))[0];
   const missedStarts = sorted.filter((d) => d > TOPIC_MISSED_START_THRESHOLD_MS).length;
   return {
     latestDelayMs: latest?.delayMs ?? null,
@@ -602,11 +603,11 @@ export function assessTopicSlo(input: TopicSloInput, nowIso: string): TopicSlo {
   const telemetry = input.telemetry ?? [];
   const scheduled = input.runs
     .filter((r) => r.event === "schedule")
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    .sort((a, b) => compareIsoDesc(a.createdAt, b.createdAt));
   const successBy = (r: TopicScheduledRun) => r.status === "completed" && r.conclusion === "success";
   const newestSuccessFirst = input.runs
     .slice()
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .sort((a, b) => compareIsoDesc(a.createdAt, b.createdAt))
     .find(successBy) ?? null;
 
   // -- scheduler dimension (run history only; content-agnostic) --------------
