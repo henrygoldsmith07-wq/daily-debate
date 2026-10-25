@@ -38,6 +38,7 @@ import {
   type EvidenceLevel,
 } from "./skillTaxonomy";
 import { WEAKNESS_CONSEQUENCE } from "./retest";
+import { compareIsoAsc } from "./isoTimestamp";
 
 /** Sample size below which a reading is provisional rather than descriptive. */
 export const MIN_SKILL_SAMPLE = 3;
@@ -378,7 +379,7 @@ function collapseEpisodes(repairs: RepairEpisodeInput[]): Episode[] {
   }
   const episodes: Episode[] = [];
   for (const rows of grouped.values()) {
-    const chronological = [...rows].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+    const chronological = [...rows].sort((a, b) => compareIsoAsc(a.createdAt, b.createdAt));
     const first = chronological[0];
     const firstSuccess = chronological.find((r) => r.succeeded) ?? null;
     const skill = skillKeyForRepairKind(first.targetKind);
@@ -393,7 +394,7 @@ function collapseEpisodes(repairs: RepairEpisodeInput[]): Episode[] {
       attempts: chronological.length,
     });
   }
-  return episodes.sort((a, b) => Date.parse(a.firstAt) - Date.parse(b.firstAt));
+  return episodes.sort((a, b) => compareIsoAsc(a.firstAt, b.firstAt));
 }
 
 function buildRepairStates(
@@ -407,7 +408,7 @@ function buildRepairStates(
     const successAts = successful
       .map((e) => e.successAt)
       .filter((v): v is string => v !== null)
-      .sort((a, b) => Date.parse(a) - Date.parse(b));
+      .sort(compareIsoAsc);
     const lastRepairedAt = successAts.length ? successAts[successAts.length - 1] : null;
 
     // A real retest must be observable (a genuine opportunity arose). Anything
@@ -705,7 +706,7 @@ function questionsFor(
 
 export function buildLearnerModel(input: LearnerModelInput): LearnerModel {
   const points = [...input.points].sort(
-    (a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt),
+    (a, b) => compareIsoAsc(a.completedAt, b.completedAt),
   );
   const skills = buildSkillReadings(points);
   const episodes = collapseEpisodes(input.repairs);

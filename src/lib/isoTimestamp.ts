@@ -12,3 +12,20 @@ export function toIsoOrNull(value: unknown): string | null {
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? value : null;
 }
+
+/**
+ * Ascending comparator for timestamp strings. `Date.parse(a) - Date.parse(b)`
+ * returns NaN for an unparseable value, which sorts as "equal" to everything
+ * and breaks transitivity, so valid rows around it can come out of order.
+ * Unparseable values sort last, deterministically.
+ */
+export function compareIsoAsc(a: string | null | undefined, b: string | null | undefined): number {
+  const x = a ? Date.parse(a) : NaN;
+  const y = b ? Date.parse(b) : NaN;
+  const xOk = Number.isFinite(x);
+  const yOk = Number.isFinite(y);
+  if (xOk && yOk) return x - y;
+  if (xOk) return -1;
+  if (yOk) return 1;
+  return 0;
+}

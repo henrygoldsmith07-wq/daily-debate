@@ -12,6 +12,7 @@ import {
 } from "./skillLedger";
 import { classifyFallacies } from "./graphEnrichers";
 import { readEngagementSignals } from "./engagementSignals";
+import { compareIsoAsc } from "./isoTimestamp";
 
 export type CoachDimension =
   | "evidence"
@@ -453,7 +454,7 @@ export function movementAround(
   // When a drill is assigned BETWEEN debates, the first later debate is a
   // real post-drill observation and must not be skipped.
   const chronological = [...points].sort(
-    (a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt),
+    (a, b) => compareIsoAsc(a.completedAt, b.completedAt),
   );
   const beforeSlice = chronological
     .filter((p) => Date.parse(p.completedAt) < anchor)
