@@ -379,7 +379,15 @@ export function classifyRepair(
   // windows remain chronological. The primary deliberate retest itself is
   // linked separately by durable repair_retests provenance.
   const mine = debates
-    .filter((d) => d.userId === repair.user_id && d.debateId !== repair.debate_id)
+    .filter(
+      (d) =>
+        d.userId === repair.user_id &&
+        d.debateId !== repair.debate_id &&
+        // A debate whose completion time cannot be parsed has no place on the
+        // timeline: NaN breaks the sort comparator and silently falls out of
+        // both windows, so drop it explicitly rather than mis-order its peers.
+        Number.isFinite(dayMs(d.completedAt)),
+    )
     .sort((a, b) => dayMs(a.completedAt) - dayMs(b.completedAt));
   // Opportunity gate: debates that could not express the weakness are
   // invisible to the measurement (no false "improved" from empty debates).
@@ -513,6 +521,9 @@ export function buildRepairEffectiveness(
   const explicitRetestByRepair = new Map<string, RepairRetestAnalyticsRow>();
   for (const retest of opts.retests ?? []) {
     if (retest.observable !== true || !retest.completed_at) continue;
+    // An unparseable completion time cannot establish "first retest" order,
+    // and NaN would also make it win against every later valid retest.
+    if (!Number.isFinite(Date.parse(retest.completed_at))) continue;
     const existing = explicitRetestByRepair.get(retest.repair_result_id);
     if (!existing || Date.parse(retest.completed_at) < Date.parse(existing.completed_at!)) {
       explicitRetestByRepair.set(retest.repair_result_id, retest);

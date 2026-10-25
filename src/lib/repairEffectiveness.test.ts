@@ -683,3 +683,41 @@ describe("no double-counting across repeated repairs", () => {
     expect(evidence.worse).toBe(1);
   });
 });
+
+describe("unparseable timestamps never distort the measurement", () => {
+  const at = "2026-06-10T13:00:00.000Z";
+
+  it("ignores a debate with an unparseable completion time instead of mis-ordering its peers", () => {
+    const r = repair("u1", "evidence", at, "d-r");
+    const debates = [
+      debate("u1", daysAfter(at, 2), {}, "d-after-1"),
+      debate("u1", "not-a-date", { evidence: 3 }, "d-bad"),
+      debate("u1", daysBefore(at, 2), { evidence: 1 }, "d-before"),
+      debate("u1", daysAfter(at, 1), {}, "d-retest"),
+    ];
+    const detail = classifyRepair(r, debates, { firstRetestDebateId: "d-retest" });
+    expect(detail.beforeDebates).toBe(1);
+    expect(detail.afterDebates).toBe(2);
+    expect(detail.outcome).toBe("improved");
+    expect(detail.firstRetest).toEqual({ debateId: "d-retest", weaknessPresent: false });
+  });
+
+  it("does not let a retest with an unparseable completed_at win the first-retest slot", () => {
+    const repairs: RepairRow[] = [];
+    const debates: DebateWeaknessRow[] = [];
+    const retests: RepairRetestAnalyticsRow[] = [];
+    for (let i = 0; i < 3; i++) {
+      const r = repair(`u${i}`, "evidence", at, `d-r-${i}`);
+      repairs.push(r);
+      debates.push(debate(`u${i}`, daysBefore(at, 2), { evidence: 1 }));
+      // the first-listed retest has a garbage timestamp and the weakness present
+      debates.push(debate(`u${i}`, daysAfter(at, 1), { evidence: 1 }, `d-bad-${i}`));
+      debates.push(debate(`u${i}`, daysAfter(at, 2), {}, `d-good-${i}`));
+      retests.push({ ...retest(r, `d-bad-${i}`, "garbage"), completed_at: "garbage" });
+      retests.push(retest(r, `d-good-${i}`, daysAfter(at, 2)));
+    }
+    const report = buildRepairEffectiveness(repairs, debates, { now: NOW, retests });
+    expect(report.overall.retest.repairsWithRetest).toBe(3);
+    expect(report.overall.retest.firstRetestWeaknessRate).toBe(0);
+  });
+});
