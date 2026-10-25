@@ -339,13 +339,13 @@ describe("failedRetestDimensions", () => {
   const v = (targetKind: string, completedAt: string, demonstrated: boolean | null, observable: boolean | null = true) =>
     ({ targetKind, completedAt, demonstrated, observable }) as never;
   it("returns the skill whose latest verdict failed", () => {
-    expect(failedRetestDimensions([v("evidence", "2026-10-01T10:00:00Z", false)])).toEqual(["evidence"]);
+    expect(failedRetestDimensions([v("evidence", "2026-10-01T10:00:00Z", false)], { nowMs: Date.parse("2026-10-05T12:00:00Z") })).toEqual(["evidence"]);
   });
   it("a later demonstrated verdict clears it", () => {
-    expect(failedRetestDimensions([v("evidence", "2026-10-01T10:00:00Z", false), v("evidence", "2026-10-03T10:00:00Z", true)])).toEqual([]);
+    expect(failedRetestDimensions([v("evidence", "2026-10-01T10:00:00Z", false), v("evidence", "2026-10-03T10:00:00Z", true)], { nowMs: Date.parse("2026-10-05T12:00:00Z") })).toEqual([]);
   });
   it("ignores unobservable or undecided verdicts", () => {
-    expect(failedRetestDimensions([v("evidence", "2026-10-01T10:00:00Z", false, false), v("evidence", "2026-10-02T10:00:00Z", null)])).toEqual([]);
+    expect(failedRetestDimensions([v("evidence", "2026-10-01T10:00:00Z", false, false), v("evidence", "2026-10-02T10:00:00Z", null)], { nowMs: Date.parse("2026-10-05T12:00:00Z") })).toEqual([]);
   });
 });
 
@@ -362,5 +362,27 @@ describe("repair retest expiry", () => {
     expect(pendingRepairRetest([], a, base + 15 * day)).toBeNull();
     expect(pendingRepairRetests([], [a], base + 15 * day)).toEqual([]);
     expect(selectEligiblePendingRetest([], [a], "topic-today", base + 15 * day)).toBeNull();
+  });
+});
+
+describe("failedRetestDimensions bounds", () => {
+  const v = (completedAt: string, demonstrated = false) =>
+    ({ targetKind: "evidence", completedAt, demonstrated, observable: true }) as never;
+  const day = 86_400_000;
+  const failedAt = "2026-10-01T10:00:00.000Z";
+  const base = Date.parse(failedAt);
+  it("keeps steering inside the window", () => {
+    expect(failedRetestDimensions([v(failedAt)], { nowMs: base + 20 * day })).toEqual(["evidence"]);
+  });
+  it("stops steering on a stale failure", () => {
+    expect(failedRetestDimensions([v(failedAt)], { nowMs: base + 22 * day })).toEqual([]);
+  });
+  it("stops steering once the learner re-repaired the skill after the failure", () => {
+    const anchors = [{ targetKind: "evidence", attemptedAt: "2026-10-03T10:00:00.000Z" }] as never;
+    expect(failedRetestDimensions([v(failedAt)], { nowMs: base + 5 * day, repairAnchors: anchors })).toEqual([]);
+  });
+  it("ignores a repair made before the failure", () => {
+    const anchors = [{ targetKind: "evidence", attemptedAt: "2026-09-30T10:00:00.000Z" }] as never;
+    expect(failedRetestDimensions([v(failedAt)], { nowMs: base + 5 * day, repairAnchors: anchors })).toEqual(["evidence"]);
   });
 });
