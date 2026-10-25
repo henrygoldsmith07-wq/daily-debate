@@ -806,6 +806,17 @@ describe("training-loop outcome funnel (repair → retest → recurrence → ret
     expect(funnel.postRepairReturn.d30.eligibleUsers).toBe(1);
   });
 
+  it("anchors post-repair return at the first PARSEABLE repair, never a malformed stamp", () => {
+    const repairs = [
+      repair("u1", "d0", "rebuttal", "not-a-timestamp"),
+      repair("u1", "d1", "rebuttal", "2026-06-01T12:00:00.000Z"),
+    ];
+    const events = [ev("u1", "daily_viewed", "2026-06-02T09:00:00.000Z")];
+    const funnel = buildRepairOutcomeFunnel(repairs, [], events, { now: "2026-07-15T12:00:00.000Z", minSample: 1 });
+    expect(funnel.postRepairReturn.d1.eligibleUsers).toBe(1);
+    expect(funnel.postRepairReturn.d1.returnedUsers).toBe(1);
+  });
+
   it("splits post-repair D7 return by arm with per-arm sample gates, never pooling", () => {
     // 3 users whose first repairs got a durable assignment (prompted arm),
     // 3 whose first repairs had no assignment (incidental arm). Nobody returned on day 7.
