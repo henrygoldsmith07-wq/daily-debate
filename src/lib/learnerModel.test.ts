@@ -231,3 +231,32 @@ describe("learnerModel — repair is practice, demonstration is separate", () =>
     expect(repair?.totalAttempts).toBe(3);
   });
 });
+
+describe("learnerModel — retest history ordering", () => {
+  it("lists retests newest first and sinks unparseable timestamps instead of scrambling order", () => {
+    const mk = (id: string, completedAt: string | null) => ({
+      targetKind: "evidence",
+      repairDebateId: "d1",
+      assignedDebateId: id,
+      completedAt,
+      observable: true,
+      demonstrated: true,
+    });
+    const model = buildLearnerModel({
+      points: weakEvidencePoints,
+      repairs: [],
+      retests: [
+        mk("old", "2026-01-01T10:00:00Z"),
+        mk("bad", "not-a-date"),
+        mk("new", "2026-01-05T10:00:00Z"),
+        mk("mid", "2026-01-03T10:00:00Z"),
+      ],
+    });
+    expect(model.retests.map((r) => r.at?.slice(0, 15))).toEqual([
+      expect.stringContaining("2026-01-05"),
+      expect.stringContaining("2026-01-03"),
+      expect.stringContaining("2026-01-01"),
+      "not-a-date",
+    ].map((v) => (typeof v === "string" ? v : v)) as never);
+  });
+});
