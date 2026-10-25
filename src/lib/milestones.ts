@@ -7,6 +7,7 @@
 
 import type { RepairRecord, RetestOutcome } from "./retest";
 import type { JourneyObservation } from "./skillJourney";
+import { toIsoOrNull } from "./isoTimestamp";
 
 export interface Milestone {
   id: string;
@@ -29,8 +30,15 @@ export interface MilestoneInputs {
 /** Repeated behaviour needs this many eligible debates before it counts. */
 export const MILESTONE_CONSISTENCY_DEBATES = 3;
 
-function iso(at: string): string {
-  return new Date(at).toISOString().slice(0, 10);
+/**
+ * Calendar day of a stored timestamp, or null when it does not parse.
+ * `new Date(bad).toISOString()` throws a RangeError, which would take the whole
+ * Progress page down for one malformed row. The milestone itself still counts
+ * (the row is real); only its date is left off rather than invented.
+ */
+function iso(at: string | null | undefined): string | null {
+  const iso = toIsoOrNull(at);
+  return iso ? new Date(iso).toISOString().slice(0, 10) : null;
 }
 
 export function buildMilestones(input: MilestoneInputs): Milestone[] {
@@ -63,7 +71,7 @@ export function buildMilestones(input: MilestoneInputs): Milestone[] {
       title: "First successful different-topic retest",
       detail: "A repaired skill appeared in a later debate on another topic, without prompting.",
       achieved: !!firstRetest,
-      achievedAt: firstRetest ? iso(firstRetest.retest_completed_at ?? firstRetest.created_at) : null,
+      achievedAt: firstRetest ? iso(firstRetest.retest_completed_at) ?? iso(firstRetest.created_at) : null,
       remaining: firstRetest
         ? null
         : anyRetestDone
