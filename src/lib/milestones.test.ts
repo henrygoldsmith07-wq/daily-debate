@@ -90,4 +90,44 @@ describe("buildMilestones", () => {
     expect(nine?.achieved).toBe(false);
     expect(nine?.remaining).toBe("1 more full loops to go.");
   });
+
+  it("does not throw on unparseable timestamps; keeps the milestone and drops the date", () => {
+    const build = () =>
+      buildMilestones({
+        repairs: [
+          repair({
+            created_at: "not a date",
+            retest_debate_id: "d9",
+            retest_outcome: "skill-observed",
+            retest_completed_at: "also garbage",
+          }),
+        ],
+        observationsByKind: {},
+        completedLoops: 1,
+      });
+    expect(build).not.toThrow();
+    const m = build();
+    const first = m.find((x) => x.id === "first-repair");
+    expect(first?.achieved).toBe(true);
+    expect(first?.achievedAt).toBeNull();
+    const retest = m.find((x) => x.achieved && x.id !== "first-repair" && /retest/.test(x.id));
+    if (retest) expect(retest.achievedAt).toBeNull();
+  });
+
+  it("falls back to the repair date when only the retest completion time is bad", () => {
+    const m = buildMilestones({
+      repairs: [
+        repair({
+          created_at: "Mon 2026-06-01 1:00 AM BST (UTC+01:00)",
+          retest_debate_id: "d9",
+          retest_outcome: "skill-observed",
+          retest_completed_at: "garbage",
+        }),
+      ],
+      observationsByKind: {},
+      completedLoops: 1,
+    });
+    const dated = m.filter((x) => x.achieved && x.achievedAt);
+    expect(dated.every((x) => x.achievedAt === "2026-06-01")).toBe(true);
+  });
 });
