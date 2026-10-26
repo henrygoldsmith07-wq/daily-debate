@@ -5,6 +5,8 @@ const h = vi.hoisted(() => {
     timezone: "America/Los_Angeles" as string | null,
     drillFilters: null as Map<string, unknown> | null,
     drillUpdate: null as Record<string, unknown> | null,
+    duplicateRow: null as { id: string } | null,
+    inserts: 0,
   };
 
   /** Chainable query stub: every builder method returns itself; terminals resolve. */
@@ -28,8 +30,11 @@ const h = vi.hoisted(() => {
       if (table === "solo_debates") return chain({ data: { id: "debate-1", status: "completed" }, error: null });
       if (table === "solo_debate_turns") return chain({ data: [{ assessment: { graph: { nodes: [] } } }], error: null });
       if (table === "repair_results") {
-        const builder = chain({ data: null, error: null });
-        builder.insert = async () => ({ error: null });
+        const builder = chain({ data: state.duplicateRow, error: null });
+        builder.insert = async () => {
+          state.inserts += 1;
+          return { error: null };
+        };
         return builder;
       }
       throw new Error(`Unexpected user-db table: ${table}`);
@@ -68,7 +73,8 @@ vi.mock("@/lib/argumentRepair", () => ({
   pickRepairTarget: vi.fn(() => ({ kind: "evidence", sourceText: "An unsupported claim." })),
   scoreRepair: vi.fn(() => ({ score: 75, state: "repaired", signals: [] })),
 }));
-vi.mock("@/lib/productEvents", () => ({ recordProductEventForUser: vi.fn(async () => undefined) }));
+const recordEvent = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("@/lib/productEvents", () => ({ recordProductEventForUser: recordEvent }));
 vi.mock("@/lib/repairRetest", () => ({ REPAIR_KIND_TO_DIMENSION: { evidence: "evidence" } }));
 
 import { POST } from "./route";
@@ -90,6 +96,9 @@ describe("POST /api/solo/[debateId]/repair — drill linkage", () => {
     vi.setSystemTime(new Date("2026-10-19T03:00:00Z"));
     h.state.drillFilters = null;
     h.state.drillUpdate = null;
+    h.state.duplicateRow = null;
+    h.state.inserts = 0;
+    recordEvent.mockClear();
   });
   afterEach(() => vi.useRealTimers());
 
@@ -109,5 +118,29 @@ describe("POST /api/solo/[debateId]/repair — drill linkage", () => {
     const res = await post();
     expect(res.status).toBe(200);
     expect(h.state.drillFilters?.get("assigned_date")).toBe("2026-10-19");
+  });
+});
+
+describe("POST /api/solo/[debateId]/repair — duplicate submissions", () => {
+  beforeEach(() => {
+    h.state.duplicateRow = null;
+    h.state.inserts = 0;
+    recordEvent.mockClear();
+  });
+
+  it("stores a first submission once and emits its events", async () => {
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(h.state.inserts).toBe(1);
+    expect(recordEvent).toHaveBeenCalled();
+  });
+
+  it("does not store or re-emit an identical rewrite that is already saved", async () => {
+    h.state.duplicateRow = { id: "existing" };
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(h.state.inserts).toBe(0);
+    expect(recordEvent).not.toHaveBeenCalled();
+    expect((await res.json()).succeeded).toBe(true);
   });
 });
