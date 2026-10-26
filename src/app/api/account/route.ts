@@ -38,6 +38,9 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Enter your password to confirm deletion.", code: "password_required" }, { status: 400 });
   }
 
+  if (!user.email) {
+    return NextResponse.json({ error: "Incorrect password. Nothing was deleted.", code: "invalid_password" }, { status: 401 });
+  }
   const verified = await db.auth.signInWithPassword({ email: user.email, password });
   if (verified.error || !verified.data.user || verified.data.user.id !== user.id) {
     return NextResponse.json({ error: "Incorrect password. Nothing was deleted.", code: "invalid_password" }, { status: 401 });
@@ -52,7 +55,13 @@ export async function DELETE(request: Request) {
         { status: 500 },
       );
     }
-    await db.auth.signOut();
+    // The account is already gone: a failing sign-out must never be reported
+    // as "nothing was removed" (the user would retry against a deleted account).
+    try {
+      await db.auth.signOut();
+    } catch (signOutError) {
+      console.error("Sign-out after account deletion failed:", signOutError);
+    }
     return NextResponse.json({ deleted: true, summary: data ?? null }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Account deletion failed:", error);
