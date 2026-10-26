@@ -1148,7 +1148,9 @@ export function buildRepairOutcomeFunnel(
 
   // Post-repair return: anchor each user at their FIRST repair completion.
   const anchors = new Map<string, string>();
-  const sortedRepairs = [...successfulEpisodes].sort((a, b) => Date.parse(a.firstSuccessAt!) - Date.parse(b.firstSuccessAt!));
+  const sortedRepairs = [...successfulEpisodes]
+    .filter((r) => Number.isFinite(Date.parse(r.firstSuccessAt ?? "")))
+    .sort((a, b) => compareIsoAsc(a.firstSuccessAt!, b.firstSuccessAt!));
   for (const r of sortedRepairs) {
     if (!anchors.has(r.user_id)) anchors.set(r.user_id, r.firstSuccessAt!);
   }
