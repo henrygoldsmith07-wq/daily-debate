@@ -108,7 +108,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     .limit(1)
     .maybeSingle();
 
-  const { error: insertError } = await db.from("repair_results").insert({
+  // A double-click, a network retry or a re-sent request carries the same
+  // rewrite. Persisting it again would inflate repair counts and the repair
+  // funnel, so an identical stored rewrite for this debate and target is
+  // answered from the stored row: nothing new is written or emitted.
+  const { data: duplicate } = await db
+    .from("repair_results")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("debate_id", debateId)
+    .eq("target_kind", target.kind)
+    .eq("rewrite_text", rewrite)
+    .limit(1)
+    .maybeSingle();
+
+  const { error: insertError } = duplicate ? { error: null } : await db.from("repair_results").insert({
     user_id: user.id,
     debate_id: debateId,
     target_kind: target.kind,
@@ -154,16 +168,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     console.error("Failed to link repair to drill assignment:", error);
   }
 
-  await recordProductEventForUser(user.id, "repair_attempted", {
-    reason: result.state,
-    debateId,
-  });
+  if (!duplicate) {
+    await recordProductEventForUser(user.id, "repair_attempted", {
+      reason: result.state,
+      debateId,
+    });
+  }
 
   // A prompted rewrite demonstrating the requested structure is not a later
   // learning outcome. Give it its own event, then close the episode exactly
   // once on the first successful attempt. Legacy repair_completed remains
   // readable in analytics but is no longer emitted by new code.
-  if (succeeded) {
+  if (succeeded && !duplicate) {
     await recordProductEventForUser(user.id, "repair_demonstrated", {
       reason: target.kind,
       debateId,
