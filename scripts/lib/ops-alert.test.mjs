@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  assessPrChecks,
   calendarDaysBetween,
   classifyFailureStage,
   decideOpsAlert,
@@ -641,4 +642,121 @@ test("notification markers: newest wins, unreadable timestamps re-notify", () =>
   });
   assert.equal(corrupt.kind, "reminder");
   assert.equal(corrupt.notify, true);
+});
+
+// ---------------------------------------------------------------------------
+// The PR-path watchdog. main is protected with no bypass actors, so a PR
+// whose required checks never complete is a HALT TO ALL SHIPPING — and a
+// silent `pull_request` trigger (GitHub-side, 2026-10-24) produces exactly
+// that with no red mark anywhere: the checks neither pass nor fail, they
+// never start. This makes the state measurable.
+// ---------------------------------------------------------------------------
+
+const pr = (number, createdAt, state = "open") => ({ number, title: `PR ${number}`, createdAt, state });
+
+test("a PR older than the threshold with checks that never started is blocked and named", () => {
+  const d = assessPrChecks(
+    [pr(230, "2026-10-24T08:00:00Z")],
+    { 230: ["verify (never started)", "e2e (never started)", "topic-pipeline (never started)"] },
+    { nowIso: "2026-10-24T17:00:00Z" },
+  );
+  assert.ok(d, "a 9h-old PR with no started checks must be flagged");
+  assert.equal(d.blocked.length, 1);
+  assert.equal(d.blocked[0].number, 230);
+  assert.equal(d.blocked[0].ageHours, 9);
+  assert.match(d.blocked[0].missing.join(","), /never started/);
+  assert.match(d.note, /pull_request trigger/);
+});
+
+test("a PR whose required checks all completed is not blocked, even when red", () => {
+  // A completed-with-failure check is normal red CI: visible to everyone.
+  // The watchdog exists for checks that never START.
+  const d = assessPrChecks(
+    [pr(231, "2026-10-24T08:00:00Z")],
+    { 231: [] },
+    { nowIso: "2026-10-24T17:00:00Z" },
+  );
+  assert.equal(d, null);
+});
+
+test("a young PR is never flagged — checks legitimately have not started yet", () => {
+  const d = assessPrChecks(
+    [pr(232, "2026-10-24T16:50:00Z")],
+    { 232: ["verify (never started)"] },
+    { nowIso: "2026-10-24T17:00:00Z" },
+  );
+  assert.equal(d, null);
+});
+
+test("an in-flight check run is slow CI, not silent CI — not flagged", () => {
+  const d = assessPrChecks(
+    [pr(233, "2026-10-24T08:00:00Z")],
+    { 233: [] }, // completed checks
+    { nowIso: "2026-10-24T17:00:00Z" },
+  );
+  assert.equal(d, null);
+});
+
+test("a per-PR unreadable check source is alertable, never read as fine", () => {
+  const d = assessPrChecks(
+    [pr(234, "2026-10-24T08:00:00Z")],
+    { 234: null },
+    { nowIso: "2026-10-24T17:00:00Z" },
+  );
+  assert.ok(d, "an unreadable source must not read as all-fine");
+  assert.match(d.blocked[0].missing.join(","), /unreadable/);
+});
+
+test("closed PRs are ignored", () => {
+  const d = assessPrChecks(
+    [pr(235, "2026-10-24T08:00:00Z", "closed")],
+    { 235: ["verify (never started)"] },
+    { nowIso: "2026-10-24T17:00:00Z" },
+  );
+  assert.equal(d, null);
+});
+
+test("the digest escalates a blocked PR path to CRITICAL and retitles it", () => {
+  const d = decideOpsAlert(healthy({
+    prChecks: {
+      blocked: [{ number: 230, title: "fix: something important", ageHours: 9, missing: ["verify (never started)"] }],
+      note: "1 open pull request has been waiting more than 6h for required checks that never completed",
+    },
+  }));
+  assert.ok(d, "a blocked PR path must alert");
+  assert.equal(d.severity, "critical");
+  assert.match(d.title, /pull requests blocked/);
+  assert.ok(d.facts.some((f) => f.includes("#230")), "the blocked PR is named in the facts");
+});
+
+test("an unreadable PR-check source in the digest is an alertable warning, not silence", () => {
+  const d = decideOpsAlert(healthy({ prChecks: null }));
+  assert.ok(d, "an unreadable source must alert");
+  assert.equal(d.severity, "warning");
+  assert.ok(d.facts.some((f) => f.startsWith("pr path:")), "the fact names the PR path");
+});
+
+test("prChecks undefined stays silent (caller could not evaluate) — historical behaviour preserved", () => {
+  // healthy() has no prChecks field, so the base healthy case covers this:
+  // a token-less digest run stays exactly as quiet as it always was.
+  assert.equal(decideOpsAlert(healthy()), null);
+});
+
+test("regression: a MEASURED all-clear must not be read as an unreadable source", () => {
+  // The contract bug this pins, found live on 2026-10-26: assessPrChecks
+  // returns null for "nothing blocked" (a measured all-clear), and the first
+  // wiring passed that null straight to decideOpsAlert — whose contract says
+  // null means "source unreadable" — so a HEALTHY repository raised a
+  // "could not assess" warning. The digest now wraps a measured all-clear
+  // as {blocked: []}; this test pins both halves of the contract so neither
+  // side can drift back.
+  const measuredAllClear = assessPrChecks(
+    [pr(266, "2026-10-26T08:08:43Z")],
+    { 266: [] },
+    { nowIso: "2026-10-26T10:01:51Z" },
+  );
+  assert.equal(measuredAllClear, null, "assessPrChecks: null = nothing blocked (measured)");
+  // The digest wraps that into {blocked: []}, which the decision layer must
+  // treat as healthy silence, not an unknown.
+  assert.equal(decideOpsAlert(healthy({ prChecks: { blocked: [], note: "no open pull requests are waiting on required checks" } })), null);
 });

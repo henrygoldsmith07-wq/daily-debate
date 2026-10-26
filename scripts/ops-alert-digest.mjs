@@ -12,14 +12,14 @@
 // Judgement lives in scripts/lib/ops-alert.mjs (pure, unit-tested); this
 // script is I/O only. Evidence sources:
 //
-//   1. GitHub run history (public REST, token optional) — scheduler truth.
-//   2. The deployed app's PUBLIC health probe (/api/health) — availability,
+//   1. GitHub run history (public REST, token optional) â€” scheduler truth.
+//   2. The deployed app's PUBLIC health probe (/api/health) â€” availability,
 //      proofs, and store readability. This replaced a direct DATABASE_URL
 //      connection: the probe serves the canonical loadOpsHealth() reduction
 //      (src/lib/healthProbe.ts), so availability/proof judgement is never
 //      re-derived here, and the workflow no longer needs the DATABASE_URL
 //      secret whose absence caused the 2026-09 outage. The app is the
-//      second witness — if it is down, that difference is diagnostic, and
+//      second witness â€” if it is down, that difference is diagnostic, and
 //      scheduler facts from GitHub still alert on their own.
 //
 // Best-effort by design: a failed source degrades to "unavailable" (which
@@ -36,6 +36,7 @@ import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
+  assessPrChecks,
   classifyFailureStage,
   decideOpsAlert,
   decideOpsNotification,
@@ -53,7 +54,7 @@ const PROD_BASES = [...new Set([CONFIGURED_PROD_BASE, FALLBACK_PROD_BASE])];
 
 // Operator notification (P2.5): email on alert STATE CHANGES and daily
 // reminders while an alert stays open past 24h (the #27 class of silence:
-// an open issue nobody re-opens). Best-effort by design — an unset key or
+// an open issue nobody re-opens). Best-effort by design â€” an unset key or
 // address skips email with a log line; a failed send never fails the digest.
 // The durable "when did we last email" state lives in the issue body itself
 // as a `digest:email-sent` marker, so there is no external state to lose.
@@ -68,7 +69,7 @@ const OPS_ALERT_FROM = process.env.OPS_ALERT_FROM?.trim() || "Daily Debate Ops <
  */
 async function sendOpsAlertEmail(subject, text) {
   if (!RESEND_API_KEY || !OPS_ALERT_EMAIL_TO) {
-    console.log("[ops-alert] email notify skipped — RESEND_API_KEY / OPS_ALERT_EMAIL_TO not configured");
+    console.log("[ops-alert] email notify skipped â€” RESEND_API_KEY / OPS_ALERT_EMAIL_TO not configured");
     return false;
   }
   try {
@@ -92,8 +93,8 @@ async function sendOpsAlertEmail(subject, text) {
 
 /**
  * The exact operator command for schema drift. `db-migrate` is deliberately
- * workflow_dispatch-only — "migrations are applied by an explicit human
- * decision, never unattended" — so the digest's only job is to name the
+ * workflow_dispatch-only â€” "migrations are applied by an explicit human
+ * decision, never unattended" â€” so the digest's only job is to name the
  * command, never to run DDL. It is surfaced verbatim in the alert body.
  */
 const MIGRATION_REMEDIATION = "gh workflow run db-migrate.yml -f confirm=migrate";
@@ -109,7 +110,7 @@ const BENCHMARK_STALENESS_DAYS = 14;
  *
  * Read locally rather than through the public probe: the digest already has the
  * repository, and the probe's reduced surface deliberately publishes no
- * artifact timestamps. Returns `null` when the file cannot be read or parsed —
+ * artifact timestamps. Returns `null` when the file cannot be read or parsed â€”
  * an unreadable artifact is an alertable unknown, never an implied fresh one.
  */
 function readBenchmarkStaleness(nowIso) {
@@ -159,7 +160,7 @@ async function fetchRuns(token) {
 /**
  * Fetch the deployed app's public health probe and validate it is fresh and
  * internally coherent (src/lib/healthProbe.ts `isUsableProbe`). Returns null
- * when unavailable — NEVER a guess: an unavailable probe must not be read as
+ * when unavailable â€” NEVER a guess: an unavailable probe must not be read as
  * either healthy or broken store state.
  */
 async function fetchProbe(nowIso) {
@@ -212,7 +213,7 @@ async function fetchFailedStepName(token, runs) {
 
 /**
  * Heuristic only used when no step/probe evidence exists: a failed scheduled
- * run with no later success of any kind died before doing its job — the
+ * run with no later success of any kind died before doing its job â€” the
  * config/db gate (DATABASE_URL secret, connectivity, migrations) is the
  * prime SUSPECT. With stage evidence, classification names the actual stage
  * instead; this reason is never presented as a confirmed fact.
@@ -226,8 +227,87 @@ function latestConfigGate(runs) {
   if (laterSuccess) return { ok: true, reason: null };
   return {
     ok: false,
-    reason: `scheduled run ${failed.createdAt} failed with no later successful run — the config/db gate (DATABASE_URL secret, connectivity, migrations) is the prime suspect`,
+    reason: `scheduled run ${failed.createdAt} failed with no later successful run â€” the config/db gate (DATABASE_URL secret, connectivity, migrations) is the prime suspect`,
   };
+}
+
+/**
+ * The repository's required checks, per the protect-main ruleset. Kept in
+ * one place so the watchdog and any human reading the alert agree on what
+ * "required" means. A check missing from this list is not watched; a check
+ * on the list that never starts is the exact silence this detects.
+ */
+const REQUIRED_CHECKS = ["verify", "e2e", "topic-pipeline"];
+
+/**
+ * Open pull requests and the required checks each is still waiting on.
+ *
+ * This is the PR-path watchdog: main is protected with no bypass actors, so
+ * a PR whose required checks never complete is a halt to all shipping, and
+ * a silent `pull_request` trigger (GitHub-side, 2026-10-24) produces exactly
+ * that with no red mark anywhere â€” the checks neither pass nor fail, they
+ * never start. This function makes the state measurable.
+ *
+ * Best-effort by design: any unreadable source degrades to null (alertable
+ * unknown), never to "all fine". Returns `undefined` only when there is no
+ * token at all (the digest historically supports token-less runs for the
+ * topic pipeline; the PR path needs the API, so it stays unevaluated rather
+ * than guessing).
+ *
+ * Judgement lives in scripts/lib/ops-alert.mjs (assessPrChecks, unit-tested);
+ * this function is I/O only.
+ */
+async function fetchOpenPrChecks(token, nowIso) {
+  if (!token) return undefined;
+  try {
+    const res = await gh(`/repos/${REPO}/pulls?state=open&per_page=30`, token);
+    if (!res.ok) return null;
+    const prs = await res.json();
+    if (!Array.isArray(prs)) return null;
+    if (!prs.length) return { blocked: [], note: "no open pull requests" };
+    const checksByPr = {};
+    for (const pr of prs) {
+      const number = pr?.number;
+      if (!Number.isInteger(number)) continue;
+      try {
+        const cr = await gh(`/repos/${REPO}/commits/${pr.head?.sha}/check-runs?per_page=50`, token);
+        if (!cr.ok) {
+          checksByPr[number] = null;
+          continue;
+        }
+        const data = await cr.json();
+        const runs = data.check_runs ?? [];
+        const present = runs.map((run) => String(run?.name ?? "").toLowerCase());
+        // THREE distinct silences, named distinctly so the alert names the
+        // remedy: a check ABSENT from the run list NEVER STARTED (the
+        // 2026-10-24 pull_request-trigger outage); a required check still
+        // not completed hours later is a WEDGED or undriven run (in_progress
+        // forever, or queued behind an action_required approval hold a
+        // human must clear). All three block the only path to production,
+        // and none of them is a red mark anywhere.
+        const neverStarted = REQUIRED_CHECKS.filter((req) => !present.includes(req)).map((n) => `${n} (never started)`);
+        const stalled = runs
+          .filter((run) => REQUIRED_CHECKS.includes(String(run?.name ?? "").toLowerCase()) && run?.status !== "completed")
+          .map((run) => `${run?.name} (${run?.status})`);
+        checksByPr[number] = [...neverStarted, ...stalled];
+      } catch {
+        checksByPr[number] = null;
+      }
+    }
+    // CONTRACT, made explicit: `null` from assessPrChecks means "nothing
+    // blocked", which is a MEASURED all-clear — it must never be confused
+    // with the null the caller treats as "source unreadable". Wrap it so the
+    // decision layer sees {blocked: []} (healthy) for a measured all-clear,
+    // and null only when a source genuinely could not be read.
+    const assessed = assessPrChecks(
+      prs.map((pr) => ({ number: pr.number, title: pr.title, createdAt: pr.created_at, state: pr.state })),
+      checksByPr,
+      { nowIso },
+    );
+    return assessed ?? { blocked: [], note: "no open pull requests are waiting on required checks" };
+  } catch {
+    return null;
+  }
 }
 
 async function main() {
@@ -254,7 +334,7 @@ async function main() {
   // proofs) arrives long after the cause. Reading these booleans is what lets
   // the alert name the cause instead of only the symptom.
   //
-  // Only booleans cross this boundary — the public probe deliberately does not
+  // Only booleans cross this boundary â€” the public probe deliberately does not
   // publish table or column names, and this digest must not undo that posture.
   const schema = probe
     ? {
@@ -307,6 +387,10 @@ async function main() {
     benchmark: readBenchmarkStaleness(nowIso),
     latestConfigCheck: heuristic,
     failureStage,
+    // The PR-path watchdog. `undefined` (no token) stays unevaluated; `null`
+    // (unreadable source) is an alertable unknown; an object lists blocked
+    // PRs and is CRITICAL â€” a blocked PR path halts all shipping.
+    prChecks: await fetchOpenPrChecks(token, nowIso),
     nowIso,
   });
 
@@ -326,7 +410,7 @@ async function main() {
     });
     if (resolutionNotice.notify) {
       await sendOpsAlertEmail(
-        "[daily-debate ops] RESOLVED — topic pipeline healthy",
+        "[daily-debate ops] RESOLVED â€” topic pipeline healthy",
         `The topic-pipeline ops alert is resolved as of ${nowIso}.\n\nAll topic-pipeline checks pass; the alert issue is being closed.\n\n-- daily ops-alert digest`,
       );
     }
@@ -334,18 +418,18 @@ async function main() {
       await gh(`/repos/${REPO}/issues/${issue.number}/comments`, token, {
         method: "POST",
         body: JSON.stringify({
-          body: `Resolved as of ${nowIso} — all topic-pipeline checks pass. Closing this alert.\n\n<!-- digest:auto-close -->`,
+          body: `Resolved as of ${nowIso} â€” all topic-pipeline checks pass. Closing this alert.\n\n<!-- digest:auto-close -->`,
         }),
       });
       await gh(`/repos/${REPO}/issues/${issue.number}`, token, { method: "PATCH", body: JSON.stringify({ state: "closed" }) });
-      console.log(`[ops-alert] healthy — closed #${issue.number}`);
+      console.log(`[ops-alert] healthy â€” closed #${issue.number}`);
     }
-    console.log("[ops-alert] healthy — no open alert issues");
+    console.log("[ops-alert] healthy â€” no open alert issues");
     process.exit(0);
   }
 
   const body = [
-    `**Severity:** ${decision.severity} · **Assessed:** ${decision.evidence}`,
+    `**Severity:** ${decision.severity} Â· **Assessed:** ${decision.evidence}`,
     "",
     ...decision.facts.map((f) => `- ${f}`),
     "",
@@ -354,7 +438,7 @@ async function main() {
           `_Availability and proofs via ${probeBase}/api/health (report generated ${probe.generatedAt}); scheduler facts via GitHub run history._`,
           `_App-witness telemetry: topic_run_log readable = ${probe.telemetryReadable ?? "unknown"}, newest recorded target = ${probe.latestTelemetryTargetDate ?? "none"}._`,
         ].join("\n")
-      : `_Health probes unavailable (${PROD_BASES.map((base) => `${base}/api/health`).join(", ")}) — availability and proofs could not be assessed. Scheduler facts via GitHub run history._`,
+      : `_Health probes unavailable (${PROD_BASES.map((base) => `${base}/api/health`).join(", ")}) â€” availability and proofs could not be assessed. Scheduler facts via GitHub run history._`,
     "",
     "_This issue is managed by the daily ops-alert digest (`.github/workflows/ops-alert.yml`).",
     "It updates in place while alerting and auto-closes when the pipeline is provably healthy._",
@@ -374,7 +458,7 @@ async function main() {
   let bodyWithMarker = body;
   if (notice.notify) {
     const sent = await sendOpsAlertEmail(
-      `[daily-debate ops] ${String(decision.severity ?? "warning").toUpperCase()} — ${decision.title}`,
+      `[daily-debate ops] ${String(decision.severity ?? "warning").toUpperCase()} â€” ${decision.title}`,
       [
         `Ops alert (${decision.severity}) as of ${nowIso}.`,
         notice.reason,
@@ -389,14 +473,14 @@ async function main() {
     // retried by the next run instead of being silently marked as notified.
     if (sent) bodyWithMarker = withNotificationMarker(body, nowIso);
   } else {
-    console.log(`[ops-alert] no email — ${notice.reason}`);
+    console.log(`[ops-alert] no email â€” ${notice.reason}`);
   }
   if (existing) {
     await gh(`/repos/${REPO}/issues/${existing.number}`, token, {
       method: "PATCH",
       body: JSON.stringify({ title: decision.title, body: bodyWithMarker, state: "open" }),
     });
-    console.log(`[ops-alert] still alerting (${decision.severity}) — updated #${existing.number} (${notice.kind})`);
+    console.log(`[ops-alert] still alerting (${decision.severity}) â€” updated #${existing.number} (${notice.kind})`);
   } else {
     await gh(`/repos/${REPO}/labels`, token, {
       method: "POST",
@@ -407,7 +491,7 @@ async function main() {
       body: JSON.stringify({ title: decision.title, body: bodyWithMarker, labels: [LABEL] }),
     });
     const created = await createRes.json();
-    console.log(`[ops-alert] ALERT (${decision.severity}) — opened #${created.number}: ${decision.facts.join(" | ")}`);
+    console.log(`[ops-alert] ALERT (${decision.severity}) â€” opened #${created.number}: ${decision.facts.join(" | ")}`);
   }
   process.exit(0);
 }
