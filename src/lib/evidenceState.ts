@@ -41,7 +41,9 @@ export function wilsonInterval(
   total: number,
   z = 1.96,
 ): [number, number] {
-  if (total <= 0) return [0, 1];
+  if (!Number.isFinite(total) || !Number.isFinite(successes) || total <= 0) return [0, 1];
+  // Out-of-range counts must never publish a proportion above 100% or below 0%.
+  successes = Math.min(Math.max(successes, 0), total);
   const p = successes / total;
   const z2 = z * z;
   const denom = 1 + z2 / total;
@@ -76,6 +78,10 @@ export function gateBinomial(
   total: number,
   gate: { minReportable: number; minEarly: number },
 ): GatedMetric {
+  if (!Number.isFinite(total) || !Number.isFinite(successes)) {
+    return { estimate: null, ciLower: null, ciUpper: null, n: 0, state: "insufficient" };
+  }
+  successes = Math.min(Math.max(successes, 0), Math.max(total, 0));
   const state = resolveEvidenceState(total, gate);
   const [lo, hi] = wilsonInterval(successes, total);
   const pctVal = total > 0 ? Math.round((successes / total) * 1000) / 10 : null;
