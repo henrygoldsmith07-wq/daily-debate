@@ -327,6 +327,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       ? staged.trainingMeta as TurnTrainingMeta
       : { ...candidateTrainingMeta, elapsedSeconds: claim.elapsedSeconds ?? candidateTrainingMeta.elapsedSeconds };
 
+  // Releasing must never throw: a transport failure here would otherwise
+  // replace the retryable "response saved" answer with a bare 500 and leave
+  // the claim held until it expires.
+  const releaseClaim = async () => {
+    try {
+      const { error } = await db.rpc("release_solo_turn_submission", {
+        p_debate_id: debateId,
+        p_user_id: user.id,
+        p_turn_id: pendingTurn.id,
+        p_token: submissionToken,
+      });
+      if (error) console.error("Failed to release solo submission claim:", error);
+    } catch (error) {
+      console.error("Failed to release solo submission claim:", error);
+    }
+  };
+
   let feedback: string | null = null;
   let nextAiMessage: string | null = null;
 
@@ -370,12 +387,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       nextAiMessage = result.aiMessage;
     } catch (error) {
       console.error("Failed to generate the next debate turn:", error);
-      await db.rpc("release_solo_turn_submission", {
-        p_debate_id: debateId,
-        p_user_id: user.id,
-        p_turn_id: pendingTurn.id,
-        p_token: submissionToken,
-      });
+      await releaseClaim();
       // Spend-cap exhaustion is an EXPLICIT, retryable state: the response is
       // saved, the round is not advanced, and the client is told exactly why.
       if (isSpendCapError(error)) {
@@ -411,24 +423,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   }
 
   const nextRoundNumber = isFinalRound ? null : pendingTurn.round_number + 1;
-  const { data: finalizeData, error: finalizeError } = await db.rpc("finalize_solo_turn_submission", {
-    p_debate_id: debateId,
-    p_user_id: user.id,
-    p_turn_id: pendingTurn.id,
-    p_token: submissionToken,
-    p_feedback: feedback,
-    p_next_round_number: nextRoundNumber,
-    p_next_ai_message: nextAiMessage,
-  });
-
-  if (finalizeError) {
-    console.error("Failed to finalize staged solo submission:", finalizeError);
-    await db.rpc("release_solo_turn_submission", {
+  let finalizeData: unknown = null;
+  let finalizeError: unknown = null;
+  try {
+    const result = await db.rpc("finalize_solo_turn_submission", {
       p_debate_id: debateId,
       p_user_id: user.id,
       p_turn_id: pendingTurn.id,
       p_token: submissionToken,
+      p_feedback: feedback,
+      p_next_round_number: nextRoundNumber,
+      p_next_ai_message: nextAiMessage,
     });
+    finalizeData = result.data;
+    finalizeError = result.error;
+  } catch (error) {
+    finalizeError = error;
+  }
+
+  if (finalizeError) {
+    console.error("Failed to finalize staged solo submission:", finalizeError);
+    await releaseClaim();
     return NextResponse.json(
       {
         error: "Your response is saved, but the round could not advance. Retry to continue from the saved response.",
@@ -445,12 +460,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
   const finalized = (finalizeData ?? {}) as FinalizeSubmissionResult;
   if (!finalized.saved || !finalized.completedTurn) {
-    await db.rpc("release_solo_turn_submission", {
-      p_debate_id: debateId,
-      p_user_id: user.id,
-      p_turn_id: pendingTurn.id,
-      p_token: submissionToken,
-    });
+    await releaseClaim();
     return NextResponse.json(
       {
         error: "Your response is saved, but another request took over opponent generation. Retry to load the completed round.",
