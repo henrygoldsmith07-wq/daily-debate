@@ -9,6 +9,8 @@ import { loadJudgeValidation } from "@/lib/judgeValidationServer";
 import { allowsCompetitiveClaims } from "@/lib/judgeValidation";
 import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
 import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
+import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
+import { historyLoopMap, type HistoryLoopState } from "@/lib/historyLoop";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +93,19 @@ export default async function HistoryPage() {
     for (const t of topics ?? []) topicTitles.set(t.id, t.title);
   }
 
+  // Loop state per debate (repaired? finished retest verdict?). Cosmetic and
+  // read-only: a failure here must never blank the record, so it degrades to
+  // no badges.
+  let loopStates = new Map<string, HistoryLoopState>();
+  if (!loadError && soloDebates.length) {
+    try {
+      const journey = await buildJourneyInputsForUser(user.id);
+      loopStates = historyLoopMap(soloDebates.map((d) => d.id), journey.repairs);
+    } catch {
+      loopStates = new Map();
+    }
+  }
+
   if (loadError) {
     return (
       <AppShell width="narrow">
@@ -159,6 +174,18 @@ export default async function HistoryPage() {
                 <span className="text-xs text-ink3">
                   {formatDate(d.completed_at ?? d.created_at, timeZone)} · arguing {d.side} · {d.round_count} rounds
                 </span>
+                {d.status === "completed" && loopStates.get(d.id) && (
+                  <span className="mt-1 flex flex-wrap gap-1" data-testid="history-loop-state">
+                    {loopStates.get(d.id)?.repair && (
+                      <span className="pill text-xs">
+                        {loopStates.get(d.id)?.repair === "repaired" ? "Weakness repaired" : "Repair attempted"}
+                      </span>
+                    )}
+                    {loopStates.get(d.id)?.retest && (
+                      <span className="pill text-xs">Retest: {loopStates.get(d.id)?.retest?.label}</span>
+                    )}
+                  </span>
+                )}
               </span>
               <span className="shrink-0 text-right">
                 {d.status === "completed" ? (
