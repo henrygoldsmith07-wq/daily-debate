@@ -7,12 +7,18 @@
 //
 //   node scripts/judge-benchmark.mjs [--limit N] [--concurrency N] [--enforce]
 //        [--out docs/judge-leaderboard.md] [--pack-only] [--allow-skip] [--help]
-//        [--pace-ms N] [--runs-dir DIR] [--models a,b] [--experiment NAME]
+//        [--pace-ms N] [--auto-pace] [--runs-dir DIR] [--models a,b] [--experiment NAME]
 //
 // --pace-ms throttles the GLOBAL rate of provider calls (0 = unpaced, the
 // historical default). Free tiers cap requests per minute; bursting past the
 // cap returns 429s, and a 429 counts against provider reliability - so an
 // unpaced run measures the rate limiter instead of the judge.
+//
+// --auto-pace replaces the hardcoded guess with a derivation: one probe call
+// per distinct provider, read that provider's own rate-limit statement (200
+// headers or 429 prose), classify its window with classifyRateLimit, and pace
+// the run at the SLOWEST per-provider recommendation (the gate is global, so
+// the tightest ceiling governs). An explicit --pace-ms becomes a floor.
 //
 // Gates live in config/judge-gates.json; --enforce exits non-zero on breach.
 // --pack-only validates fixture-pack stratification without calling providers.
@@ -29,6 +35,7 @@ import { FIXTURES, STRATA } from "./lib/judge-fixtures.mjs";
 import { PROBES, AUDIT_TRANSFORMS } from "./lib/judge-transforms.mjs";
 import { allJudgeProviders, estimatedCost, usableProviders, VERDICT_PROMPT_VERSION, buildVerdictSystem, verdictUser, RETRY_POLICY, setRequestGateMs } from "./lib/judge-providers.mjs";
 import { EXPERIMENTS, experimentSystem } from "./lib/judge-experiments.mjs";
+import { classifyRateLimit, describeRateLimit, derivePaceFromProviders } from "./lib/rate-limit.mjs";
 import {
   GATE_DEFAULTS,
   PROVIDER_RELIABILITY_RATIONALE,
@@ -86,6 +93,13 @@ const CONCURRENCY = argInt("concurrency", 3, 1, 8);
 // several times over. 0 (the default) preserves the historical behaviour.
 const PACE_MS = argInt("pace-ms", 0, 0, 300_000);
 setRequestGateMs(PACE_MS);
+// --auto-pace: derive the request pace from each provider's OWN rate-limit
+// statement instead of a hardcoded guess (see the probe block below).
+// --pace-budget-minutes caps the derived pace at what the job's time budget
+// can carry (default 300 = the 350-minute workflow timeout minus headroom);
+// 0 disables the cap.
+const AUTO_PACE = args.includes("--auto-pace");
+const AUTO_PACE_BUDGET_MINUTES = argInt("pace-budget-minutes", 300, 0, 350);
 const ENFORCE = args.includes("--enforce");
 const argVal = (name) => {
   const eq = args.find((x) => x.startsWith(`--${name}=`));
@@ -467,7 +481,66 @@ async function main() {
     process.stdout.write(JSON.stringify({ skipped: true, error: "no judge configured" }) + "\n");
     process.exit(1);
   }
-  log(`[judge-benchmark] models=${judges.map((j) => j.id).join(", ")} limit=${LIMIT} concurrency=${CONCURRENCY} experiment=${EXPERIMENT} paceMs=${PACE_MS} publish=${NO_PUBLISH ? "off" : "on"}`);
+  log(`[judge-benchmark] models=${judges.map((j) => j.id).join(", ")} limit=${LIMIT} concurrency=${CONCURRENCY} experiment=${EXPERIMENT} paceMs=${effectivePaceMs}${AUTO_PACE ? " (auto)" : ""} publish=${NO_PUBLISH ? "off" : "on"}`);
+
+  // SELF-PACING. The four weekly failures before 2026-10-21 were all UNPACED
+  // runs: the free tiers answered a 429 storm, the 429s landed in the
+  // reliability denominator, and pacing was scored as judge quality. #199
+  // added a hardcoded --pace-ms 15000, but a hardcoded pace is correct for
+  // exactly one provider's ceiling: unorouter states 5/min (=12s, x1.25
+  // headroom = 15s). A provider with a per-HOUR ceiling (cerebras) or a
+  // per-DAY cap (openrouter) needs a different answer, and this repository
+  // already built the instrument that reads the provider's own words
+  // (classifyRateLimit) - the benchmark just never used it.
+  //
+  // --auto-pace asks each distinct provider ONE cheap call, reads its
+  // rate-limit statement (from the 200's headers or the 429's own words),
+  // and paces the run at the SLOWEST per-provider recommendation: the request
+  // gate is global, so any provider can take the next call, and pacing for
+  // the average lets the fastest-tightening provider 429. An explicit
+  // --pace-ms becomes a FLOOR: the operator's statement about what this
+  // environment can bear can slow the run, never speed it up.
+  let effectivePaceMs = PACE_MS;
+  let paceDerivationNote = null;
+  if (AUTO_PACE) {
+    const probeTranscript = FIXTURES[0].transcript;
+    const byProvider = new Map();
+    for (const judge of judges) {
+      const label = judge.id.split(":")[0];
+      if (!byProvider.has(label)) byProvider.set(label, judge);
+    }
+    const statements = [];
+    for (const [label, judge] of byProvider) {
+      try {
+        const v = await judge.fn(probeTranscript);
+        statements.push({ label, classification: classifyRateLimit("", { headers: v?.rateLimitHeaders ?? {} }) });
+        log(`[judge-benchmark] auto-pace probe ${label}: ok; headers=${JSON.stringify(v?.rateLimitHeaders ?? {})}`);
+      } catch (e) {
+        const message = String(e?.message ?? e);
+        const headers = e?.rateLimitHeaders ?? {};
+        statements.push({ label, classification: classifyRateLimit(message, { headers }) });
+        log(`[judge-benchmark] auto-pace probe ${label}: ${message.slice(0, 120)} limit=${describeRateLimit(classifyRateLimit(message, { headers }))}`);
+      }
+    }
+    // THE BUDGET CAP. The workflow job runs under timeout-minutes: 350, and a
+    // paced run is a LONG run: the full pack is fixtures x (1 base + probes +
+    // audits) requests per judge, and the gate spaces every request globally.
+    // A provider whose ceiling implies a slower pace than the budget can
+    // carry must NOT govern the whole run: pacing for it would kill the job
+    // at its timeout and publish NOTHING, not even the providers that could
+    // have been measured. So the derived pace is capped at the slowest pace
+    // the budget allows, and a provider needing more is reported as
+    // budget-capped - it will 429 honestly, and its reliability gate fails
+    // WITH the reason in the artifact, which is a strictly better outcome
+    // than a timeout that measures nothing.
+    const requestBudget = FIXTURES.length * (1 + PROBES.length + AUDIT_TRANSFORMS.length) * judges.length;
+    const budgetCapMs = AUTO_PACE_BUDGET_MINUTES > 0 ? Math.floor((AUTO_PACE_BUDGET_MINUTES * 60_000) / Math.max(requestBudget, 1)) : 0;
+    const derived = derivePaceFromProviders(statements, { floorMs: PACE_MS, ...(budgetCapMs > 0 ? { capMs: budgetCapMs } : {}) });
+    effectivePaceMs = derived.paceMs;
+    paceDerivationNote = budgetCapMs > 0 ? `${derived.note}; budget cap ${budgetCapMs}ms for ${requestBudget} requests in ${AUTO_PACE_BUDGET_MINUTES}min` : derived.note;
+    setRequestGateMs(effectivePaceMs);
+    log(`[judge-benchmark] auto-pace: ${paceDerivationNote}`);
+  }
 
   const results = [];
   for (const judge of judges) {
@@ -523,7 +596,22 @@ async function main() {
   });
   const attemptsPath = NO_PUBLISH ? null : appendAttemptsLog(fs, path, attemptEntry);
 
-  const payload = { at, limit: LIMIT, enforce: ENFORCE, strata: STRATA, allPass, gates, versions, results: gated };
+  const payload = {
+    at,
+    limit: LIMIT,
+    enforce: ENFORCE,
+    strata: STRATA,
+    allPass,
+    gates,
+    versions,
+    pacing: {
+      requestedPaceMs: PACE_MS,
+      autoPace: AUTO_PACE,
+      effectivePaceMs,
+      ...(AUTO_PACE ? { derivation: paceDerivationNote } : {}),
+    },
+    results: gated,
+  };
   process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
 
   if (RUNS_DIR) {

@@ -9,7 +9,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyRateLimit, describeRateLimit, RATE_LIMIT_HEADROOM } from "./rate-limit.mjs";
+import { classifyRateLimit, describeRateLimit, derivePaceFromProviders, RATE_LIMIT_HEADROOM } from "./rate-limit.mjs";
 import { makeChainJudgeForTest } from "./judge-providers.mjs";
 
 /** cerebras - live, 2026-10-21. The one that cost the study an arm. */
@@ -187,4 +187,76 @@ test("a successful response with no rate-limit headers reports none, and does no
   });
   const v = await judge("Side A: a claim.\nSide B: a counter-claim.");
   assert.deepEqual(v.rateLimitHeaders ?? {}, {}, "no headers must mean no headers, never a guess");
+});
+
+// ---------------------------------------------------------------------------
+// derivePaceFromProviders: the benchmark's global pace from every provider's
+// own statement. The gate is GLOBAL, so the SLOWEST paceable ceiling governs -
+// and the four weekly runs before 2026-10-21 failed precisely because no pace
+// was derived at all.
+// ---------------------------------------------------------------------------
+
+/** The real providers this repository calls, with their real messages. */
+function realStatements() {
+  return [
+    { label: "unorouter", classification: classifyRateLimit(UNOROUTER_PER_MINUTE) },
+    { label: "cerebras", classification: classifyRateLimit(CEREBRAS_PER_HOUR) },
+    { label: "openrouter", classification: classifyRateLimit(OPENROUTER_PER_DAY) },
+  ];
+}
+
+test("the global pace is the SLOWEST paceable ceiling, not the average", () => {
+  const d = derivePaceFromProviders(realStatements());
+  // unorouter's 5/min -> 15000ms; cerebras's hour window -> 18750ms (default
+  // 240/hour with headroom). openrouter is per-DAY and contributes nothing.
+  // The gate is global: any provider can take the next request, so the run
+  // must sit under EVERY paceable ceiling, which means the slowest one.
+  assert.ok(d.paceMs >= 18_750, `pace ${d.paceMs}ms must respect the slowest ceiling (hour window, default 240/hour)`);
+  assert.equal(d.derivedFrom.length, 2, "unorouter + cerebras are paceable; openrouter is not");
+});
+
+test("a per-DAY ceiling never governs the pace and is reported unpaceable", () => {
+  const d = derivePaceFromProviders(realStatements());
+  assert.ok(d.unpaceable.some((u) => u.label === "openrouter"), "the per-day provider must be named unpaceable, never silently paced for");
+  assert.ok(!d.derivedFrom.some((x) => x.label === "openrouter"));
+  assert.match(d.note, /unpaceable/);
+  assert.match(d.note, /openrouter/);
+});
+
+test("an explicit --pace-ms is a FLOOR: it can slow the run, never speed it up", () => {
+  const noFloor = derivePaceFromProviders(realStatements());
+  const floored = derivePaceFromProviders(realStatements(), { floorMs: noFloor.paceMs + 10_000 });
+  assert.equal(floored.paceMs, noFloor.paceMs + 10_000, "the floor must win when it is slower than every ceiling");
+  // ...and a floor BELOW the derived pace changes nothing.
+  const lowFloor = derivePaceFromProviders(realStatements(), { floorMs: 1_000 });
+  assert.equal(lowFloor.paceMs, noFloor.paceMs);
+});
+
+test("a budget cap keeps the run inside the job timeout and names the provider it starves", () => {
+  // A ceiling implying a pace slower than the cap must NOT govern: pacing the
+  // whole run for it would kill the job at its timeout and publish NOTHING,
+  // not even the providers that could have been measured. It is dropped from
+  // the derivation and 429s honestly instead - so the pace comes from the
+  // providers that FIT, and the note names the one that was starved.
+  const d = derivePaceFromProviders(realStatements(), { capMs: 16_000 });
+  // cerebras's hour ceiling implies 18000ms > cap -> dropped. unorouter's
+  // 15000ms fits and governs.
+  assert.equal(d.paceMs, 15_000, "the pace is set by the providers that fit the budget");
+  assert.ok(d.capped.some((c) => c.label === "cerebras"), "the provider needing more than the cap is named");
+  // cerebras's hour ceiling falls back to the 240/hour default; with the
+  // 1.25 headroom that is 3600000/240*1.25 = 18750ms.
+  assert.equal(d.capped[0].neededMs, 18_750);
+  assert.match(d.note, /budget-capped/);
+  assert.ok(!d.derivedFrom.some((x) => x.label === "cerebras"), "a capped provider does not appear in derivedFrom");
+});
+
+test("an empty or unknown set of statements derives the floor and says so honestly", () => {
+  const d = derivePaceFromProviders([], { floorMs: 15_000 });
+  assert.equal(d.paceMs, 15_000);
+  assert.match(d.note, /no provider stated a paceable ceiling/);
+  const unknown = derivePaceFromProviders([
+    { label: "mystery", classification: classifyRateLimit("429: slow down please") },
+  ], { floorMs: 15_000 });
+  assert.equal(unknown.paceMs, 15_000, "an unknown window contributes nothing");
+  assert.ok(!unknown.derivedFrom.some((x) => x.label === "mystery"));
 });

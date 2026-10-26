@@ -192,3 +192,88 @@ export function describeRateLimit(classification) {
   const pace = c.recommendedPaceMs == null ? "no pace can satisfy it" : `pace>=${c.recommendedPaceMs}ms`;
   return `window=${c.window} limit=${limitNote} ${pace}`;
 }
+
+/**
+ * Derive ONE global request pace from every usable provider's own statement of
+ * its ceiling.
+ *
+ * The request gate in judge-providers.mjs is GLOBAL: one interval for every
+ * provider, because the benchmark walks a chain and any provider can take the
+ * next call. So the pace that keeps the run inside EVERY ceiling is the
+ * SLOWEST of the per-provider paces — pacing for the average lets the
+ * fastest-tightening provider 429, and a 429 is scored as provider
+ * unreliability, which turns a pacing decision into a judge-quality verdict.
+ *
+ * Providers whose window is `unknown` contribute nothing (we cannot pace for
+ * a ceiling nobody stated, and the historical default pace still applies).
+ * Providers whose window is `day` contribute nothing and are reported as
+ * unpaceable: a daily cap is not a rate, and pretending a pace satisfies it
+ * would be a fabricated claim.
+ *
+ * @param {Array<{label: string, classification: ReturnType<typeof classifyRateLimit>}>} providers
+ * @param {object} [opts]
+ * @param {number} [opts.floorMs] a lower bound on the derived pace, so a
+ *   generous provider statement can never make the run FASTER than the
+ *   operator asked for. The explicit --pace-ms, when given, is that floor.
+ * @param {number} [opts.capMs] an upper bound on the derived pace: the
+ *   slowest pace the job's time budget can carry. A provider whose ceiling
+ *   implies a slower pace than the budget can carry is reported as
+ *   `capped`, because the alternative — pacing the whole run for it — gets
+ *   the job killed at its timeout and publishes NOTHING, not even the
+ *   providers that could have been measured.
+ * @returns {{
+ *   paceMs: number,
+ *   derivedFrom: Array<{label: string, window: string, paceMs: number|null, evidence: string|null}>,
+ *   unpaceable: Array<{label: string, evidence: string|null}>,
+ *   capped: Array<{label: string, neededMs: number}>,
+ *   note: string,
+ * }}
+ */
+export function derivePaceFromProviders(providers, opts = {}) {
+  const floorMs = Number.isFinite(opts.floorMs) && opts.floorMs > 0 ? Math.ceil(opts.floorMs) : 0;
+  const capMs = Number.isFinite(opts.capMs) && opts.capMs > 0 ? Math.ceil(opts.capMs) : 0;
+  const derivedFrom = [];
+  const unpaceable = [];
+  const capped = [];
+  let slowest = 0;
+
+  for (const { label, classification } of providers) {
+    const c = classification;
+    if (!c) continue;
+    if (c.window === "unknown") continue;
+    if (c.window === "day" || c.recommendedPaceMs == null || !c.pacingHelps) {
+      unpaceable.push({ label, evidence: c.evidence });
+      continue;
+    }
+    if (capMs > 0 && c.recommendedPaceMs > capMs) {
+      // The provider's own ceiling is tighter than the job budget can carry.
+      // Pacing for it would timeout the run and measure NOTHING; capping lets
+      // this provider 429 honestly (its reliability gate fails with the
+      // reason in the artifact) while every other provider is still measured.
+      capped.push({ label, neededMs: c.recommendedPaceMs });
+      continue;
+    }
+    derivedFrom.push({ label, window: c.window, paceMs: c.recommendedPaceMs, evidence: c.evidence });
+    if (c.recommendedPaceMs > slowest) slowest = c.recommendedPaceMs;
+  }
+
+  // The floor can only slow the run down, never speed it up: an operator's
+  // explicit --pace-ms is a statement about what THIS environment can bear.
+  const paceMs = Math.max(slowest, floorMs);
+  const from = derivedFrom.length
+    ? `derived from ${derivedFrom.map((d) => `${d.label}:${d.window}>=${d.paceMs}ms`).join(", ")}`
+    : "no provider stated a paceable ceiling";
+  const unpaceableNote = unpaceable.length
+    ? `; unpaceable (per-day or unstated ceilings, left to fail honestly): ${unpaceable.map((u) => u.label).join(", ")}`
+    : "";
+  const cappedNote = capped.length
+    ? `; budget-capped (ceiling needs more than the job can carry, will 429 honestly): ${capped.map((u) => `${u.label}>=${u.neededMs}ms`).join(", ")}`
+    : "";
+  return {
+    paceMs,
+    derivedFrom,
+    unpaceable,
+    capped,
+    note: `global request pace ${paceMs}ms ${from}${unpaceableNote}${cappedNote}`,
+  };
+}
