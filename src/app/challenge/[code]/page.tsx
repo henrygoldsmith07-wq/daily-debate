@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient, createServiceClient } from "@/lib/backend/server";
 import AppShell from "@/components/AppShell";
-import { describeChallengeState, isValidChallengeCode, opponentSideOf } from "@/lib/friendChallenge";
+import { describeChallengeState, effectiveInviteStatus, isValidChallengeCode, opponentSideOf } from "@/lib/friendChallenge";
 import AcceptChallengeButton from "@/components/AcceptChallengeButton";
 
 export const dynamic = "force-dynamic";
@@ -22,8 +22,7 @@ interface InviteRow {
 type ChallengeStatus = "open" | "accepted" | "expired" | "cancelled";
 
 function challengeStatusFor(invite: InviteRow): ChallengeStatus {
-  const expired = new Date(invite.expires_at).getTime() < Date.now();
-  return expired && invite.status === "open" ? "expired" : (invite.status as ChallengeStatus);
+  return effectiveInviteStatus(invite.status, invite.expires_at) as ChallengeStatus;
 }
 
 export default async function ChallengePage({ params }: { params: Promise<{ code: string }> }) {

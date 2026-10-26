@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { isValidChallengeCode, opponentSideOf } from "@/lib/friendChallenge";
+import { effectiveInviteStatus, isValidChallengeCode, opponentSideOf } from "@/lib/friendChallenge";
 import { PVP_ROUNDS } from "@/lib/types";
 import { recordProductEventForUser } from "@/lib/productEvents";
 
@@ -54,11 +54,10 @@ export async function GET(request: Request, { params }: RouteParams) {
     service.from("daily_topics").select("title").eq("id", invite.topic_id).maybeSingle(),
     service.from("profiles").select("username").eq("id", invite.challenger_id).maybeSingle(),
   ]);
-  const expired = new Date(invite.expires_at).getTime() < Date.now();
   return NextResponse.json({
     invite: {
       code: invite.code,
-      status: expired && invite.status === "open" ? "expired" : invite.status,
+      status: effectiveInviteStatus(invite.status, invite.expires_at),
       challengerSide: invite.challenger_side,
       opponentSide: opponentSideOf(invite.challenger_side),
       expiresAt: invite.expires_at,
