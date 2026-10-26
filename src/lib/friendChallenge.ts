@@ -42,6 +42,17 @@ export interface ChallengeTurnState {
 }
 
 /**
+ * Effective status of a stored invite. Only an "open" invite can lapse; an
+ * unparseable expiry is treated as expired (fail closed) because NaN compares
+ * false and would otherwise leave a broken invite open forever.
+ */
+export function effectiveInviteStatus(status: string, expiresAt: string, now: Date = new Date()): string {
+  if (status !== "open") return status;
+  const ms = Date.parse(expiresAt);
+  return !Number.isFinite(ms) || ms < now.getTime() ? "expired" : "open";
+}
+
+/**
  * Human turn-state for the invite page — honest about expiry.
  *
  * Expiry only applies to an invite that is still `open`, matching the database
@@ -59,7 +70,7 @@ export function describeChallengeState(
   challengerName: string,
   now: Date = new Date(),
 ): ChallengeTurnState {
-  const expired = status === "open" && new Date(expiresAt).getTime() < now.getTime();
+  const expired = status === "open" && effectiveInviteStatus(status, expiresAt, now) === "expired";
   if (status === "cancelled") {
     return { status: "cancelled", expiresAt, accepted: false, turnNote: "This challenge was cancelled." };
   }

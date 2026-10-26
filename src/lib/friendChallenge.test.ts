@@ -3,6 +3,7 @@ import {
   challengeExpiry,
   CHALLENGE_EXPIRY_DAYS,
   describeChallengeState,
+  effectiveInviteStatus,
   generateChallengeCode,
   isValidChallengeCode,
   opponentSideOf,
@@ -91,5 +92,18 @@ describe("challenge codes", () => {
   it("puts the expiry a fixed number of days out", () => {
     const expiry = challengeExpiry(NOW);
     expect(expiry.getTime() - NOW.getTime()).toBe(CHALLENGE_EXPIRY_DAYS * 86_400_000);
+  });
+});
+
+describe("effectiveInviteStatus", () => {
+  const now = new Date("2026-10-26T12:00:00Z");
+  it("lapses only open invites past expiry", () => {
+    expect(effectiveInviteStatus("open", "2026-10-26T11:59:00Z", now)).toBe("expired");
+    expect(effectiveInviteStatus("open", "2026-10-27T00:00:00Z", now)).toBe("open");
+    expect(effectiveInviteStatus("accepted", "2026-10-01T00:00:00Z", now)).toBe("accepted");
+    expect(effectiveInviteStatus("cancelled", "2026-10-01T00:00:00Z", now)).toBe("cancelled");
+  });
+  it("fails closed on an unparseable expiry", () => {
+    expect(effectiveInviteStatus("open", "garbage", now)).toBe("expired");
   });
 });
