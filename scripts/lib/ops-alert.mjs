@@ -38,6 +38,87 @@ export function latestFailedScheduledRun(runs) {
 }
 
 /**
+ * How long a pull request has been sitting with required checks missing.
+ *
+ * THE FAILURE THIS DETECTS has happened in this repository, twice, on
+ * 2026-10-24: GitHub's `pull_request` trigger stopped firing, so open PRs sat
+ * for hours with the required checks (`verify`, `e2e`, `topic-pipeline`)
+ * never STARTING. The merge button said "Required checks must pass" with
+ * nothing running and nothing pending, and no monitor existed for that state:
+ * the ops digest watched the topic SCHEDULER, schema drift, benchmark
+ * staleness and the second witness — every one of them silent about a
+ * blocked PR path, because every one of them measures runs that DID start.
+ *
+ * A PR that cannot merge is not a degradation; it is the product's ONLY
+ * deployment path (main is protected with no bypass actors). A silent CI
+ * trigger halts all shipping without a single red mark anywhere. This check
+ * makes that state visible as an alertable fact.
+ *
+ * Judgement rules, deliberately conservative:
+ *   - only OPEN pull requests count;
+ *   - a PR older than `staleHours` whose required checks are not all
+ *     "completed" counts (queued or in-progress runs do NOT — a slow CI
+ *     is not a silent CI; `completed` with a failure conclusion is normal
+ *     red CI, visible to everyone, and does not count);
+ *   - `null` means the source was unreadable, which the caller treats as an
+ *     alertable unknown — an unreadable source must not read as "all fine".
+ *
+ * @param {{ number: number, title: string, createdAt: string }[]} prs open PRs.
+ * @param {Record<number, string[]>} checksByPr head SHA (or any stable key) ->
+ *   the names of checks still not completed on that PR. An empty array means
+ *   every required check completed.
+ * @param {object} [opts]
+ * @param {number} [opts.staleHours] how old a PR must be before missing
+ *   checks are alertable (default 6 — a PR opened minutes ago legitimately
+ *   has no checks yet; one opened six hours ago with none is the silent
+ *   trigger).
+ * @param {string} [opts.nowIso] injectable clock for deterministic tests.
+ * @returns {{ blocked: Array<{ number: number, title: string, ageHours: number, missing: string[] }>, note: string } | null}
+ *   `null` is a MEASURED all-clear (nothing blocked) — NOT "unreadable". The
+ *   unreadable state is the CALLER's to signal (a null checksByPr entry per
+ *   PR, or a null wrapper), because only the caller knows which source
+ *   failed. Conflating the two produced a false "source unreadable" alert
+ *   on a healthy repository on 2026-10-26.
+ */
+export function assessPrChecks(prs, checksByPr, opts = {}) {
+  const staleHours = Number.isFinite(opts.staleHours) && opts.staleHours > 0 ? opts.staleHours : 6;
+  const now = Date.parse(opts.nowIso ?? new Date().toISOString());
+  if (!Array.isArray(prs)) return null;
+  const blocked = [];
+  for (const pr of prs) {
+    if (!pr || typeof pr !== "object") continue;
+    if (pr.state && pr.state !== "open") continue;
+    const created = Date.parse(pr.createdAt ?? pr.created_at ?? "");
+    if (!Number.isFinite(created)) continue;
+    const ageHours = (now - created) / 3_600_000;
+    if (ageHours < staleHours) continue;
+    const missing = (checksByPr ?? {})[pr.number] ?? null;
+    // null/undefined per-PR checks = unreadable source for THIS PR: alertable,
+    // never "fine". An empty array = every required check completed.
+    if (missing === null || missing === undefined) {
+      blocked.push({ number: pr.number, title: pr.title ?? `#${pr.number}`, ageHours: Math.round(ageHours), missing: ["(check runs unreadable)"] });
+      continue;
+    }
+    if (Array.isArray(missing) && missing.length) {
+      blocked.push({ number: pr.number, title: pr.title ?? `#${pr.number}`, ageHours: Math.round(ageHours), missing });
+    }
+  }
+  if (!blocked.length) return null;
+  return {
+    blocked,
+    note: `${blocked.length} open pull request${blocked.length === 1 ? " has" : "s have"} been waiting more than ${staleHours}h for required checks that never completed — if the list shows checks that never STARTED, GitHub's pull_request trigger may not be firing (reopen or re-push one PR to test, and check https://www.githubstatus.com)`,
+  };
+}
+
+/**
+ * `undefined` (not evaluated by the caller) is silent; `null` (the source
+ * was unreadable) is alertable — the same posture as every other section.
+ */
+function prChecksUnknown(prWatch) {
+  return prWatch === null;
+}
+
+/**
  * Whole days from `fromIso` to `toIso`, both truncated to UTC calendar dates
  * (positive = `toIso` is later). Used to measure how far the app witness's
  * newest telemetry target trails a GitHub run date — a pure, unit-tested
@@ -234,6 +315,12 @@ export function decideOpsNotification(input) {
  *   benchmark?: { at: string | null; stale: boolean; thresholdDays: number } | null,
  *   latestConfigCheck: { ok: boolean; reason: string | null } | null,
  *   failureStage: { stage: string; reason: string; suspect: boolean } | null,
+ *   // Open pull requests whose required checks never completed. `undefined`
+ *   // = not evaluated (silent); `null` = the source was unreadable (alertable
+ *   // unknown); `{blocked: []}` = MEASURED all-clear (silent); a non-empty
+ *   // blocked list = alertable. A blocked PR path is CRITICAL: main
+ *   // is protected with no bypass actors, so nothing can ship while it holds.
+ *   prChecks?: { blocked: Array<{ number: number; title: string; ageHours: number; missing: string[] }>; note: string } | null,
  *   nowIso: string,
  * }} input  null sections mean "source unavailable" — treated as alertable unknowns.
  * @returns {{ alert: boolean, severity: "critical" | "warning" | null, title: string, facts: string[], evidence: string } | null}
@@ -242,7 +329,6 @@ export function decideOpsAlert(input) {
   const facts = [];
   let severity = null;
   const now = input.nowIso;
-
   // --- scheduler run history (GitHub) ------------------------------------
   const runs = input.runs ?? [];
   const scheduled = runs
@@ -439,6 +525,29 @@ export function decideOpsAlert(input) {
     severity = "critical";
   }
 
+  // --- the PR CI path (the only path to production) -------------------------
+  // main is protected with no bypass actors, so a pull request whose required
+  // checks never complete is a HALT TO ALL SHIPPING, not a degradation — and
+  // a silent `pull_request` trigger (2026-10-24) produces exactly that with
+  // no red mark anywhere: the checks neither pass nor fail, they simply never
+  // start. `undefined` = not evaluated (silent, for callers that cannot see
+  // PRs); `null` = source unreadable = alertable unknown; `{blocked: []}` =
+  // a MEASURED all-clear, which must stay silent — the digest's own run on
+  // 2026-10-26 initially read a measured all-clear as an unreadable source
+  // and raised a false warning on a healthy repository.
+  const prWatch = input.prChecks;
+  if (prChecksUnknown(prWatch)) {
+    facts.push("pr path: could not assess open pull requests' required checks (source unreadable) — a silent pull_request trigger halts all merges with no red mark, so this is not a benign unknown");
+    if (severity === null) severity = "warning";
+  } else if (prWatch && prWatch.blocked.length > 0) {
+    for (const b of prWatch.blocked) {
+      facts.push(`pr path: #${b.number} ("${b.title}") is ${b.ageHours}h old and still waiting on ${b.missing.join(", ")}`);
+    }
+    facts.push(`pr path: ${prWatch.note}`);
+    // A blocked PR path outranks every other severity: nothing can ship.
+    severity = "critical";
+  }
+
   if (!facts.length) return null;
   // The evidence line must never claim a measurement that was not taken: a
   // null telemetry source says so plainly instead of printing "0 rows", which
@@ -447,10 +556,19 @@ export function decideOpsAlert(input) {
   const telemetryEvidence = input.telemetry == null
     ? "telemetry not read in this workflow (no store credential here)"
     : `${input.telemetry.length} telemetry row(s)`;
+  // The PR path is the only path to production (main is protected, no bypass
+  // actors), so a blocked PR path outranks the historical topic-pipeline
+  // framing: an operator triaging "Topic pipeline ops alert" would go to the
+  // wrong subsystem while all shipping is halted. An empty blocked list is a
+  // measured all-clear and the decision is null, so this branch only runs
+  // when blocked PRs exist.
+  const prBlocked = input.prChecks && input.prChecks.blocked.length > 0;
   return {
     alert: true,
     severity: severity ?? "warning",
-    title: `Topic pipeline ops alert (${severity ?? "warning"})`,
+    title: prBlocked
+      ? `Ops alert — pull requests blocked by missing required checks (${severity ?? "warning"})`
+      : `Topic pipeline ops alert (${severity ?? "warning"})`,
     facts,
     evidence: `assessed at ${now} over ${runs.length} workflow run(s) and ${telemetryEvidence}`,
   };
