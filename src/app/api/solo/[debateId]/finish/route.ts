@@ -21,7 +21,37 @@ import { isRepairKind, type RepairKind } from "@/lib/argumentRepair";
 import { REPAIR_KIND_LABELS } from "@/lib/repairResume";
 import { buildTrainingSummary } from "@/lib/trainingSummary";
 
-export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
+type RouteContext = { params: Promise<{ debateId: string }> };
+
+/**
+ * Any exception after the finalization claim is taken (a throwing context load,
+ * snapshot builder, or RPC) used to leave the claim held for the five-minute
+ * stale window, so the learner's immediate retry hit "already being finalized".
+ * Release our exact token and answer a retryable 500 instead.
+ */
+export async function POST(request: Request, context: RouteContext) {
+  const claim: { release: (() => Promise<void>) | null } = { release: null };
+  try {
+    return await finishSoloDebate(request, context, claim);
+  } catch (error) {
+    console.error("Unexpected failure while finishing debate:", error);
+    try {
+      await claim.release?.();
+    } catch (releaseError) {
+      console.error("Failed to release finalization claim after error:", releaseError);
+    }
+    return NextResponse.json(
+      { error: "Failed to finish debate. Your debate is still available to retry." },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+}
+
+async function finishSoloDebate(
+  request: Request,
+  { params }: RouteContext,
+  claim: { release: (() => Promise<void>) | null },
+) {
   const ipLimited = await checkRateLimit(request, { name: "solo-finish-ip", limit: 60, windowMs: 60_000, failClosed: true });
   if (ipLimited) return ipLimited;
 
@@ -138,6 +168,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
       p_token: finalizationToken,
     });
   }
+  claim.release = releaseFinalizationClaim;
 
   const { data: turns, error: turnsError } = await db
     .from("solo_debate_turns")
