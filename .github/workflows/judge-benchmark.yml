@@ -95,17 +95,25 @@ jobs:
         # answers 429 - and a 429 lands in the reliability denominator, so it
         # is scored as a JUDGE-QUALITY failure.
         #
-        # That is not hypothetical: the 2026-10-19 artifact recorded cerebras
-        # at reliability 0.219 with 150 rate-limits and zero judge-quality
-        # errors. The record said "free-tier availability", not judge quality.
-        # 15000ms is 240 requests/hour, which is 80% of the ~300/hour ceiling
-        # that BOTH paceable free tiers use (unorouter 5/minute = 300/hour,
-        # cerebras ~300/hour). A pace that exactly equals the ceiling has no
-        # headroom and fails at the window boundary, after the budget is spent.
+        # That is not hypothetical: the four weekly runs before 2026-10-21
+        # were all UNPACED, all failed on the provider-reliability gates, and
+        # the published artifact is still the 2026-10-19 one. #199 added a
+        # hardcoded 15000ms pace, but a hardcoded pace is correct for exactly
+        # one provider's ceiling: unorouter states "5 requests every 1 min"
+        # (12s floor, 15s with headroom). cerebras caps per HOUR (a 15s pace
+        # is 240/hour - inside it, but only by luck of the arithmetic) and
+        # openrouter caps per DAY, which no pace can satisfy.
         #
-        # openrouter's cap is per DAY, which no pace can satisfy; it is left
-        # to fail honestly rather than being pretended away.
-        run: node scripts/judge-benchmark.mjs --concurrency 3 --enforce --pace-ms 15000
+        # --auto-pace replaces the guess with a derivation: one probe call per
+        # distinct provider, read that provider's OWN statement of its ceiling
+        # (the 200's rate-limit headers, or the 429's own words, classified by
+        # classifyRateLimit), and pace the run at the SLOWEST per-provider
+        # recommendation - the request gate is global, so the tightest
+        # ceiling governs. The explicit 15000 stays as a FLOOR: the operator's
+        # statement about this environment can slow the run, never speed it
+        # up. Providers whose ceiling cannot be paced (per-DAY, or unstated)
+        # are reported as unpaceable and left to fail honestly.
+        run: node scripts/judge-benchmark.mjs --concurrency 3 --enforce --auto-pace --pace-ms 15000
       - name: Open a PR carrying the refreshed validation record
         id: openpr
         if: always()

@@ -7,6 +7,24 @@ a new full-pack run lands).
 
 > ## ⚠️ Validation status: no judge currently passes
 >
+> **Root cause since fixed (2026-10-24):** the four weekly benchmark runs
+> before 2026-10-21 (04/05/12/19) were all **unpaced**, and every one failed
+> on the provider-reliability gates for the same reason: the free tiers
+> answered a 429 storm, and a 429 is a transport failure that lands in the
+> reliability denominator — so the run measured the rate limiter, not the
+> judge. #199 added a hardcoded `--pace-ms 15000`, but a hardcoded pace is
+> correct for exactly one provider's ceiling, and the next scheduled run
+> (Monday 2026-10-26) is its first test. The workflow now uses
+> `--auto-pace`: one probe call per distinct provider, read that provider's
+> OWN statement of its ceiling (its 200's rate-limit headers or its 429's
+> own words, classified by `classifyRateLimit`), and pace the run at the
+> slowest per-provider recommendation — the request gate is global, so the
+> tightest ceiling governs. The pace is budget-capped at what the 350-minute
+> job can carry, and a provider whose ceiling is tighter than the budget
+> 429s honestly and is named in the artifact instead of silently timing the
+> run out. Until a paced run actually lands, the numbers below still
+> describe an unpaced artifact and must be read as transport measurements.
+>
 > As of the latest published benchmark run (2026-10-19,
 > `docs/latest-judge-benchmark.json`, rendered per surface on `/metrics`),
 > **no model clears the judge gates**:
