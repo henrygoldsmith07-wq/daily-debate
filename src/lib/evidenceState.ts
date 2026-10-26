@@ -41,7 +41,10 @@ export function wilsonInterval(
   total: number,
   z = 1.96,
 ): [number, number] {
-  if (total <= 0) return [0, 1];
+  if (!Number.isFinite(total) || total <= 0) return [0, 1];
+  // Corrupt counts (successes > total, negative, NaN) must never yield NaN bounds
+  // or a published rate above 100%; clamp into the valid binomial range.
+  successes = Number.isFinite(successes) ? Math.min(Math.max(successes, 0), total) : 0;
   const p = successes / total;
   const z2 = z * z;
   const denom = 1 + z2 / total;
@@ -76,6 +79,8 @@ export function gateBinomial(
   total: number,
   gate: { minReportable: number; minEarly: number },
 ): GatedMetric {
+  if (!Number.isFinite(total) || total < 0) total = 0;
+  successes = Number.isFinite(successes) ? Math.min(Math.max(successes, 0), total) : 0;
   const state = resolveEvidenceState(total, gate);
   const [lo, hi] = wilsonInterval(successes, total);
   const pctVal = total > 0 ? Math.round((successes / total) * 1000) / 10 : null;
