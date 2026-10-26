@@ -211,12 +211,21 @@ export async function startSoloDebate(params: {
     );
   }
 
+  // Best-effort and never throwing: it runs on failure paths, and a throw here
+  // would replace the intended retryable answer (502/503/409) with an unhandled
+  // 500. The claim is also time-limited (p_stale_after_seconds), so a failed
+  // release only delays a retry; it can never strand the start.
   async function releaseStartClaim() {
-    await db.rpc("release_solo_debate_start", {
-      p_user_id: userId,
-      p_topic_id: topicId,
-      p_token: startToken,
-    });
+    try {
+      const { error } = await db.rpc("release_solo_debate_start", {
+        p_user_id: userId,
+        p_topic_id: topicId,
+        p_token: startToken,
+      });
+      if (error) console.error("Failed to release solo debate start claim:", error);
+    } catch (releaseError) {
+      console.error("Failed to release solo debate start claim:", releaseError);
+    }
   }
 
   try {
