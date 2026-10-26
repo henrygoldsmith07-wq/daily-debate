@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { performanceScoreForTurns, pointsForTurn, levelForPoints, updateStreak } from "./gamification";
 
 describe("gamification", () => {
@@ -30,5 +30,27 @@ describe("performanceScoreForTurns", () => {
     expect(performanceScoreForTurns([])).toBe(0);
     expect(performanceScoreForTurns([50])).toBe(100);
     expect(performanceScoreForTurns([60])).toBe(100);
+  });
+});
+
+describe("updateStreak host-timezone independence", () => {
+  const original = process.env.TZ;
+  afterEach(() => {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  });
+
+  it.each(["America/Los_Angeles", "Pacific/Auckland", "UTC"])(
+    "continues a streak across a month and DST boundary in %s",
+    (tz) => {
+      process.env.TZ = tz;
+      expect(updateStreak("2026-11-01", "2026-10-31", 4, 4).current_streak).toBe(5);
+      expect(updateStreak("2026-03-29", "2026-03-28", 2, 2).current_streak).toBe(3);
+      expect(updateStreak("2026-10-26", "2026-10-24", 4, 9).current_streak).toBe(1);
+    },
+  );
+
+  it("restarts at 1 for an unparseable today instead of throwing", () => {
+    expect(updateStreak("not-a-date", "2026-10-25", 3, 3).current_streak).toBe(1);
   });
 });

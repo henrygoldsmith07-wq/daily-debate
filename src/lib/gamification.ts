@@ -36,11 +36,14 @@ export function updateStreak(
     return { current_streak: currentStreak, longest_streak: longestStreak, last_activity_date: today };
   }
 
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayIso = yesterday.toISOString().slice(0, 10);
+  // Pure UTC day arithmetic: setDate/getDate use the host timezone, which
+  // shifts "yesterday" by a day on any non-UTC host (DST edges included).
+  const todayMs = Date.parse(`${today}T00:00:00Z`);
+  const yesterdayIso = Number.isNaN(todayMs)
+    ? null
+    : new Date(todayMs - 86_400_000).toISOString().slice(0, 10);
 
-  const nextStreak = lastActivityDate === yesterdayIso ? currentStreak + 1 : 1;
+  const nextStreak = yesterdayIso !== null && lastActivityDate === yesterdayIso ? currentStreak + 1 : 1;
   return {
     current_streak: nextStreak,
     longest_streak: Math.max(longestStreak, nextStreak),
