@@ -153,16 +153,42 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     const { data: profile } = await service.from("profiles").select("timezone").eq("id", user.id).maybeSingle();
     const today = dateKeyInTimeZone(normalizeIanaTimeZone(profile?.timezone));
     const dimension = REPAIR_KIND_TO_DIMENSION[target.kind];
-    await service
+    // Never replace the learner's own drill attempt with a repair rewrite:
+    // they are different artifacts scored on different rubrics. A repair may
+    // only (re)write the attempt when the slot is empty or when the stored
+    // attempt is itself an earlier repair rewrite from this debate.
+    const { data: assignment } = await service
       .from("drill_assignments")
-      .update({
-        status: "attempted",
-        attempt_text: rewrite,
-        attempt_score: result.score,
-      })
+      .select("id, attempt_text")
       .eq("user_id", user.id)
       .eq("assigned_date", today)
-      .eq("dimension", dimension);
+      .eq("dimension", dimension)
+      .maybeSingle();
+    const existing = typeof assignment?.attempt_text === "string" ? assignment.attempt_text : "";
+    let ownedByRepair = !existing;
+    if (existing && existing !== rewrite) {
+      const { data: earlier } = await db
+        .from("repair_results")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("debate_id", debateId)
+        .eq("rewrite_text", existing)
+        .limit(1)
+        .maybeSingle();
+      ownedByRepair = !!earlier;
+    } else if (existing) {
+      ownedByRepair = true;
+    }
+    if (assignment && ownedByRepair) {
+      await service
+        .from("drill_assignments")
+        .update({
+          status: "attempted",
+          attempt_text: rewrite,
+          attempt_score: result.score,
+        })
+        .eq("id", assignment.id);
+    }
   } catch (error) {
     // Non-critical: the repair is already persisted.
     console.error("Failed to link repair to drill assignment:", error);
