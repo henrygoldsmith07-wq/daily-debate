@@ -252,7 +252,7 @@ export function DebateLivePanel({
 
       {finishing && preview?.weakness && (
         <section className="card p-4 text-sm" role="status" data-testid="finish-preview">
-          <p className="text-xs text-ink3">Preview while your full result finishes</p>
+          <p className="text-xs text-ink3">Preview while your full result finishes (unvalidated label, may be refined)</p>
           <p className="mt-1 font-medium">{preview.weakness.headline}</p>
           <p className="mt-1 text-ink3">{preview.weakness.whyItMatters}</p>
           {preview.weakness.repairLabel && <p className="mt-1 text-ink3">Repair to practise next: {preview.weakness.repairLabel}</p>}
