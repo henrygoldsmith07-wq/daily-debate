@@ -7,8 +7,10 @@ import { isKnownSource } from "@/lib/citationVerifier";
 import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import { formatEstimateLabel, formatLabelFor, SPRINT_ESTIMATE_MINUTES, SPRINT_ROUNDS, type DebateFormat } from "@/lib/sprint";
 import { OPPONENT_DIFFICULTY_LIST, OPPONENT_PERSONA_LIST, type OpponentDifficulty, type OpponentPersonaId } from "@/lib/opponentPersona";
-import type { DailyTopic, DebateSide } from "@/lib/types";
+import type { DailyTopic } from "@/lib/types";
 import { NEUTRAL_GOAL_LINE } from "@/lib/retestDisclosure";
+import { dailyAccentStyle } from "@/lib/dailyAccent";
+import SidePicker, { type SideChoice } from "./SidePicker";
 import { challengePreviewHeadline, type ChallengePreview } from "@/lib/challengeMe";
 import {
   GUEST_FOCUS_LABEL,
@@ -37,7 +39,6 @@ export interface EvidenceCardView {
   checks?: EvidenceChecksView;
 }
 
-type SideChoice = DebateSide | "challenge";
 
 /** Legacy rows may hold `{}` in the jsonb sources column — normalise to an array. */
 function safeSources(topic: DailyTopic): DailyTopic["sources"] {
@@ -122,14 +123,8 @@ export default function TopicCard({
     }
   }
 
-  const sideMeta: Record<SideChoice, { label: string; sub: string }> = {
-    for: { label: "For", sub: "Make the case" },
-    against: { label: "Against", sub: "Push back" },
-    challenge: { label: "Challenge me", sub: "Pick for me" },
-  };
-
   return (
-    <section className="home-motion-card surface-card" aria-labelledby="today-motion">
+    <section className="home-motion-card has-daily-accent surface-card" style={dailyAccentStyle(topic.topic_date)} aria-labelledby="today-motion">
       <div className="home-motion-heading">
         <div>
           <p className="home-motion-kicker">Today&apos;s motion</p>
@@ -206,20 +201,7 @@ export default function TopicCard({
         ) : (
           <div className="home-start-block">
             <div className="home-side-label">Your side</div>
-            <div className="home-side-picker" role="group" aria-label="Choose side">
-              {(["challenge", "for", "against"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setSide(option)}
-                  aria-pressed={side === option}
-                  className={`home-side-option ${side === option ? "selected" : ""}`}
-                >
-                  <span className="home-side-option-label">{sideMeta[option].label}</span>
-                  <span>{sideMeta[option].sub}</span>
-                </button>
-              ))}
-            </div>
+            <SidePicker side={side} onChange={setSide} ariaLabel="Choose side" />
             {side === "challenge" ? (
               challengePreview ? (
                 <p

@@ -3,8 +3,13 @@
 import { guestChallengeSide } from "@/lib/guestSide";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import PageHeader from "./PageHeader";
+import SidePicker, { type SideChoice } from "./SidePicker";
+import WeekStreak from "./WeekStreak";
+import ShareResultButton from "./ShareResultButton";
+import { dailyAccentStyle } from "@/lib/dailyAccent";
+import { addGuestPracticeDay, GUEST_PRACTICE_DAYS_KEY, parseGuestPracticeDays, weekDays } from "@/lib/weekStreak";
 import {
   assessGuestPractice,
   assessGuestRepair,
@@ -83,8 +88,24 @@ function Brand() {
   );
 }
 
-function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "for" | "against") => void }) {
-  const [side, setSide] = useState<"for" | "against" | "challenge">("challenge");
+// The guest's practised days, read from localStorage without a hydration
+// mismatch: the server (and the first client paint) see an empty week.
+function subscribeToStorage(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+function readGuestDays(): string | null {
+  try {
+    return window.localStorage.getItem(GUEST_PRACTICE_DAYS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function GuestHome({ motion, today, onStart }: { motion: GuestMotion; today: string; onStart: (side: "for" | "against") => void }) {
+  const [side, setSide] = useState<SideChoice>("challenge");
+  const rawDays = useSyncExternalStore(subscribeToStorage, readGuestDays, () => null);
+  const week = weekDays(today, parseGuestPracticeDays(rawDays));
 
   const resolveSide = (): "for" | "against" => (side === "challenge" ? guestChallengeSide() : side);
 
@@ -106,7 +127,9 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
             actions={<span className="pill">Guest mode</span>}
           />
 
-          <section className="home-motion-card surface-card" aria-labelledby="guest-motion">
+          <WeekStreak days={week} note="kept on this device" />
+
+          <section className="home-motion-card has-daily-accent surface-card" style={dailyAccentStyle(today)} aria-labelledby="guest-motion">
             <div className="home-motion-heading">
               <div>
                 <p className="home-motion-kicker">Today&apos;s motion</p>
@@ -132,22 +155,7 @@ function GuestHome({ motion, onStart }: { motion: GuestMotion; onStart: (side: "
 
               <div className="home-start-block">
                 <div className="home-side-label">Your side</div>
-                <div className="home-side-picker" role="group" aria-label="Choose a side">
-                  {(["challenge", "for", "against"] as const).map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => setSide(option)}
-                      aria-pressed={side === option}
-                      className={`home-side-option ${side === option ? "selected" : ""}`}
-                    >
-                      <span className="home-side-option-label">
-                        {option === "for" ? "For" : option === "against" ? "Against" : "Challenge me"}
-                      </span>
-                      <span>{option === "for" ? "Make the case" : option === "against" ? "Push back" : "Pick for me"}</span>
-                    </button>
-                  ))}
-                </div>
+                <SidePicker side={side} onChange={setSide} ariaLabel="Choose a side" />
                 {side === "challenge" ? (
                   <p className="home-start-note" data-testid="guest-challenge-side">
                     Today&apos;s pick for you: <strong>{guestChallengeSide() === "for" ? "For" : "Against"}</strong>.
@@ -472,6 +480,10 @@ function GuestResult({
     ["Impact compared", assessment.counts.impact],
     ["Named evidence", assessment.counts.evidence],
   ] as const;
+  // The headline counts kinds of move that showed up at least once — the same
+  // observations listed below, summed, never a score or a rating.
+  const movesFound = observations.filter(([, count]) => count > 0).length;
+  const shareText = `I argued "${motion.motion}" on Daily Debate: ${movesFound} of ${observations.length} debate moves showed up in my writing. Your turn.`;
 
   return (
     <div className="app-shell app-shell-guest">
@@ -489,6 +501,23 @@ function GuestResult({
             description="One thing you did well, one thing to fix, then a quick rewrite to fix it."
             actions={<span className="pill">Guest preview</span>}
           />
+
+          <section className="surface-card result-headline p-5 sm:p-6" aria-labelledby="guest-headline" data-testid="guest-headline">
+            <p id="guest-headline" className="result-headline-number">
+              {movesFound}<span>/{observations.length}</span>
+            </p>
+            <p className="result-headline-caption">debate moves showed up in your writing</p>
+            <ul className="result-headline-moves" aria-label="Moves observed">
+              {observations.map(([label, count]) => (
+                <li key={label} className={`result-headline-move${count > 0 ? " is-found" : ""}`}>
+                  {count > 0 ? "✓ " : ""}{label}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-3">
+              <ShareResultButton title="Daily Debate" text={shareText} />
+            </div>
+          </section>
 
           <section className="surface-card p-5 sm:p-6" data-testid="guest-result">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink3">Observed in your writing</p>
@@ -921,6 +950,15 @@ export default function GuestArena({
     }
   }
 
+  /** A finished set of rounds marks today on the week row. Best effort, device-local. */
+  function recordPracticeDay() {
+    try {
+      window.localStorage.setItem(GUEST_PRACTICE_DAYS_KEY, addGuestPracticeDay(window.localStorage.getItem(GUEST_PRACTICE_DAYS_KEY), today));
+    } catch {
+      // Storage unavailable — the week row simply stays empty.
+    }
+  }
+
   function restart() {
     try {
       window.sessionStorage.removeItem(GUEST_ARENA_STORAGE_KEY);
@@ -953,7 +991,10 @@ export default function GuestArena({
         rounds={motion.rounds}
         initialRound={Math.min(responses.length, motion.rounds.length - 1)}
         onRoundSubmit={recordResponses}
-        onFinish={() => setStage("result")}
+        onFinish={() => {
+          recordPracticeDay();
+          setStage("result");
+        }}
       />
     );
   }
@@ -1006,6 +1047,7 @@ export default function GuestArena({
   return (
     <GuestHome
       motion={motion}
+      today={today}
       onStart={(nextSide) => {
         setSide(nextSide);
         setResponses([]);
