@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SPRINT_ESTIMATE_MINUTES } from "@/lib/sprint";
 import "./globals.css";
+import "./today.css";
 import { THEME_BOOTSTRAP } from "@/lib/themeBootstrap";
 
 const geistSans = Geist({

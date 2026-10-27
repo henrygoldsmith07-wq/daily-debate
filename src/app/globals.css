@@ -47,7 +47,8 @@
    the global :focus-visible outline in le-studio.css covers keyboard users. */
 @media (pointer: coarse) {
   .btn,
-  .home-side-option,
+  .side-split-half,
+  .side-split-challenge,
   .app-sheet-link,
   .home-motion-details-summary {
     min-height: 44px;
@@ -345,29 +346,6 @@
 .home-format-option { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0.1rem; min-height: 3.25rem; padding: 0.55rem 0.75rem; text-align: left; }
 .home-format-name { font-size: 0.875rem; font-weight: 600; color: var(--ink); letter-spacing: 0; }
 .home-format-meta { font-size: 0.75rem; font-weight: 500; color: var(--ink-3); letter-spacing: 0; font-variant-numeric: tabular-nums; }
-.home-side-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.55rem; }
-.home-side-option {
-  display: flex;
-  min-height: 58px;
-  align-items: flex-start;
-  justify-content: center;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--ink-3);
-  cursor: pointer;
-  font-size: 0.72rem;
-  text-align: left;
-  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
-}
-.home-side-option:hover { border-color: var(--ink-3); }
-.home-side-option:active { transform: scale(0.99); }
-.home-side-option.selected { border-color: var(--speak); background: var(--speak-soft); color: var(--ink-2); }
-.home-side-option-label { color: var(--ink); font-size: 0.84rem; font-weight: 700; }
-.home-side-option.selected .home-side-option-label { color: var(--speak); }
 .home-start-button { width: 100%; min-height: 44px; font-size: 0.87rem; }
 .home-start-note { margin: 0; color: var(--ink-3); font-size: 0.68rem; line-height: 1.45; }
 .home-motion-foot {
