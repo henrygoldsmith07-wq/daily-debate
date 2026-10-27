@@ -8,7 +8,7 @@ import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
 import type { PvpMatch, PvpTurn, PvpVerdict } from "@/lib/types";
 import ClaimsPanel from "./ClaimsPanel";
 import PublishToggle from "./PublishToggle";
-import { TURN_ABANDON_MINUTES } from "@/lib/types";
+import { PVP_TURN_WARNING_SECONDS, formatClock, turnExpired, turnMsLeft } from "@/lib/pvpTurnClock";
 import { allowsCompetitiveClaims, type SurfaceValidation } from "@/lib/judgeValidation";
 
 export default function PvpRoom({
@@ -48,27 +48,28 @@ export default function PvpRoom({
     }
   }, [turns.length, sending]);
 
-  // Re-evaluate forfeit eligibility periodically while waiting on opponent.
-  const waitingOnOpponent = match.status === "active" && match.current_turn_player !== currentUserId;
+  // The turn clock ticks for both players while the match is live: the same
+  // server stamp (turn_started_at) drives both rooms and the server's checks.
+  const matchActive = match.status === "active";
   useEffect(() => {
-    if (!waitingOnOpponent) return;
+    if (!matchActive) return;
     // Async so the lint no-sync-setState-in-effect rule stays satisfied.
     const tick = () => setNowTs(Date.now());
     const initial = setTimeout(tick, 0);
-    const timer = setInterval(tick, 30_000);
+    const timer = setInterval(tick, 1_000);
     return () => {
       clearTimeout(initial);
       clearInterval(timer);
     };
-  }, [waitingOnOpponent]);
+  }, [matchActive]);
 
-  const turnElapsedMin =
-    match.turn_started_at && nowTs ? (nowTs - new Date(match.turn_started_at).getTime()) / 60_000 : 0;
+  const msLeft = nowTs === null ? null : turnMsLeft(match.turn_started_at, nowTs);
+  const clockExpired = nowTs !== null && turnExpired(match.turn_started_at, nowTs);
   const canClaimForfeit =
     match.status === "active" &&
     match.current_turn_player !== null &&
     match.current_turn_player !== currentUserId &&
-    turnElapsedMin > TURN_ABANDON_MINUTES;
+    clockExpired;
 
   async function claimForfeit() {
     setSending(true);
@@ -178,8 +179,17 @@ export default function PvpRoom({
               myTurn ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "bg-surface-2 text-ink3"
             }`}
             role="status"
+            data-testid="turn-clock"
           >
             {myTurn ? "Your turn" : "Opponent's turn"}
+            {msLeft !== null && (
+              <span
+                className={`ml-2 tabular ${msLeft <= PVP_TURN_WARNING_SECONDS * 1000 ? "font-semibold text-[var(--bad)]" : ""}`}
+                aria-label={`${formatClock(msLeft)} left on the turn clock`}
+              >
+                {formatClock(msLeft)}
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -238,15 +248,17 @@ export default function PvpRoom({
 
       {match.status === "active" ? (
         myTurn ? (
-          <MessageComposer onSubmit={submitTurn} disabled={sending} />
+          msLeft === 0 && clockExpired ? (
+            <p className="text-center text-sm text-[var(--bad)]" role="status">
+              Your turn clock ran out. Your opponent can now claim the match.
+            </p>
+          ) : (
+            <MessageComposer onSubmit={submitTurn} disabled={sending} />
+          )
         ) : (
           <div className="flex flex-col items-center gap-2">
             <p className="text-center text-sm text-ink3">Waiting for your opponent…</p>
-            {match.turn_started_at && nowTs && !canClaimForfeit && (
-              <p className="text-center text-xs text-ink3">
-                Forfeit claimable in ~{Math.max(1, Math.ceil(TURN_ABANDON_MINUTES - turnElapsedMin))} min
-              </p>
-            )}
+
             {canClaimForfeit && (
               <button
                 type="button"
@@ -254,7 +266,7 @@ export default function PvpRoom({
                 disabled={sending}
                 className="btn btn-ghost px-4 py-1.5 text-xs text-[var(--bad)] disabled:opacity-40"
               >
-                Opponent timed out — claim win by forfeit
+                Their turn clock ran out — claim the match
               </button>
             )}
           </div>

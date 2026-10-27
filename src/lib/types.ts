@@ -354,6 +354,3 @@ export const MIN_ROUNDS = 5;
 // `pvp_matches.round_limit` column — PVP_ROUNDS must match its default (5).
 export const MAX_ROUNDS = 12;
 export const PVP_ROUNDS = 5;
-// A PvP turn older than this can be claimed as a forfeit by the waiting
-// opponent, and new submissions past it are rejected as late.
-export const TURN_ABANDON_MINUTES = 30;
