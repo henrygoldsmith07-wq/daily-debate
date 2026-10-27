@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { startRetestRequest } from "@/lib/startRetestRequest";
 
 /**
  * One-tap start of today's sprint from the "repair is waiting to be tested"
@@ -17,31 +18,15 @@ export default function RetestStartButton({ topicId, label }: { topicId: string;
   const [error, setError] = useState<string | null>(null);
 
   async function start() {
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setError("You appear to be offline — reconnect and try again.");
-      return;
-    }
     setStarting(true);
     setError(null);
-    try {
-      const res = await fetch("/api/solo/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicId, side: "challenge", format: "sprint" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to start debate.");
-      router.push(`/debate/${data.debate.id}`);
-    } catch (err) {
-      setError(
-        err instanceof TypeError
-          ? "Network error — check your connection and try again."
-          : err instanceof Error
-            ? err.message
-            : "Failed to start debate.",
-      );
-      setStarting(false);
+    const r = await startRetestRequest(topicId);
+    if (r.ok) {
+      router.push(`/debate/${r.debateId}`);
+      return;
     }
+    setError(r.error);
+    setStarting(false);
   }
 
   return (
