@@ -1,0 +1,209 @@
+/* Today screen: the split side picker, the daily accent, the week row, the
+   skill radar and the headline result. Kept out of globals.css so the Today
+   pieces can be read (and removed) as one unit. Colours come from the theme
+   tokens; the daily accent (--motion-accent, src/lib/dailyAccent.ts) is
+   decoration only and never colours text a reader must read. */
+
+/* --- daily accent ----------------------------------------------------------- */
+.home-motion-card.has-daily-accent {
+  border-top: 3px solid var(--motion-accent);
+}
+.home-motion-card.has-daily-accent .home-motion-kicker::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.45rem;
+  border-radius: 999px;
+  background: var(--motion-accent);
+  vertical-align: 0.05em;
+}
+
+/* --- split side picker ------------------------------------------------------ */
+.side-split { display: flex; flex-direction: column; gap: 0.55rem; }
+.side-split-halves {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.55rem;
+}
+.side-split-half,
+.side-split-challenge {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-3);
+  cursor: pointer;
+  font-size: 0.72rem;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.side-split-half { min-height: 86px; justify-content: flex-end; padding: 0.9rem 1rem; }
+.side-split-for { align-items: flex-start; text-align: left; }
+.side-split-against { align-items: flex-end; text-align: right; }
+.side-split-half:hover,
+.side-split-challenge:hover { border-color: var(--ink-3); }
+.side-split-half:active,
+.side-split-challenge:active { transform: scale(0.99); }
+.side-split-half[aria-pressed="true"],
+.side-split-challenge[aria-pressed="true"] {
+  border-color: var(--speak);
+  background: var(--speak-soft);
+  color: var(--ink-2);
+}
+.side-split-label { color: var(--ink); font-size: 1.05rem; font-weight: 750; letter-spacing: -0.01em; }
+.side-split-half[aria-pressed="true"] .side-split-label,
+.side-split-challenge[aria-pressed="true"] .side-split-label { color: var(--speak); }
+.side-split-sub { font-size: 0.72rem; }
+.side-split-vs {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+/* The bar leans towards the learner's own pick; centred for Challenge me. */
+.side-split-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.side-split-knob {
+  position: absolute;
+  top: 0;
+  left: 25%;
+  width: 50%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--speak);
+  opacity: 0.35;
+  transition: left 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease;
+}
+.side-split[data-side="for"] .side-split-knob { left: 0; opacity: 1; }
+.side-split[data-side="against"] .side-split-knob { left: 50%; opacity: 1; }
+.side-split-challenge {
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0.55rem 0.8rem;
+}
+.side-split-challenge .side-split-label { font-size: 0.84rem; }
+@media (prefers-reduced-motion: reduce) {
+  .side-split-knob,
+  .side-split-half,
+  .side-split-challenge { transition: none; }
+}
+
+/* --- week row ----------------------------------------------------------------- */
+.week-streak {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.week-streak-days { display: flex; gap: 0.55rem; margin: 0; padding: 0; list-style: none; }
+.week-streak-day { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
+.week-streak-dot {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+}
+.week-streak-day.is-practised .week-streak-dot { border-color: var(--speak); background: var(--speak); }
+.week-streak-day.is-today .week-streak-dot { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink-3); }
+.week-streak-day.is-future { opacity: 0.45; }
+.week-streak-label { color: var(--ink-3); font-size: 0.6rem; font-weight: 700; }
+.week-streak-day.is-today .week-streak-label { color: var(--ink); }
+.week-streak-note { margin: 0; color: var(--ink-3); font-size: 0.72rem; }
+.week-streak-note strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* --- skill radar --------------------------------------------------------------- */
+.skill-radar { margin: 0 auto 0.75rem; max-width: 340px; }
+.skill-radar svg { display: block; width: 100%; height: auto; overflow: visible; }
+.skill-radar-ring { fill: none; stroke: var(--line); stroke-width: 1; }
+.skill-radar-spoke { stroke: var(--line); stroke-width: 1; }
+.skill-radar-shape {
+  fill: color-mix(in srgb, var(--speak) 22%, transparent);
+  stroke: var(--speak);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.skill-radar-shape.is-early { stroke-dasharray: 5 4; fill: color-mix(in srgb, var(--speak) 10%, transparent); }
+.skill-radar-dot { fill: var(--speak); }
+.skill-radar-dot.is-low { fill: var(--review); }
+.skill-radar-dot.is-empty { fill: var(--surface); stroke: var(--ink-3); stroke-width: 1.2; }
+.skill-radar-label { fill: var(--ink-3); font-size: 9.5px; font-weight: 600; }
+
+/* --- headline result ----------------------------------------------------------- */
+.result-headline { display: flex; flex-direction: column; gap: 0.35rem; }
+.result-headline-number {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(3.2rem, 14vw, 4.75rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  font-variant-numeric: tabular-nums;
+}
+.result-headline-number span { color: var(--ink-3); font-size: 0.45em; font-weight: 700; letter-spacing: 0; }
+.result-headline-caption { margin: 0; color: var(--ink-2); font-size: 0.95rem; font-weight: 600; }
+.result-headline-moves { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.4rem 0 0; padding: 0; list-style: none; }
+.result-headline-move {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-3);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.result-headline-move.is-found { border-color: color-mix(in srgb, var(--success) 40%, var(--line)); background: var(--success-soft); color: var(--success); }
+
+/* --- positions (stated before any debate) ------------------------------------- */
+.position-pills { display: flex; flex-direction: column; gap: 0.55rem; width: 100%; text-align: left; }
+.position-pills-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.position-pills-label { color: var(--ink); font-size: 0.86rem; font-weight: 700; }
+.position-pills.is-compact .position-pills-label { color: var(--ink-2); font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.position-pills-choices { display: flex; gap: 0.4rem; }
+.position-pill {
+  min-height: 36px;
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 650;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.position-pill:hover:not(:disabled) { border-color: var(--ink-3); }
+.position-pill:disabled { cursor: progress; opacity: 0.7; }
+.position-pill[aria-pressed="true"] { border-color: var(--speak); background: var(--speak); color: var(--on-speak, #fff); }
+@media (pointer: coarse) { .position-pill { min-height: 44px; } }
+.position-tally { display: flex; flex-direction: column; gap: 0.3rem; }
+.position-tally-bar { height: 6px; overflow: hidden; border-radius: 999px; background: var(--surface-2); }
+.position-tally-for { display: block; height: 100%; background: var(--speak); }
+.position-tally-note { display: flex; justify-content: space-between; gap: 0.5rem; margin: 0; color: var(--ink-3); font-size: 0.7rem; font-variant-numeric: tabular-nums; }

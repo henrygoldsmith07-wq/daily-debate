@@ -37,6 +37,7 @@ export class BackendClient {
       | "claim_pvp_opponent_and_create_match"
       | "enqueue_pvp_if_unmatched"
       | "join_pvp_queue_and_match"
+      | "join_pvp_queue_by_position"
       | "create_friend_challenge"
       | "create_friend_challenge_v2"
       | "accept_friend_challenge"
@@ -221,6 +222,13 @@ export class BackendClient {
         const rows = await queryRows<Record<string, unknown>>(
           "SELECT * FROM claim_pvp_opponent_and_create_match($1, $2, $3)",
           [args.p_joiner, args.p_topic_id, args.p_round_limit],
+        );
+        return { data: rows, error: null };
+      }
+      if (name === "join_pvp_queue_by_position") {
+        const rows = await queryRows<Record<string, unknown>>(
+          "SELECT * FROM join_pvp_queue_by_position($1, $2, $3, $4)",
+          [args.p_joiner, args.p_topic_id, args.p_side, args.p_round_limit],
         );
         return { data: rows, error: null };
       }

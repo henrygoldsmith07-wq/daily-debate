@@ -72,14 +72,18 @@ test.describe("two-browser pvp full-flow", () => {
     // ── Both navigate to PvP lobby ──
     await playerA.goto("/pvp");
     await playerB.goto("/pvp");
-    await expect(playerA.getByText(/Player vs Player|Find an opponent/i).first()).toBeVisible({ timeout: 15_000 });
+    await expect(playerA.getByText(/Player vs Player|Where do you stand/i).first()).toBeVisible({ timeout: 15_000 });
+
+    // ── Opposite positions first: the queue never pairs two people who agree ──
+    await playerA.getByRole("button", { name: /^agree$/i }).click();
+    await playerB.getByRole("button", { name: /^disagree$/i }).click();
 
     // ── Player A joins queue first ──
-    await playerA.getByRole("button", { name: /find an opponent/i }).click();
-    await expect(playerA.getByText(/Looking for an opponent/i).first()).toBeVisible({ timeout: 10_000 });
+    await playerA.getByRole("button", { name: /find someone who disagrees/i }).click();
+    await expect(playerA.getByText(/Looking for someone who disagrees/i).first()).toBeVisible({ timeout: 10_000 });
 
     // ── Player B joins queue — should trigger match ──
-    await playerB.getByRole("button", { name: /find an opponent/i }).click();
+    await playerB.getByRole("button", { name: /find someone who disagrees/i }).click();
 
     // ── Wait for both to land in the same match room ──
     let matchId: string | null = null;

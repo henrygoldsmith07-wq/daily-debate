@@ -59,6 +59,9 @@ test.describe("guest practice honesty", () => {
     await expect(page.getByTestId("guest-result")).toBeVisible();
     await expect(page.getByText("Practice score")).toHaveCount(0);
     await expect(page.getByText(/\/ 100/)).toHaveCount(0);
+    // The headline counts kinds of move observed, out of the five listed below it.
+    await expect(page.getByTestId("guest-headline")).toContainText(/[0-5]\/5/);
+    await expect(page.getByRole("button", { name: /share result/i })).toBeVisible();
     await expect(page.getByTestId("guest-main-weakness")).toContainText("Evidence");
 
     const repair = page.getByLabel("Your improved version");
@@ -94,6 +97,8 @@ test.describe("guest practice honesty", () => {
     await expect(page.getByTestId("guest-done")).toBeVisible();
     await page.getByRole("button", { name: /practice again/i }).click();
     await expect(page.locator("#guest-motion")).toBeVisible();
+    // Finishing the rounds marked today on the week row, on this device only.
+    await expect(page.getByTestId("week-streak")).toContainText("1 of 7 days this week");
 
     // Mid-debate reload resumes at the next unanswered round, keeping history.
     await page.getByRole("button", { name: /start a free practice/i }).click();

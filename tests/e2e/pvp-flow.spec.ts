@@ -74,12 +74,16 @@ test.describe("pvp + history surfaces", () => {
     // Player A joins the queue, then player B matches against them.
     // DISTINCT seeded users: the one-active-match invariant (migration 003)
     // correctly prevents a user from matching themselves.
+    // Positions first (migration 041): the queue only pairs a For with an
+    // Against, so A agrees and B disagrees before either queues.
     await signIn(a, "a");
     await a.goto("/pvp");
-    await a.getByRole("button", { name: /find an opponent/i }).click();
+    await a.getByRole("button", { name: /^agree$/i }).click();
+    await a.getByRole("button", { name: /find someone who disagrees/i }).click();
     await signIn(b, "b");
     await b.goto("/pvp");
-    await b.getByRole("button", { name: /find an opponent/i }).click();
+    await b.getByRole("button", { name: /^disagree$/i }).click();
+    await b.getByRole("button", { name: /find someone who disagrees/i }).click();
 
     // Both should land in the same match room.
     await Promise.all([
