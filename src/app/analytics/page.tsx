@@ -322,6 +322,29 @@ export default async function AnalyticsPage() {
                 </li>
               ))}
             </ul>
+            {aiOps && (
+              <div className="mt-3 border-t border-[var(--rule)] pt-3 text-xs" data-testid="stream-latency">
+                <p className="font-medium">Streamed opponent replies (server-side, from Send reaching the server)</p>
+                <p className="mt-1 text-ink2">
+                  First reply text:{" "}
+                  {aiOps.streaming.firstToken.p50Ms !== null
+                    ? `p50 ${aiOps.streaming.firstToken.p50Ms}ms · p95 ${aiOps.streaming.firstToken.p95Ms}ms (${aiOps.streaming.firstToken.samples} turns)`
+                    : aiOps.streaming.firstToken.note}
+                </p>
+                <p className="text-ink2">
+                  Full reply saved:{" "}
+                  {aiOps.streaming.total.p50Ms !== null
+                    ? `p50 ${aiOps.streaming.total.p50Ms}ms · p95 ${aiOps.streaming.total.p95Ms}ms (${aiOps.streaming.total.samples} turns)`
+                    : aiOps.streaming.total.note}
+                  {aiOps.streaming.failed > 0 &&
+                    ` · ${aiOps.streaming.failed} streamed turn${aiOps.streaming.failed === 1 ? "" : "s"} ended in a saved-response retry`}
+                </p>
+                <p className="text-ink3">
+                  Excludes network time to the browser and turns that fell back to the non-streaming path. Not a
+                  measure of learning or engagement.
+                </p>
+              </div>
+            )}
           </section>
         );
       })()}

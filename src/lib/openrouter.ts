@@ -19,12 +19,14 @@
 import providerConfig from "../../config/ai-providers.json";
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
-import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
+import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, streamMockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
 import { isValidDebateTurn, isValidGeneratedTopic, isValidJudgeExtraction, isValidOpening, isValidSummary } from "./aiSchema";
 import { ensureSpendWithinCap, reserveSpendCall, SPEND_RESERVATION_FALLBACK_USD } from "./spendCap";
 import type { ArgumentRoute } from "./argumentTaxonomy";
 import { renderUntrusted, renderUntrustedTranscript, UNTRUSTED_INSTRUCTION } from "./untrustedContent";
+import { readSseStream } from "./sse";
+import { createJsonFieldStream } from "./jsonFieldStream";
 
 /**
  * Interchangeable OpenAI-style transports, all on FREE tiers. Every call walks
@@ -301,7 +303,12 @@ interface Compat {
  * token budget available for the answer. Endpoints that reject the reasoning
  * fields or json_object mode with a 400 are retried without them.
  */
-async function post(step: ChainStep, { instruction, schema, maxTokens }: ResolvedChatOptions, compat: Compat): Promise<Response> {
+async function post(
+  step: ChainStep,
+  { instruction, schema, maxTokens }: ResolvedChatOptions,
+  compat: Compat,
+  stream?: { signal?: AbortSignal },
+): Promise<Response> {
   const { provider, key, model: m } = step;
   const payload: Record<string, unknown> = {
     model: m,
@@ -317,6 +324,7 @@ async function post(step: ChainStep, { instruction, schema, maxTokens }: Resolve
     max_tokens: maxTokens,
   };
   if (compat.jsonMode) payload.response_format = { type: "json_object" };
+  if (stream) payload.stream = true;
   if (compat.reasoning) {
     if (provider.reasoningToggle) payload.reasoning = { enabled: false };
     Object.assign(payload, provider.extraBody);
@@ -336,6 +344,7 @@ async function post(step: ChainStep, { instruction, schema, maxTokens }: Resolve
         : {}),
     },
     body: JSON.stringify(payload),
+    ...(stream?.signal ? { signal: stream.signal } : {}),
   });
 }
 
@@ -521,6 +530,289 @@ async function chatJson<T>(options: ChatOptions): Promise<T> {
   return (await chatJsonServed<T>(options)).value;
 }
 
+// --- Streaming -------------------------------------------------------------
+//
+// The opponent turn is the one call a learner watches happen: they have just
+// pressed Send and the board is waiting. Streaming shows the reply as it is
+// written instead of after the whole JSON object lands.
+//
+// The contract is deliberately the same as chatJsonServed:
+//   - the same spend cap, reservation, provider/model chain, cooldowns, retry
+//     and Retry-After handling;
+//   - the parsed object is still shape-validated before it is accepted, so a
+//     streamed reply that turns out malformed is a FAILURE that fails over,
+//     never a persisted turn;
+//   - failover happens transparently before the first visible token. After
+//     text has been shown, a failure calls `onReset` (the client discards the
+//     partial reply) and the chain continues, so the learner either sees a
+//     complete validated reply or the route's normal "response saved, retry"
+//     answer — never a half reply that was not persisted.
+//
+// Only the display text of ONE string field is streamed (jsonFieldStream.ts);
+// nothing else in the object (e.g. the private feedback) is ever emitted.
+
+export interface StreamHooks {
+  /** Newly decoded display text of the streamed field. */
+  onDelta: (text: string) => void;
+  /** Text already shown is being discarded; the chain is trying another step. */
+  onReset: () => void;
+}
+
+/** A provider that goes silent mid-stream is abandoned after this long. */
+const STREAM_IDLE_TIMEOUT_MS = Number(process.env.OPENROUTER_STREAM_IDLE_MS ?? 15_000);
+
+type StreamAttempt<T> = Attempt<T> & { emitted?: boolean };
+
+interface ProviderUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost?: number;
+}
+
+function recordAttempt(
+  step: ChainStep,
+  operation: string,
+  startedAt: number,
+  usage: ProviderUsage | undefined,
+  httpStatus: number | undefined,
+  outcome: "ok" | "error",
+  error?: string,
+): void {
+  recordAiCall({
+    at: new Date().toISOString(),
+    operation,
+    provider: step.provider.label,
+    model: step.model,
+    promptTokens: usage?.prompt_tokens,
+    completionTokens: usage?.completion_tokens,
+    totalTokens: usage?.total_tokens,
+    // Same free-tier metering rule as tryModel: reported cost verbatim, else $0.
+    costUsd: usage?.cost ?? 0,
+    latencyMs: Date.now() - startedAt,
+    outcome,
+    ...(error
+      ? (() => {
+          const classified = classifyAiError(error, httpStatus);
+          return {
+            errorCategory: classified.category,
+            errorCode: classified.code,
+            httpStatus: classified.httpStatus,
+            retryable: classified.retryable,
+            error: classified.sanitized,
+          };
+        })()
+      : {}),
+  });
+}
+
+/** Never let a display callback (e.g. a closed client stream) break generation. */
+function safeCall(fn: () => void): void {
+  try {
+    fn();
+  } catch {
+    // The learner's view is best-effort; persistence is not.
+  }
+}
+
+async function tryModelStream<T>(
+  step: ChainStep,
+  options: ResolvedChatOptions,
+  deadline: number,
+  maxAttempts: number,
+  field: string,
+  hooks: StreamHooks,
+): Promise<StreamAttempt<T>> {
+  const m = step.model;
+  const compat: Compat = { reasoning: true, jsonMode: true };
+  let lastError = "";
+  let lastStatus: number | undefined;
+  let lastRetryAfterMs: number | undefined;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const budgetTimer = setTimeout(() => controller.abort(), Math.max(1_000, deadline - Date.now()));
+    let response: Response;
+    try {
+      response = await post(step, options, compat, { signal: controller.signal });
+    } catch (error) {
+      clearTimeout(budgetTimer);
+      const message = `transport failed: ${(error as Error).message}`;
+      recordAttempt(step, options.operation, startedAt, undefined, undefined, "error", message);
+      return { ok: false, error: `${m}: ${message}` };
+    }
+
+    if (!response.ok) {
+      clearTimeout(budgetTimer);
+      const body: unknown = await response.json().catch(() => null);
+      lastStatus = response.status;
+      lastRetryAfterMs = advisedRetryMs(response, body);
+      lastError =
+        (body as { error?: { metadata?: { raw?: string } } })?.error?.metadata?.raw ??
+        (body as { error?: { message?: string } })?.error?.message ??
+        `HTTP ${response.status}`;
+      recordAttempt(step, options.operation, startedAt, (body as { usage?: ProviderUsage })?.usage, response.status, "error", lastError);
+      if (response.status === 400 && compat.reasoning && /reasoning/i.test(lastError)) {
+        compat.reasoning = false;
+        attempt -= 1;
+        continue;
+      }
+      if (response.status === 400 && compat.jsonMode && /response_format|json_object|json mode/i.test(lastError)) {
+        compat.jsonMode = false;
+        attempt -= 1;
+        continue;
+      }
+      if (response.status !== 429 && response.status < 500) {
+        return { ok: false, error: `${m}: ${lastError}`, status: response.status };
+      }
+      const delay = retryDelayMs(response, body, attempt);
+      if (Date.now() + delay > deadline) break;
+      await sleep(delay);
+      continue;
+    }
+
+    const extractor = createJsonFieldStream(field);
+    let emitted = false;
+    let content = "";
+    let finishReason: string | undefined;
+    let usage: ProviderUsage | undefined;
+    let streamError: string | undefined;
+    const take = (piece: string) => {
+      content += piece;
+      const added = extractor.push(piece);
+      if (added) {
+        emitted = true;
+        safeCall(() => hooks.onDelta(added));
+      }
+    };
+
+    try {
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("text/event-stream") || !response.body) {
+        // An endpoint that ignores `stream: true` answers a normal completion.
+        const body = (await response.json().catch(() => null)) as {
+          choices?: { message?: { content?: string }; finish_reason?: string }[];
+          usage?: ProviderUsage;
+        } | null;
+        usage = body?.usage;
+        finishReason = body?.choices?.[0]?.finish_reason;
+        const whole = body?.choices?.[0]?.message?.content;
+        if (whole) take(whole);
+      } else {
+        await readSseStream(
+          response.body,
+          (event) => {
+            if (event.data === "[DONE]") return;
+            let chunk: {
+              choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[];
+              usage?: ProviderUsage;
+              x_groq?: { usage?: ProviderUsage };
+              error?: { message?: string };
+            };
+            try {
+              chunk = JSON.parse(event.data);
+            } catch {
+              return; // a keep-alive or vendor line that is not JSON
+            }
+            if (chunk.error) {
+              streamError = chunk.error.message ?? "provider reported a stream error";
+              controller.abort();
+              return;
+            }
+            const choice = chunk.choices?.[0];
+            const piece = choice?.delta?.content;
+            if (typeof piece === "string" && piece) take(piece);
+            if (choice?.finish_reason) finishReason = choice.finish_reason;
+            const reported = chunk.usage ?? chunk.x_groq?.usage;
+            if (reported) usage = reported;
+          },
+          { idleTimeoutMs: STREAM_IDLE_TIMEOUT_MS, signal: controller.signal },
+        );
+      }
+    } catch (error) {
+      streamError ??= `stream failed: ${(error as Error).message}`;
+    } finally {
+      clearTimeout(budgetTimer);
+    }
+
+    if (streamError) {
+      recordAttempt(step, options.operation, startedAt, usage, response.status, "error", streamError);
+      return { ok: false, error: `${m}: ${streamError}`, emitted };
+    }
+
+    if (!content) {
+      const why =
+        finishReason === "length"
+          ? `hit the ${options.maxTokens}-token limit before emitting any content`
+          : `returned no content (finish_reason: ${finishReason ?? "unknown"})`;
+      recordAttempt(step, options.operation, startedAt, usage, response.status, "error", why);
+      return { ok: false, error: `${m} ${why}`, emitted };
+    }
+
+    try {
+      const value = parseJson<T>(content);
+      if (options.validate && !options.validate(value)) {
+        const invalid = `${m} returned an output that failed schema validation`;
+        recordAttempt(step, options.operation, startedAt, usage, response.status, "error", invalid);
+        return { ok: false, error: invalid, emitted };
+      }
+      recordAttempt(step, options.operation, startedAt, usage, response.status, "ok");
+      return { ok: true, value, emitted };
+    } catch (error) {
+      const truncated = finishReason === "length" ? " — output was truncated at max_tokens" : "";
+      const message = `${(error as Error).message}${truncated}`;
+      recordAttempt(step, options.operation, startedAt, usage, response.status, "error", message);
+      return { ok: false, error: message, emitted };
+    }
+  }
+
+  return { ok: false, error: `${m}: ${lastError}`, status: lastStatus, retryAfterMs: lastRetryAfterMs };
+}
+
+async function chatJsonStreamServed<T>(
+  { instruction, schema, maxTokens = 2_000, operation = "unknown", validate }: ChatOptions,
+  field: string,
+  hooks: StreamHooks,
+): Promise<{ value: T; servedBy: ServedBy }> {
+  await ensureSpendWithinCap();
+  const releaseReservation = reserveSpendCall(SPEND_RESERVATION_FALLBACK_USD);
+  try {
+    const fullChain = failoverChain();
+    if (!fullChain.length) {
+      throw new Error(
+        "No AI provider configured — set at least one free-tier key: UNOROUTER_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY, GEMINI_API_KEY, NVIDIA_API_KEY or OPENROUTER_API_KEY.",
+      );
+    }
+    const warm = fullChain.filter((step) => !isCoolingDown(step));
+    const chain = warm.length ? warm : fullChain;
+    const deadline = Date.now() + RETRY_BUDGET_MS;
+    const options: ResolvedChatOptions = { instruction, schema, maxTokens, operation, validate };
+    const failures: string[] = [];
+    const deadProviders = new Set<ProviderLabel>();
+
+    for (const [index, step] of chain.entries()) {
+      if (deadProviders.has(step.provider.label)) continue;
+      const result = await tryModelStream<T>(step, options, deadline, attemptsFor(index, chain.length), field, hooks);
+      if (result.ok) {
+        cooldownUntil.delete(stepKey(step));
+        return { value: result.value, servedBy: { provider: step.provider.label, model: step.model } };
+      }
+      // Text the learner already saw came from an output that will not be
+      // persisted: tell the client to discard it before the next step speaks.
+      if (result.emitted) safeCall(hooks.onReset);
+      failures.push(`${step.provider.label}/${result.error}`);
+      if (result.status === 429) startCooldown(step, result.retryAfterMs);
+      if (result.status !== undefined && PROVIDER_FATAL_STATUSES.has(result.status)) deadProviders.add(step.provider.label);
+      if (Date.now() >= deadline) break;
+    }
+
+    throw new Error(`All AI providers failed. Tried ${failures.length}: ${failures.join(" | ")}`);
+  } finally {
+    releaseReservation();
+  }
+}
+
 // --- Daily topic -----------------------------------------------------------
 
 export interface GeneratedTopic {
@@ -599,7 +891,7 @@ const TURN_SCHEMA = {
   required: ["feedback", "aiMessage"],
 };
 
-export async function debateTurn(params: {
+export interface DebateTurnParams {
   topicTitle: string;
   topicPrompt: string;
   userSide: DebateSide;
@@ -608,12 +900,34 @@ export async function debateTurn(params: {
   argumentRoute?: ArgumentRoute;
   /** Opponent persona/difficulty/format directives (opponentPersona.ts). */
   directive?: string;
-}): Promise<DebateTurnResult> {
+}
+
+export async function debateTurn(params: DebateTurnParams): Promise<DebateTurnResult> {
+  if (e2eMockAiEnabled()) return mockDebateTurn();
+  return chatJson<DebateTurnResult>(debateTurnChatOptions(params));
+}
+
+/**
+ * The same opponent turn, streamed: `hooks.onDelta` receives the reply text
+ * (`aiMessage`) as the model writes it. Resolves with the same validated
+ * result debateTurn() would, so the caller persists exactly what it would
+ * have persisted without streaming.
+ */
+export async function debateTurnStream(
+  params: DebateTurnParams,
+  hooks: StreamHooks,
+): Promise<{ result: DebateTurnResult; servedBy: ServedBy }> {
+  if (e2eMockAiEnabled()) {
+    return { result: await streamMockDebateTurn(hooks.onDelta), servedBy: { provider: "e2e-mock", model: "e2e-mock" } };
+  }
+  const served = await chatJsonStreamServed<DebateTurnResult>(debateTurnChatOptions(params), "aiMessage", hooks);
+  return { result: served.value, servedBy: served.servedBy };
+}
+
+function debateTurnChatOptions(params: DebateTurnParams): ChatOptions {
   const aiSide: DebateSide = params.userSide === "for" ? "against" : "for";
 
   const transcript = renderUntrustedTranscript(params.history);
-
-  if (e2eMockAiEnabled()) return mockDebateTurn();
 
   const routeGuidance = params.argumentRoute === "response-generation"
     ? "The submitted move is structurally a question: answer the question directly first, then add one concise challenge grounded in the debate motion."
@@ -624,12 +938,12 @@ export async function debateTurn(params: {
   const opponentStyle = params.directive ? `\n\n${params.directive}` : "";
   const latest = renderUntrusted("User's latest response", params.latestUserMessage);
 
-  return chatJson<DebateTurnResult>({
+  return {
     schema: TURN_SCHEMA,
     operation: "debate_turn",
     validate: isValidDebateTurn,
     instruction: `You are an AI debate opponent in a critical-thinking training app. Topic: "${params.topicTitle}" — ${params.topicPrompt}\nThe user is arguing the "${params.userSide}" side. You are arguing the "${aiSide}" side, and your job is to challenge the user's thinking as rigorously and fairly as possible so they sharpen their reasoning.\n\n${routeGuidance}${opponentStyle}\n\n${UNTRUSTED_INSTRUCTION}\n\nTranscript so far:\n${transcript}\n\n${latest}\n\nGive brief, specific feedback and produce your next challenge. Do not assign numeric scores; the application computes those from observable argument evidence after this response.`,
-  });
+  };
 }
 
 const OPENING_SCHEMA = {

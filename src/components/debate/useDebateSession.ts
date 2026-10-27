@@ -15,9 +15,17 @@
 //   - finishing sends the staged turn id explicitly so a concurrent turn
 //     cannot be finalised by mistake;
 //   - a failure never silently reverts the UI to a state the server never
-//     reached - it surfaces a message.
+//     reached - it surfaces a message;
+//   - the opponent reply is streamed when the server can: the text renders as
+//     it is written, but the turn only joins the transcript from the route's
+//     final persisted result. A stream that is cut before that result falls
+//     back to one plain JSON request for the same submission, which the route
+//     answers idempotently (committed round replayed, or response saved), so
+//     a dropped connection never loses the learner's turn;
+//   - leaving the room aborts the in-flight request without touching state.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { readTurnResponse, TURN_STREAM_ACCEPT, type TurnOutcome } from "@/lib/turnStreamClient";
 import type { ComposerSubmitData } from "../MessageComposer";
 import { isDebateModeId, type DebateModeId } from "@/lib/debateModes";
 import type { SoloDebate, SoloDebateTurn } from "@/lib/types";
@@ -67,6 +75,10 @@ export interface DebateSession {
   result: DebateSummaryPayload | null;
   /** Advisory mid-debate hints for the NEXT round, from the last submitted turn. */
   liveHints: LiveCoachingHint[];
+  /** The submitted response once the server has staged it, while the reply is generated. */
+  pendingUserMessage: string | null;
+  /** The opponent reply streamed so far; null before the first text arrives. */
+  streamingReply: string | null;
   submitTurn: (data: ComposerSubmitData) => Promise<boolean>;
   finishDebate: (finishSavedResponse?: boolean) => Promise<void>;
 }
@@ -91,6 +103,13 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
   // Real-time coaching: hints computed server-side from the just-submitted
   // turn's observable evidence, shown for the NEXT round and cleared on submit.
   const [liveHints, setLiveHints] = useState<LiveCoachingHint[]>([]);
+  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
+  const [streamingReply, setStreamingReply] = useState<string | null>(null);
+  const inFlight = useRef<AbortController | null>(null);
+
+  // Navigation away aborts the request. The server keeps generating and
+  // persists the turn; coming back loads the committed round.
+  useEffect(() => () => inFlight.current?.abort(), []);
 
   const pending = turns[turns.length - 1];
 
@@ -98,21 +117,53 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
     setSending(true);
     setError(null);
     setLiveHints([]);
+    setStreamingReply(null);
+    setPendingUserMessage(null);
+    const controller = new AbortController();
+    inFlight.current?.abort();
+    inFlight.current = controller;
+    const url = `/api/solo/${debate.id}/turn`;
+    const payload = JSON.stringify({
+      expectedTurnId: pending?.id ?? "",
+      message: data.message,
+      inputMode: data.inputMode,
+      modeId: data.modeId,
+      timing: data.timing,
+      elapsedSeconds: data.elapsedSeconds,
+    });
     try {
-      const res = await fetch(`/api/solo/${debate.id}/turn`, {
+      const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          expectedTurnId: pending?.id ?? "",
-          message: data.message,
-          inputMode: data.inputMode,
-          modeId: data.modeId,
-          timing: data.timing,
-          elapsedSeconds: data.elapsedSeconds,
-        }),
+        headers: { "Content-Type": "application/json", Accept: TURN_STREAM_ACCEPT },
+        body: payload,
+        signal: controller.signal,
       });
-      const resData = await res.json();
-      if (!res.ok && resData.submissionSaved) {
+      let outcome: TurnOutcome | null = await readTurnResponse(
+        res,
+        {
+          onStart: () => setPendingUserMessage(data.message),
+          onDelta: (text) => setStreamingReply((prev) => (prev ?? "") + text),
+          onReset: () => setStreamingReply(null),
+        },
+        controller.signal,
+      );
+      if (!outcome) {
+        // The stream was cut before its persisted result. Ask again without
+        // streaming: the same submission is idempotent server-side.
+        setStreamingReply(null);
+        const retry = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          signal: controller.signal,
+        });
+        outcome = await readTurnResponse(retry, {}, controller.signal);
+      }
+      const ok = !!outcome && outcome.status >= 200 && outcome.status < 300;
+      // Same loosely typed route payload `res.json()` gave before streaming;
+      // every field is checked where it is read below.
+      const resData: Awaited<ReturnType<Response["json"]>> = outcome?.body ?? {};
+      if (!ok && resData.submissionSaved) {
         // The response is durable on the server but opponent generation
         // failed. Adopt the staged text so the user can resume rather than
         // retype, and say plainly what happened.
@@ -141,7 +192,7 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
         setError(resData.error || "Your response is saved. Retry to continue opponent generation.");
         return false;
       }
-      if (!res.ok) throw new Error(resData.error || "Failed to submit response.");
+      if (!ok) throw new Error(resData.error || "Failed to submit response.");
 
       // Final round: no next turn is created - the room switches to its
       // "finish the debate" state instead of waiting for a reply that will
@@ -161,10 +212,15 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
       if (resData.nextTurn) announceOpponentTurn(resData.nextTurn, data.modeId as DebateModeId);
       return true;
     } catch (err) {
+      // Leaving the room is not an error the learner needs to read.
+      if (controller.signal.aborted) return false;
       setError(err instanceof Error ? err.message : "Failed to submit response.");
       return false;
     } finally {
+      if (inFlight.current === controller) inFlight.current = null;
       setSending(false);
+      setStreamingReply(null);
+      setPendingUserMessage(null);
     }
   };
 
@@ -193,5 +249,18 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
     }
   };
 
-  return { turns, pending, roundCount, status, sending, finishing, result, liveHints, submitTurn, finishDebate };
+  return {
+    turns,
+    pending,
+    roundCount,
+    status,
+    sending,
+    finishing,
+    result,
+    liveHints,
+    pendingUserMessage,
+    streamingReply,
+    submitTurn,
+    finishDebate,
+  };
 }

@@ -39,6 +39,25 @@ export interface AiOpsStats {
   note: string | null;
 }
 
+/** p50/p95 of a latency measurement, withheld below the sample floor. */
+export interface LatencySummary {
+  samples: number;
+  p50Ms: number | null;
+  p95Ms: number | null;
+  /** Why no percentiles are shown, when they are not. */
+  note: string | null;
+}
+
+/**
+ * Measurement-only operations (aiTelemetry.recordStreamLatency). They are not
+ * model calls, so they never count toward call volume, error rates or the
+ * per-operation table; they are summarised separately as `streaming`.
+ */
+export const STREAM_MEASUREMENT_OPERATIONS = new Set([
+  "debate_turn_stream_first_token",
+  "debate_turn_stream_total",
+]);
+
 export interface AiOpsReport {
   generatedAt: string;
   windowDays: number;
@@ -54,6 +73,13 @@ export interface AiOpsReport {
     ambiguous: number;
     byRoute: Record<string, number>;
   };
+  /** Streamed opponent turns: time to first reply text and to the persisted result. */
+  streaming: {
+    firstToken: LatencySummary;
+    total: LatencySummary;
+    /** Streamed turns that ended in a retryable failure instead of a persisted reply. */
+    failed: number;
+  };
   note: string | null;
 }
 
@@ -64,6 +90,35 @@ function p95NearestRank(sortedAsc: number[]): number | null {
   if (!sortedAsc.length) return null;
   const rank = Math.max(1, Math.ceil(0.95 * sortedAsc.length));
   return sortedAsc[Math.min(rank, sortedAsc.length) - 1];
+}
+
+function percentileNearestRank(sortedAsc: number[], p: number): number | null {
+  if (!sortedAsc.length) return null;
+  const rank = Math.max(1, Math.ceil(p * sortedAsc.length));
+  return sortedAsc[Math.min(rank, sortedAsc.length) - 1];
+}
+
+export function summariseLatency(latenciesMs: number[], minSample: number): LatencySummary {
+  const sorted = [...latenciesMs].sort((a, b) => a - b);
+  const measurable = sorted.length >= minSample;
+  return {
+    samples: sorted.length,
+    p50Ms: measurable ? percentileNearestRank(sorted, 0.5) : null,
+    p95Ms: measurable ? percentileNearestRank(sorted, 0.95) : null,
+    note: measurable ? null : `not yet measurable — ${sorted.length} sample${sorted.length === 1 ? "" : "s"} (need ${minSample})`,
+  };
+}
+
+function summariseStreaming(rows: AiOpsRow[], minSample: number): AiOpsReport["streaming"] {
+  const first = rows.filter((r) => r.operation === "debate_turn_stream_first_token");
+  const total = rows.filter((r) => r.operation === "debate_turn_stream_total");
+  return {
+    firstToken: summariseLatency(first.map((r) => r.latencyMs), minSample),
+    // Percentiles describe the turns that reached the learner; failures are
+    // counted, not mixed into the latency of a reply that never persisted.
+    total: summariseLatency(total.filter((r) => r.ok).map((r) => r.latencyMs), minSample),
+    failed: total.filter((r) => !r.ok).length,
+  };
 }
 
 function summarise(operation: string, rows: AiOpsRow[], minSample: number): AiOpsStats {
@@ -112,7 +167,8 @@ export function summariseAiOps(
   const minSample = opts.minSample ?? AI_OPS_MIN_SAMPLE;
   const now = opts.now ?? new Date().toISOString();
   const cutoff = Date.parse(now) - windowDays * 86_400_000;
-  const inWindow = rows.filter((r) => Date.parse(r.createdAt) >= cutoff);
+  const windowed = rows.filter((r) => Date.parse(r.createdAt) >= cutoff);
+  const inWindow = windowed.filter((r) => !STREAM_MEASUREMENT_OPERATIONS.has(r.operation));
 
   const byOperation = [...new Set(inWindow.map((r) => r.operation))]
     .map((op) => summarise(op, inWindow.filter((r) => r.operation === op), minSample))
@@ -125,6 +181,7 @@ export function summariseAiOps(
     overall: summarise("all", inWindow, minSample),
     byOperation,
     routing: summariseRouting(inWindow),
+    streaming: summariseStreaming(windowed, minSample),
     note: inWindow.length === 0 ? "No AI calls recorded in this window." : null,
   };
 }
