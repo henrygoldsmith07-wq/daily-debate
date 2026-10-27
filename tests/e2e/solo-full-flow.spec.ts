@@ -128,6 +128,15 @@ test.describe("solo full-flow", () => {
     await expect(page.getByTestId("fix-this-now")).toBeVisible();
     await expect(page.getByText(/Debate complete|Replay/i).first()).toBeVisible({ timeout: 15_000 });
 
+    // 6a. Claims panel: every claim attributed and tagged by phrasing only.
+    // The rounds above cite "NREL data", so at least one is checkable.
+    const claims = page.getByTestId("claims-panel");
+    await expect(claims).toBeVisible();
+    await claims.locator("summary").click();
+    await expect(claims.getByText(/not whether it is true/i)).toBeVisible();
+    await expect(claims.locator(".claims-tag-checkable").first()).toBeVisible();
+    await expect(claims.getByRole("region", { name: "Claims by You" })).toBeVisible();
+
     // 6b. The advanced analysis (graph + tracking grid) sits behind disclosure.
     await page.getByTestId("toggle-full-analysis").click();
 
