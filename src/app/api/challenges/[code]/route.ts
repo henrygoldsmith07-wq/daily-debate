@@ -37,11 +37,17 @@ export async function GET(request: Request, { params }: RouteParams) {
   if (!isValidChallengeCode(code)) return NextResponse.json({ error: "Invalid challenge link." }, { status: 400 });
 
   const service = createServiceClient();
-  const { data: inviteRow } = await service
+  const { data: inviteRow, error: inviteError } = await service
     .from("challenge_invites")
     .select(INVITE_SELECT)
     .eq("code", code)
     .maybeSingle();
+  if (inviteError) {
+    // A failed lookup is not "not found": telling a friend their valid link is
+    // dead would end the challenge, so say it is temporary.
+    console.error("Failed to load challenge invite:", inviteError);
+    return NextResponse.json({ error: "Couldn't load this challenge right now. Try again in a moment." }, { status: 503 });
+  }
   if (!inviteRow) return NextResponse.json({ error: "Challenge not found." }, { status: 404 });
 
   const invite = inviteRow as unknown as InviteRow;
