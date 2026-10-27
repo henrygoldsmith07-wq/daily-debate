@@ -180,3 +180,30 @@
   font-weight: 600;
 }
 .result-headline-move.is-found { border-color: color-mix(in srgb, var(--success) 40%, var(--line)); background: var(--success-soft); color: var(--success); }
+
+/* --- positions (stated before any debate) ------------------------------------- */
+.position-pills { display: flex; flex-direction: column; gap: 0.55rem; width: 100%; text-align: left; }
+.position-pills-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.position-pills-label { color: var(--ink); font-size: 0.86rem; font-weight: 700; }
+.position-pills.is-compact .position-pills-label { color: var(--ink-2); font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.position-pills-choices { display: flex; gap: 0.4rem; }
+.position-pill {
+  min-height: 36px;
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 650;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.position-pill:hover:not(:disabled) { border-color: var(--ink-3); }
+.position-pill:disabled { cursor: progress; opacity: 0.7; }
+.position-pill[aria-pressed="true"] { border-color: var(--speak); background: var(--speak); color: var(--on-speak, #fff); }
+@media (pointer: coarse) { .position-pill { min-height: 44px; } }
+.position-tally { display: flex; flex-direction: column; gap: 0.3rem; }
+.position-tally-bar { height: 6px; overflow: hidden; border-radius: 999px; background: var(--surface-2); }
+.position-tally-for { display: block; height: 100%; background: var(--speak); }
+.position-tally-note { display: flex; justify-content: space-between; gap: 0.5rem; margin: 0; color: var(--ink-3); font-size: 0.7rem; font-variant-numeric: tabular-nums; }

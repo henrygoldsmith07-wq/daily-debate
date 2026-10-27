@@ -3,10 +3,13 @@ import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { getOrCreateTodayTopic } from "@/lib/dailyTopic";
 import { PVP_ROUNDS } from "@/lib/types";
+import { readPosition } from "@/lib/motionPositions";
 
 // Join today's PvP queue through one convergent database transaction.
-// join_pvp_queue_and_match serializes matchmaking per topic and the database
-// trigger enforces one active match per player across BOTH player columns.
+// join_pvp_queue_by_position (041) serializes matchmaking per topic, pairs only
+// opposite positions, and the database trigger enforces one active match per
+// player across BOTH player columns. A learner argues the side they actually
+// hold, so they must state a position on today's motion before queueing.
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "pvp-queue", limit: 20, windowMs: 60_000 });
   if (limited) return limited;
@@ -19,6 +22,20 @@ export async function POST(request: Request) {
 
   const topic = await getOrCreateTodayTopic();
   const service = createServiceClient();
+
+  let side: Awaited<ReturnType<typeof readPosition>>;
+  try {
+    side = await readPosition(user.id, topic.id);
+  } catch (error) {
+    console.error("PvP queue position read failed:", error);
+    return NextResponse.json({ error: "Could not load your position. Try again." }, { status: 503 });
+  }
+  if (!side) {
+    return NextResponse.json(
+      { error: "Say where you stand on today's motion first.", needsPosition: true },
+      { status: 409 },
+    );
+  }
 
   // Best-effort housekeeping: queue rows older than a day are stale (their
   // owners left without cancelling) and would accumulate forever.
@@ -35,9 +52,10 @@ export async function POST(request: Request) {
   // active-match recovery, enqueue, opponent claim and match creation. This
   // avoids the old claim→enqueue gap where two near-simultaneous joiners could
   // both end up waiting forever.
-  const joined = await service.rpc("join_pvp_queue_and_match", {
+  const joined = await service.rpc("join_pvp_queue_by_position", {
     p_joiner: user.id,
     p_topic_id: topic.id,
+    p_side: side,
     p_round_limit: PVP_ROUNDS,
   });
   if (joined.error) {

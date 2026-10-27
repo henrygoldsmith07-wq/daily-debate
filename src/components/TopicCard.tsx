@@ -11,6 +11,7 @@ import type { DailyTopic } from "@/lib/types";
 import { NEUTRAL_GOAL_LINE } from "@/lib/retestDisclosure";
 import { dailyAccentStyle } from "@/lib/dailyAccent";
 import SidePicker, { type SideChoice } from "./SidePicker";
+import PositionPills from "./PositionPills";
 import { challengePreviewHeadline, type ChallengePreview } from "@/lib/challengeMe";
 import {
   GUEST_FOCUS_LABEL,
@@ -145,6 +146,8 @@ export default function TopicCard({
             </p>
           )}
         </div>
+
+        <PositionPills compact />
 
         {firstFocus && !activeDebateId ? (
           <div className="home-coaching-focus" data-testid="first-focus" data-focus={focusChoice}>

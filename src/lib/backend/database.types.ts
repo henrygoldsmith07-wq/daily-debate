@@ -84,7 +84,7 @@ export type SoloDebateTurnRow = {
   created_at: string;
 };
 
-export type PvpQueueRow = { id: string; user_id: string; topic_id: string; joined_at: string };
+export type PvpQueueRow = { id: string; user_id: string; topic_id: string; joined_at: string; side: string | null };
 
 export type PvpMatchRow = {
   id: string;
