@@ -20,6 +20,12 @@ const PATHS: Record<NavIconName, React.ReactNode> = {
       <path d="M21 12v3a2 2 0 0 1-2 2h-3l-3 3v-3a2 2 0 0 1 0-.2" />
     </>
   ),
+  explore: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M15.5 8.5l-2 5-5 2 2-5z" />
+    </>
+  ),
   progress: (
     <>
       <path d="M4 19V5" />

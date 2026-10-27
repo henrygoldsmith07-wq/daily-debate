@@ -22,7 +22,7 @@ describe("nav configuration", () => {
   });
 
   it("keeps the daily training loop ahead of competitive modes on mobile", () => {
-    expect(PRIMARY_NAV_ITEMS.map((item) => item.href)).toEqual(["/", "/progress", "/history"]);
+    expect(PRIMARY_NAV_ITEMS.map((item) => item.href)).toEqual(["/", "/progress", "/history", "/explore"]);
     expect(PRIMARY_NAV_ITEMS.some((item) => item.href === "/pvp")).toBe(false);
   });
 
@@ -49,16 +49,17 @@ describe("visibleNavSections (experimental-surfaces flag)", () => {
     vi.unstubAllEnvs();
   });
 
-  it("hides experimental items by default and drops emptied sections", () => {
+  it("hides experimental items by default", () => {
+    vi.stubEnv("NEXT_PUBLIC_EXPERIMENTAL_SURFACES", "");
+    const visible = visibleNavItems();
+    expect(visible.every((item) => !item.experimental)).toBe(true);
+    for (const section of visibleNavSections()) expect(section.items.length).toBeGreaterThan(0);
+  });
+
+  it("shows Player vs Player and Explore in production navigation", () => {
     vi.stubEnv("NEXT_PUBLIC_EXPERIMENTAL_SURFACES", "");
     const hrefs = visibleNavItems().map((item) => item.href);
-    expect(hrefs).not.toContain("/pvp");
-    expect(hrefs).toContain("/");
-    expect(hrefs).toContain("/history");
-    // The Practice section keeps Today, so it must still render — but with a
-    // single item, not an empty group label.
-    const practice = visibleNavSections().find((section) => section.id === "practice");
-    expect(practice?.items.map((item) => item.href)).toEqual(["/"]);
+    expect(hrefs).toEqual(expect.arrayContaining(["/", "/pvp", "/explore", "/history"]));
   });
 
   it("keeps the full declaration when experimental surfaces are enabled", () => {
@@ -78,7 +79,7 @@ describe("visibleNavSections (experimental-surfaces flag)", () => {
     vi.stubEnv("NEXT_PUBLIC_EXPERIMENTAL_SURFACES", "");
     visibleNavSections();
     expect(NAV_ITEMS.map((item) => item.href)).toContain("/pvp");
-    expect(NAV_SECTIONS).toHaveLength(3);
+    expect(NAV_SECTIONS).toHaveLength(4);
   });
 });
 

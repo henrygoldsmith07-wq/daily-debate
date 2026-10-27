@@ -26,6 +26,7 @@ import { useDebateSpeech } from "./debate/useDebateSpeech";
 import { useResponseWindow } from "./debate/useResponseWindow";
 import type { DebateRoomProps, ReplayView } from "./debate/types";
 import ClaimsPanel from "./ClaimsPanel";
+import PublishToggle from "./PublishToggle";
 
 export default function DebateRoom({
   debate,
@@ -155,6 +156,7 @@ export default function DebateRoom({
           { speaker: "You", side: debate.side, round: turn.round_number, text: turn.user_message },
         ])}
       />
+      <PublishToggle kind="solo" id={debate.id} initialPublished={Boolean(debate.published_at)} />
       </div>
     );
   }
