@@ -6,6 +6,9 @@ const h = vi.hoisted(() => {
     drillFilters: null as Map<string, unknown> | null,
     drillUpdate: null as Record<string, unknown> | null,
     duplicateRow: null as { id: string } | null,
+    assignment: { id: "drill-1", attempt_text: null } as { id: string; attempt_text: string | null } | null,
+    priorRepairTexts: [] as string[],
+    drillUpdateFilters: null as Map<string, unknown> | null,
     inserts: 0,
   };
 
@@ -30,7 +33,20 @@ const h = vi.hoisted(() => {
       if (table === "solo_debates") return chain({ data: { id: "debate-1", status: "completed" }, error: null });
       if (table === "solo_debate_turns") return chain({ data: [{ assessment: { graph: { nodes: [] } } }], error: null });
       if (table === "repair_results") {
-        const builder = chain({ data: state.duplicateRow, error: null });
+        const filters = new Map<string, unknown>();
+        const builder = chain({ data: null, error: null }) as Record<string, unknown>;
+        for (const method of ["select", "eq", "not", "order", "limit"]) {
+          builder[method] = (...args: unknown[]) => {
+            if (method === "eq") filters.set(args[0] as string, args[1]);
+            return builder;
+          };
+        }
+        builder.maybeSingle = async () => {
+          const text = filters.get("rewrite_text");
+          if (typeof text === "string" && state.priorRepairTexts.includes(text)) return { data: { id: "prior" }, error: null };
+          if (filters.get("succeeded") === true) return { data: null, error: null };
+          return { data: typeof text === "string" ? state.duplicateRow : null, error: null };
+        };
         builder.insert = async () => {
           state.inserts += 1;
           return { error: null };
@@ -46,10 +62,14 @@ const h = vi.hoisted(() => {
       if (table === "profiles") return chain({ data: state.timezone ? { timezone: state.timezone } : null, error: null });
       if (table === "drill_assignments") {
         return {
+          select() {
+            state.drillFilters = new Map();
+            return chain({ data: state.assignment, error: null }, (column, v) => state.drillFilters!.set(column, v));
+          },
           update(value: Record<string, unknown>) {
             state.drillUpdate = value;
-            state.drillFilters = new Map();
-            return chain({ data: null, error: null }, (column, v) => state.drillFilters!.set(column, v));
+            state.drillUpdateFilters = new Map();
+            return chain({ data: null, error: null }, (column, v) => state.drillUpdateFilters!.set(column, v));
           },
         };
       }
@@ -96,6 +116,9 @@ describe("POST /api/solo/[debateId]/repair — drill linkage", () => {
     vi.setSystemTime(new Date("2026-10-19T03:00:00Z"));
     h.state.drillFilters = null;
     h.state.drillUpdate = null;
+    h.state.drillUpdateFilters = null;
+    h.state.assignment = { id: "drill-1", attempt_text: null };
+    h.state.priorRepairTexts = [];
     h.state.duplicateRow = null;
     h.state.inserts = 0;
     recordEvent.mockClear();
@@ -111,6 +134,27 @@ describe("POST /api/solo/[debateId]/repair — drill linkage", () => {
     expect(h.state.drillFilters?.get("assigned_date")).toBe("2026-10-18");
     expect(h.state.drillFilters?.get("dimension")).toBe("evidence");
     expect(h.state.drillFilters?.get("user_id")).toBe("user-1");
+  });
+
+  it("never overwrites the learner's own drill attempt with a repair rewrite", async () => {
+    h.state.assignment = { id: "drill-1", attempt_text: "My own drill answer, written in the drill box." };
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(h.state.drillUpdate).toBeNull();
+  });
+
+  it("still replaces an earlier repair rewrite with a better second draft", async () => {
+    h.state.assignment = { id: "drill-1", attempt_text: "First weak repair draft." };
+    h.state.priorRepairTexts = ["First weak repair draft."];
+    await post();
+    expect(h.state.drillUpdate).toMatchObject({ status: "attempted", attempt_score: 75 });
+    expect(h.state.drillUpdateFilters?.get("id")).toBe("drill-1");
+  });
+
+  it("does nothing when there is no drill assignment that day", async () => {
+    h.state.assignment = null;
+    await post();
+    expect(h.state.drillUpdate).toBeNull();
   });
 
   it("falls back to UTC when the profile has no usable time zone", async () => {
