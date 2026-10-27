@@ -15,6 +15,7 @@ import { streakDays, weekDays } from "@/lib/weekStreak";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
+import RetestStartButton from "@/components/RetestStartButton";
 import { lapsedRetestNotice } from "@/lib/lapsedRetestNotice";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
@@ -569,6 +570,8 @@ export default async function DashboardPage() {
                 {priority.action} on Progress →
               </Link>
             </>
+          ) : priority.kind === "retest" ? (
+            <RetestStartButton topicId={topic.id} label={priority.action} />
           ) : (
             <Link
               href={priority.href}
