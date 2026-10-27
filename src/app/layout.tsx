@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SPRINT_ESTIMATE_MINUTES } from "@/lib/sprint";
 import "./globals.css";
+import { THEME_BOOTSTRAP } from "@/lib/themeBootstrap";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -39,6 +40,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             the default rendering on every navigation. `beforeInteractive`
             runs before React hydrates; the class names match
             le-studio.css's opt-in accessibility blocks. */}
+        {/* Theme before first paint: dark by default (the class above), light
+            or "match device" if the reader chose it (lib/themePreference.ts). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var raw=localStorage.getItem("daily-debate:reader-preferences");if(!raw)return;var k=["large-text","dyslexia","high-contrast","reduce-motion"];var v=JSON.parse(raw);if(!Array.isArray(v))return;var h=document.documentElement;for(var i=0;i<k.length;i++){if(v.indexOf(k[i])!==-1)h.classList.add(k[i]);}}catch(e){}})();`,
