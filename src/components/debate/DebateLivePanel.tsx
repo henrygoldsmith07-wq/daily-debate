@@ -55,6 +55,7 @@ export function DebateLivePanel({
     status,
     sending,
     finishing,
+    preview,
     submitTurn,
     finishDebate,
     liveHints,
@@ -247,6 +248,15 @@ export function DebateLivePanel({
         <p className="text-center text-sm text-ink3">
           Round limit reached ({roundCapFor(debate.format)}). Finish the debate to get scored.
         </p>
+      )}
+
+      {finishing && preview?.weakness && (
+        <section className="card p-4 text-sm" role="status" data-testid="finish-preview">
+          <p className="text-xs text-ink3">Preview while your full result finishes</p>
+          <p className="mt-1 font-medium">{preview.weakness.headline}</p>
+          <p className="mt-1 text-ink3">{preview.weakness.whyItMatters}</p>
+          {preview.weakness.repairLabel && <p className="mt-1 text-ink3">Repair to practise next: {preview.weakness.repairLabel}</p>}
+        </section>
       )}
 
       {(canFinish || canFinishWithSaved) && status === "active" && (
