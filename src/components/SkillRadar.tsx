@@ -3,6 +3,8 @@ import type { ArgumentSkillProfile } from "@/lib/skillProfile";
 const SIZE = 220;
 const CENTRE = SIZE / 2;
 const RADIUS = 72;
+// Horizontal room either side for the skill labels, which sit outside the web.
+const LABEL_ROOM = 48;
 
 function point(index: number, count: number, fraction: number): [number, number] {
   const angle = -Math.PI / 2 + (index * 2 * Math.PI) / count;
@@ -19,7 +21,9 @@ function point(index: number, count: number, fraction: number): [number, number]
  */
 export default function SkillRadar({ profile }: { profile: ArgumentSkillProfile }) {
   const dims = profile.dimensions;
-  if (dims.length < 3) return null;
+  // No observed signal anywhere is a blank web, not a profile: the rows below
+  // already say "No observed signal yet".
+  if (dims.length < 3 || dims.every((d) => d.score === null)) return null;
   const early = profile.debatesAnalysed < profile.minDebates;
   const shape = dims
     .map((d, i) => point(i, dims.length, d.score === null ? 0 : Math.max(0.06, d.score / 100)))
@@ -28,7 +32,7 @@ export default function SkillRadar({ profile }: { profile: ArgumentSkillProfile 
 
   return (
     <figure className="skill-radar" data-testid="skill-radar">
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`Argument profile shape across ${dims.length} skills${early ? ", early read" : ""}. The rows below list each skill.`}>
+      <svg viewBox={`${-LABEL_ROOM} 0 ${SIZE + LABEL_ROOM * 2} ${SIZE}`} role="img" aria-label={`Argument profile shape across ${dims.length} skills${early ? ", early read" : ""}. The rows below list each skill.`}>
         {[0.33, 0.66, 1].map((ring) => (
           <polygon
             key={ring}

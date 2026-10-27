@@ -37,6 +37,14 @@ describe("SkillRadar", () => {
     expect(html).toContain("early read");
   });
 
+  it("draws nothing until at least one skill has an observed signal", () => {
+    const empty = profile({
+      debatesAnalysed: 0,
+      dimensions: profile().dimensions.map((d) => ({ ...d, score: null, sampleSize: 0 })),
+    });
+    expect(renderToStaticMarkup(<SkillRadar profile={empty} />)).toBe("");
+  });
+
   it("prints no scores or percentages", () => {
     const html = renderToStaticMarkup(<SkillRadar profile={profile()} />);
     expect(html.replace(/<[^>]+>/g, " ")).not.toMatch(/\d+\s*%|\b(80|40|60)\b/);

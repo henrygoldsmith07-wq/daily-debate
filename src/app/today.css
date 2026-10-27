@@ -141,7 +141,7 @@
 .week-streak-note strong { color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* --- skill radar --------------------------------------------------------------- */
-.skill-radar { margin: 0 auto 0.75rem; max-width: 280px; }
+.skill-radar { margin: 0 auto 0.75rem; max-width: 340px; }
 .skill-radar svg { display: block; width: 100%; height: auto; overflow: visible; }
 .skill-radar-ring { fill: none; stroke: var(--line); stroke-width: 1; }
 .skill-radar-spoke { stroke: var(--line); stroke-width: 1; }
