@@ -28,7 +28,13 @@ export async function POST(request: Request) {
   const side: DebateSide | null = body?.side === "for" || body?.side === "against" ? body.side : null;
   if (!side) return NextResponse.json({ error: "side must be 'for' or 'against'." }, { status: 400 });
 
-  const topic = await getOrCreateTodayTopic();
+  let topic: Awaited<ReturnType<typeof getOrCreateTodayTopic>>;
+  try {
+    topic = await getOrCreateTodayTopic();
+  } catch (error) {
+    console.error("Failed to load today's motion for a challenge:", error);
+    return NextResponse.json({ error: "Failed to create the challenge." }, { status: 503 });
+  }
   const service = createServiceClient();
 
   const created = await service.rpc("create_friend_challenge_v2", {
