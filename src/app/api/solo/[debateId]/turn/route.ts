@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createClient } from "@/lib/backend/server";
 import { checkRateLimit, checkRateLimitKey } from "@/lib/rateLimit";
 import { debateTurn, debateTurnStream, type ServedBy } from "@/lib/openrouter";
@@ -153,6 +153,16 @@ async function streamTurn(request: Request, context: RouteContext): Promise<Resp
 
   const first = await Promise.race([core.then((response) => ({ response })), started]);
   if (first !== "stream") return first.response;
+
+  // Keep the invocation alive until the turn is persisted even if the learner
+  // navigates away and the platform sees the response stream cancelled.
+  try {
+    after(async () => {
+      await core.catch(() => undefined);
+    });
+  } catch {
+    // Outside a Next.js request scope (unit tests): nothing to extend.
+  }
 
   const stream = new ReadableStream<Uint8Array>({
     start(c) {
