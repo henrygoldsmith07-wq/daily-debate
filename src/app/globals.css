@@ -4,7 +4,9 @@
 
 @custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
 
-/* This app is dark by design, so layout.tsx pins `dark` on <html>. Colours now
+/* This app is dark by design, so layout.tsx pins `dark` on <html> by default;
+   a reader can choose Light or Match device under Reading comfort
+   (lib/themePreference.ts), and the tokens below render both. Colours now
    come from the shared Le Studio tokens rather than its own indigo palette.
 
    The names below predate the shared system and are kept as aliases so
@@ -339,6 +341,10 @@
 .home-coaching-lastline { display: block; margin-top: 0.25rem; color: var(--ink-3); font-size: 0.72rem; line-height: 1.5; }
 .home-start-block { display: flex; flex-direction: column; gap: 0.7rem; }
 .home-side-label { color: var(--ink-2); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+/* Secondary formats: name over length, left-aligned, equal height. */
+.home-format-option { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0.1rem; min-height: 3.25rem; padding: 0.55rem 0.75rem; text-align: left; }
+.home-format-name { font-size: 0.875rem; font-weight: 600; color: var(--ink); letter-spacing: 0; }
+.home-format-meta { font-size: 0.75rem; font-weight: 500; color: var(--ink-3); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .home-side-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.55rem; }
 .home-side-option {
   display: flex;

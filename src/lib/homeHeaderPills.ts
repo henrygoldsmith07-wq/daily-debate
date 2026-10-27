@@ -16,7 +16,7 @@ export interface HomeHeaderProfile {
 export function homeHeaderPills(profile: HomeHeaderProfile | null | undefined): string[] {
   if (!profile) return [];
   const pills: string[] = [];
-  if (profile.current_streak > 0) pills.push(`🔥 ${profile.current_streak}-day streak`);
+  if (profile.current_streak > 0) pills.push(`${profile.current_streak}-day streak`);
   if (profile.total_points > 0) {
     pills.push(`Level ${profile.level}`);
     pills.push(`${profile.total_points} pts`);

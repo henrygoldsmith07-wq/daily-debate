@@ -10,11 +10,13 @@
 
 import { useId, useState } from "react";
 import { READER_PREFERENCE_OPTIONS, useReaderPreferences } from "@/lib/readerPreferences";
+import { THEME_OPTIONS, useThemePreference } from "@/lib/themePreference";
 
 export default function ReaderPreferences() {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const { isEnabled, toggle } = useReaderPreferences();
+  const { theme, setTheme } = useThemePreference();
 
   return (
     <div className="border-t border-[var(--rule)] pt-3">
@@ -37,6 +39,32 @@ export default function ReaderPreferences() {
           <p className="text-xs leading-4 text-ink3">
             Stored on this device only. Applies immediately, including before you sign in.
           </p>
+
+          <div>
+            <p id={`${panelId}-theme`} className="text-sm font-medium text-ink2">Theme</p>
+            <div
+              role="radiogroup"
+              aria-labelledby={`${panelId}-theme`}
+              className="mt-1.5 grid grid-cols-3 gap-1 rounded-lg border border-[var(--rule)] bg-surface-2 p-1"
+              data-testid="theme-preference"
+            >
+              {THEME_OPTIONS.map((option) => {
+                const selected = theme === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setTheme(option.key)}
+                    className={`min-h-9 rounded-md px-2 text-xs font-medium transition-colors ${selected ? "bg-surface text-ink shadow-sm" : "text-ink3 hover:text-ink2"}`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {READER_PREFERENCE_OPTIONS.map((option) => {
             // useSyncExternalStore returns the server snapshot ("") until it

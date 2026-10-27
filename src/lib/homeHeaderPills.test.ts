@@ -17,7 +17,7 @@ describe("homeHeaderPills", () => {
 
   it("shows all three for an active user", () => {
     expect(homeHeaderPills({ current_streak: 3, level: 2, total_points: 140 })).toEqual([
-      "🔥 3-day streak",
+      "3-day streak",
       "Level 2",
       "140 pts",
     ]);

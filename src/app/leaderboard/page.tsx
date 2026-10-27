@@ -4,6 +4,7 @@ import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import RatingBreakdown from "@/components/RatingBreakdown";
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
+import UiIcon from "@/components/UiIcon";
 
 export default async function LeaderboardPage() {
   const db = await createClient();
@@ -76,7 +77,7 @@ export default async function LeaderboardPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">{profile.level}</td>
-                    <td className="px-4 py-3">🔥 {profile.current_streak}</td>
+                    <td className="px-4 py-3 tabular"><span className="inline-flex items-center gap-1"><UiIcon name="flame" className="h-3.5 w-3.5 text-ink3" />{profile.current_streak}</span></td>
                     <td className="px-4 py-3 text-right font-medium">{profile.total_points}</td>
                   </tr>
                 );

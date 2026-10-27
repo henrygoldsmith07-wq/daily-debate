@@ -16,6 +16,7 @@ import { roundCapFor } from "@/lib/sprint";
 import { OPPONENT_PERSONAS } from "@/lib/opponentPersona";
 import type { DebateSession } from "./useDebateSession";
 import type { ResponseWindow } from "./useResponseWindow";
+import UiIcon from "@/components/UiIcon";
 
 export interface DebateLivePanelProps {
   debate: SoloDebate;
@@ -158,8 +159,8 @@ export function DebateLivePanel({
           )}
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Debate mode">
             {[
-              { id: "text", label: "📝 Text" },
-              { id: "speech", label: "🎙️ Speech" },
+              { id: "text", label: "Text", icon: "text" as const },
+              { id: "speech", label: "Speech", icon: "mic" as const },
             ].map((m) => (
               <button
                 key={m.id}
@@ -169,7 +170,7 @@ export function DebateLivePanel({
                 aria-pressed={debateMode === m.id}
                 className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
               >
-                {m.label}
+                <span className="inline-flex items-center gap-1.5"><UiIcon name={m.icon} />{m.label}</span>
               </button>
             ))}
             <button
@@ -184,8 +185,8 @@ export function DebateLivePanel({
             {showAdvancedModes && (
               <>
                 {[
-                  { id: "rapid-rebuttal", label: "⚡ Rapid (60s)" },
-                  { id: "prepared-speech", label: "📋 Prepared (5min)" },
+                  { id: "rapid-rebuttal", label: "Rapid (60s)", icon: "bolt" as const },
+                  { id: "prepared-speech", label: "Prepared (5min)", icon: "clipboard" as const },
                 ].map((m) => (
                   <button
                     key={m.id}
@@ -195,7 +196,7 @@ export function DebateLivePanel({
                     aria-pressed={debateMode === m.id}
                     className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${debateMode === m.id ? "border-[var(--accent)] text-[var(--accent)] font-semibold" : "btn-ghost"}`}
                   >
-                    {m.label}
+                    <span className="inline-flex items-center gap-1.5"><UiIcon name={m.icon} />{m.label}</span>
                   </button>
                 ))}
               </>

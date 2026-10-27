@@ -47,8 +47,12 @@ export default function LoopThread({ thread }: { thread: LoopThreadView }) {
               }`}
               aria-hidden="true"
             />
+            {/* Five labels do not fit five columns on a phone ("Demonstrate"
+                ran past the card edge), so below sm they are read by screen
+                readers only and the bar carries the state; the active stage
+                is named in full in the caption underneath. */}
             <span
-              className={`text-xs leading-4 ${
+              className={`text-xs leading-4 max-sm:sr-only ${
                 stage.status === "active"
                   ? "font-semibold text-ink"
                   : stage.status === "done"
@@ -56,8 +60,8 @@ export default function LoopThread({ thread }: { thread: LoopThreadView }) {
                     : "text-ink3"
               }`}
             >
-              {stage.status === "done" ? "✓ " : stage.status === "active" ? "→ " : ""}
               {stage.label}
+              <span className="sr-only">{stage.status === "done" ? " (done)" : stage.status === "active" ? " (current)" : ""}</span>
             </span>
           </li>
         ))}
@@ -71,7 +75,13 @@ export default function LoopThread({ thread }: { thread: LoopThreadView }) {
             className="mt-2 text-xs leading-5 text-ink2"
             data-testid="loop-thread-caption"
           >
-            <span className="font-medium text-ink">{stage.label}:</span> {stage.caption}
+            <span className="font-medium text-ink">
+              <span className="tabular text-ink3 sm:hidden">
+                {thread.stages.indexOf(stage) + 1} of {thread.stages.length} ·{" "}
+              </span>
+              {stage.label}:
+            </span>{" "}
+            {stage.caption}
           </p>
         ))}
 

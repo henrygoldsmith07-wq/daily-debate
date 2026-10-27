@@ -453,6 +453,43 @@ export default async function DashboardPage() {
         </section>
       )}
 
+      {/* ── Today's motion and the Start button lead: it is the one thing this
+          screen is for. The training target and the loop explain it, so they
+          follow (they used to push Start ~1,450px down a phone screen). ── */}
+      <TopicCard
+        topic={topic}
+        activeDebateId={activeDebate?.id ?? null}
+        evidenceCards={(evidenceRows ?? []) as unknown as EvidenceCardView[]}
+        // The goal line is the day's VISIBLE coaching. When a retest is
+        // pending it must not be the instruction for the skill under silent
+        // test (retestDisclosure.ts) — `buildCoachingGoal` excludes that skill
+        // already, and the fallback below is deliberately skill-agnostic.
+        goalLine={goal?.goalLine ?? (pendingRetest ? NEUTRAL_GOAL_LINE : "Use evidence for major claims.")}
+        lastLine={goal?.lastLine ?? null}
+        focusLabel="Today's focus"
+        motionReason={motion.reasonLine}
+        isFirstVisit={!previousDebate}
+        challengePreview={challengePreview}
+        firstFocus={firstFocus}
+      />
+      {lapsedSkillKey && (
+        <p
+          className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink3"
+          role="status"
+          data-testid="lapsed-retest-notice"
+        >
+          {lapsedRetestNotice(
+            SKILL_DIMENSIONS[lapsedSkillKey].label,
+            coachingContext.lapsedRetests.length,
+          )}
+        </p>
+      )}
+      {coachingContext.status !== "ok" && (
+        <p className="text-xs text-ink3" role="status">
+          Coaching context is temporarily {coachingContext.status}; today&apos;s debate is still available without treating missing data as progress.
+        </p>
+      )}
+
       {/* ── Today's training target: what to practise, why, and what we'll watch ── */}
       {learnerModel.nextPractice && (
         <section
@@ -491,40 +528,6 @@ export default async function DashboardPage() {
 
       {/* ── The loop: where you are in practice → diagnose → repair → retest → demonstrate ── */}
       <LoopThread thread={loopThread} />
-
-      <TopicCard
-        topic={topic}
-        activeDebateId={activeDebate?.id ?? null}
-        evidenceCards={(evidenceRows ?? []) as unknown as EvidenceCardView[]}
-        // The goal line is the day's VISIBLE coaching. When a retest is
-        // pending it must not be the instruction for the skill under silent
-        // test (retestDisclosure.ts) — `buildCoachingGoal` excludes that skill
-        // already, and the fallback below is deliberately skill-agnostic.
-        goalLine={goal?.goalLine ?? (pendingRetest ? NEUTRAL_GOAL_LINE : "Use evidence for major claims.")}
-        lastLine={goal?.lastLine ?? null}
-        focusLabel="Today's focus"
-        motionReason={motion.reasonLine}
-        isFirstVisit={!previousDebate}
-        challengePreview={challengePreview}
-        firstFocus={firstFocus}
-      />
-      {lapsedSkillKey && (
-        <p
-          className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink3"
-          role="status"
-          data-testid="lapsed-retest-notice"
-        >
-          {lapsedRetestNotice(
-            SKILL_DIMENSIONS[lapsedSkillKey].label,
-            coachingContext.lapsedRetests.length,
-          )}
-        </p>
-      )}
-      {coachingContext.status !== "ok" && (
-        <p className="text-xs text-ink3" role="status">
-          Coaching context is temporarily {coachingContext.status}; today&apos;s debate is still available without treating missing data as progress.
-        </p>
-      )}
 
       {/* ── Continue training: the single highest-priority unfinished action ── */}
       {priority && priority.kind !== "debate" && (

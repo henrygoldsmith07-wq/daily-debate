@@ -6,6 +6,7 @@ import MobileNav from "./MobileNav";
 import ReaderPreferences from "./ReaderPreferences";
 import LegalLinks from "./LegalLinks";
 import { getCurrentUser, getProfileSummary } from "@/lib/currentViewer";
+import UiIcon from "@/components/UiIcon";
 
 type ContentWidth = "narrow" | "default" | "wide";
 
@@ -43,7 +44,7 @@ function LevelChip({
   if (compact) {
     return (
       <span className="pill tabular" title={title}>
-        L{level} · 🔥{streak}
+        L{level} · <UiIcon name="flame" className="h-3 w-3" /><span className="sr-only">streak</span>{streak}
       </span>
     );
   }
@@ -51,7 +52,7 @@ function LevelChip({
     <div className="app-level" title={title}>
       <div className="app-level-top">
         <span className="tabular font-semibold">Level {level}</span>
-        <span className="tabular text-ink3">🔥 {streak}</span>
+        <span className="tabular inline-flex items-center gap-1 text-ink3"><UiIcon name="flame" className="h-3.5 w-3.5" /><span className="sr-only">Streak</span>{streak}</span>
       </div>
       <div className="app-level-track">
         <div

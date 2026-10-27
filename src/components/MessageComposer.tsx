@@ -7,6 +7,7 @@ import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import type { InputMode } from "@/lib/types";
 import type { TurnTiming } from "@/lib/speechAnalysis";
 import { clearDraft, loadDraft, saveDraft } from "@/lib/composerDraft";
+import UiIcon from "@/components/UiIcon";
 
 export interface ComposerSubmitData {
   message: string;
@@ -194,7 +195,7 @@ export default function MessageComposer({
               aria-label={listening ? "Stop listening" : "Start voice input"}
               className={`btn px-3 py-1.5 text-xs disabled:opacity-40 ${listening ? "border border-[var(--bad)] text-[var(--bad)]" : "btn-ghost"}`}
             >
-              {listening ? `● Listening… ${elapsedSecs}s` : "🎙️ Speak instead"}
+              {listening ? `● Listening… ${elapsedSecs}s` : <span className="inline-flex items-center gap-1.5"><UiIcon name="mic" />Speak instead</span>}
             </button>
           )}
           {experimentalSurfacesEnabled() && !supported && (

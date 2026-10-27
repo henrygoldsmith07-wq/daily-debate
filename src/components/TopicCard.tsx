@@ -309,15 +309,24 @@ export default function TopicCard({
                 <>Daily Sprint · three rounds, ~4 min <span aria-hidden="true">→</span></>
               )}
             </button>
+            {/* Other formats: real secondary buttons (bordered, name over length)
+                so they read as choices. As ghost text they looked like captions
+                and wrapped to four lines ("Cross- / examination · 4 / rounds…"). */}
+            <p className="home-side-label mt-1">Or pick a format</p>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => startDebate("full")}
                 disabled={starting !== null}
-                className="btn btn-ghost px-3 py-2 text-sm text-ink3 disabled:opacity-40"
+                className="home-format-option btn btn-secondary disabled:opacity-40"
                 data-testid="start-full"
               >
-                {starting === "full" ? "Asking today's opponent…" : "Full debate · 5–12 rounds"}
+                {starting === "full" ? "Asking today's opponent…" : (
+                  <>
+                    <span className="home-format-name">Full debate</span>
+                    <span className="home-format-meta">5–12 rounds</span>
+                  </>
+                )}
               </button>
               {(["flash", "cross-examination", "socratic"] as const).map((format) => (
                 <button
@@ -325,7 +334,7 @@ export default function TopicCard({
                   type="button"
                   onClick={() => startDebate(format)}
                   disabled={starting !== null}
-                  className="btn btn-ghost px-3 py-2 text-sm text-ink3 disabled:opacity-40"
+                  className="home-format-option btn btn-secondary disabled:opacity-40"
                   data-testid={`start-${format}`}
                   title={
                     format === "flash"
@@ -335,7 +344,12 @@ export default function TopicCard({
                         : "The AI only asks questions — you build the whole case"
                   }
                 >
-                  {starting === format ? "Asking today's opponent…" : `${formatLabelFor(format)} · ${formatEstimateLabel(format)}`}
+                  {starting === format ? "Asking today's opponent…" : (
+                    <>
+                      <span className="home-format-name">{formatLabelFor(format)}</span>
+                      <span className="home-format-meta">{formatEstimateLabel(format)}</span>
+                    </>
+                  )}
                 </button>
               ))}
             </div>
