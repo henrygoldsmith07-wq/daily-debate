@@ -23,4 +23,19 @@ describe("buildFinishPreview", () => {
     expect(preview?.weakness?.headline).toBe("2 important claims had no supporting evidence");
     expect(preview?.weakness?.repairLabel).toBeTruthy();
   });
+
+  it("ignores turns without a user message and is deterministic across calls", () => {
+    const graph = {
+      nodes: [{ id: "c1", kind: "claim", owner: "a", text: "Caps always help.", round: 1 }],
+      edges: [], dropped: [], contradictions: [], concessions: [], fallacies: [],
+      evidenceStats: { total: 0, byOwner: { a: 0, b: 0, ai: 0 }, byStrength: { anecdotal: 0, general: 0, cited: 0, strong: 0 }, unsupportedClaimIds: ["c1"] },
+      impactComparison: null,
+    };
+    const turns = [
+      { user_message: "", assessment: { graph } },
+      { user_message: "mine", assessment: { graph } },
+    ];
+    expect(buildFinishPreview(turns, "full")).toEqual(buildFinishPreview(turns, "full"));
+    expect(buildFinishPreview([turns[0]], "full")).toBeNull();
+  });
 });
