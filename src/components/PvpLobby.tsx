@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { PVP_ROUNDS } from "@/lib/types";
 import { trackEvent } from "@/lib/trackClientEvent";
 import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
+import { copyText } from "@/lib/clipboardCopy";
 
 export default function PvpLobby() {
   const router = useRouter();
@@ -15,6 +16,18 @@ export default function PvpLobby() {
   const [invite, setInvite] = useState<{ code: string; url: string; expiresAt: string } | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [creatingInvite, setCreatingInvite] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+
+  // Acknowledge the copy (or say it failed) instead of a silent button that
+  // might or might not have worked. On an insecure origin navigator.clipboard
+  // is absent entirely, so copyText falls back to the legacy path rather than
+  // throwing an unhandled rejection.
+  async function copyInviteLink() {
+    if (!invite) return;
+    const outcome = await copyText(window.location.origin + invite.url);
+    setCopyState(outcome);
+    setTimeout(() => setCopyState("idle"), 2000);
+  }
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -150,10 +163,10 @@ export default function PvpLobby() {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => navigator.clipboard.writeText(window.location.origin + invite.url).catch(() => {})}
+                onClick={() => void copyInviteLink()}
                 className="btn btn-ghost px-3 py-1 text-xs"
               >
-                Copy link
+                {copyState === "copied" ? "Link copied" : copyState === "failed" ? "Copy failed" : "Copy link"}
               </button>
               <span className="text-xs text-ink3">Expires {new Date(invite.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
             </div>
