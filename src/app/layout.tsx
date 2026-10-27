@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SPRINT_ESTIMATE_MINUTES } from "@/lib/sprint";
 import "./globals.css";
-import { THEME_BOOTSTRAP } from "@/lib/themeBootstrap";
+import { THEME_BOOTSTRAP, THEME_COLOR } from "@/lib/themeBootstrap";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,7 +26,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0f1115",
+  // The dark canvas (le-studio.css --bg). The pre-paint THEME_BOOTSTRAP script
+  // rewrites this meta to the light canvas (#f4f4f6) for light readers, and
+  // themePreference.applyTheme keeps it in sync on later switches.
+  themeColor: THEME_COLOR.dark,
   width: "device-width",
   initialScale: 1,
 };
