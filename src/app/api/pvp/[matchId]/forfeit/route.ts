@@ -20,7 +20,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const dbService = createServiceClient();
-  const { data: match } = await dbService.from("pvp_matches").select("*").eq("id", matchId).single();
+  const { data: match, error: matchError } = await dbService
+    .from("pvp_matches")
+    .select("*")
+    .eq("id", matchId)
+    .maybeSingle();
+  // A failed read is not "no such match"; say so instead of a misleading 404.
+  if (matchError) {
+    console.error("pvp forfeit match read failed:", matchError);
+    return NextResponse.json({ error: "Could not load the match. Try again." }, { status: 503 });
+  }
   if (!match || (match.player_a !== user.id && match.player_b !== user.id)) {
     return NextResponse.json({ error: "Match not found." }, { status: 404 });
   }
@@ -53,7 +62,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   };
 
   // Concurrency guard: only the first claim completes the match.
-  const { data: updated } = await dbService
+  const { data: updated, error: updateError } = await dbService
     .from("pvp_matches")
     .update({
       status: "completed",
@@ -66,6 +75,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     .eq("status", "active")
     .select("id");
 
+  // A failed write is not "someone else already completed it": the claim did
+  // not land and the player should retry.
+  if (updateError) {
+    console.error("pvp forfeit update failed:", updateError);
+    return NextResponse.json({ error: "Could not record the forfeit. Try again." }, { status: 503 });
+  }
   if (!updated || updated.length === 0) {
     return NextResponse.json({ error: "Match already completed." }, { status: 409 });
   }
