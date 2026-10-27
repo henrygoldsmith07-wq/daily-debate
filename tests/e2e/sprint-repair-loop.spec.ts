@@ -163,7 +163,16 @@ test.describe("daily sprint repair loop", () => {
       const composer = page.getByLabel("Your debate response");
       await expect(composer).toBeVisible({ timeout: 30_000 });
       await composer.fill(`Round ${round + 1}: Brookings finds tutoring outperforms per dollar, therefore targeted programmes win.`);
+      // The first opponent reply is streamed (the mock streams word by word),
+      // so the turn response is an event stream rather than buffered JSON.
+      const streamed =
+        round === 0
+          ? page.waitForResponse(
+              (r) => r.request().method() === "POST" && /\/api\/solo\/[^/]+\/turn$/.test(new URL(r.url()).pathname),
+            )
+          : null;
       await page.getByRole("button", { name: /^send$/i }).click();
+      if (streamed) expect((await streamed).headers()["content-type"]).toContain("text/event-stream");
       await page.waitForTimeout(1200);
     }
 

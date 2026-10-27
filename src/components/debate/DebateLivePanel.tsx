@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import MessageComposer from "../MessageComposer";
 import RoundProgress from "../RoundProgress";
-import ThinkingIndicator from "../ThinkingIndicator";
+import StreamingOpponentReply from "./StreamingOpponentReply";
 import { type SoloDebate } from "@/lib/types";
 import type { DebateModeId } from "@/lib/debateModes";
 import { roundCapFor } from "@/lib/sprint";
@@ -48,7 +48,19 @@ export function DebateLivePanel({
   canFinishWithSaved,
   error,
 }: DebateLivePanelProps) {
-  const { turns, pending, roundCount, status, sending, finishing, submitTurn, finishDebate, liveHints } = session;
+  const {
+    turns,
+    pending,
+    roundCount,
+    status,
+    sending,
+    finishing,
+    submitTurn,
+    finishDebate,
+    liveHints,
+    pendingUserMessage,
+    streamingReply,
+  } = session;
   const { debateMode, modeStartedAt, modeWindowStarting, waitingForModeWindow, chooseMode } = timing;
   const [showAdvancedModes, setShowAdvancedModes] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -71,7 +83,7 @@ export function DebateLivePanel({
     if (scrollRef.current && pinnedToBottom.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [turns, sending]);
+  }, [turns, sending, streamingReply, pendingUserMessage]);
   return (
     <div className="flex flex-1 flex-col gap-4">
       <div>
@@ -129,7 +141,13 @@ export function DebateLivePanel({
             )}
           </div>
         ))}
-        {sending && <ThinkingIndicator />}
+        {sending && pendingUserMessage && (
+          <div className="ml-auto flex max-w-[85%] flex-col items-end gap-1" data-testid="pending-user-message">
+            <div className="rounded-2xl rounded-tr-sm bg-surface/10 px-3 py-2 text-sm">{pendingUserMessage}</div>
+            <p className="text-xs text-ink3">Saved</p>
+          </div>
+        )}
+        {sending && <StreamingOpponentReply text={streamingReply} />}
       </div>
 
       {error && (

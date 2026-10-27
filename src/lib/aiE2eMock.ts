@@ -39,6 +39,28 @@ export function mockDebateTurn(): DebateTurnResult {
   };
 }
 
+/**
+ * The scripted turn, streamed word-by-word like a real provider would, so the
+ * E2E suite exercises the streaming route and the incremental UI rather than
+ * only the non-streaming fallback. Small fixed delay; E2E_MOCK_STREAM_DELAY_MS
+ * overrides it (0 disables the pause).
+ */
+export async function streamMockDebateTurn(onDelta: (text: string) => void): Promise<DebateTurnResult> {
+  const turn = mockDebateTurn();
+  const configured = Number(process.env.E2E_MOCK_STREAM_DELAY_MS);
+  const delayMs = Number.isFinite(configured) && configured >= 0 ? configured : 15;
+  const pieces = turn.aiMessage.match(/\S+\s*/g) ?? [turn.aiMessage];
+  for (const piece of pieces) {
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      onDelta(piece);
+    } catch {
+      // display is best-effort
+    }
+  }
+  return turn;
+}
+
 export function mockDebateSummary(): DebateSummary {
   return {
     overallFeedback:
