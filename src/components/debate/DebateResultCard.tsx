@@ -19,6 +19,7 @@ import type { DebateSummaryPayload, ReplayView } from "./types";
 import type { SurfaceValidation } from "@/lib/judgeValidation";
 import { trackEvent } from "@/lib/trackClientEvent";
 import { formatLabelFor, type DebateFormat } from "@/lib/sprint";
+import { closeCallNote } from "@/lib/resultSnapshot";
 
 export interface DebateResultCardProps {
   view: ReplayView;
@@ -195,6 +196,12 @@ export function DebateResultCard({
               <p className="text-xs uppercase tracking-wide text-[var(--speak)]">Main weakness</p>
               <p className="mt-1 text-base font-semibold">{weakness.headline}</p>
               <p className="mt-1 text-sm leading-6 text-ink2">{weakness.whyItMatters}</p>
+              {closeCallNote(weakness) && (
+                <p className="mt-2 text-xs leading-5 text-ink3" data-testid="weakness-close-call">{closeCallNote(weakness)}</p>
+              )}
+              {snapshot?.uncertainty && snapshot.uncertainty.length > 0 && (
+                <p className="mt-1 text-xs leading-5 text-ink3" data-testid="weakness-uncertainty">Read with care: {snapshot.uncertainty[0]}</p>
+              )}
               {snapshot?.recurrence?.label && (
                 <p className="mt-2 text-xs font-medium text-[var(--speak)]" data-testid="weakness-recurrence">
                   ↻ {snapshot.recurrence.label}

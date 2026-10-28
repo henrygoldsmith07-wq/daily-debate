@@ -34,6 +34,19 @@ export interface ResultWeakness {
   repair: RepairTarget | null;
   /** Repair-kind label for longitudinal comparison (repeated-weakness detection). */
   kind: string | null;
+  /**
+   * Other observable misses present in the same debate, in the order the
+   * picker would rank them. Non-empty means the pick was a close call: the
+   * rule-based ranking chose one, but another was equally observable.
+   */
+  alsoPresent?: string[];
+}
+
+/** Learner-facing text for a close call; null when the pick was unambiguous. */
+export function closeCallNote(w: ResultWeakness | null): string | null {
+  if (!w || !w.alsoPresent || w.alsoPresent.length === 0) return null;
+  const others = w.alsoPresent.join(" and ");
+  return `Too close to call: ${others} also showed up in this debate. This pick comes from a fixed ranking rule, not a validated judgement of which matters most.`;
 }
 
 export interface ResultSnapshot {
@@ -180,6 +193,11 @@ export function buildResultSnapshot(
   let weakness: ResultWeakness | null = null;
   let weaknessKind: string | null = null;
   const repair = pickRepairTarget(graph);
+  const presentKinds: string[] = [];
+  if (unsupported.length > 0) presentKinds.push("evidence");
+  if (unanswered.length > 0 || (opponentMoves > 0 && rebuttals < opponentMoves)) presentKinds.push("rebuttal");
+  if (repair && !presentKinds.includes(repair.kind)) presentKinds.push(repair.kind);
+
   if (unsupported.length > 0) {
     weaknessKind = "evidence";
     weakness = {
@@ -220,6 +238,11 @@ export function buildResultSnapshot(
       repair,
       kind: weaknessKind,
     };
+  }
+
+  if (weakness && weaknessKind) {
+    const also = presentKinds.filter((k) => k !== weaknessKind);
+    if (also.length > 0) weakness = { ...weakness, alsoPresent: also };
   }
 
   // ── Repeated-weakness detection: did this kind show up recently before? ──
