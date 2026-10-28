@@ -15,6 +15,8 @@ import { streakDays, weekDays } from "@/lib/weekStreak";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
+import RetestStartButton from "@/components/RetestStartButton";
+import { continueKicker, isRetestHero } from "@/lib/retestHero";
 import { lapsedRetestNotice } from "@/lib/lapsedRetestNotice";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
@@ -539,12 +541,12 @@ export default async function DashboardPage() {
       {/* ── Continue training: the single highest-priority unfinished action ── */}
       {priority && priority.kind !== "debate" && (
         <section
-          className="surface-card flex flex-col gap-3 p-4"
+          className={`surface-card flex flex-col gap-3 p-4${isRetestHero(priority.kind) ? " border-[var(--accent)]" : ""}`}
           aria-labelledby="continue-training-heading"
           data-testid="continue-training"
         >
           <div className="min-w-0">
-            <p className="home-secondary-kicker">Continue training</p>
+            <p className="home-secondary-kicker">{continueKicker(priority.kind)}</p>
             <h2 id="continue-training-heading" className="mt-1 text-base font-semibold">
               {priority.title}
             </h2>
@@ -569,6 +571,8 @@ export default async function DashboardPage() {
                 {priority.action} on Progress →
               </Link>
             </>
+          ) : priority.kind === "retest" ? (
+            <RetestStartButton topicId={topic.id} label={priority.action} />
           ) : (
             <Link
               href={priority.href}
