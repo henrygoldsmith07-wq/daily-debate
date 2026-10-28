@@ -55,3 +55,30 @@ export function recheckCopy(status: RecheckStatus): string | null {
   }
   return null;
 }
+
+/** Minimum eligible repairs before a re-check funnel is reported as a rate. */
+export const RECHECK_MIN_SAMPLE = 20;
+
+export interface RecheckFunnel {
+  eligible: number;
+  waiting: number;
+  due: number;
+  expired: number;
+  /** insufficient_evidence until RECHECK_MIN_SAMPLE eligible repairs exist. */
+  evidence: "insufficient_evidence" | "reported";
+  /** Share of eligible re-checks that expired unused; null when gated. */
+  expiredShare: number | null;
+}
+
+/** Funnel over stored skill-observed retests (counts only; no durability claim). */
+export function recheckFunnel(repairs: readonly RecheckInput[], now: Date): RecheckFunnel {
+  const f = { eligible: 0, waiting: 0, due: 0, expired: 0 };
+  for (const r of repairs) {
+    const s = recheckStatus(r, now).state;
+    if (s === "not-scheduled") continue;
+    f.eligible += 1;
+    f[s] += 1;
+  }
+  const ok = f.eligible >= RECHECK_MIN_SAMPLE;
+  return { ...f, evidence: ok ? "reported" : "insufficient_evidence", expiredShare: ok ? f.expired / f.eligible : null };
+}
