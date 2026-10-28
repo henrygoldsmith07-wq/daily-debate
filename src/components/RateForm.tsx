@@ -10,6 +10,32 @@ interface RateItem {
   topic: string | null;
 }
 
+export function RateQueueState({
+  error,
+  emptyNote,
+  onRetry,
+}: {
+  error: string | null;
+  emptyNote: string | null;
+  onRetry: () => void;
+}) {
+  if (error) {
+    return (
+      <div className="surface-card flex flex-col items-center gap-3 p-8 text-center">
+        <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>
+        <button type="button" onClick={onRetry} className="btn btn-ghost px-4 py-2 text-sm">
+          Try again
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="surface-card p-8 text-center">
+      <p className="text-sm text-ink3">{emptyNote}</p>
+    </div>
+  );
+}
+
 type ScoreMap = Partial<Record<string, number>>;
 
 const DIMENSION_LABELS: Record<string, string> = {
@@ -167,9 +193,7 @@ export default function RateForm() {
       {loading ? (
         <p className="text-center text-sm text-ink3">Loading…</p>
       ) : !item ? (
-        <div className="surface-card p-8 text-center">
-          <p className="text-sm text-ink3">{emptyNote}</p>
-        </div>
+        <RateQueueState error={error} emptyNote={emptyNote} onRetry={() => void loadNext()} />
       ) : (
         <div className="surface-card flex flex-col gap-5 p-5">
           {item.topic && <p className="text-xs uppercase tracking-wide text-ink3">Topic area: {item.topic}</p>}
