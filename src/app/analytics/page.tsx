@@ -4,6 +4,7 @@ import PageHeader from "@/components/PageHeader";
 import { loadFunnelData } from "@/lib/productFunnelServer";
 import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, FUNNEL_MIN_SAMPLE } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
+import { statsByHelpLevel, HELP_STAT_MIN_ATTEMPTS } from "@/lib/repairHints";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
@@ -67,6 +68,8 @@ export default async function AnalyticsPage() {
   const weeklyLoop = buildWeeklyLoop(events, funnel.generatedAt);
   const effectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { retests });
   const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { retests });
+
+  const helpStats = statsByHelpLevel(repairs.map((r) => ({ helpLevel: (r.help_level ?? 0) as 0 | 1 | 2 | 3, demonstrated: r.succeeded })));
 
   const aiOpsData = await loadAiOpsData();
   const aiOps = aiOpsData.status === "unavailable" ? null : aiOpsData.report;
@@ -221,6 +224,18 @@ export default async function AnalyticsPage() {
         <p className="mt-2 text-xs text-ink3">
           Dashes mean the cohort still has users inside that window — they are pending, not churned.
         </p>
+      </section>
+
+      <section className="surface-card p-5" aria-labelledby="help-heading" data-testid="help-level-stats">
+        <h2 id="help-heading" className="text-sm font-semibold">Repair success by help level</h2>
+        <p className="mt-1 text-xs text-ink3">
+          Saved repair attempts grouped by the hint the learner had unlocked. Unvalidated, and not causal: learners who need more help are not comparable to those who need none. Rates appear at {HELP_STAT_MIN_ATTEMPTS}+ attempts per level.
+        </p>
+        <div className="mt-2">
+          {helpStats.map((s) => (
+            <RateRow key={s.level} label={s.label} numerator={s.demonstrated} denominator={s.attempts} rate={s.rate} note={s.rate === null ? `insufficient evidence (${s.attempts} attempts)` : "unvalidated"} />
+          ))}
+        </div>
       </section>
 
       {aiOps && (
