@@ -101,3 +101,26 @@ export function pickRecheckMotion(
   for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return fresh[h % fresh.length];
 }
+
+export interface RecheckPlan {
+  repairId: string;
+  motion: string;
+  label: string;
+}
+
+/**
+ * Plan for starting a due re-check: the oldest due repair plus a fresh motion.
+ * Returns null when nothing is due or no fresh motion exists (never reuses one).
+ */
+export function planRecheck<T extends RecheckInput & { id: string }>(
+  repairs: readonly T[],
+  candidates: readonly string[],
+  usedMotionsByRepair: Readonly<Record<string, readonly string[]>>,
+  now: Date,
+): RecheckPlan | null {
+  const due = nextDueRecheck(repairs, now);
+  if (!due) return null;
+  const motion = pickRecheckMotion(candidates, usedMotionsByRepair[due.id] ?? [], due.id);
+  if (!motion) return null;
+  return { repairId: due.id, motion, label: "7-day re-check (unvalidated)" };
+}

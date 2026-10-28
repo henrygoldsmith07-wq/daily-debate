@@ -61,3 +61,17 @@ describe("pickRecheckMotion", () => {
     expect(pickRecheckMotion(pool, pool, "r1")).toBeNull();
   });
 });
+
+import { planRecheck } from "./spacedRecheck";
+describe("planRecheck", () => {
+  const now = new Date("2026-11-20T00:00:00Z");
+  const r = { id: "a", retest_outcome: "skill-observed", retest_completed_at: "2026-11-10T00:00:00Z" } as never;
+  it("plans a fresh motion for a due repair", () => {
+    const p = planRecheck([r], ["X", "Y"], { a: ["X"] }, now);
+    expect(p).toMatchObject({ repairId: "a", motion: "Y" });
+  });
+  it("returns null with no fresh motion or nothing due", () => {
+    expect(planRecheck([r], ["X"], { a: ["x"] }, now)).toBeNull();
+    expect(planRecheck([r], ["X"], {}, new Date("2026-11-11T00:00:00Z"))).toBeNull();
+  });
+});
