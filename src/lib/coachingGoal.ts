@@ -65,10 +65,11 @@ export function pickFocusDimension(
   outcomes: Partial<Record<CoachDimension, number>> = {},
   excludeDimensions: readonly CoachDimension[] = [],
   reRepairDimensions: readonly CoachDimension[] = [],
+  repairedDimensions: readonly CoachDimension[] = [],
 ): CoachDimension | null {
   if (!points.length) return null;
   const { dims, slopes } = buildCoachProfile(points);
-  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimensions, reRepairDimensions);
+  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimensions, reRepairDimensions, repairedDimensions);
   return focus?.key ?? null;
 }
 
