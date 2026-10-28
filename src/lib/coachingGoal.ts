@@ -160,8 +160,9 @@ export function buildCoachingGoal(
   outcomes: Partial<Record<CoachDimension, number>> = {},
   excludeDimensions: readonly CoachDimension[] = [],
   reRepairDimensions: readonly CoachDimension[] = [],
+  repairedDimensions: readonly CoachDimension[] = [],
 ): CoachingGoal | null {
-  const dimension = pickFocusDimension(points, outcomes, excludeDimensions, reRepairDimensions);
+  const dimension = pickFocusDimension(points, outcomes, excludeDimensions, reRepairDimensions, repairedDimensions);
   if (!dimension) return null;
   const headline = GOAL_HEADLINES[dimension];
 

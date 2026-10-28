@@ -270,6 +270,7 @@ export async function startSoloDebate(params: {
         context.drillOutcomes,
         skillsUnderTest(context.pendingRetests),
         context.reRepairDimensions,
+        context.repairedDimensions,
       );
 
       if (pendingRetest) {
@@ -287,7 +288,7 @@ export async function startSoloDebate(params: {
           if (!degradationReasons.includes("repair-retest-unavailable")) {
             degradationReasons.push("repair-retest-unavailable");
           }
-          coachingDimension = pickFocusDimension(context.ledger.points, context.drillOutcomes, [], context.reRepairDimensions);
+          coachingDimension = pickFocusDimension(context.ledger.points, context.drillOutcomes, [], context.reRepairDimensions, context.repairedDimensions);
         }
       }
     }
