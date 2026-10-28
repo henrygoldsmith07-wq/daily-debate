@@ -82,3 +82,22 @@ export function recheckFunnel(repairs: readonly RecheckInput[], now: Date): Rech
   const ok = f.eligible >= RECHECK_MIN_SAMPLE;
   return { ...f, evidence: ok ? "reported" : "insufficient_evidence", expiredShare: ok ? f.expired / f.eligible : null };
 }
+
+/**
+ * Pick the re-check motion: a fresh motion (never the original debate's or the
+ * retest's) so durability is not just memory of a prior argument. Deterministic
+ * per repair so a refresh shows the same motion. Returns null when no fresh
+ * candidate exists (the re-check then stays unscheduled rather than reusing one).
+ */
+export function pickRecheckMotion(
+  candidates: readonly string[],
+  usedMotions: readonly string[],
+  seed: string,
+): string | null {
+  const used = new Set(usedMotions.map((m) => m.trim().toLowerCase()));
+  const fresh = [...new Set(candidates.map((c) => c.trim()))].filter((c) => c && !used.has(c.toLowerCase())).sort();
+  if (fresh.length === 0) return null;
+  let h = 0;
+  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return fresh[h % fresh.length];
+}

@@ -48,3 +48,16 @@ describe("recheckFunnel", () => {
     expect(f.expiredShare).toBe(0.5);
   });
 });
+
+import { pickRecheckMotion } from "./spacedRecheck";
+describe("pickRecheckMotion", () => {
+  const pool = ["Cities should ban cars", "Homework should end", "Zoos should close"];
+  it("never reuses a prior motion, case-insensitively", () => {
+    const m = pickRecheckMotion(pool, ["cities should ban cars", "Homework should end"], "r1");
+    expect(m).toBe("Zoos should close");
+  });
+  it("is deterministic per seed and null when nothing is fresh", () => {
+    expect(pickRecheckMotion(pool, [], "r1")).toBe(pickRecheckMotion(pool, [], "r1"));
+    expect(pickRecheckMotion(pool, pool, "r1")).toBeNull();
+  });
+});
