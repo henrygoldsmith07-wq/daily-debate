@@ -175,3 +175,25 @@ describe("goal outcome provenance", () => {
     expect(ledger.goalOutcome.provenance).toBeNull();
   });
 });
+
+describe("closeCallNote", () => {
+  const base = { headline: "h", whyItMatters: "w", repair: null, kind: "evidence" };
+  it("is null for an unambiguous pick", async () => {
+    const { closeCallNote } = await import("./resultSnapshot");
+    expect(closeCallNote(null)).toBeNull();
+    expect(closeCallNote({ ...base })).toBeNull();
+    expect(closeCallNote({ ...base, alsoPresent: [] })).toBeNull();
+  });
+  it("names the other misses and disclaims validation", async () => {
+    const { closeCallNote } = await import("./resultSnapshot");
+    const note = closeCallNote({ ...base, alsoPresent: ["rebuttal"] });
+    expect(note).toContain("Too close to call");
+    expect(note).toContain("rebuttal");
+    expect(note).toContain("not a validated");
+  });
+  it("records alsoPresent when two kinds are observable", () => {
+    const snap = buildResultSnapshot(assess(UNSUPPORTED_GRAPH), { format: "full" });
+    const others = snap.weakness?.alsoPresent ?? [];
+    expect(others).not.toContain(snap.weakness?.kind);
+  });
+});

@@ -19,6 +19,7 @@ import type { DebateSummaryPayload, ReplayView } from "./types";
 import type { SurfaceValidation } from "@/lib/judgeValidation";
 import { trackEvent } from "@/lib/trackClientEvent";
 import { formatLabelFor, type DebateFormat } from "@/lib/sprint";
+import { closeCallNote } from "@/lib/resultSnapshot";
 
 export interface DebateResultCardProps {
   view: ReplayView;
@@ -58,6 +59,7 @@ export function DebateResultCard({
   repairValidation = null,
 }: DebateResultCardProps) {
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  const [feedbackMissed, setFeedbackMissed] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
   // Copy the plain-text summary for learners who want to revisit it elsewhere.
@@ -195,6 +197,29 @@ export function DebateResultCard({
               <p className="text-xs uppercase tracking-wide text-[var(--speak)]">Main weakness</p>
               <p className="mt-1 text-base font-semibold">{weakness.headline}</p>
               <p className="mt-1 text-sm leading-6 text-ink2">{weakness.whyItMatters}</p>
+              {closeCallNote(weakness) && (
+                <p className="mt-2 text-xs leading-5 text-ink3" data-testid="weakness-close-call">{closeCallNote(weakness)}</p>
+              )}
+              {snapshot?.uncertainty && snapshot.uncertainty.length > 0 && (
+                <p className="mt-1 text-xs leading-5 text-ink3" data-testid="weakness-uncertainty">Read with care: {snapshot.uncertainty[0]}</p>
+              )}
+              <div className="mt-3">
+                {feedbackMissed ? (
+                  <p className="text-xs text-ink3" data-testid="weakness-feedback-thanks">Thanks, noted. This helps check how often the feedback misses.</p>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-xs text-ink3 underline underline-offset-2"
+                    data-testid="weakness-feedback-missed"
+                    onClick={() => {
+                      setFeedbackMissed(true);
+                      trackEvent("weakness_feedback_missed", { format, debateId });
+                    }}
+                  >
+                    This feedback missed
+                  </button>
+                )}
+              </div>
               {snapshot?.recurrence?.label && (
                 <p className="mt-2 text-xs font-medium text-[var(--speak)]" data-testid="weakness-recurrence">
                   ↻ {snapshot.recurrence.label}

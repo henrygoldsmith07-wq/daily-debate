@@ -59,7 +59,8 @@ export type ProductEventName =
   | "pvp_started"
   | "challenge_me_selected"
   | "challenge_link_created"
-  | "challenge_link_accepted";
+  | "challenge_link_accepted"
+  | "weakness_feedback_missed";
 
 export interface ProductEventContext {
   format?: DebateFormat;
@@ -93,6 +94,7 @@ export const PRODUCT_EVENT_NAMES: readonly ProductEventName[] = [
   "challenge_me_selected",
   "challenge_link_created",
   "challenge_link_accepted",
+  "weakness_feedback_missed",
 ] as const;
 
 export function isProductEventName(value: unknown): value is ProductEventName {
