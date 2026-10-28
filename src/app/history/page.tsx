@@ -10,6 +10,8 @@ import { allowsCompetitiveClaims } from "@/lib/judgeValidation";
 import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
 import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
+import LoopChainPanel from "@/components/LoopChainPanel";
+import { loadLoopChain } from "@/lib/loopChainServer";
 import { historyLoopMap, type HistoryLoopState } from "@/lib/historyLoop";
 
 export const dynamic = "force-dynamic";
@@ -123,6 +125,8 @@ export default async function HistoryPage() {
     );
   }
 
+  const loopChain = await loadLoopChain(user.id).catch(() => []);
+
   return (
     <AppShell width="narrow">
       <PageHeader
@@ -140,6 +144,8 @@ export default async function HistoryPage() {
           </>
         }
       />
+
+      <LoopChainPanel chain={loopChain} />
 
       <section className="flex flex-col gap-3">
         <div className="section-heading">
