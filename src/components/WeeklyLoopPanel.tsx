@@ -13,6 +13,9 @@ export default function WeeklyLoopPanel({ loop }: { loop: WeeklyLoop }) {
     <section className="surface-card p-5" aria-labelledby="weekly-loop-heading" data-testid="weekly-loop">
       <h2 id="weekly-loop-heading" className="text-sm font-semibold">This week in your loop</h2>
       <p className="mt-1 text-xs text-ink3">The last 7 days of what you actually did.</p>
+      <p className="mt-1 text-xs text-ink3" data-testid="weekly-compare">
+        {`Previous 7 days: ${loop.previousDebates} ${loop.previousDebates === 1 ? "debate" : "debates"}. Counts only, not a measure of improvement.`}
+      </p>
       <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {cells.map(([k, v]) => (
           <div key={k}>

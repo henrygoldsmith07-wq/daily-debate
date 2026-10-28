@@ -17,6 +17,8 @@ export interface WeeklyRetest {
 
 export interface WeeklyLoop {
   debates: number;
+  /** Debates in the 7 days before this week (observational comparison, no causal claim). */
+  previousDebates: number;
   repairAttempts: number;
   repairsSucceeded: number;
   retestsCompleted: number;
@@ -41,6 +43,10 @@ export function buildWeeklyLoop(
   now: number = Date.now(),
 ): WeeklyLoop {
   const debates = input.debates.filter((d) => inWindow(d.completedAt, now)).length;
+  const previousDebates = input.debates.filter((d) => {
+    const t = d.completedAt ? Date.parse(d.completedAt) : NaN;
+    return Number.isFinite(t) && t <= now - WEEK_MS && now - t < 2 * WEEK_MS;
+  }).length;
   const repairs = input.repairs.filter((r) => inWindow(r.createdAt, now));
   const retests = input.retests.filter((r) => inWindow(r.completedAt, now));
   const retestsObservable = retests.filter((r) => r.observable === true);
@@ -60,6 +66,7 @@ export function buildWeeklyLoop(
 
   return {
     debates,
+    previousDebates,
     repairAttempts: repairs.length,
     repairsSucceeded: succeeded,
     retestsCompleted: retests.length,

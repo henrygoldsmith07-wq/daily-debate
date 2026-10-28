@@ -48,4 +48,13 @@ describe("buildWeeklyLoop", () => {
     expect(w.next.kind).toBe("retest");
     expect(buildWeeklyLoop({ debates: [], repairs: [], retests: [] }, now).next.kind).toBe("debate");
   });
+
+  it("counts the previous 7 days separately from this week", () => {
+    const w = buildWeeklyLoop({
+      debates: [{ completedAt: ago(DAY) }, { completedAt: ago(8 * DAY) }, { completedAt: ago(13 * DAY) }, { completedAt: ago(15 * DAY) }],
+      repairs: [], retests: [],
+    }, now);
+    expect(w.debates).toBe(1);
+    expect(w.previousDebates).toBe(2);
+  });
 });

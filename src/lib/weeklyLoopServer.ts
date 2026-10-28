@@ -6,7 +6,7 @@ import { buildWeeklyLoop, WEEK_MS, type WeeklyLoop } from "./weeklyLoop";
 /** Weekly loop summary for one user; bounded reads. */
 export async function loadWeeklyLoop(userId: string): Promise<WeeklyLoop> {
   const service = createServiceClient();
-  const since = new Date(Date.now() - WEEK_MS).toISOString();
+  const since = new Date(Date.now() - 2 * WEEK_MS).toISOString();
   const [debates, repairs, retests, pending] = await Promise.all([
     service.from("solo_debates").select("completed_at").eq("user_id", userId).eq("status", "completed").gte("completed_at", since).limit(200),
     service.from("repair_results").select("created_at, succeeded").eq("user_id", userId).gte("created_at", since).limit(200),
