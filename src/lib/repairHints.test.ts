@@ -26,3 +26,21 @@ describe("repair hint ladder", () => {
     expect(many[2].state).toBe("unvalidated");
   });
 });
+
+import { helpLevelFromSignals, tagHelpSignal, unlockedHelp, visibleSignals } from "./repairHints";
+
+describe("help signal tagging and unlocked ladder", () => {
+  it("round-trips the help level without leaking into visible signals", () => {
+    const tagged = tagHelpSignal(["a", "help_level:1"], 2);
+    expect(helpLevelFromSignals(tagged)).toBe(2);
+    expect(visibleSignals(tagged)).toEqual(["a"]);
+    expect(helpLevelFromSignals(["x"])).toBe(0);
+    expect(helpLevelFromSignals(null)).toBe(0);
+  });
+  it("unlocks nothing before a failed attempt and caps at three", () => {
+    const t = { kind: "evidence" as const, sourceText: "x" };
+    expect(unlockedHelp(t, 0)).toEqual([]);
+    expect(unlockedHelp(t, 2).map((h) => h.level)).toEqual([1, 2]);
+    expect(unlockedHelp(t, 9).map((h) => h.level)).toEqual([1, 2, 3]);
+  });
+});

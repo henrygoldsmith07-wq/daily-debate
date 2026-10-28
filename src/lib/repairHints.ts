@@ -100,3 +100,26 @@ export function statsByHelpLevel(attempts: AttemptRecord[]): HelpLevelStat[] {
     };
   });
 }
+
+const HELP_SIGNAL_PREFIX = "help_level:";
+
+/** Stored alongside a repair's signals so no migration is needed. */
+export function tagHelpSignal(signals: string[], level: HelpLevel): string[] {
+  return [...signals.filter((x) => !x.startsWith(HELP_SIGNAL_PREFIX)), `${HELP_SIGNAL_PREFIX}${level}`];
+}
+
+export function helpLevelFromSignals(signals: unknown): HelpLevel {
+  if (!Array.isArray(signals)) return 0;
+  const tag = signals.find((x) => typeof x === "string" && x.startsWith(HELP_SIGNAL_PREFIX)) as string | undefined;
+  return clampHelpLevel(tag ? Number(tag.slice(HELP_SIGNAL_PREFIX.length)) : 0, MAX_HELP_LEVEL);
+}
+
+export function visibleSignals(signals: string[]): string[] {
+  return signals.filter((x) => !x.startsWith(HELP_SIGNAL_PREFIX));
+}
+
+/** All help text the learner has unlocked so far, in ladder order. */
+export function unlockedHelp(target: Pick<RepairTarget, "kind" | "sourceText">, failedAttempts: number): HelpContent[] {
+  const max = maxUnlockedLevel(failedAttempts);
+  return ([1, 2, 3] as HelpLevel[]).filter((l) => l <= max).map((l) => helpFor(target, l)!);
+}
