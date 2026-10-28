@@ -58,3 +58,21 @@ describe("buildWeeklyLoop", () => {
     expect(w.previousDebates).toBe(2);
   });
 });
+
+describe("weekly loop active days", () => {
+  it("counts distinct days, not debates", () => {
+    const now = Date.parse("2026-10-28T12:00:00Z");
+    const l = buildWeeklyLoop({
+      debates: [
+        { completedAt: "2026-10-28T08:00:00Z" },
+        { completedAt: "2026-10-28T09:00:00Z" },
+        { completedAt: "2026-10-26T09:00:00Z" },
+        { completedAt: "2026-10-01T09:00:00Z" },
+      ],
+      repairs: [],
+      retests: [],
+    }, now);
+    expect(l.debates).toBe(3);
+    expect(l.activeDays).toBe(2);
+  });
+});

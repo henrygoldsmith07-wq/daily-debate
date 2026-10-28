@@ -5,6 +5,7 @@ import { MIN_RETESTS_FOR_RATE } from "@/lib/weeklyLoop";
 export default function WeeklyLoopPanel({ loop }: { loop: WeeklyLoop }) {
   const cells: Array<[string, string]> = [
     ["Debates", String(loop.debates)],
+    ["Active days", `${loop.activeDays} of 7`],
     ["Repairs tried", String(loop.repairAttempts)],
     ["Repairs landed", String(loop.repairsSucceeded)],
     ["Retests done", String(loop.retestsCompleted)],
@@ -16,7 +17,7 @@ export default function WeeklyLoopPanel({ loop }: { loop: WeeklyLoop }) {
       <p className="mt-1 text-xs text-ink3" data-testid="weekly-compare">
         {`Previous 7 days: ${loop.previousDebates} ${loop.previousDebates === 1 ? "debate" : "debates"}. Counts only, not a measure of improvement.`}
       </p>
-      <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
         {cells.map(([k, v]) => (
           <div key={k}>
             <dt className="text-xs text-ink3">{k}</dt>
