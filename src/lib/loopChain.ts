@@ -72,3 +72,30 @@ export function buildLoopChain(repairs: ChainRepair[], retests: ChainRetest[], l
   }
   return entries.sort((a, b) => ts(b.repairedAt) - ts(a.repairedAt)).slice(0, limit);
 }
+
+/** Minimum decided retests before any share is shown. Below it: insufficient_evidence. */
+export const CHAIN_RATE_MIN_DECIDED = 10;
+
+export interface ChainSummary {
+  repairs: number;
+  pending: number;
+  decided: number;
+  demonstrated: number;
+  /** Share of decided (observable) retests where the skill showed up; null below the sample gate. */
+  demonstratedShare: number | null;
+  status: "ok" | "insufficient_evidence";
+}
+
+export function summarizeChain(entries: ChainEntry[]): ChainSummary {
+  const decided = entries.filter((e) => e.stage === "retest_demonstrated" || e.stage === "retest_not_demonstrated");
+  const demonstrated = decided.filter((e) => e.stage === "retest_demonstrated").length;
+  const ok = decided.length >= CHAIN_RATE_MIN_DECIDED;
+  return {
+    repairs: entries.length,
+    pending: entries.filter((e) => e.stage === "retest_pending").length,
+    decided: decided.length,
+    demonstrated,
+    demonstratedShare: ok ? demonstrated / decided.length : null,
+    status: ok ? "ok" : "insufficient_evidence",
+  };
+}

@@ -33,3 +33,17 @@ describe("buildLoopChain", () => {
     expect(buildLoopChain(many, [], 2)).toHaveLength(2);
   });
 });
+
+import { summarizeChain, CHAIN_RATE_MIN_DECIDED, type ChainEntry } from "./loopChain";
+describe("summarizeChain", () => {
+  const mk = (stage: ChainEntry["stage"], i: number): ChainEntry => ({ repairId: `r${i}`, targetKind: "logic", repairedAt: "2026-10-01T00:00:00Z", stage, retestAssignments: 1, completedAt: null, recurrence: "insufficient_evidence" });
+  it("withholds a share below the gate", () => {
+    const s = summarizeChain([mk("retest_demonstrated", 1), mk("retest_pending", 2)]);
+    expect(s).toMatchObject({ decided: 1, pending: 1, demonstratedShare: null, status: "insufficient_evidence" });
+  });
+  it("gives a share at the gate, ignoring not-observable", () => {
+    const es = Array.from({ length: CHAIN_RATE_MIN_DECIDED }, (_, i) => mk(i < 4 ? "retest_demonstrated" : "retest_not_demonstrated", i));
+    es.push(mk("retest_not_observable", 99));
+    expect(summarizeChain(es)).toMatchObject({ decided: 10, demonstrated: 4, demonstratedShare: 0.4, status: "ok" });
+  });
+});
