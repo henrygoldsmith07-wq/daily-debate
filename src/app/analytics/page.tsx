@@ -2,7 +2,7 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadFunnelData } from "@/lib/productFunnelServer";
-import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, FUNNEL_MIN_SAMPLE } from "@/lib/productFunnel";
+import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, summarizeFeedbackMissed, FUNNEL_MIN_SAMPLE } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 import { statsByHelpLevel, HELP_STAT_MIN_ATTEMPTS } from "@/lib/repairHints";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
@@ -69,6 +69,7 @@ export default async function AnalyticsPage() {
   const { events, repairs, retests, debateWeaknesses, completeness } = funnelData;
   const funnel = buildFunnelReport(events, {});
   const weeklyLoop = buildWeeklyLoop(events, funnel.generatedAt);
+  const feedbackMissed = summarizeFeedbackMissed(events);
   const effectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { retests });
   const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { retests });
 
@@ -111,6 +112,15 @@ export default async function AnalyticsPage() {
           <p className="mt-1 text-xs text-ink3">{steering.note}{steering.truncated ? " Read capped at the newest 2000 debates." : ""}</p>
         </section>
       )}
+
+      <section className="surface-card p-5" aria-labelledby="feedback-missed-heading" data-testid="feedback-missed-summary">
+        <h2 id="feedback-missed-heading" className="text-sm font-semibold">&ldquo;This feedback missed&rdquo; flags</h2>
+        <p className="mt-1 text-sm text-ink2">
+          {feedbackMissed.flaggedDebates} flagged across {feedbackMissed.flaggedUsers} learners, {feedbackMissed.completedDebates} completed debates
+          {feedbackMissed.flagRate !== null ? ` (${Math.round(feedbackMissed.flagRate * 100)}% flagged)` : ""}.
+        </p>
+        <p className="mt-1 text-xs text-ink3">{feedbackMissed.note}</p>
+      </section>
 
       <section className="surface-card p-5" aria-labelledby="funnel-heading">
         <h2 id="funnel-heading" className="text-sm font-semibold">Training funnel</h2>
