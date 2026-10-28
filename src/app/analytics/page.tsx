@@ -6,6 +6,8 @@ import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, FUNNEL_MI
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 import { statsByHelpLevel, HELP_STAT_MIN_ATTEMPTS } from "@/lib/repairHints";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
+import { loadAggregateLoopChain } from "@/lib/loopChainServer";
+import { CHAIN_RATE_MIN_DECIDED, summarizeChainByKind } from "@/lib/loopChain";
 import { loadSteeringSummary } from "@/lib/steeringServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
@@ -75,6 +77,7 @@ export default async function AnalyticsPage() {
   const aiOpsData = await loadAiOpsData();
   const aiOps = aiOpsData.status === "unavailable" ? null : aiOpsData.report;
   const steering = await loadSteeringSummary();
+  const chainAgg = await loadAggregateLoopChain();
 
   return (
     <AppShell width="narrow">
@@ -84,6 +87,20 @@ export default async function AnalyticsPage() {
         description={`User-level rates over the last ${funnel.windowDays} days — ${funnel.eventsAnalysed} events from ${funnel.usersAnalysed} users. Rates are shown only at ≥5-user samples; below that they say "not yet measurable" rather than reporting noise.`}
       />
 
+      {chainAgg && chainAgg.entries.length > 0 && (
+        <section className="surface-card p-5" aria-labelledby="chain-agg-heading" data-testid="chain-agg">
+          <h2 id="chain-agg-heading" className="text-sm font-semibold">Repair to retest chain by skill</h2>
+          <p className="mt-1 text-xs text-ink3">Observational and unvalidated. A rate shows only after {CHAIN_RATE_MIN_DECIDED} measurable retests for that skill; recurrence is not measured.{chainAgg.capped ? " Newest 500 repairs only." : ""}</p>
+          <ul className="mt-3 space-y-1">
+            {summarizeChainByKind(chainAgg.entries).map((k) => (
+              <li key={k.kind} className="text-sm" data-testid="chain-agg-row" data-status={k.status}>
+                <span className="font-medium capitalize">{k.kind}</span>
+                <span className="text-ink3">{` · ${k.repairs} repairs · ${k.pending} pending · `}{k.demonstratedShare === null ? `insufficient_evidence (${k.decided}/${CHAIN_RATE_MIN_DECIDED} measurable)` : `${Math.round(k.demonstratedShare * 100)}% showed the skill (${k.demonstrated}/${k.decided})`}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {steering && (
         <section className="surface-card p-5" aria-labelledby="steering-heading" data-testid="steering-stats">
           <h2 id="steering-heading" className="text-sm font-semibold">Coach focus steering</h2>

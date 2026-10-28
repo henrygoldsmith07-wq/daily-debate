@@ -99,3 +99,11 @@ export function summarizeChain(entries: ChainEntry[]): ChainSummary {
     status: ok ? "ok" : "insufficient_evidence",
   };
 }
+
+export interface KindChainSummary extends ChainSummary { kind: ChainKind }
+
+/** Per-skill summaries; each is gated independently, so a thin skill never shows a rate. */
+export function summarizeChainByKind(entries: ChainEntry[]): KindChainSummary[] {
+  const kinds = [...new Set(entries.map((e) => e.targetKind))].sort();
+  return kinds.map((kind) => ({ kind, ...summarizeChain(entries.filter((e) => e.targetKind === kind)) }));
+}

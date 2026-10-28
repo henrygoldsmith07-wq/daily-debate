@@ -47,3 +47,14 @@ describe("summarizeChain", () => {
     expect(summarizeChain(es)).toMatchObject({ decided: 10, demonstrated: 4, demonstratedShare: 0.4, status: "ok" });
   });
 });
+
+import { summarizeChainByKind } from "./loopChain";
+describe("summarizeChainByKind", () => {
+  it("gates each skill independently", () => {
+    const mk = (i: number, kind: "logic" | "impact", demo: boolean) => ({ repairId: `${kind}${i}`, targetKind: kind, repairedAt: "2026-10-01T00:00:00Z", stage: demo ? ("retest_demonstrated" as const) : ("retest_not_demonstrated" as const), retestAssignments: 1, completedAt: "2026-10-02T00:00:00Z", recurrence: "insufficient_evidence" as const });
+    const entries = [...Array.from({ length: 10 }, (_, i) => mk(i, "logic", i < 6)), mk(0, "impact", true)];
+    const out = summarizeChainByKind(entries);
+    expect(out.find((k) => k.kind === "logic")?.demonstratedShare).toBe(0.6);
+    expect(out.find((k) => k.kind === "impact")?.demonstratedShare).toBeNull();
+  });
+});
