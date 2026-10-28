@@ -7,7 +7,7 @@
 // Pure — routes/components supply ledger points and snapshots.
 
 import type { CoachDimension } from "./adaptiveCoach";
-import { buildCoachProfile, selectFocus } from "./adaptiveCoach";
+import { buildCoachProfile, selectFocus, type FocusSteering } from "./adaptiveCoach";
 import type { SkillMetricPoint } from "./skillLedger";
 import type { ObservableAssessment } from "./observableAssessment";
 import { claimNodesOwnedBy } from "./argGraph";
@@ -67,10 +67,21 @@ export function pickFocusDimension(
   reRepairDimensions: readonly CoachDimension[] = [],
   repairedDimensions: readonly CoachDimension[] = [],
 ): CoachDimension | null {
+  return pickFocus(points, outcomes, excludeDimensions, reRepairDimensions, repairedDimensions)?.dimension ?? null;
+}
+
+/** Focus plus why it was chosen; `steering` says whether stored repair/retest outcomes moved it. */
+export function pickFocus(
+  points: SkillMetricPoint[],
+  outcomes: Partial<Record<CoachDimension, number>> = {},
+  excludeDimensions: readonly CoachDimension[] = [],
+  reRepairDimensions: readonly CoachDimension[] = [],
+  repairedDimensions: readonly CoachDimension[] = [],
+): { dimension: CoachDimension; reason: string; steering: FocusSteering } | null {
   if (!points.length) return null;
   const { dims, slopes } = buildCoachProfile(points);
-  const { focus } = selectFocus(dims, slopes, outcomes, excludeDimensions, reRepairDimensions, repairedDimensions);
-  return focus?.key ?? null;
+  const { focus, reason, steering } = selectFocus(dims, slopes, outcomes, excludeDimensions, reRepairDimensions, repairedDimensions);
+  return focus ? { dimension: focus.key, reason, steering } : null;
 }
 
 /**
@@ -130,6 +141,17 @@ export interface CoachingGoal {
   goalLine: string;
   /** True when the goalLine quotes concrete numbers justified by real data. */
   numeric: boolean;
+  /** Whether a stored repair/retest outcome steered this focus. */
+  steering: FocusSteering;
+  /** Learner-facing "why this focus" line, only when steering changed the pick. */
+  whyLine: string | null;
+}
+
+export function whyFocusLine(steering: FocusSteering, reason: string): string | null {
+  if (steering === "re_repair" || steering === "moved_on") {
+    return `Why this focus: ${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`;
+  }
+  return null;
 }
 
 function described(snapshot: CoachingSnapshot): string | null {
@@ -162,12 +184,15 @@ export function buildCoachingGoal(
   reRepairDimensions: readonly CoachDimension[] = [],
   repairedDimensions: readonly CoachDimension[] = [],
 ): CoachingGoal | null {
-  const dimension = pickFocusDimension(points, outcomes, excludeDimensions, reRepairDimensions, repairedDimensions);
-  if (!dimension) return null;
+  const picked = pickFocus(points, outcomes, excludeDimensions, reRepairDimensions, repairedDimensions);
+  if (!picked) return null;
+  const dimension = picked.dimension;
+  const steering = picked.steering;
+  const whyLine = whyFocusLine(steering, picked.reason);
   const headline = GOAL_HEADLINES[dimension];
 
   if (!lastSnapshot) {
-    return { dimension, headline, lastLine: null, goalLine: headline, numeric: false };
+    return { dimension, headline, lastLine: null, goalLine: headline, numeric: false, steering, whyLine };
   }
 
   const lastLine = described(lastSnapshot);
@@ -182,6 +207,8 @@ export function buildCoachingGoal(
       lastLine,
       goalLine: `Answer at least ${target} of ${lastSnapshot.responseOpportunities} before introducing a new claim.`,
       numeric: true,
+      steering,
+      whyLine,
     };
   }
   if (dimension === "evidence" && lastSnapshot.majorClaims >= NUMERIC_GOAL_MIN_OPPORTUNITIES) {
@@ -191,10 +218,12 @@ export function buildCoachingGoal(
       lastLine,
       goalLine: "Give every major claim one named source this time.",
       numeric: false,
+      steering,
+      whyLine,
     };
   }
 
-  return { dimension, headline, lastLine, goalLine: headline, numeric: false };
+  return { dimension, headline, lastLine, goalLine: headline, numeric: false, steering, whyLine };
 }
 
 export interface GoalOutcome {

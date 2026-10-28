@@ -477,6 +477,7 @@ export default async function DashboardPage() {
         // already, and the fallback below is deliberately skill-agnostic.
         goalLine={goal?.goalLine ?? (pendingRetest ? NEUTRAL_GOAL_LINE : "Use evidence for major claims.")}
         lastLine={goal?.lastLine ?? null}
+        whyLine={goal?.whyLine ?? null}
         focusLabel="Today's focus"
         motionReason={motion.reasonLine}
         isFirstVisit={!previousDebate}

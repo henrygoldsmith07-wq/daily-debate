@@ -51,6 +51,7 @@ export default function TopicCard({
   activeDebateId,
   evidenceCards = [],
   goalLine = NEUTRAL_GOAL_LINE,
+  whyLine = null,
   lastLine,
   focusLabel = "Today's focus",
   isFirstVisit = false,
@@ -63,6 +64,7 @@ export default function TopicCard({
   evidenceCards?: EvidenceCardView[];
   /** Today's coaching goal headline (shown before the debate). */
   goalLine?: string;
+  whyLine?: string | null;
   /** Evidence from the previous debate, when the goal is based on one. */
   lastLine?: string | null;
   focusLabel?: string;
@@ -193,6 +195,7 @@ export default function TopicCard({
                 ? "Pick a side, argue three short rounds, then repair the one weakness the coach flags."
                 : goalLine}
             </strong>
+            {isFirstVisit || !whyLine ? null : <span className="home-coaching-lastline" data-testid="focus-why">{whyLine}</span>}
             {isFirstVisit ? null : (lastLine && <span className="home-coaching-lastline">{lastLine}</span>)}
           </div>
         )}
