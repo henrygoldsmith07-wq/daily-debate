@@ -15,6 +15,8 @@ import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
 import CoachToday from "@/components/CoachToday";
+import WeeklyLoopPanel from "@/components/WeeklyLoopPanel";
+import { loadWeeklyLoop } from "@/lib/weeklyLoopServer";
 import PageViewEvent from "@/components/PageViewEvent";
 import { computeLoopStatuses, type DrillAssignmentLite, type LoopStage } from "@/lib/coachLoop";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
@@ -267,6 +269,8 @@ export default async function ProgressPage() {
     })),
   );
 
+  const weeklyLoop = await loadWeeklyLoop(user.id).catch(() => null);
+
   return (
     <AppShell width="narrow">
       <PageViewEvent name="progress_viewed" />
@@ -275,6 +279,7 @@ export default async function ProgressPage() {
         title="Progress"
         description={progressDescription}
       />
+      {weeklyLoop && <WeeklyLoopPanel loop={weeklyLoop} />}
       {/* ── What to practise next: the one recommended action + why ────── */}
       {learnerModel.nextPractice && (
         <section
