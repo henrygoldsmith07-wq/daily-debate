@@ -16,6 +16,7 @@ import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
 import RetestStartButton from "@/components/RetestStartButton";
+import { nextDueRecheck, recheckCopy, recheckStatus } from "@/lib/spacedRecheck";
 import { continueKicker, isRetestHero } from "@/lib/retestHero";
 import { lapsedRetestNotice } from "@/lib/lapsedRetestNotice";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
@@ -331,10 +332,30 @@ export default async function DashboardPage() {
           signals: drillSignalsFromAttempt(openDrillRow.dimension, openDrillRow.attemptText),
         }
       : null;
+  const journeyInputs = await journeyInputsPromise;
+  // Spaced re-check (M9): a stored skill-observed retest schedules a 7-day
+  // durability check. Today only states it; nothing is inferred from scores.
+  const recheckNow = new Date();
+  const recheckRows = journeyInputs.repairs.map((r) => ({
+    retest_outcome: r.retest_outcome,
+    retest_completed_at: r.retest_completed_at,
+  }));
+  const recheckDue = nextDueRecheck(recheckRows, recheckNow);
+  const recheckLine = recheckCopy(
+    recheckDue
+      ? recheckStatus(recheckDue, recheckNow)
+      : (recheckRows
+          .map((r) => recheckStatus(r, recheckNow))
+          .filter((st) => st.state === "waiting")
+          .sort((a, b) => (a.daysUntilDue ?? 0) - (b.daysUntilDue ?? 0))[0] ?? {
+          state: "not-scheduled",
+          dueAt: null,
+          daysUntilDue: null,
+        }),
+  );
   // Canonical learner model — the same intelligence that drives Progress, so
   // Today leads with what to practise and why rather than a wall of cards.
   // Built from the same stored debates/repairs; a repair is practice, not mastery.
-  const journeyInputs = await journeyInputsPromise;
   const learnerModel = buildLearnerModel({
     points: ledger?.points ?? [],
     repairs: journeyInputs.repairs.map((r) => ({
@@ -536,6 +557,12 @@ export default async function DashboardPage() {
             How we picked this →
           </Link>
         </section>
+      )}
+
+      {recheckLine && (
+        <p className="text-xs text-ink3" role="status" data-testid="recheck-note">
+          {recheckLine}
+        </p>
       )}
 
       {/* ── The loop: where you are in practice → diagnose → repair → retest → demonstrate ── */}
