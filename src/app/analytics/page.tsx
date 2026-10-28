@@ -6,6 +6,7 @@ import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, FUNNEL_MI
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 import { statsByHelpLevel, HELP_STAT_MIN_ATTEMPTS } from "@/lib/repairHints";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
+import { loadSteeringSummary } from "@/lib/steeringServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
 
@@ -73,6 +74,7 @@ export default async function AnalyticsPage() {
 
   const aiOpsData = await loadAiOpsData();
   const aiOps = aiOpsData.status === "unavailable" ? null : aiOpsData.report;
+  const steering = await loadSteeringSummary();
 
   return (
     <AppShell width="narrow">
@@ -81,6 +83,17 @@ export default async function AnalyticsPage() {
         title="Product funnel"
         description={`User-level rates over the last ${funnel.windowDays} days — ${funnel.eventsAnalysed} events from ${funnel.usersAnalysed} users. Rates are shown only at ≥5-user samples; below that they say "not yet measurable" rather than reporting noise.`}
       />
+
+      {steering && (
+        <section className="surface-card p-5" aria-labelledby="steering-heading" data-testid="steering-stats">
+          <h2 id="steering-heading" className="text-sm font-semibold">Coach focus steering</h2>
+          <p className="mt-1 text-xs text-ink2">
+            Last {steering.windowDays} days, {steering.total} debates with a focus: {steering.reRepair} kept the same skill after a failed retest, {steering.movedOn} moved on from a repaired skill, {steering.unsteered} plain lowest-skill picks
+            {steering.steeredShare !== null && ` (${Math.round(steering.steeredShare * 100)}% steered)`}.
+          </p>
+          <p className="mt-1 text-xs text-ink3">{steering.note}{steering.truncated ? " Read capped at the newest 2000 debates." : ""}</p>
+        </section>
+      )}
 
       <section className="surface-card p-5" aria-labelledby="funnel-heading">
         <h2 id="funnel-heading" className="text-sm font-semibold">Training funnel</h2>

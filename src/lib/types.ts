@@ -80,6 +80,12 @@ export interface CoachingRecord {
    * provenance only — never evidence, a score, a retest or an improvement.
    */
   focusSource?: "guest-practice" | "learner-choice" | null;
+  /**
+   * Set only when stored repair/retest outcomes moved the ledger-picked focus:
+   * "re_repair" (a failed retest kept the same skill) or "moved_on" (a repaired
+   * skill was passed over). Absent = the plain lowest-skill pick.
+   */
+  steering?: "re_repair" | "moved_on" | null;
   /** Explainable side assignment, when the user picked "Challenge me". */
   sideReason?: string | null;
   /** If present, this debate deliberately retests a recently repaired weakness. */
