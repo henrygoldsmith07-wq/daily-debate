@@ -48,7 +48,11 @@ function legacyExecCommandCopy(text: string): boolean {
  * rejects (user permission denied), and never throws.
  */
 export async function copyText(text: string, deps: CopyTextDeps = {}): Promise<CopyOutcome> {
-  const clipboard = deps.clipboard ?? (typeof navigator === "undefined" ? null : navigator.clipboard);
+  const clipboard = Object.hasOwn(deps, "clipboard")
+    ? deps.clipboard
+    : typeof navigator === "undefined"
+      ? null
+      : navigator.clipboard;
   if (clipboard?.writeText) {
     try {
       await clipboard.writeText(text);

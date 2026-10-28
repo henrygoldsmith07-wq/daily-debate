@@ -24,6 +24,16 @@ describe("copyText", () => {
     expect(legacy).toHaveBeenCalledWith("text");
   });
 
+  it("respects an explicitly absent clipboard even when the global API exists", async () => {
+    const globalWriteText = vi.fn().mockResolvedValue(undefined);
+    const legacy = vi.fn(() => true);
+    vi.stubGlobal("navigator", { clipboard: { writeText: globalWriteText } });
+
+    expect(await copyText("text", { clipboard: null, execCommandCopy: legacy })).toBe("copied");
+    expect(globalWriteText).not.toHaveBeenCalled();
+    expect(legacy).toHaveBeenCalledWith("text");
+  });
+
   it("falls back when the async write rejects (permission denied) instead of throwing", async () => {
     const legacy = vi.fn(() => true);
     const writeText = vi.fn().mockRejectedValue(new Error("denied"));
