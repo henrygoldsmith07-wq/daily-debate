@@ -96,6 +96,7 @@ export default async function DashboardPage() {
     coachingContext.drillOutcomes,
     skillsUnderTest(coachingContext.pendingRetests),
     coachingContext.reRepairDimensions,
+    coachingContext.repairedDimensions,
   );
   // A brand-new account has no focus of its own; its first debate is coached
   // on the guest-seeded focus, so steer the motion by that same skill. Read
@@ -304,6 +305,7 @@ export default async function DashboardPage() {
     // retest is meant to measure (retestDisclosure.ts).
     skillsUnderTest(coachingContext.pendingRetests),
     coachingContext.reRepairDimensions,
+    coachingContext.repairedDimensions,
   );
 
   // The drill row was loaded in the parallel block above (loop latency: no
@@ -475,6 +477,7 @@ export default async function DashboardPage() {
         // already, and the fallback below is deliberately skill-agnostic.
         goalLine={goal?.goalLine ?? (pendingRetest ? NEUTRAL_GOAL_LINE : "Use evidence for major claims.")}
         lastLine={goal?.lastLine ?? null}
+        whyLine={goal?.whyLine ?? null}
         focusLabel="Today's focus"
         motionReason={motion.reasonLine}
         isFirstVisit={!previousDebate}

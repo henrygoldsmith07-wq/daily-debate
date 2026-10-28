@@ -21,7 +21,8 @@ import {
 } from "@/lib/opponentPersona";
 import type { ChallengeRule } from "@/lib/challengeMe";
 import { loadChallengeAssignment } from "@/lib/solo/challengeSide";
-import { pickFocusDimension } from "@/lib/coachingGoal";
+import { pickFocus, pickFocusDimension } from "@/lib/coachingGoal";
+import type { FocusSteering } from "@/lib/adaptiveCoach";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { FALLBACK_IN_MEMORY_TOPIC_ID } from "@/lib/dailyTopic";
 import { parseGuestLoopSummary } from "@/lib/guestLoop";
@@ -245,6 +246,7 @@ export async function startSoloDebate(params: {
     }
 
     let coachingDimension: string | null = null;
+    let focusSteering: FocusSteering | null = null;
     const degradationReasons: CoachingContextDegradationReason[] = [];
     let repairRetest:
       | { repairResultId: string; repairDebateId: string; targetKind: RepairKind; attemptedAt: string }
@@ -265,12 +267,15 @@ export async function startSoloDebate(params: {
       // the very topic the learner repaired: the debate then cannot carry that
       // test, but coaching its skill would still prompt the behaviour a later
       // debate is meant to measure.
-      coachingDimension = pickFocusDimension(
+      const pickedFocus = pickFocus(
         context.ledger.points,
         context.drillOutcomes,
         skillsUnderTest(context.pendingRetests),
         context.reRepairDimensions,
+        context.repairedDimensions,
       );
+      coachingDimension = pickedFocus?.dimension ?? null;
+      focusSteering = pickedFocus?.steering ?? null;
 
       if (pendingRetest) {
         const anchor = context.repairAnchors.find(
@@ -287,7 +292,8 @@ export async function startSoloDebate(params: {
           if (!degradationReasons.includes("repair-retest-unavailable")) {
             degradationReasons.push("repair-retest-unavailable");
           }
-          coachingDimension = pickFocusDimension(context.ledger.points, context.drillOutcomes, [], context.reRepairDimensions);
+          coachingDimension = pickFocusDimension(context.ledger.points, context.drillOutcomes, [], context.reRepairDimensions, context.repairedDimensions);
+          focusSteering = null;
         }
       }
     }
@@ -304,11 +310,13 @@ export async function startSoloDebate(params: {
       const resolved = resolveFirstFocus({ seeded, requested: firstFocus, excluded });
       coachingDimension = resolved.dimension;
       focusSource = resolved.source;
+      focusSteering = null;
     }
 
     const coaching: CoachingRecord = {
       dimension: coachingDimension,
       ...(focusSource ? { focusSource } : {}),
+      ...(focusSteering === "re_repair" || focusSteering === "moved_on" ? { steering: focusSteering } : {}),
       sideReason,
       repairRetest,
       degradationReasons: degradationReasons.length ? degradationReasons : null,
