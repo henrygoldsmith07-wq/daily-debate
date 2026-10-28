@@ -27,7 +27,7 @@ export interface WeeklyLoop {
   rateState: "insufficient_evidence" | "ok";
   /** Total observable retests behind the rate gate. */
   observableTotal: number;
-  next: { kind: "debate" | "repair" | "keep_going"; label: string; href: string };
+  next: { kind: "retest" | "debate" | "repair" | "keep_going"; label: string; href: string };
 }
 
 function inWindow(iso: string | null, now: number): boolean {
@@ -37,7 +37,7 @@ function inWindow(iso: string | null, now: number): boolean {
 }
 
 export function buildWeeklyLoop(
-  input: { debates: WeeklyDebate[]; repairs: WeeklyRepair[]; retests: WeeklyRetest[] },
+  input: { debates: WeeklyDebate[]; repairs: WeeklyRepair[]; retests: WeeklyRetest[]; pendingRetests?: number },
   now: number = Date.now(),
 ): WeeklyLoop {
   const debates = input.debates.filter((d) => inWindow(d.completedAt, now)).length;
@@ -53,7 +53,8 @@ export function buildWeeklyLoop(
   const succeeded = repairs.filter((r) => r.succeeded).length;
 
   let next: WeeklyLoop["next"];
-  if (debates === 0) next = { kind: "debate", label: "Start this week with a debate", href: "/" };
+  if ((input.pendingRetests ?? 0) > 0) next = { kind: "retest", label: "Take your pending retest", href: "/" };
+  else if (debates === 0) next = { kind: "debate", label: "Start this week with a debate", href: "/" };
   else if (repairs.length === 0) next = { kind: "repair", label: "Repair the weakness from your last debate", href: "/history" };
   else next = { kind: "keep_going", label: "Keep the loop going with today's debate", href: "/" };
 

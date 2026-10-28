@@ -42,4 +42,10 @@ describe("buildWeeklyLoop", () => {
     expect(buildWeeklyLoop({ debates: [{ completedAt: ago(DAY) }], repairs: [], retests: [] }, now).next.kind).toBe("repair");
     expect(buildWeeklyLoop({ debates: [{ completedAt: ago(DAY) }], repairs: [{ createdAt: ago(DAY), succeeded: false }], retests: [] }, now).next.kind).toBe("keep_going");
   });
+
+  it("leads with a pending retest over other next actions", () => {
+    const w = buildWeeklyLoop({ debates: [], repairs: [], retests: [], pendingRetests: 1 }, now);
+    expect(w.next.kind).toBe("retest");
+    expect(buildWeeklyLoop({ debates: [], repairs: [], retests: [] }, now).next.kind).toBe("debate");
+  });
 });

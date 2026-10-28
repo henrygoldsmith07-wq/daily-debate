@@ -7,13 +7,15 @@ import { buildWeeklyLoop, WEEK_MS, type WeeklyLoop } from "./weeklyLoop";
 export async function loadWeeklyLoop(userId: string): Promise<WeeklyLoop> {
   const service = createServiceClient();
   const since = new Date(Date.now() - WEEK_MS).toISOString();
-  const [debates, repairs, retests] = await Promise.all([
+  const [debates, repairs, retests, pending] = await Promise.all([
     service.from("solo_debates").select("completed_at").eq("user_id", userId).eq("status", "completed").gte("completed_at", since).limit(200),
     service.from("repair_results").select("created_at, succeeded").eq("user_id", userId).gte("created_at", since).limit(200),
     service.from("repair_retests").select("completed_at, observable, demonstrated").eq("user_id", userId).not("completed_at", "is", null).order("completed_at", { ascending: false }).limit(200),
+    service.from("repair_retests").select("id", { count: "exact", head: true }).eq("user_id", userId).is("completed_at", null),
   ]);
-  for (const r of [debates, repairs, retests]) if (r.error) throw new Error(r.error.message ?? "weekly loop unavailable");
+  for (const r of [debates, repairs, retests, pending]) if (r.error) throw new Error(r.error.message ?? "weekly loop unavailable");
   return buildWeeklyLoop({
+    pendingRetests: pending.count ?? 0,
     debates: (debates.data ?? []).map((d) => ({ completedAt: d.completed_at })),
     repairs: (repairs.data ?? []).map((r) => ({ createdAt: r.created_at, succeeded: r.succeeded })),
     retests: (retests.data ?? []).map((r) => ({ completedAt: r.completed_at, observable: r.observable, demonstrated: r.demonstrated })),
