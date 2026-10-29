@@ -16,7 +16,8 @@ import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
 import RetestStartButton from "@/components/RetestStartButton";
-import { nextDueRecheck, recheckCopy, recheckStatus } from "@/lib/spacedRecheck";
+import { nextDueRecheck, planRecheck, recheckCopy, recheckStatus } from "@/lib/spacedRecheck";
+import { GUEST_MOTIONS } from "@/lib/guestMotions";
 import { continueKicker, isRetestHero } from "@/lib/retestHero";
 import { lapsedRetestNotice } from "@/lib/lapsedRetestNotice";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
@@ -341,6 +342,18 @@ export default async function DashboardPage() {
     retest_completed_at: r.retest_completed_at,
   }));
   const recheckDue = nextDueRecheck(recheckRows, recheckNow);
+  // Preview only: which fresh motion the due re-check would use. Starting it
+  // needs the recheck_debate_id migration (held for Henry), so no link yet.
+  const recheckPlan = planRecheck(
+    journeyInputs.repairs.map((r) => ({
+      id: (r as { id?: string }).id ?? "",
+      retest_outcome: r.retest_outcome,
+      retest_completed_at: r.retest_completed_at,
+    })),
+    GUEST_MOTIONS.map((m) => m.motion),
+    {},
+    recheckNow,
+  );
   const recheckLine = recheckCopy(
     recheckDue
       ? recheckStatus(recheckDue, recheckNow)
@@ -562,6 +575,12 @@ export default async function DashboardPage() {
       {recheckLine && (
         <p className="text-xs text-ink3" role="status" data-testid="recheck-note">
           {recheckLine}
+          {recheckPlan && (
+            <span data-testid="recheck-plan">
+              {" "}
+              Planned fresh motion: “{recheckPlan.motion}” ({recheckPlan.label}).
+            </span>
+          )}
         </p>
       )}
 
