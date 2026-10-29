@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nextDueRecheck, recheckCopy, recheckStatus } from "./spacedRecheck";
+import { closedRechecks, durableGainFromDebates, selectRecheckForStart } from "./spacedRecheck";
 
 const done = "2026-10-01T10:00:00.000Z";
 const at = (d: number) => new Date(Date.parse(done) + d * 86_400_000);
@@ -88,5 +89,65 @@ describe("durable gain", () => {
     expect(few).toMatchObject({ durable: 1, notDurable: 1, inconclusive: 1, evidence: "insufficient_evidence", durableShare: null });
     const many = summariseDurableGain([...Array(15).fill("skill-observed"), ...Array(5).fill("weakness-recurred")]);
     expect(many.durableShare).toBe(0.75);
+  });
+});
+
+describe("M9 slice 7: migration-free re-check linking", () => {
+  const now = new Date("2026-10-29T12:00:00Z");
+  const done8DaysAgo = "2026-10-21T12:00:00Z";
+  const repair = {
+    id: "r1",
+    target_kind: "evidence",
+    debate_id: "d-repair",
+    retest_debate_id: "d-retest",
+    retest_outcome: "skill-observed" as const,
+    retest_completed_at: done8DaysAgo,
+  };
+  const debates = [
+    { id: "d-repair", topic_id: "t-repair", coaching: null },
+    { id: "d-retest", topic_id: "t-retest", coaching: null },
+  ];
+
+  it("assigns a due re-check when today's motion is fresh", () => {
+    expect(selectRecheckForStart([repair], debates, "t-today", now)).toEqual({ repairResultId: "r1", targetKind: "evidence" });
+  });
+
+  it("never re-checks on the repaired or the retest topic", () => {
+    expect(selectRecheckForStart([repair], debates, "t-repair", now)).toBeNull();
+    expect(selectRecheckForStart([repair], debates, "t-retest", now)).toBeNull();
+  });
+
+  it("fails closed when an earlier debate's topic is unknown", () => {
+    expect(selectRecheckForStart([repair], [debates[1]], "t-today", now)).toBeNull();
+  });
+
+  it("is not due before 7 days, after 14 days, or for a retest that missed the skill", () => {
+    expect(selectRecheckForStart([{ ...repair, retest_completed_at: "2026-10-25T12:00:00Z" }], debates, "t-today", now)).toBeNull();
+    expect(selectRecheckForStart([{ ...repair, retest_completed_at: "2026-10-10T12:00:00Z" }], debates, "t-today", now)).toBeNull();
+    expect(selectRecheckForStart([{ ...repair, retest_outcome: "skill-not-observed" as const }], debates, "t-today", now)).toBeNull();
+  });
+
+  it("a conclusive stamped verdict closes the re-check; a sprint or no-opportunity leaves it open", () => {
+    const stamped = (outcome: string | null) => [
+      ...debates,
+      { id: "d-re", topic_id: "t-x", coaching: { recheck: { repairResultId: "r1", targetKind: "evidence", outcome: outcome as never } } },
+    ];
+    expect(selectRecheckForStart([repair], stamped("skill-observed"), "t-today", now)).toBeNull();
+    expect(selectRecheckForStart([repair], stamped("skill-not-observed"), "t-today", now)).toBeNull();
+    expect(selectRecheckForStart([repair], stamped(null), "t-today", now)).not.toBeNull();
+    expect(selectRecheckForStart([repair], stamped("no-valid-opportunity"), "t-today", now)).not.toBeNull();
+    expect(closedRechecks(stamped("skill-observed")).get("r1")).toEqual({ debateId: "d-re", outcome: "skill-observed" });
+  });
+
+  it("maps the canonical detector's recurrence to not-durable and gates the share", () => {
+    expect(durableGainOutcome("skill-not-observed")).toBe("not-durable");
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      id: `d${i}`,
+      coaching: { recheck: { repairResultId: `r${i}`, targetKind: "logic", outcome: (i < 15 ? "skill-observed" : "skill-not-observed") as never } },
+    }));
+    expect(durableGainFromDebates(many.slice(0, 19)).durableShare).toBeNull();
+    const s = durableGainFromDebates(many);
+    expect(s).toMatchObject({ durable: 15, notDurable: 5, evidence: "reported" });
+    expect(s.durableShare).toBeCloseTo(0.75);
   });
 });

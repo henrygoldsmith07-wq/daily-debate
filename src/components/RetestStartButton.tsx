@@ -12,7 +12,18 @@ import { startRetestRequest } from "@/lib/startRetestRequest";
  * is what marks a repair "prompted", starting here feeds the existing
  * prompted-vs-incidental arm on /analytics with no new event.
  */
-export default function RetestStartButton({ topicId, label }: { topicId: string; label: string }) {
+export default function RetestStartButton({
+  topicId,
+  label,
+  format = "sprint",
+  testId = "priority-retest",
+}: {
+  topicId: string;
+  label: string;
+  /** "full" for the 7-day re-check: a sprint is too short to judge the skill. */
+  format?: "sprint" | "full";
+  testId?: string;
+}) {
   const router = useRouter();
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +31,7 @@ export default function RetestStartButton({ topicId, label }: { topicId: string;
   async function start() {
     setStarting(true);
     setError(null);
-    const r = await startRetestRequest(topicId);
+    const r = await startRetestRequest(topicId, fetch, typeof navigator === "undefined" || navigator.onLine !== false, format);
     if (r.ok) {
       router.push(`/debate/${r.debateId}`);
       return;
@@ -36,7 +47,7 @@ export default function RetestStartButton({ topicId, label }: { topicId: string;
         onClick={start}
         disabled={starting}
         className="btn btn-primary px-4 py-2 text-center text-sm"
-        data-testid="priority-retest"
+        data-testid={testId}
       >
         {starting ? "Starting…" : `${label} →`}
       </button>

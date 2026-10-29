@@ -135,7 +135,9 @@ export type DurableGainOutcome = "durable" | "not-durable" | "inconclusive";
  */
 export function durableGainOutcome(verdict: string | null | undefined): DurableGainOutcome {
   if (verdict === "skill-observed") return "durable";
-  if (verdict === "weakness-recurred") return "not-durable";
+  // The canonical detector (retest.ts) names a recurrence "skill-not-observed";
+  // "weakness-recurred" is kept as an alias for older callers.
+  if (verdict === "skill-not-observed" || verdict === "weakness-recurred") return "not-durable";
   return "inconclusive";
 }
 
@@ -159,4 +161,90 @@ export function summariseDurableGain(verdicts: ReadonlyArray<string | null | und
   const conclusive = s.durable + s.notDurable;
   const ok = conclusive >= RECHECK_MIN_SAMPLE;
   return { ...s, evidence: ok ? "reported" : "insufficient_evidence", durableShare: ok ? s.durable / conclusive : null };
+}
+
+/* ------------------------------------------------------------------------ *
+ * Migration-free linking (M9 slice 7).
+ *
+ * A re-check is stamped on the debate that carries it, in the existing
+ * solo_debates.coaching jsonb (`coaching.recheck`), exactly as the first
+ * retest is stamped in `coaching.repairRetest`. No recheck_debate_id column
+ * is needed: the link is derived from the stamped debates.
+ * ------------------------------------------------------------------------ */
+
+/** The verdict a re-check debate can carry (same detector as the retest). */
+export type RecheckVerdict = "skill-observed" | "skill-not-observed" | "no-valid-opportunity" | "not-enough-evidence";
+
+export interface RecheckStamp {
+  repairResultId: string;
+  targetKind: string;
+  /** Set at finish from the canonical detector; null while running or for a sprint. */
+  outcome?: RecheckVerdict | null;
+}
+
+export interface StampedDebate {
+  id: string;
+  topic_id?: string | null;
+  coaching?: { recheck?: RecheckStamp | null } | null;
+}
+
+/** A verdict that closes the re-check: the skill was judged one way or the other. */
+export function isConclusiveRecheck(outcome: string | null | undefined): boolean {
+  return outcome === "skill-observed" || outcome === "skill-not-observed";
+}
+
+/**
+ * repairResultId -> the debate that closed its re-check. Only a conclusive
+ * verdict closes it; a sprint or a debate with no opportunity leaves the
+ * re-check open for a later debate (same rule as the first retest).
+ */
+export function closedRechecks(debates: readonly StampedDebate[]): Map<string, { debateId: string; outcome: RecheckVerdict }> {
+  const out = new Map<string, { debateId: string; outcome: RecheckVerdict }>();
+  for (const d of debates) {
+    const stamp = d?.coaching?.recheck;
+    if (!stamp?.repairResultId || !isConclusiveRecheck(stamp.outcome)) continue;
+    if (!out.has(stamp.repairResultId)) out.set(stamp.repairResultId, { debateId: d.id, outcome: stamp.outcome as RecheckVerdict });
+  }
+  return out;
+}
+
+export interface RecheckCandidate {
+  id: string;
+  target_kind: string;
+  debate_id: string;
+  retest_debate_id?: string | null;
+  retest_outcome: RecheckInput["retest_outcome"];
+  retest_completed_at: string | null;
+}
+
+/**
+ * The re-check today's debate should carry, or null. Rules:
+ * - only a stored skill-observed retest, 7-14 days old, not yet closed;
+ * - today's motion must be FRESH: never the topic of the repaired debate or of
+ *   the first retest, so durability is not memory of a prior argument;
+ * - oldest due first so none starve.
+ */
+export function selectRecheckForStart(
+  repairs: readonly RecheckCandidate[],
+  debates: readonly StampedDebate[],
+  todayTopicId: string,
+  now: Date,
+): { repairResultId: string; targetKind: string } | null {
+  const closed = closedRechecks(debates);
+  const topicOf = new Map(debates.map((d) => [d.id, d.topic_id ?? null]));
+  const eligible = repairs.filter((r) => {
+    if (closed.has(r.id)) return false;
+    if (recheckStatus({ ...r, recheck_debate_id: null }, now).state !== "due") return false;
+    const used = [topicOf.get(r.debate_id), r.retest_debate_id ? topicOf.get(r.retest_debate_id) : null];
+    // Unknown topic for either earlier debate: fail closed (cannot prove freshness).
+    if (used[0] == null || (r.retest_debate_id && used[1] == null)) return false;
+    return !used.includes(todayTopicId);
+  });
+  const pick = nextDueRecheck(eligible, now);
+  return pick ? { repairResultId: pick.id, targetKind: pick.target_kind } : null;
+}
+
+/** Durable-gain summary over every stamped debate's conclusive re-check verdict. */
+export function durableGainFromDebates(debates: readonly StampedDebate[]): DurableGainSummary {
+  return summariseDurableGain([...closedRechecks(debates).values()].map((c) => c.outcome));
 }
