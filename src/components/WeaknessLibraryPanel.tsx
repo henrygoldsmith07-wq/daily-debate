@@ -8,7 +8,7 @@ export default function WeaknessLibraryPanel({ chain }: { chain: ChainEntry[] })
   const groups = buildWeaknessLibrary(chain);
   if (groups.length === 0) return null;
   return (
-    <section className="surface-card p-5" aria-labelledby="weakness-library-heading" data-testid="weakness-library">
+    <section id="weakness-library" className="surface-card p-5" aria-labelledby="weakness-library-heading" data-testid="weakness-library">
       <h2 id="weakness-library-heading" className="text-sm font-semibold">Weaknesses by skill</h2>
       <p className="mt-1 text-xs text-ink3">Every weakness you repaired, grouped by skill. Counts only: observational and unvalidated, recurrence not measured yet.</p>
       <ul className="mt-3 space-y-3">

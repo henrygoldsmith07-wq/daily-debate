@@ -668,6 +668,9 @@ export default async function DashboardPage() {
           <Link href="/progress" className="btn btn-primary shrink-0 self-start px-4 py-2 text-center text-sm" data-testid="weakness-nudge-drill">
             Drill it →
           </Link>
+          <Link href="/history#weakness-library" className="text-sm underline" data-testid="weakness-nudge-evidence">
+            See the evidence for {weaknessNudge.kind}
+          </Link>
         </section>
       )}
 
