@@ -124,3 +124,39 @@ export function planRecheck<T extends RecheckInput & { id: string }>(
   if (!motion) return null;
   return { repairId: due.id, motion, label: "7-day re-check (unvalidated)" };
 }
+
+export type DurableGainOutcome = "durable" | "not-durable" | "inconclusive";
+
+/**
+ * Classify a completed re-check from the STORED skill verdict only. A skill
+ * that did not show up again as a weakness is "durable"; a recurrence is
+ * "not-durable"; anything else (missing, unscored, insufficient) stays
+ * "inconclusive". One observation, never a validated claim.
+ */
+export function durableGainOutcome(verdict: string | null | undefined): DurableGainOutcome {
+  if (verdict === "skill-observed") return "durable";
+  if (verdict === "weakness-recurred") return "not-durable";
+  return "inconclusive";
+}
+
+export interface DurableGainSummary {
+  durable: number;
+  notDurable: number;
+  inconclusive: number;
+  evidence: "insufficient_evidence" | "reported";
+  /** Durable share of conclusive re-checks; null until the sample gate passes. */
+  durableShare: number | null;
+}
+
+export function summariseDurableGain(verdicts: ReadonlyArray<string | null | undefined>): DurableGainSummary {
+  const s = { durable: 0, notDurable: 0, inconclusive: 0 };
+  for (const v of verdicts) {
+    const o = durableGainOutcome(v);
+    if (o === "durable") s.durable += 1;
+    else if (o === "not-durable") s.notDurable += 1;
+    else s.inconclusive += 1;
+  }
+  const conclusive = s.durable + s.notDurable;
+  const ok = conclusive >= RECHECK_MIN_SAMPLE;
+  return { ...s, evidence: ok ? "reported" : "insufficient_evidence", durableShare: ok ? s.durable / conclusive : null };
+}

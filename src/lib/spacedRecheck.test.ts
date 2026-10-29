@@ -75,3 +75,18 @@ describe("planRecheck", () => {
     expect(planRecheck([r], ["X"], {}, new Date("2026-11-11T00:00:00Z"))).toBeNull();
   });
 });
+
+import { durableGainOutcome, summariseDurableGain } from "./spacedRecheck";
+describe("durable gain", () => {
+  it("classifies only stored verdicts", () => {
+    expect(durableGainOutcome("skill-observed")).toBe("durable");
+    expect(durableGainOutcome("weakness-recurred")).toBe("not-durable");
+    expect(durableGainOutcome(null)).toBe("inconclusive");
+  });
+  it("gates the share below the sample minimum", () => {
+    const few = summariseDurableGain(["skill-observed", "weakness-recurred", null]);
+    expect(few).toMatchObject({ durable: 1, notDurable: 1, inconclusive: 1, evidence: "insufficient_evidence", durableShare: null });
+    const many = summariseDurableGain([...Array(15).fill("skill-observed"), ...Array(5).fill("weakness-recurred")]);
+    expect(many.durableShare).toBe(0.75);
+  });
+});
