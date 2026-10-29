@@ -151,3 +151,40 @@ describe("M9 slice 7: migration-free re-check linking", () => {
     expect(s.durableShare).toBeCloseTo(0.75);
   });
 });
+
+describe("M9 re-check lifecycle (start -> finish)", () => {
+  const now = new Date(Date.UTC(2026, 9, 29, 12));
+  const repair = {
+    id: "r1",
+    target_kind: "evidence",
+    debate_id: "d-repair",
+    retest_debate_id: "d-retest",
+    retest_outcome: "skill-observed" as const,
+    retest_completed_at: new Date(Date.UTC(2026, 9, 21, 12)).toISOString(),
+  };
+  const base = [
+    { id: "d-repair", topic_id: "t-repair", coaching: null },
+    { id: "d-retest", topic_id: "t-retest", coaching: null },
+  ];
+
+  it("stamps on start, stays open after a sprint, closes on a conclusive verdict, then is never re-selected", () => {
+    const pick = selectRecheckForStart([repair], base, "t-today", now);
+    expect(pick).toEqual({ repairResultId: "r1", targetKind: "evidence" });
+    const stamp = { repairResultId: pick!.repairResultId, targetKind: pick!.targetKind };
+
+    // running: stamped but no outcome, still not closed, nothing in the summary
+    let debates = [...base, { id: "d-today", topic_id: "t-today", coaching: { recheck: stamp } }];
+    expect(closedRechecks(debates).size).toBe(0);
+    expect(durableGainFromDebates(debates).conclusive ?? 0).toBe(0);
+
+    // inconclusive verdict leaves it open for a later fresh motion
+    debates = [...base, { id: "d-today", topic_id: "t-today", coaching: { recheck: { ...stamp, outcome: "no-valid-opportunity" as const } } }];
+    expect(closedRechecks(debates).size).toBe(0);
+    expect(selectRecheckForStart([repair], debates, "t-next", now)).not.toBeNull();
+
+    // conclusive verdict closes it
+    debates = [...base, { id: "d-today", topic_id: "t-today", coaching: { recheck: { ...stamp, outcome: "skill-observed" as const } } }];
+    expect(closedRechecks(debates).get("r1")).toEqual({ debateId: "d-today", outcome: "skill-observed" });
+    expect(selectRecheckForStart([repair], debates, "t-next", now)).toBeNull();
+  });
+});
