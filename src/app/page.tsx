@@ -277,6 +277,8 @@ export default async function DashboardPage() {
         repaired: guestContext.repairState === "repair_demonstrated",
         observed: guestContext.retestOutcome === "observed",
         seedsFocus: !!guestFocus,
+        repairText: guestContext.repairText?.trim() || null,
+        retestNotRun: guestContext.retestOutcome === "not-run",
       }
     : null;
 
@@ -487,6 +489,21 @@ export default async function DashboardPage() {
               ? " It is pre-selected as your first debate’s focus below — change it there if you’d rather work on something else."
               : " Your first debate here starts without a set focus; the coach will flag one weakness from your own arguments."}
           </p>
+          {guestCarryover.repairText && (
+            <blockquote
+              className="mt-2 border-l-2 border-[var(--rule)] pl-3 text-sm leading-6 text-ink2"
+              data-testid="guest-carryover-repair"
+            >
+              <span className="block text-xs uppercase tracking-[0.14em] text-ink3">Your guest repair, in your words</span>
+              {guestCarryover.repairText}
+            </blockquote>
+          )}
+          {guestCarryover.retestNotRun && (
+            <p className="mt-2 text-sm leading-6 text-ink2" data-testid="guest-carryover-retest-pending">
+              You signed up before taking the guest retest, so no retest reading exists yet. Your
+              first debate here is the next chance to use this move under pressure.
+            </p>
+          )}
           <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-4 text-ink3">
             A guest rep is one local practice run, not measured evidence — it is not counted in your
             skill scores, and it is not a deliberate retest or an improvement. At most it suggests what
