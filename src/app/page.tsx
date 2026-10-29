@@ -665,7 +665,7 @@ export default async function DashboardPage() {
             <h2 id="weakness-nudge-heading" className="mt-1 text-base font-semibold">{nudge.title}</h2>
             <p className="mt-1 text-sm leading-6 text-ink3">{nudge.detail}</p>
           </div>
-          <Link href="/progress" className="btn btn-primary shrink-0 self-start px-4 py-2 text-center text-sm" data-testid="weakness-nudge-drill">
+          <Link href="/progress#daily-drill" className="btn btn-primary shrink-0 self-start px-4 py-2 text-center text-sm" data-testid="weakness-nudge-drill">
             Drill it →
           </Link>
           <Link href="/history#weakness-library" className="text-sm underline" data-testid="weakness-nudge-evidence">
