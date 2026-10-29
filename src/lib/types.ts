@@ -106,6 +106,8 @@ export interface CoachingRecord {
     targetKind: RepairKind;
     outcome?: "skill-observed" | "skill-not-observed" | "no-valid-opportunity" | "not-enough-evidence" | null;
   } | null;
+  /** M12: retest ladder level applied at start (practice setting, unvalidated). */
+  ladderLevel?: "tougher" | "hardest" | null;
   /** Best-effort coaching context can degrade without blocking the debate. */
   degradationReasons?: CoachingContextDegradationReason[] | null;
   /** Observed behaviour from the finished debate (set at finish). */

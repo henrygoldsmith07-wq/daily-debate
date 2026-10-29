@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { STAGE_LABEL, type ChainEntry } from "@/lib/loopChain";
+import { ladderCopy } from "@/lib/retestLadder";
 import { buildWeaknessLibrary } from "@/lib/weaknessLibrary";
 
 /** M10: weakness history grouped by skill. Counts only; recurrence stays unmeasured. */
@@ -15,6 +16,11 @@ export default function WeaknessLibraryPanel({ chain }: { chain: ChainEntry[] })
           <li key={g.kind} className="text-sm" data-testid="weakness-group" data-kind={g.kind} data-redrill={g.redrillSuggested ? "yes" : "no"}>
             <span className="font-medium capitalize">{g.kind}</span>
             <span className="text-ink3">{` · ${g.total} repair${g.total === 1 ? "" : "s"} · latest: ${STAGE_LABEL[g.latest.stage]}`}</span>
+            {ladderCopy(g.ladder) && (
+              <span className="block text-xs text-ink3" data-testid="weakness-ladder" data-ladder-status={g.ladder.status}>
+                {ladderCopy(g.ladder)}
+              </span>
+            )}
             {g.redrillSuggested && (
               <>
                 {" "}

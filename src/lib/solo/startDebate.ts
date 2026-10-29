@@ -29,6 +29,9 @@ import { parseGuestLoopSummary } from "@/lib/guestLoop";
 import { guestSeededFocus, resolveFirstFocus, type FirstFocusSource } from "@/lib/guestFocus";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
 import { repairKindToDimension } from "@/lib/repairRetest";
+import { ladderLevelForRetest, ladderToDifficulty, type LadderLevel } from "@/lib/retestLadder";
+import { stageToLadderOutcome } from "@/lib/weaknessLibrary";
+import { loadLoopChain } from "@/lib/loopChainServer";
 import { selectRecheckForStart } from "@/lib/spacedRecheck";
 import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
 
@@ -131,6 +134,8 @@ export async function startSoloDebate(params: {
   format: DebateFormat;
   persona: OpponentPersonaId;
   difficulty: OpponentDifficulty;
+  /** True when the learner picked the difficulty; the retest ladder never overrides it. */
+  difficultyExplicit?: boolean;
   /**
    * The learner's change to the guest-seeded first focus (a coach dimension,
    * or "none"). Ignored unless the account has a guest seed and no evidence
@@ -138,7 +143,8 @@ export async function startSoloDebate(params: {
    */
   firstFocus?: unknown;
 }): Promise<SoloStartServiceResult> {
-  const { db, userId, topicId, sideChoice, format, persona, difficulty, firstFocus } = params;
+  const { db, userId, topicId, sideChoice, format, persona, firstFocus } = params;
+  let difficulty = params.difficulty;
 
   // The in-memory topic fallback was never persisted, so no debate can be
   // anchored to it. Answer 503 (retryable) instead of 404: the store may
@@ -347,6 +353,27 @@ export async function startSoloDebate(params: {
       }
     }
 
+    // M12: a retest on a skill with earned ladder level runs at that level
+    // unless the learner chose a difficulty. Best-effort, stored in coaching jsonb.
+    let ladderLevel: LadderLevel | null = null;
+    if (repairRetest && !params.difficultyExplicit) {
+      try {
+        const chain = await loadLoopChain(userId);
+        const outcomes = chain
+          .filter((e) => e.targetKind === repairRetest!.targetKind)
+          .sort((a, b) => Date.parse(a.repairedAt) - Date.parse(b.repairedAt))
+          .map((e) => stageToLadderOutcome(e.stage))
+          .filter((o): o is NonNullable<typeof o> => o !== null);
+        const level = ladderLevelForRetest(outcomes);
+        if (level !== "standard") {
+          ladderLevel = level;
+          difficulty = ladderToDifficulty(level);
+        }
+      } catch (error) {
+        console.error("Retest ladder unavailable at start:", error);
+      }
+    }
+
     const coaching: CoachingRecord = {
       dimension: coachingDimension,
       ...(focusSource ? { focusSource } : {}),
@@ -354,6 +381,7 @@ export async function startSoloDebate(params: {
       sideReason,
       repairRetest,
       ...(recheck ? { recheck } : {}),
+      ...(ladderLevel ? { ladderLevel } : {}),
       degradationReasons: degradationReasons.length ? degradationReasons : null,
     };
 
