@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectRecurrence } from "./recurrenceAlert";
+import { detectRecurrence, summarizeRecurrenceByKind, RECURRENCE_MIN_REPAIRS } from "./recurrenceAlert";
 import type { ChainEntry } from "./loopChain";
 
 const e = (kind: string, stage: string, repairedAt: string) => ({ targetKind: kind, stage, repairedAt }) as unknown as ChainEntry;
@@ -27,5 +27,16 @@ describe("recurrenceAlertNote", () => {
   });
   it("labels repeated as unvalidated", () => {
     expect(recurrenceAlertNote({ kind: "logic", repairedAt: "2026-10-01", evidence: "came_back" })).toMatch(/not a validated/);
+  });
+});
+
+describe("summarizeRecurrenceByKind", () => {
+  const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ targetKind: "logic", stage: "retest_pending", repairedAt: new Date(2026, 0, i + 1).toISOString() })) as never[];
+  it("gates share below the sample minimum", () => {
+    const r = summarizeRecurrenceByKind(mk(3));
+    expect(r[0]).toMatchObject({ repairs: 3, repeated: 2, share: null });
+  });
+  it("reports share at the minimum", () => {
+    expect(summarizeRecurrenceByKind(mk(RECURRENCE_MIN_REPAIRS))[0].share).toBeCloseTo(0.9);
   });
 });

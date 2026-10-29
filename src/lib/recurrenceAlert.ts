@@ -32,3 +32,26 @@ export function recurrenceAlertNote(alert: RecurrenceAlert): string {
   }
   return `You repaired ${alert.kind} before. It appears again here, but one repeat is not enough evidence to say the repair did not hold.`;
 }
+
+export const RECURRENCE_MIN_REPAIRS = 10;
+export interface KindRecurrence { kind: ChainKind; repairs: number; repeated: number; share: number | null }
+
+/**
+ * Per skill: of landed repairs, how many were followed by another repair of the
+ * same skill (a proxy for "came back"). The share shows only at
+ * RECURRENCE_MIN_REPAIRS landed repairs; otherwise null (insufficient_evidence).
+ */
+export function summarizeRecurrenceByKind(chain: ChainEntry[]): KindRecurrence[] {
+  const kinds = new Map<ChainKind, number[]>();
+  for (const e of chain) {
+    if (e.stage === "repair_not_landed") continue;
+    const t = Date.parse(e.repairedAt);
+    if (!Number.isFinite(t)) continue;
+    kinds.set(e.targetKind, [...(kinds.get(e.targetKind) ?? []), t]);
+  }
+  return [...kinds.entries()].map(([kind, times]) => {
+    const sorted = [...times].sort((a, b) => a - b);
+    const repeated = Math.max(0, sorted.length - 1);
+    return { kind, repairs: sorted.length, repeated, share: sorted.length >= RECURRENCE_MIN_REPAIRS ? repeated / sorted.length : null };
+  });
+}
