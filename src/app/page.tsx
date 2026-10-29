@@ -20,6 +20,8 @@ import RetestStartButton from "@/components/RetestStartButton";
 import { closedRechecks, nextDueRecheck, recheckCopy, recheckStatus, selectRecheckForStart } from "@/lib/spacedRecheck";
 import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
 import { continueKicker, isRetestHero } from "@/lib/retestHero";
+import { loadLoopChain } from "@/lib/loopChainServer";
+import { nudgeCopy, pickWeaknessNudge } from "@/lib/weaknessNudge";
 import { lapsedRetestNotice } from "@/lib/lapsedRetestNotice";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
@@ -432,6 +434,13 @@ export default async function DashboardPage() {
     debateAvailable: !activeDebate,
   });
 
+  // M13: only when nothing else is waiting, lead with the open weakness.
+  const weaknessNudge =
+    !priority || priority.kind === "debate"
+      ? await loadLoopChain(user.id).then(pickWeaknessNudge).catch(() => null)
+      : null;
+  const nudge = weaknessNudge ? nudgeCopy(weaknessNudge) : null;
+
   const today = new Intl.DateTimeFormat("en-GB", {
     weekday: "long",
     day: "numeric",
@@ -646,6 +655,22 @@ export default async function DashboardPage() {
               {priority.action} →
             </Link>
           )}
+        </section>
+      )}
+
+      {nudge && weaknessNudge && (
+        <section className="surface-card flex flex-col gap-3 p-4" data-testid="weakness-nudge" data-evidence={weaknessNudge.evidence} aria-labelledby="weakness-nudge-heading">
+          <div className="min-w-0">
+            <p className="home-secondary-kicker">Your weakest spot</p>
+            <h2 id="weakness-nudge-heading" className="mt-1 text-base font-semibold">{nudge.title}</h2>
+            <p className="mt-1 text-sm leading-6 text-ink3">{nudge.detail}</p>
+          </div>
+          <Link href="/progress#daily-drill" className="btn btn-primary shrink-0 self-start px-4 py-2 text-center text-sm" data-testid="weakness-nudge-drill">
+            Drill it →
+          </Link>
+          <Link href="/history#weakness-library" className="text-sm underline" data-testid="weakness-nudge-evidence">
+            See the evidence for {weaknessNudge.kind}
+          </Link>
         </section>
       )}
 
