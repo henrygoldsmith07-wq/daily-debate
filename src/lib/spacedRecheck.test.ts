@@ -162,7 +162,8 @@ describe("M9 re-check lifecycle (start -> finish)", () => {
     retest_outcome: "skill-observed" as const,
     retest_completed_at: new Date(Date.UTC(2026, 9, 21, 12)).toISOString(),
   };
-  const base = [
+  type Row = { id: string; topic_id: string; coaching: { recheck: { repairResultId: string; targetKind: string; outcome?: "skill-observed" | "no-valid-opportunity" } } | null };
+  const base: Row[] = [
     { id: "d-repair", topic_id: "t-repair", coaching: null },
     { id: "d-retest", topic_id: "t-retest", coaching: null },
   ];
@@ -173,9 +174,10 @@ describe("M9 re-check lifecycle (start -> finish)", () => {
     const stamp = { repairResultId: pick!.repairResultId, targetKind: pick!.targetKind };
 
     // running: stamped but no outcome, still not closed, nothing in the summary
-    let debates = [...base, { id: "d-today", topic_id: "t-today", coaching: { recheck: stamp } }];
+    let debates: Row[] = [...base, { id: "d-today", topic_id: "t-today", coaching: { recheck: stamp } }];
     expect(closedRechecks(debates).size).toBe(0);
-    expect(durableGainFromDebates(debates).conclusive ?? 0).toBe(0);
+    const g = durableGainFromDebates(debates);
+    expect(g.durable + g.notDurable).toBe(0);
 
     // inconclusive verdict leaves it open for a later fresh motion
     debates = [...base, { id: "d-today", topic_id: "t-today", coaching: { recheck: { ...stamp, outcome: "no-valid-opportunity" as const } } }];
