@@ -9,7 +9,7 @@ import type {
   SoloDebate,
   SoloDebateTurn,
 } from "@/lib/types";
-import type { RepairKind } from "@/lib/argumentRepair";
+import { isRepairKind, type RepairKind } from "@/lib/argumentRepair";
 import { skillsUnderTest } from "@/lib/retestDisclosure";
 import type { DebateFormat } from "@/lib/sprint";
 import {
@@ -28,6 +28,9 @@ import { FALLBACK_IN_MEMORY_TOPIC_ID } from "@/lib/dailyTopic";
 import { parseGuestLoopSummary } from "@/lib/guestLoop";
 import { guestSeededFocus, resolveFirstFocus, type FirstFocusSource } from "@/lib/guestFocus";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
+import { repairKindToDimension } from "@/lib/repairRetest";
+import { selectRecheckForStart } from "@/lib/spacedRecheck";
+import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
 
 export type SoloStartSideChoice = DebateSide | "challenge";
 
@@ -313,12 +316,44 @@ export async function startSoloDebate(params: {
       focusSteering = null;
     }
 
+    // M9 spaced re-check: a first retest always takes priority. Otherwise a
+    // repair whose retest showed the skill 7-14 days ago is re-checked on
+    // today's motion when that motion is fresh (never the repaired or retest
+    // topic). Linked through the coaching jsonb, so no migration is needed.
+    // Best-effort: a read failure never blocks the debate.
+    let recheck: CoachingRecord["recheck"] = null;
+    if (context.ledger && !repairRetest) {
+      try {
+        const inputs = await loadRecheckInputs(db, userId);
+        const picked = selectRecheckForStart(inputs.repairs, inputs.debates, topicId, new Date());
+        if (picked && isRepairKind(picked.targetKind)) {
+          recheck = { repairResultId: picked.repairResultId, targetKind: picked.targetKind, outcome: null };
+          // Same disclosure rule as a retest: do not coach the skill being measured.
+          const measured = repairKindToDimension(picked.targetKind);
+          if (measured && coachingDimension === measured) {
+            const repick = pickFocus(
+              context.ledger.points,
+              context.drillOutcomes,
+              [...skillsUnderTest(context.pendingRetests), measured],
+              context.reRepairDimensions,
+              context.repairedDimensions,
+            );
+            coachingDimension = repick?.dimension ?? null;
+            focusSteering = repick?.steering ?? null;
+          }
+        }
+      } catch (error) {
+        console.error("Spaced re-check unavailable at start:", error);
+      }
+    }
+
     const coaching: CoachingRecord = {
       dimension: coachingDimension,
       ...(focusSource ? { focusSource } : {}),
       ...(focusSteering === "re_repair" || focusSteering === "moved_on" ? { steering: focusSteering } : {}),
       sideReason,
       repairRetest,
+      ...(recheck ? { recheck } : {}),
       degradationReasons: degradationReasons.length ? degradationReasons : null,
     };
 

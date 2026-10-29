@@ -421,6 +421,34 @@ async function finishSoloDebate(
       outcome: assignmentStillOpen ? outcome : null,
     };
   }
+  // M9 spaced re-check: same canonical detector and the same sprint rule as
+  // the first retest (a sprint records no verdict, so the re-check stays open
+  // for a later full debate). The verdict lives on coaching.recheck, which is
+  // also how the re-check is linked to this debate — no migration.
+  if (coaching.recheck && !coaching.repairRetest) {
+    const recheckKind = coaching.recheck.targetKind as string;
+    const graph = finalAssessment?.graph ?? null;
+    const recheckOutcome: RetestOutcome | null =
+      graph && isRepairKind(recheckKind) && repairKindToDimension(recheckKind)
+        ? retestOutcomeFor(
+            { target_kind: recheckKind },
+            {
+              debateId,
+              userId: user.id,
+              completedAt,
+              kinds: countWeaknessesForSide(graph, "a"),
+              opps: debateOpportunities(graph, "a"),
+            },
+            graph,
+            "a",
+            { format: format === "sprint" ? "sprint" : "full" },
+          )
+        : null;
+    coachingUpdate = {
+      ...coachingUpdate,
+      recheck: { ...coaching.recheck, outcome: format === "sprint" ? null : recheckOutcome },
+    };
+  }
   // The retest verdict travels with the coaching record so the result card
   // can REVEAL it — the skill under test is named for the first time after the
   // debate it was measured in (retestDisclosure.ts).

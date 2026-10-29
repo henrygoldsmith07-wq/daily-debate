@@ -96,6 +96,16 @@ export interface CoachingRecord {
     targetKind: RepairKind;
     attemptedAt: string;
   } | null;
+  /**
+   * M9: this debate carries a 7-day spaced re-check of a repair whose first
+   * retest showed the skill. Stamped at start, verdict added at finish (full
+   * format only). Never named to the learner before the debate.
+   */
+  recheck?: {
+    repairResultId: string;
+    targetKind: RepairKind;
+    outcome?: "skill-observed" | "skill-not-observed" | "no-valid-opportunity" | "not-enough-evidence" | null;
+  } | null;
   /** Best-effort coaching context can degrade without blocking the debate. */
   degradationReasons?: CoachingContextDegradationReason[] | null;
   /** Observed behaviour from the finished debate (set at finish). */

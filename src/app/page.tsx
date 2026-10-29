@@ -16,6 +16,8 @@ import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
 import RetestStartButton from "@/components/RetestStartButton";
+import { closedRechecks, nextDueRecheck, recheckCopy, recheckStatus, selectRecheckForStart } from "@/lib/spacedRecheck";
+import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
 import { continueKicker, isRetestHero } from "@/lib/retestHero";
 import { lapsedRetestNotice } from "@/lib/lapsedRetestNotice";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
@@ -73,6 +75,8 @@ export default async function DashboardPage() {
   // overlap the topic + coaching-context round-trips instead of trailing them.
   const journeyInputsPromise = buildJourneyInputsForUser(user.id);
   journeyInputsPromise.catch(() => undefined); // awaited (and surfaced) below
+  // M9 re-check inputs, read in parallel with the rest of Today; best-effort.
+  const recheckInputsPromise = loadRecheckInputs(db, user.id).catch(() => null);
   const sharedTopic = await getTodayTopic();
 
   const coachingContext = await loadCoachingContext(user.id, { currentTopicId: sharedTopic.id });
@@ -331,10 +335,39 @@ export default async function DashboardPage() {
           signals: drillSignalsFromAttempt(openDrillRow.dimension, openDrillRow.attemptText),
         }
       : null;
+  const journeyInputs = await journeyInputsPromise;
+  // Spaced re-check (M9): a stored skill-observed retest schedules a 7-day
+  // durability check. Linked through solo_debates.coaching (no migration);
+  // a closed re-check never reappears. Best-effort: never blocks Today.
+  const recheckNow = new Date();
+  const recheckInputs = await recheckInputsPromise;
+  const recheckClosed = recheckInputs ? closedRechecks(recheckInputs.debates) : new Map();
+  const recheckRows = (recheckInputs?.repairs ?? []).map((r) => ({
+    retest_outcome: r.retest_outcome,
+    retest_completed_at: r.retest_completed_at,
+    recheck_debate_id: recheckClosed.get(r.id)?.debateId ?? null,
+  }));
+  // Does TODAY's motion carry it? Only when the motion is fresh for that repair.
+  const recheckToday =
+    recheckInputs && !activeDebate ? selectRecheckForStart(recheckInputs.repairs, recheckInputs.debates, topic.id, recheckNow) : null;
+  const recheckDue = nextDueRecheck(recheckRows, recheckNow);
+  const recheckLine = recheckToday
+    ? "Your 7-day re-check runs in today's full debate: does the repaired skill still show up? (unvalidated)"
+    : recheckDue
+      ? "Your 7-day re-check is due. It runs on the next fresh motion, in a full debate (unvalidated)."
+      : recheckCopy(
+          recheckRows
+            .map((r) => recheckStatus(r, recheckNow))
+            .filter((st) => st.state === "waiting")
+            .sort((a, b) => (a.daysUntilDue ?? 0) - (b.daysUntilDue ?? 0))[0] ?? {
+            state: "not-scheduled",
+            dueAt: null,
+            daysUntilDue: null,
+          },
+        );
   // Canonical learner model — the same intelligence that drives Progress, so
   // Today leads with what to practise and why rather than a wall of cards.
   // Built from the same stored debates/repairs; a repair is practice, not mastery.
-  const journeyInputs = await journeyInputsPromise;
   const learnerModel = buildLearnerModel({
     points: ledger?.points ?? [],
     repairs: journeyInputs.repairs.map((r) => ({
@@ -536,6 +569,17 @@ export default async function DashboardPage() {
             How we picked this →
           </Link>
         </section>
+      )}
+
+      {recheckLine && (
+        <div className="flex flex-col gap-2" data-testid="recheck-note">
+          <p className="text-xs text-ink3" role="status">
+            {recheckLine}
+          </p>
+          {recheckToday && (
+            <RetestStartButton topicId={topic.id} label="Start the full debate" format="full" testId="recheck-start" />
+          )}
+        </div>
       )}
 
       {/* ── The loop: where you are in practice → diagnose → repair → retest → demonstrate ── */}

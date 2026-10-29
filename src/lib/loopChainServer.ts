@@ -37,3 +37,22 @@ export async function loadAggregateLoopChain(): Promise<{ entries: ChainEntry[];
     return null;
   }
 }
+
+/** Admin: stored skill-observed retests (newest 500) for the 7-day re-check funnel; null when unreadable. */
+export async function loadRecheckFunnelInputs(): Promise<{ retest_outcome: "skill-observed"; retest_completed_at: string }[] | null> {
+  try {
+    const service = createServiceClient();
+    const { data, error } = await service
+      .from("repair_retests")
+      .select("completed_at, observable, demonstrated")
+      .not("completed_at", "is", null)
+      .eq("observable", true)
+      .eq("demonstrated", true)
+      .order("completed_at", { ascending: false })
+      .limit(500);
+    if (error) return null;
+    return (data ?? []).map((r) => ({ retest_outcome: "skill-observed" as const, retest_completed_at: r.completed_at as string }));
+  } catch {
+    return null;
+  }
+}

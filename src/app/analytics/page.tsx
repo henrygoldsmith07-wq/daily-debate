@@ -6,7 +6,9 @@ import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, summarize
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 import { statsByHelpLevel, HELP_STAT_MIN_ATTEMPTS } from "@/lib/repairHints";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
-import { loadAggregateLoopChain } from "@/lib/loopChainServer";
+import { loadAggregateLoopChain, loadRecheckFunnelInputs } from "@/lib/loopChainServer";
+import { RECHECK_MIN_SAMPLE, recheckFunnel } from "@/lib/spacedRecheck";
+import { loadDurableGainSummary } from "@/lib/spacedRecheckServer";
 import { CHAIN_RATE_MIN_DECIDED, summarizeChainByKind } from "@/lib/loopChain";
 import { loadSteeringSummary } from "@/lib/steeringServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
@@ -79,6 +81,9 @@ export default async function AnalyticsPage() {
   const aiOps = aiOpsData.status === "unavailable" ? null : aiOpsData.report;
   const steering = await loadSteeringSummary();
   const chainAgg = await loadAggregateLoopChain();
+  const recheckInputs = await loadRecheckFunnelInputs();
+  const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
+  const durable = await loadDurableGainSummary();
 
   return (
     <AppShell width="narrow">
@@ -100,6 +105,30 @@ export default async function AnalyticsPage() {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+      {recheck && recheck.eligible > 0 && (
+        <section className="surface-card p-5" aria-labelledby="recheck-heading" data-testid="recheck-funnel" data-evidence={recheck.evidence}>
+          <h2 id="recheck-heading" className="text-sm font-semibold">7-day re-check funnel</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {recheck.eligible} observed retests: {recheck.waiting} waiting, {recheck.due} due, {recheck.expired} expired.{" "}
+            {recheck.expiredShare === null ? `insufficient_evidence (${recheck.eligible}/${RECHECK_MIN_SAMPLE} needed before a rate is shown)` : `${Math.round(recheck.expiredShare * 100)}% expired unused`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Counts only; durability is not claimed. Unvalidated.</p>
+        </section>
+      )}
+      {durable && durable.durable + durable.notDurable + durable.inconclusive > 0 && (
+        <section className="surface-card p-5" aria-labelledby="durable-heading" data-testid="durable-gain" data-evidence={durable.evidence}>
+          <h2 id="durable-heading" className="text-sm font-semibold">7-day re-check outcomes</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {durable.durable} skill still showed, {durable.notDurable} weakness back.{" "}
+            {durable.durableShare === null
+              ? `insufficient_evidence (${durable.durable + durable.notDurable}/${RECHECK_MIN_SAMPLE} conclusive re-checks needed before a share is shown)`
+              : `${Math.round(durable.durableShare * 100)}% of conclusive re-checks still showed the skill`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">
+            One re-check per repair, same detector as the first retest; full debates only. Unvalidated, not evidence of lasting learning.
+          </p>
         </section>
       )}
       {steering && (
