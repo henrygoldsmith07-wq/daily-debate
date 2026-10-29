@@ -15,6 +15,7 @@ import { type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
 import { loadSoloFinalizationContext } from "@/lib/solo/finalizationContext";
 import { repairKindToDimension } from "@/lib/repairRetest";
 import { retestAssignmentFor, retestOutcomeFor, RETEST_OUTCOME_DETAIL, RETEST_OUTCOME_LABELS, retestComparisonFor, type RetestOutcome } from "@/lib/retest";
+import { reusedRepairPhrases } from "@/lib/repairPhraseReuse";
 import { retestAssignmentStillOpen } from "@/lib/repairRetestServer";
 import { countWeaknessesForSide, debateOpportunities } from "@/lib/repairEffectiveness";
 import { isRepairKind, type RepairKind } from "@/lib/argumentRepair";
@@ -475,7 +476,19 @@ async function finishSoloDebate(
         .maybeSingle();
       coachingUpdate = {
         ...coachingUpdate,
-        retestOutcome: { ...coachingUpdate.retestOutcome, comparison: retestComparisonFor(repairRow) },
+        retestOutcome: {
+          ...coachingUpdate.retestOutcome,
+          comparison: (() => {
+            const base = retestComparisonFor(repairRow);
+            if (!base) return base;
+            // Descriptive lexical overlap only (M14); shown as unvalidated.
+            const reused = reusedRepairPhrases(
+              repairRow?.rewrite_text ?? "",
+              answered.map((turn) => String(turn.user_message)),
+            );
+            return reused.length ? { ...base, reusedPhrases: reused } : base;
+          })(),
+        },
       };
     } catch (err) {
       console.error("Retest comparison lookup failed:", err);

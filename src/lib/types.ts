@@ -134,7 +134,7 @@ export interface CoachingRecord {
     /** The skill under test — named for the first time AFTER the debate. */
     skillLabel: string;
     /** The learner's own weak sentence and its repair, for a before/after view. */
-    comparison?: { before: string; after: string } | null;
+    comparison?: { before: string; after: string; reusedPhrases?: string[] } | null;
   } | null;
   /** The repair-kind of this debate's main weakness (longitudinal tracking). */
   weaknessKind?: string | null;

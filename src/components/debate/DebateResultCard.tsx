@@ -170,6 +170,14 @@ export function DebateResultCard({
                         <dt className="font-semibold text-ink3">Your repair</dt>
                         <dd className="italic">&ldquo;{retestOutcome.comparison.after}&rdquo;</dd>
                       </div>
+                      {retestOutcome.comparison.reusedPhrases?.length ? (
+                        <div data-testid="repair-phrase-reuse">
+                          <dt className="font-semibold text-ink3">Repair wording you used again (unvalidated)</dt>
+                          <dd className="italic">
+                            {retestOutcome.comparison.reusedPhrases.map((p) => `\u201c${p}\u201d`).join(", ")}
+                          </dd>
+                        </div>
+                      ) : null}
                     </dl>
                   )}
                 </>

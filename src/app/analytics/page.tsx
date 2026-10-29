@@ -10,6 +10,8 @@ import { loadAggregateLoopChain, loadRecheckFunnelInputs } from "@/lib/loopChain
 import { RECHECK_MIN_SAMPLE, recheckFunnel } from "@/lib/spacedRecheck";
 import { loadDurableGainSummary } from "@/lib/spacedRecheckServer";
 import { CHAIN_RATE_MIN_DECIDED, summarizeChainByKind } from "@/lib/loopChain";
+import { loadPhraseReuseSummary } from "@/lib/phraseReuseServer";
+import { MIN_REUSE_SAMPLE } from "@/lib/repairPhraseReuse";
 import { loadSteeringSummary } from "@/lib/steeringServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
@@ -84,6 +86,7 @@ export default async function AnalyticsPage() {
   const recheckInputs = await loadRecheckFunnelInputs();
   const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
   const durable = await loadDurableGainSummary();
+  const reuse = await loadPhraseReuseSummary();
 
   return (
     <AppShell width="narrow">
@@ -129,6 +132,17 @@ export default async function AnalyticsPage() {
           <p className="mt-1 text-xs text-ink3">
             One re-check per repair, same detector as the first retest; full debates only. Unvalidated, not evidence of lasting learning.
           </p>
+        </section>
+      )}
+      {reuse && reuse.total > 0 && (
+        <section className="surface-card p-5" aria-labelledby="reuse-heading" data-testid="phrase-reuse" data-evidence={reuse.label}>
+          <h2 id="reuse-heading" className="text-sm font-semibold">Repair phrases reused in retests</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {reuse.rate === null
+              ? `insufficient_evidence (${reuse.total}/${MIN_REUSE_SAMPLE} retests needed before a rate is shown)`
+              : `${Math.round(reuse.rate * 100)}% of retests reused a phrase from the repair (${reuse.reusedCount}/${reuse.total})`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Word overlap only. Unvalidated, not evidence the repair worked.</p>
         </section>
       )}
       {steering && (
