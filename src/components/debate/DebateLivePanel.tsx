@@ -6,6 +6,7 @@
 // and `timing`, so this file is about what the user sees and what they can do
 // next - never about when something is persisted.
 
+import LadderLevelNote from "./LadderLevelNote";
 import { useEffect, useRef, useState } from "react";
 import MessageComposer from "../MessageComposer";
 import RoundProgress from "../RoundProgress";
@@ -108,6 +109,8 @@ export function DebateLivePanel({
           {sideReason}
         </p>
       )}
+      <LadderLevelNote level={debate.coaching?.ladderLevel ?? null} />
+
       <div className="flex items-center justify-between">
         <p className="tabular text-sm text-ink3" data-testid="round-status">
           Round {roundCount} {roundCount < minRounds && `· ${minRounds - roundCount + 1} to go`}
