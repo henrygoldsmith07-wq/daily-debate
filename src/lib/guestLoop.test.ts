@@ -21,6 +21,15 @@ const valid: GuestLoopSummary = {
   completedAt: "2026-10-04T00:00:00.000Z",
 };
 
+describe("guest repair text carry-over", () => {
+  it("keeps a bounded repair text and omits it when blank", () => {
+    const kept = parseGuestLoopSummary({ ...valid, repairText: "  Because X, so Y.  " });
+    expect(kept!.repairText).toBe("Because X, so Y.");
+    expect(parseGuestLoopSummary({ ...valid, repairText: "x".repeat(2000) })!.repairText).toHaveLength(800);
+    expect("repairText" in parseGuestLoopSummary({ ...valid, repairText: "   " })!).toBe(false);
+  });
+});
+
 describe("parseGuestLoopSummary", () => {
   it("accepts a well-formed payload from either shape", () => {
     expect(parseGuestLoopSummary(valid)).not.toBeNull();

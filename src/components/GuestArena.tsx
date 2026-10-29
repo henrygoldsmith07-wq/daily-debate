@@ -940,6 +940,7 @@ export default function GuestArena({
           ? "repair_demonstrated"
           : "partially_repaired",
       repairSucceeded: drillSucceeded,
+      ...(repair?.text ? { repairText: repair.text.slice(0, 800) } : {}),
       retestOutcome,
       completedAt: new Date().toISOString(),
     };
