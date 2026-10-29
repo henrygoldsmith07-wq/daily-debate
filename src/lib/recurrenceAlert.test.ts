@@ -18,3 +18,14 @@ describe("detectRecurrence", () => {
     expect(r).toEqual({ kind: "logic", repairedAt: "2026-10-10", evidence: "came_back" });
   });
 });
+
+import { recurrenceAlertNote } from "./recurrenceAlert";
+describe("recurrenceAlertNote", () => {
+  it("never claims failure on a single repeat", () => {
+    const t = recurrenceAlertNote({ kind: "evidence", repairedAt: "2026-10-01", evidence: "insufficient_evidence" });
+    expect(t).toMatch(/not enough evidence/);
+  });
+  it("labels repeated as unvalidated", () => {
+    expect(recurrenceAlertNote({ kind: "logic", repairedAt: "2026-10-01", evidence: "came_back" })).toMatch(/not a validated/);
+  });
+});

@@ -24,3 +24,11 @@ export function detectRecurrence(chain: ChainEntry[], newWeaknessKind: ChainKind
   if (prior.length === 0) return null;
   return { kind: newWeaknessKind, repairedAt: prior[0].repairedAt, evidence: prior.length >= 2 ? "came_back" : "insufficient_evidence" };
 }
+
+/** Learner-facing wording. Observational and unvalidated: never claims the repair failed. */
+export function recurrenceAlertNote(alert: RecurrenceAlert): string {
+  if (alert.evidence === "came_back") {
+    return `You repaired ${alert.kind} before and it showed up again here. Observed across repeated repairs, not a validated measure.`;
+  }
+  return `You repaired ${alert.kind} before. It appears again here, but one repeat is not enough evidence to say the repair did not hold.`;
+}
