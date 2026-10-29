@@ -27,3 +27,18 @@ describe("retestLadder", () => {
     expect(s.offerLevel).toBeNull();
   });
 });
+
+import { ladderLevelForRetest, ladderToDifficulty } from "./retestLadder";
+describe("ladder at retest start", () => {
+  it("stays standard without evidence", () => {
+    expect(ladderLevelForRetest(["passed"])).toBe("standard");
+  });
+  it("earns tougher after two passes, maps to difficulty", () => {
+    expect(ladderLevelForRetest(["passed", "passed"])).toBe("tougher");
+    expect(ladderToDifficulty("tougher")).toBe("challenging");
+    expect(ladderToDifficulty("hardest")).toBe("expert");
+  });
+  it("steps back after a failure", () => {
+    expect(ladderLevelForRetest(["passed", "passed", "failed"])).toBe("standard");
+  });
+});

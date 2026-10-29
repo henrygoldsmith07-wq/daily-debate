@@ -82,3 +82,14 @@ export function ladderCopy(s: LadderState): string | null {
       return null;
   }
 }
+
+/** Practice level -> opponent difficulty. Only applied when the learner did not choose one. */
+export function ladderToDifficulty(level: LadderLevel): "easy" | "challenging" | "expert" {
+  return level === "hardest" ? "expert" : "challenging";
+}
+
+/** Level applied to a retest start: stepped up only on a learner-visible "offer" or earned level. */
+export function ladderLevelForRetest(outcomes: readonly LadderOutcome[]): LadderLevel {
+  const s = ladderState(outcomes);
+  return s.status === "insufficient_evidence" ? "standard" : s.level;
+}
