@@ -17,6 +17,8 @@ const h = vi.hoisted(() => {
   const state = {
     user: null as null | { id: string; email?: string },
     tables: {} as Record<string, Row[]>,
+    /** Every table handed to the mock builder, in request order. */
+    fromLog: [] as string[],
   };
 
   /** Faithful simulation of the single locked CTE in corpusRatingStore. */
@@ -115,8 +117,12 @@ const h = vi.hoisted(() => {
     query: runImmutableInsert,
     reset(rows: Record<string, Row[]>) {
       state.tables = structuredClone(rows);
+      state.fromLog = [];
     },
-    from: (_t: string) => builder(_t),
+    from: (t: string) => {
+      state.fromLog.push(t);
+      return builder(t);
+    },
   };
 });
 
@@ -178,6 +184,12 @@ beforeEach(() => {
 });
 
 describe("GET blind assignment", () => {
+  it("assigns from two reads, not three (candidate metadata rides with the candidate query)", async () => {
+    await GET(new Request("http://localhost/api/corpus/rate"));
+    const reads = h.state.fromLog.filter((t) => t === "corpus_items" || t === "corpus_ratings");
+    expect(reads).toEqual(["corpus_ratings", "corpus_items"]);
+  });
+
   it("presents the transcript exactly as the server-side assignment dictates", async () => {
     for (const want of ["a", "b"] as const) {
       h.state.user = { id: userWithAssignment(want) };
