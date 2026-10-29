@@ -2,6 +2,14 @@
 // can show every evidenced weakness per skill. Pure and observational: no
 // causal claim, no rates (counts only), recurrence stays insufficient_evidence.
 import type { ChainEntry, ChainKind, ChainStage } from "./loopChain";
+import { ladderState, type LadderOutcome, type LadderState } from "./retestLadder";
+
+export function stageToLadderOutcome(s: ChainStage): LadderOutcome | null {
+  if (s === "retest_demonstrated") return "passed";
+  if (s === "retest_not_demonstrated") return "failed";
+  if (s === "retest_not_observable") return "inconclusive";
+  return null; // pending / not landed: no retest outcome yet
+}
 
 export interface WeaknessGroup {
   kind: ChainKind;
@@ -12,6 +20,8 @@ export interface WeaknessGroup {
   entries: ChainEntry[];
   /** A re-drill is offered only for skills whose latest retest did not show the skill or is not landed. */
   redrillSuggested: boolean;
+  /** M12: practice-difficulty ladder from this skill's decided retests (unvalidated setting). */
+  ladder: LadderState;
 }
 
 const STAGES: ChainStage[] = ["repair_not_landed", "retest_pending", "retest_not_observable", "retest_demonstrated", "retest_not_demonstrated"];
@@ -31,6 +41,12 @@ export function buildWeaknessLibrary(chain: ChainEntry[]): WeaknessGroup[] {
       byStage,
       latest,
       entries,
+      ladder: ladderState(
+        [...entries]
+          .reverse()
+          .map((e) => stageToLadderOutcome(e.stage))
+          .filter((o): o is LadderOutcome => o !== null),
+      ),
       redrillSuggested: latest.stage === "retest_not_demonstrated" || latest.stage === "repair_not_landed",
     });
   }

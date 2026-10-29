@@ -25,4 +25,17 @@ describe("WeaknessLibraryPanel", () => {
     expect(html).toContain('data-kind="logic" data-redrill="no"');
     expect(html).not.toContain("%");
   });
+  it("shows the ladder offer after two passed retests and insufficient_evidence with one", () => {
+    const two = renderToStaticMarkup(
+      <WeaknessLibraryPanel chain={[
+        e("1", "logic", "retest_demonstrated", "2026-10-20T10:00:00Z"),
+        e("2", "logic", "retest_demonstrated", "2026-10-10T10:00:00Z"),
+        e("3", "evidence", "retest_demonstrated", "2026-10-12T10:00:00Z"),
+      ]} />,
+    );
+    expect(two).toContain('data-kind="logic"');
+    expect(two).toContain('data-ladder-status="offer"');
+    expect(two).toContain("not a score");
+    expect(two).toContain('data-ladder-status="insufficient_evidence"');
+  });
 });
