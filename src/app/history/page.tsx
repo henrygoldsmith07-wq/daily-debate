@@ -11,6 +11,7 @@ import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
 import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import LoopChainPanel from "@/components/LoopChainPanel";
+import WeaknessLibraryPanel from "@/components/WeaknessLibraryPanel";
 import { loadLoopChain } from "@/lib/loopChainServer";
 import { historyLoopMap, type HistoryLoopState } from "@/lib/historyLoop";
 
@@ -146,6 +147,7 @@ export default async function HistoryPage() {
       />
 
       <LoopChainPanel chain={loopChain} />
+      <WeaknessLibraryPanel chain={loopChain} />
 
       <section className="flex flex-col gap-3">
         <div className="section-heading">
