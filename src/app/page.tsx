@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/backend/server";
 import { getTodayTopic } from "@/lib/dailyTopic";
 import AppShell from "@/components/AppShell";
+import { guestCarryoverNotes } from "@/lib/guestLoop";
 import PageHeader from "@/components/PageHeader";
 import GuestArena from "@/components/GuestArena";
 import PageViewEvent from "@/components/PageViewEvent";
@@ -277,8 +278,7 @@ export default async function DashboardPage() {
         repaired: guestContext.repairState === "repair_demonstrated",
         observed: guestContext.retestOutcome === "observed",
         seedsFocus: !!guestFocus,
-        repairText: guestContext.repairText?.trim() || null,
-        retestNotRun: guestContext.retestOutcome === "not-run",
+        ...guestCarryoverNotes(guestContext),
       }
     : null;
 

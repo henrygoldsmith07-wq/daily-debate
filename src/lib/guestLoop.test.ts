@@ -3,6 +3,7 @@ import {
   classifyGuestContextWriteError,
   encodeGuestArenaProgress,
   encodeGuestLoopSummary,
+  guestCarryoverNotes,
   guestContextWriteFailureLog,
   GUEST_ARENA_STORAGE_KEY,
   parseGuestArenaProgress,
@@ -191,5 +192,21 @@ describe("parseGuestArenaProgress", () => {
     expect(parsed?.responses[0].length).toBe(4000);
     expect(parsed?.repair?.label.length).toBe(100);
     expect(parsed?.repair?.text.length).toBe(4000);
+  });
+});
+
+describe("guestCarryoverNotes", () => {
+  it("flags a not-run retest and trims repair text", () => {
+    expect(guestCarryoverNotes({ retestOutcome: "not-run", repairText: "  my fix  " })).toEqual({
+      repairText: "my fix",
+      retestNotRun: true,
+    });
+  });
+  it("shows no note for an observed retest or missing context", () => {
+    expect(guestCarryoverNotes({ retestOutcome: "observed", repairText: "  " })).toEqual({
+      repairText: null,
+      retestNotRun: false,
+    });
+    expect(guestCarryoverNotes(null)).toEqual({ repairText: null, retestNotRun: false });
   });
 });

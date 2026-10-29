@@ -217,3 +217,18 @@ export function parseGuestArenaProgress(raw: unknown): GuestArenaProgress | null
     retestDemonstrated: (v.retestDemonstrated ?? null) as boolean | null,
   };
 }
+
+/** What the first signed-in Today shows about carried guest work (unvalidated, never scored). */
+export interface GuestCarryoverNotes {
+  repairText: string | null;
+  retestNotRun: boolean;
+}
+
+export function guestCarryoverNotes(
+  ctx: Pick<GuestLoopSummary, "retestOutcome" | "repairText"> | null | undefined,
+): GuestCarryoverNotes {
+  return {
+    repairText: ctx?.repairText?.trim() || null,
+    retestNotRun: ctx?.retestOutcome === "not-run",
+  };
+}
