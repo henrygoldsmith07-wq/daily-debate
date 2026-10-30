@@ -37,3 +37,20 @@ export async function loadReminderOutcomeEvents(): Promise<{ userId: string; eve
     return null;
   }
 }
+
+/** M20: weekly_recap_viewed rows for /analytics, best-effort. */
+export async function loadRecapViewRows(): Promise<{ userId: string }[] | null> {
+  try {
+    const db = createServiceClient();
+    const { data, error } = await db
+      .from("product_events")
+      .select("user_id")
+      .eq("name", "weekly_recap_viewed")
+      .not("user_id", "is", null)
+      .limit(5000);
+    if (error) return null;
+    return (data ?? []).map((r) => ({ userId: r.user_id as string }));
+  } catch {
+    return null;
+  }
+}
