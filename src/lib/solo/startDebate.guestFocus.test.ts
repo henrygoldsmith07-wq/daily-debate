@@ -20,6 +20,7 @@ const context: { value: CoachingContext } = {
     selectedRetest: null,
     drillOutcomes: {},
     reRepairDimensions: [],
+    repairedDimensions: [],
   },
 };
 

@@ -8,6 +8,7 @@ import {
   COACH_DIMENSIONS,
   DRILL_LIBRARY,
 } from "./adaptiveCoach";
+import type { CoachDimension, CoachDim } from "./adaptiveCoach";
 import type { SkillMetricPoint } from "./skillLedger";
 
 function point(
@@ -339,5 +340,27 @@ describe("focus selection: failed retest steers re-repair", () => {
   it("overrides the non-producing drill skip", () => {
     const { focus } = selectFocus(dims as never, {}, { clarity: -0.1 }, [], ["clarity"]);
     expect(focus?.key).toBe("clarity");
+  });
+});
+
+describe("selectFocus steering after retests", () => {
+  const mk = (key: CoachDimension, score: number): CoachDim =>
+    ({ key, label: key, score, hasData: true, observations: 5 }) as unknown as CoachDim;
+  const dims = [mk("evidence", 30), mk("logic", 50), mk("impact", 70)];
+  it("moves on from a repaired skill to the next weakest", () => {
+    const r = selectFocus(dims, {}, {}, [], [], ["evidence"]);
+    expect(r.focus?.key).toBe("logic");
+    expect(r.steering).toBe("moved_on");
+    expect(r.reason).toMatch(/unvalidated/);
+  });
+  it("keeps the repaired skill when it is the only one", () => {
+    const r = selectFocus([mk("evidence", 30)], {}, {}, [], [], ["evidence"]);
+    expect(r.focus?.key).toBe("evidence");
+    expect(r.steering).toBe("lowest");
+  });
+  it("failed retest still wins over moving on", () => {
+    const r = selectFocus(dims, {}, {}, [], ["impact"], ["evidence"]);
+    expect(r.focus?.key).toBe("impact");
+    expect(r.steering).toBe("re_repair");
   });
 });

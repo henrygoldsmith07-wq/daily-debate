@@ -24,6 +24,7 @@
 //     a dropped connection never loses the learner's turn;
 //   - leaving the room aborts the in-flight request without touching state.
 
+import type { FinishPreview } from "@/lib/solo/finishPreview";
 import { useEffect, useRef, useState } from "react";
 import { readTurnResponse, TURN_STREAM_ACCEPT, type TurnOutcome } from "@/lib/turnStreamClient";
 import type { ComposerSubmitData } from "../MessageComposer";
@@ -72,6 +73,8 @@ export interface DebateSession {
   status: SoloDebate["status"];
   sending: boolean;
   finishing: boolean;
+  /** Deterministic weakness shown while the full result is still generating. */
+  preview: FinishPreview | null;
   result: DebateSummaryPayload | null;
   /** Advisory mid-debate hints for the NEXT round, from the last submitted turn. */
   liveHints: LiveCoachingHint[];
@@ -99,6 +102,7 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
   const [status, setStatus] = useState<SoloDebate["status"]>(debate.status);
   const [sending, setSending] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [preview, setPreview] = useState<FinishPreview | null>(null);
   const [result, setResult] = useState<DebateSummaryPayload | null>(null);
   // Real-time coaching: hints computed server-side from the just-submitted
   // turn's observable evidence, shown for the NEXT round and cleared on submit.
@@ -227,6 +231,12 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
   const finishDebate = async (finishSavedResponse = false): Promise<void> => {
     setFinishing(true);
     setError(null);
+    if (!finishSavedResponse) {
+      void fetch(`/api/solo/${debate.id}/preview`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setPreview((d?.preview as FinishPreview | null) ?? null))
+        .catch(() => undefined);
+    }
     try {
       const res = await fetch(`/api/solo/${debate.id}/finish`, {
         method: "POST",
@@ -242,6 +252,7 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
       if (!res.ok) throw new Error(data.error || "Failed to finish debate.");
       setStatus("completed");
       setResult(data as DebateSummaryPayload);
+      setPreview(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to finish debate.");
     } finally {
@@ -256,6 +267,7 @@ export function useDebateSession(opts: DebateSessionOptions): DebateSession {
     status,
     sending,
     finishing,
+    preview,
     result,
     liveHints,
     pendingUserMessage,

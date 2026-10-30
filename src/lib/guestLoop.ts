@@ -21,6 +21,8 @@ export interface GuestLoopSummary {
    */
   repairSucceeded: boolean;
   retestOutcome: "observed" | "not-observed" | "not-run";
+  /** The guest's own repair attempt (bounded), carried so signup keeps the work. Optional: older payloads lack it. */
+  repairText?: string;
   completedAt: string;
 }
 
@@ -52,6 +54,7 @@ export function parseGuestLoopSummary(raw: unknown): GuestLoopSummary | null {
   if (typeof v.repairState !== "string" || !REPAIR_STATES.has(v.repairState)) return null;
   if (typeof v.retestOutcome !== "string" || !RETEST_OUTCOMES.has(v.retestOutcome)) return null;
 
+  const repairText = boundedString(v.repairText, 800).trim();
   return {
     motion: boundedString(v.motion, 200),
     weaknessKind: v.weaknessKind,
@@ -59,6 +62,7 @@ export function parseGuestLoopSummary(raw: unknown): GuestLoopSummary | null {
     repairState: v.repairState,
     repairSucceeded: v.repairSucceeded === true,
     retestOutcome: v.retestOutcome as GuestLoopSummary["retestOutcome"],
+    ...(repairText ? { repairText } : {}),
     completedAt: boundedString(v.completedAt, 40) || new Date().toISOString(),
   };
 }
@@ -211,5 +215,20 @@ export function parseGuestArenaProgress(raw: unknown): GuestArenaProgress | null
     responses,
     repair,
     retestDemonstrated: (v.retestDemonstrated ?? null) as boolean | null,
+  };
+}
+
+/** What the first signed-in Today shows about carried guest work (unvalidated, never scored). */
+export interface GuestCarryoverNotes {
+  repairText: string | null;
+  retestNotRun: boolean;
+}
+
+export function guestCarryoverNotes(
+  ctx: Pick<GuestLoopSummary, "retestOutcome" | "repairText"> | null | undefined,
+): GuestCarryoverNotes {
+  return {
+    repairText: ctx?.repairText?.trim() || null,
+    retestNotRun: ctx?.retestOutcome === "not-run",
   };
 }

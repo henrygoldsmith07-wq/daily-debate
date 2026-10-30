@@ -82,6 +82,12 @@ export interface CoachingRecord {
    * provenance only — never evidence, a score, a retest or an improvement.
    */
   focusSource?: "guest-practice" | "learner-choice" | null;
+  /**
+   * Set only when stored repair/retest outcomes moved the ledger-picked focus:
+   * "re_repair" (a failed retest kept the same skill) or "moved_on" (a repaired
+   * skill was passed over). Absent = the plain lowest-skill pick.
+   */
+  steering?: "re_repair" | "moved_on" | null;
   /** Explainable side assignment, when the user picked "Challenge me". */
   sideReason?: string | null;
   /** If present, this debate deliberately retests a recently repaired weakness. */
@@ -92,6 +98,18 @@ export interface CoachingRecord {
     targetKind: RepairKind;
     attemptedAt: string;
   } | null;
+  /**
+   * M9: this debate carries a 7-day spaced re-check of a repair whose first
+   * retest showed the skill. Stamped at start, verdict added at finish (full
+   * format only). Never named to the learner before the debate.
+   */
+  recheck?: {
+    repairResultId: string;
+    targetKind: RepairKind;
+    outcome?: "skill-observed" | "skill-not-observed" | "no-valid-opportunity" | "not-enough-evidence" | null;
+  } | null;
+  /** M12: retest ladder level applied at start (practice setting, unvalidated). */
+  ladderLevel?: "tougher" | "hardest" | null;
   /** Best-effort coaching context can degrade without blocking the debate. */
   degradationReasons?: CoachingContextDegradationReason[] | null;
   /** Observed behaviour from the finished debate (set at finish). */
@@ -118,7 +136,9 @@ export interface CoachingRecord {
     /** The skill under test — named for the first time AFTER the debate. */
     skillLabel: string;
     /** The learner's own weak sentence and its repair, for a before/after view. */
-    comparison?: { before: string; after: string } | null;
+    comparison?: { before: string; after: string; reusedPhrases?: string[] } | null;
+    /** M19: unvalidated second-opinion angle after a failed retest. */
+    secondOpinion?: { label: "unvalidated"; suggestion: string; repairReused?: boolean; restatesOriginal?: boolean } | null;
   } | null;
   /** The repair-kind of this debate's main weakness (longitudinal tracking). */
   weaknessKind?: string | null;

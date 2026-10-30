@@ -6,6 +6,7 @@
 // and `timing`, so this file is about what the user sees and what they can do
 // next - never about when something is persisted.
 
+import LadderLevelNote from "./LadderLevelNote";
 import { useEffect, useRef, useState } from "react";
 import MessageComposer from "../MessageComposer";
 import RoundProgress from "../RoundProgress";
@@ -55,6 +56,7 @@ export function DebateLivePanel({
     status,
     sending,
     finishing,
+    preview,
     submitTurn,
     finishDebate,
     liveHints,
@@ -107,6 +109,8 @@ export function DebateLivePanel({
           {sideReason}
         </p>
       )}
+      <LadderLevelNote level={debate.coaching?.ladderLevel ?? null} />
+
       <div className="flex items-center justify-between">
         <p className="tabular text-sm text-ink3" data-testid="round-status">
           Round {roundCount} {roundCount < minRounds && `· ${minRounds - roundCount + 1} to go`}
@@ -247,6 +251,15 @@ export function DebateLivePanel({
         <p className="text-center text-sm text-ink3">
           Round limit reached ({roundCapFor(debate.format)}). Finish the debate to get scored.
         </p>
+      )}
+
+      {finishing && preview?.weakness && (
+        <section className="card p-4 text-sm" role="status" data-testid="finish-preview">
+          <p className="text-xs text-ink3">Preview while your full result finishes (unvalidated label, may be refined)</p>
+          <p className="mt-1 font-medium">{preview.weakness.headline}</p>
+          <p className="mt-1 text-ink3">{preview.weakness.whyItMatters}</p>
+          {preview.weakness.repairLabel && <p className="mt-1 text-ink3">Repair to practise next: {preview.weakness.repairLabel}</p>}
+        </section>
       )}
 
       {(canFinish || canFinishWithSaved) && status === "active" && (

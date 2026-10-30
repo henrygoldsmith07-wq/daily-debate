@@ -13,4 +13,13 @@ describe("ArgumentRepair", () => {
     expect(html).toContain('aria-describedby="repair-draft-count"');
     expect(html).toContain('id="repair-draft-count"');
   });
+
+  it("does not offer help before a failed attempt", () => {
+    const target = { kind: "unsupported_claim", title: "T", prompt: "P" } as unknown as RepairTarget;
+    const html = renderToStaticMarkup(
+      <ArgumentRepair graph={{} as ArgGraph} presetTarget={target} />,
+    );
+    expect(html).not.toContain('data-testid="repair-help"');
+    expect(html).not.toContain("reveal-help-");
+  });
 });

@@ -15,6 +15,10 @@ import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
 import CoachToday from "@/components/CoachToday";
+import WeeklyLoopPanel from "@/components/WeeklyLoopPanel";
+import LoopChainPanel from "@/components/LoopChainPanel";
+import { loadLoopChain } from "@/lib/loopChainServer";
+import { loadWeeklyLoop } from "@/lib/weeklyLoopServer";
 import PageViewEvent from "@/components/PageViewEvent";
 import { computeLoopStatuses, type DrillAssignmentLite, type LoopStage } from "@/lib/coachLoop";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
@@ -188,6 +192,7 @@ export default async function ProgressPage() {
     drillOutcomes,
     skillsUnderTest(coachingContext.pendingRetests),
     coachingContext.reRepairDimensions,
+    coachingContext.repairedDimensions,
   );
   const learnerModel = buildLearnerModel({
     points: ledger.points,
@@ -267,6 +272,9 @@ export default async function ProgressPage() {
     })),
   );
 
+  const weeklyLoop = await loadWeeklyLoop(user.id).catch(() => null);
+  const loopChain = await loadLoopChain(user.id).catch(() => []);
+
   return (
     <AppShell width="narrow">
       <PageViewEvent name="progress_viewed" />
@@ -275,6 +283,8 @@ export default async function ProgressPage() {
         title="Progress"
         description={progressDescription}
       />
+      {weeklyLoop && <WeeklyLoopPanel loop={weeklyLoop} />}
+      <LoopChainPanel chain={loopChain} />
       {/* ── What to practise next: the one recommended action + why ────── */}
       {learnerModel.nextPractice && (
         <section

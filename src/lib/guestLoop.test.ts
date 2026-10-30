@@ -3,6 +3,7 @@ import {
   classifyGuestContextWriteError,
   encodeGuestArenaProgress,
   encodeGuestLoopSummary,
+  guestCarryoverNotes,
   guestContextWriteFailureLog,
   GUEST_ARENA_STORAGE_KEY,
   parseGuestArenaProgress,
@@ -20,6 +21,15 @@ const valid: GuestLoopSummary = {
   retestOutcome: "observed",
   completedAt: "2026-10-04T00:00:00.000Z",
 };
+
+describe("guest repair text carry-over", () => {
+  it("keeps a bounded repair text and omits it when blank", () => {
+    const kept = parseGuestLoopSummary({ ...valid, repairText: "  Because X, so Y.  " });
+    expect(kept!.repairText).toBe("Because X, so Y.");
+    expect(parseGuestLoopSummary({ ...valid, repairText: "x".repeat(2000) })!.repairText).toHaveLength(800);
+    expect("repairText" in parseGuestLoopSummary({ ...valid, repairText: "   " })!).toBe(false);
+  });
+});
 
 describe("parseGuestLoopSummary", () => {
   it("accepts a well-formed payload from either shape", () => {
@@ -182,5 +192,21 @@ describe("parseGuestArenaProgress", () => {
     expect(parsed?.responses[0].length).toBe(4000);
     expect(parsed?.repair?.label.length).toBe(100);
     expect(parsed?.repair?.text.length).toBe(4000);
+  });
+});
+
+describe("guestCarryoverNotes", () => {
+  it("flags a not-run retest and trims repair text", () => {
+    expect(guestCarryoverNotes({ retestOutcome: "not-run", repairText: "  my fix  " })).toEqual({
+      repairText: "my fix",
+      retestNotRun: true,
+    });
+  });
+  it("shows no note for an observed retest or missing context", () => {
+    expect(guestCarryoverNotes({ retestOutcome: "observed", repairText: "  " })).toEqual({
+      repairText: null,
+      retestNotRun: false,
+    });
+    expect(guestCarryoverNotes(null)).toEqual({ repairText: null, retestNotRun: false });
   });
 });

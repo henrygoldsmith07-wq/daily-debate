@@ -200,6 +200,8 @@ export function buildCoachProfile(points: SkillMetricPoint[]): {
  * already improving gets lifted away from focus (don't fix what's fixing
  * itself); a regressing one sinks.
  */
+export type FocusSteering = "none" | "re_repair" | "moved_on" | "lowest";
+
 export function selectFocus(
   dims: CoachDim[],
   slopes: Partial<Record<CoachDimension, number | null>>,
@@ -222,7 +224,14 @@ export function selectFocus(
    * still win the exclusion.
    */
   reRepair: readonly CoachDimension[] = [],
-): { focus: CoachDim | null; reason: string } {
+  /**
+   * Dimensions whose latest observable retest showed the repair transferred
+   * (unvalidated, single retest). They step aside for the next weakest skill
+   * when any other usable dimension exists, so the coach moves on instead of
+   * re-drilling a skill that just moved.
+   */
+  repaired: readonly CoachDimension[] = [],
+): { focus: CoachDim | null; reason: string; steering: FocusSteering } {
   const excluded = new Set<CoachDimension>(exclude);
   const usable = dims.filter((d) => d.hasData && d.score !== null && !excluded.has(d.key));
   if (!usable.length) {
@@ -231,6 +240,7 @@ export function selectFocus(
       reason: excluded.size
         ? "No focus line today — the debate is still worth doing."
         : "No scored debates yet — complete a debate to unlock training.",
+      steering: "none",
     };
   }
 
@@ -242,6 +252,7 @@ export function selectFocus(
     return {
       focus: reRepairPool[0],
       reason: "your last repair did not show up in a later debate (unvalidated single retest) — try it again",
+      steering: "re_repair",
     };
   }
 
@@ -252,8 +263,13 @@ export function selectFocus(
       .filter(([, delta]) => delta < -0.02)
       .map(([key]) => key),
   );
-  const pool = usable.filter((d) => !nonProducing.has(d.key));
+  let pool = usable.filter((d) => !nonProducing.has(d.key));
   if (!pool.length) pool.push(...usable); // all struggling: fall back to least-bad
+  const repairedSet = new Set<CoachDimension>(repaired);
+  const stepAside = pool.filter((d) => repairedSet.has(d.key));
+  const others = pool.filter((d) => !repairedSet.has(d.key));
+  const movedOn = stepAside.length > 0 && others.length > 0;
+  if (movedOn) pool = others;
 
   const adjusted = pool.map((d) => {
     const slope = slopes[d.key] ?? 0;
@@ -266,7 +282,11 @@ export function selectFocus(
   const reasonBits: string[] = [`lowest profile dimension (${worst.score}/100)`];
   const slope = slopes[worst.dim.key] ?? null;
   if (slope !== null && slope < 0) reasonBits.push("and trending down");
-  return { focus: worst.dim, reason: reasonBits.join(", ") };
+  if (movedOn) {
+    const names = stepAside.map((d) => DIMENSION_LABELS[d.key]).join(", ");
+    reasonBits.push(`your ${names} repair showed up in a later debate (unvalidated single retest), so we moved on`);
+  }
+  return { focus: worst.dim, reason: reasonBits.join(", "), steering: movedOn ? "moved_on" : "lowest" };
 }
 
 // ---------------------------------------------------------------------------

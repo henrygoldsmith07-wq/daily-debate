@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/backend/server";
 import { checkRateLimit, checkRateLimitKey } from "@/lib/rateLimit";
 import { resolveDebateFormat } from "@/lib/sprint";
-import { resolveDifficulty, resolvePersona } from "@/lib/opponentPersona";
+import { OPPONENT_DIFFICULTIES, resolveDifficulty, resolvePersona } from "@/lib/opponentPersona";
 import { isSoloStartSideChoice, startSoloDebate } from "@/lib/solo/startDebate";
 
 export async function POST(request: Request) {
@@ -71,6 +71,7 @@ export async function POST(request: Request) {
     format,
     persona,
     difficulty,
+    difficultyExplicit: typeof body?.difficulty === "string" && body.difficulty in OPPONENT_DIFFICULTIES,
     // Validated inside the service: honoured only for a guest-seeded first
     // focus (guestFocus.ts), otherwise ignored.
     firstFocus: body?.firstFocus,
