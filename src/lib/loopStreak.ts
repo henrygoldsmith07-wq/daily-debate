@@ -5,6 +5,8 @@ export interface LoopStreak {
   current: number;
   longest: number;
   activeDays: number;
+  /** Streak is alive but nothing counted yet today; it ends at the close of today. */
+  atRisk: boolean;
   /** insufficient_evidence until enough distinct active days exist to call it a pattern. */
   status: "insufficient_evidence" | "ok";
 }
@@ -38,9 +40,11 @@ export function buildLoopStreak(timestamps: Array<string | null>, timeZone: stri
   }
   const todayKey = dayKey(now.toISOString(), timeZone);
   let current = 0;
+  let atRisk = false;
   if (todayKey) {
     const today = dayNumber(todayKey);
     // A streak stays alive until the end of the day after the last active day.
+    atRisk = !days.has(today) && days.has(today - 1);
     let cursor = days.has(today) ? today : today - 1;
     while (days.has(cursor)) {
       current++;
@@ -51,6 +55,7 @@ export function buildLoopStreak(timestamps: Array<string | null>, timeZone: stri
     current,
     longest,
     activeDays: days.size,
+    atRisk: atRisk && days.size >= MIN_ACTIVE_DAYS_FOR_STREAK,
     status: days.size >= MIN_ACTIVE_DAYS_FOR_STREAK ? "ok" : "insufficient_evidence",
   };
 }

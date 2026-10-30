@@ -23,3 +23,20 @@ describe("buildLoopStreak", () => {
     expect(streakCopy(s)).toContain("1 active day so far");
   });
 });
+
+describe("loop streak at risk", () => {
+  const now = new Date("2026-10-30T12:00:00Z");
+  it("flags a live streak with nothing yet today", () => {
+    const s = buildLoopStreak(["2026-10-27T10:00:00Z", "2026-10-28T10:00:00Z", "2026-10-29T10:00:00Z"], "UTC", now);
+    expect(s.current).toBe(3);
+    expect(s.atRisk).toBe(true);
+  });
+  it("is not at risk once today counts", () => {
+    const s = buildLoopStreak(["2026-10-28T10:00:00Z", "2026-10-29T10:00:00Z", "2026-10-30T09:00:00Z"], "UTC", now);
+    expect(s.atRisk).toBe(false);
+  });
+  it("never warns under the sample gate", () => {
+    const s = buildLoopStreak(["2026-10-29T10:00:00Z"], "UTC", now);
+    expect(s.atRisk).toBe(false);
+  });
+});
