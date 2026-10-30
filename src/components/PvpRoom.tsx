@@ -7,6 +7,7 @@ import { VerdictExplainPanel } from "./ArgGraphView";
 import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
 import type { PvpMatch, PvpTurn, PvpVerdict } from "@/lib/types";
 import ClaimsPanel from "./ClaimsPanel";
+import PublishToggle from "./PublishToggle";
 import { TURN_ABANDON_MINUTES } from "@/lib/types";
 import { allowsCompetitiveClaims, type SurfaceValidation } from "@/lib/judgeValidation";
 
@@ -324,6 +325,12 @@ export default function PvpRoom({
               round: turn.round_number,
               text: turn.message,
             }))}
+          />
+          <PublishToggle
+            kind="pvp"
+            id={match.id}
+            initialPublished={(isPlayerA ? match.player_a_publish : match.player_b_publish) === true}
+            opponentConsent={(isPlayerA ? match.player_b_publish : match.player_a_publish) ?? null}
           />
         </div>
       )}
