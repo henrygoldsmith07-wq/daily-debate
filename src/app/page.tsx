@@ -19,6 +19,7 @@ import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
 import RetestStartButton from "@/components/RetestStartButton";
 import { closedRechecks, nextDueRecheck, recheckCopy, recheckStatus, selectRecheckForStart } from "@/lib/spacedRecheck";
 import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
+import { reminderCopy, reminderState } from "@/lib/retestReminder";
 import { continueKicker, isRetestHero } from "@/lib/retestHero";
 import { loadLoopChain } from "@/lib/loopChainServer";
 import { nudgeCopy, pickWeaknessNudge } from "@/lib/weaknessNudge";
@@ -355,7 +356,12 @@ export default async function DashboardPage() {
   const recheckToday =
     recheckInputs && !activeDebate ? selectRecheckForStart(recheckInputs.repairs, recheckInputs.debates, topic.id, recheckNow) : null;
   const recheckDue = nextDueRecheck(recheckRows, recheckNow);
-  const recheckLine = recheckToday
+  const dueAt = recheckDue?.retest_completed_at ? new Date(Date.parse(recheckDue.retest_completed_at) + 7 * 86_400_000).toISOString() : null;
+  const dueState = dueAt ? reminderState([{ kind: "recheck", availableAt: dueAt }], recheckNow) : null;
+  const overdueLine = dueState?.tone === "overdue" ? reminderCopy(dueState) : null;
+  const recheckLine = overdueLine
+    ? overdueLine
+    : recheckToday
     ? "Your 7-day re-check runs in today's full debate: does the repaired skill still show up? (unvalidated)"
     : recheckDue
       ? "Your 7-day re-check is due. It runs on the next fresh motion, in a full debate (unvalidated)."

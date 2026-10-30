@@ -26,3 +26,13 @@ describe("reminderState", () => {
     expect(reminderCopy(reminderState([{ kind: "recheck", availableAt: "2026-10-30T11:00:00Z" }], now))).toBe("Your 7-day re-check is ready.");
   });
 });
+
+import { reminderCopy as _copy, reminderState as _state } from "./retestReminder";
+describe("overdue recheck copy", () => {
+  it("is overdue after 2 days and says unvalidated", () => {
+    const s = _state([{ kind: "recheck", availableAt: "2026-10-20T00:00:00Z" }], new Date("2026-10-23T00:00:00Z"));
+    expect(s.tone).toBe("overdue");
+    expect(_copy(s)).toContain("3 days");
+    expect(_copy(s)).toContain("unvalidated");
+  });
+});
