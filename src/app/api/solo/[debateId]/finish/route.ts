@@ -489,7 +489,7 @@ async function finishSoloDebate(
               retestTurns: answered.map((turn) => String(turn.user_message)),
               skillLabel: String(coachingUpdate.retestOutcome?.skillLabel ?? "this skill"),
             });
-            return so ? { label: so.label, suggestion: so.suggestion } : null;
+            return so ? { label: so.label, suggestion: so.suggestion, repairReused: so.repairReused, restatesOriginal: so.restatesOriginal } : null;
           })(),
           comparison: (() => {
             const base = retestComparisonFor(repairRow);

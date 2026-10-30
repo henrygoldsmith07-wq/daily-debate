@@ -51,3 +51,28 @@ export function secondOpinionFor(input: {
   }
   return { label: "unvalidated", repairReused, restatesOriginal, suggestion };
 }
+
+export const SECOND_OPINION_MIN_SAMPLE = 10;
+
+export interface SecondOpinionSummary {
+  total: number;
+  restated: number;
+  notReused: number;
+  reusedButMissed: number;
+  insufficient: boolean;
+}
+
+/** Pure: bucket stored second opinions; breakdown gated by sample size. */
+export function summariseSecondOpinions(
+  items: readonly { repairReused?: boolean; restatesOriginal?: boolean }[],
+): SecondOpinionSummary {
+  let restated = 0;
+  let notReused = 0;
+  let reusedButMissed = 0;
+  for (const i of items) {
+    if (i.restatesOriginal) restated++;
+    else if (!i.repairReused) notReused++;
+    else reusedButMissed++;
+  }
+  return { total: items.length, restated, notReused, reusedButMissed, insufficient: items.length < SECOND_OPINION_MIN_SAMPLE };
+}
