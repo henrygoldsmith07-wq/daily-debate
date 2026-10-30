@@ -59,3 +59,30 @@ describe("summariseReminderOutcomes", () => {
     expect(r).toMatchObject({ status: "ok", sent: 5, acted: 1, label: "unvalidated" });
   });
 });
+
+import { prefsFromEvents } from "@/lib/reminderDelivery";
+import { isClientProductEventName } from "@/lib/clientProductEvents";
+import { isProductEventName } from "@/lib/productEvents";
+
+describe("prefsFromEvents (M18 slice 4)", () => {
+  it("defaults to not opted in", () => {
+    expect(prefsFromEvents([]).optedIn).toBe(false);
+  });
+  it("latest opt event wins regardless of order", () => {
+    const ev = [
+      { name: "reminder_opted_out", createdAt: "2026-10-02T00:00:00Z" },
+      { name: "reminder_opted_in", createdAt: "2026-10-01T00:00:00Z" },
+    ];
+    expect(prefsFromEvents(ev).optedIn).toBe(false);
+    expect(prefsFromEvents([...ev].reverse()).optedIn).toBe(false);
+    expect(prefsFromEvents([ev[1]]).optedIn).toBe(true);
+  });
+  it("ignores unrelated and invalid events", () => {
+    expect(prefsFromEvents([{ name: "reminder_opted_in", createdAt: "nope" }, { name: "daily_viewed", createdAt: "2026-10-01T00:00:00Z" }]).optedIn).toBe(false);
+  });
+  it("registers reminder event names", () => {
+    expect(isProductEventName("reminder_sent")).toBe(true);
+    expect(isClientProductEventName("reminder_acted")).toBe(true);
+    expect(isClientProductEventName("reminder_sent")).toBe(false);
+  });
+});

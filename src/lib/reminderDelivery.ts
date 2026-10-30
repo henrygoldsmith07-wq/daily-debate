@@ -123,3 +123,26 @@ export function summariseReminderOutcomes(events: readonly ReminderOutcomeEvent[
   }
   return { status: "ok", sent: sent.length, acted: n, actedRate: n / sent.length, label: "unvalidated" };
 }
+
+export interface ReminderPrefEvent {
+  name: string;
+  createdAt: string;
+}
+
+/**
+ * M18 slice 4: opt-in state derived from product_events (no migration): the
+ * latest opt-in/opt-out event wins; no event means not opted in. Timezone and
+ * quiet hours stay at defaults until a settings store exists.
+ */
+export function prefsFromEvents(events: readonly ReminderPrefEvent[]): ReminderPrefs {
+  let latest = -Infinity;
+  let optedIn = false;
+  for (const e of events) {
+    if (e.name !== "reminder_opted_in" && e.name !== "reminder_opted_out") continue;
+    const t = Date.parse(e.createdAt);
+    if (!Number.isFinite(t) || t < latest) continue;
+    latest = t;
+    optedIn = e.name === "reminder_opted_in";
+  }
+  return { ...DEFAULT_REMINDER_PREFS, optedIn };
+}
