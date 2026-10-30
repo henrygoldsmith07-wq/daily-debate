@@ -6,6 +6,10 @@ describe("client product event boundary", () => {
     for (const name of CLIENT_PRODUCT_EVENT_NAMES) expect(isClientProductEventName(name)).toBe(true);
   });
 
+  it("accepts the History streak view event", () => {
+    expect(isClientProductEventName("loop_streak_viewed")).toBe(true);
+  });
+
   it.each([
     "debate_completed",
     "retest_skill_demonstrated",

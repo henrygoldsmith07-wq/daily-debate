@@ -5,6 +5,7 @@ export const CLIENT_PRODUCT_EVENT_NAMES = [
   "pvp_started",
   "repair_started",
   "weakness_feedback_missed",
+  "loop_streak_viewed",
 ] as const;
 
 export type ClientProductEventName = (typeof CLIENT_PRODUCT_EVENT_NAMES)[number];
