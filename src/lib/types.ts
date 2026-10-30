@@ -135,6 +135,8 @@ export interface CoachingRecord {
     skillLabel: string;
     /** The learner's own weak sentence and its repair, for a before/after view. */
     comparison?: { before: string; after: string; reusedPhrases?: string[] } | null;
+    /** M19: unvalidated second-opinion angle after a failed retest. */
+    secondOpinion?: { label: "unvalidated"; suggestion: string; repairReused?: boolean; restatesOriginal?: boolean } | null;
   } | null;
   /** The repair-kind of this debate's main weakness (longitudinal tracking). */
   weaknessKind?: string | null;

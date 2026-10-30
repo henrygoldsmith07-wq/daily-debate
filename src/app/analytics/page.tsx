@@ -16,6 +16,8 @@ import { summarizeRecurrenceByKind, RECURRENCE_MIN_REPAIRS } from "@/lib/recurre
 import { CHAIN_RATE_MIN_DECIDED, summarizeChainByKind } from "@/lib/loopChain";
 import { loadPhraseReuseSummary } from "@/lib/phraseReuseServer";
 import { MIN_REUSE_SAMPLE } from "@/lib/repairPhraseReuse";
+import { loadSecondOpinionSummary } from "@/lib/secondOpinionServer";
+import { SECOND_OPINION_MIN_SAMPLE } from "@/lib/repairSecondOpinion";
 import { loadSteeringSummary } from "@/lib/steeringServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
@@ -95,6 +97,7 @@ export default async function AnalyticsPage() {
   const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
   const durable = await loadDurableGainSummary();
   const reuse = await loadPhraseReuseSummary();
+  const secondOpinion = await loadSecondOpinionSummary();
 
   return (
     <AppShell width="narrow">
@@ -180,6 +183,17 @@ export default async function AnalyticsPage() {
               : `${Math.round(reuse.rate * 100)}% of retests reused a phrase from the repair (${reuse.reusedCount}/${reuse.total})`}
           </p>
           <p className="mt-1 text-xs text-ink3">Word overlap only. Unvalidated, not evidence the repair worked.</p>
+        </section>
+      )}
+      {secondOpinion && secondOpinion.total > 0 && (
+        <section className="surface-card p-5" aria-labelledby="second-opinion-heading" data-testid="second-opinion-stats" data-evidence="unvalidated">
+          <h2 id="second-opinion-heading" className="text-sm font-semibold">Second opinions after failed retests</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {secondOpinion.insufficient
+              ? `insufficient_evidence (${secondOpinion.total}/${SECOND_OPINION_MIN_SAMPLE} failed retests needed before a breakdown is shown)`
+              : `${secondOpinion.restated} repeated the original line, ${secondOpinion.notReused} did not reuse the repair, ${secondOpinion.reusedButMissed} reused it but the skill was still not observed (of ${secondOpinion.total})`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Descriptive word-overlap categories. Unvalidated, not evidence a suggestion works.</p>
         </section>
       )}
       {steering && (
