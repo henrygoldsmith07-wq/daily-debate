@@ -76,6 +76,12 @@ describe("POST /api/events", () => {
     );
   });
 
+  it("records the learner's 'this feedback missed' flag for an owned debate", async () => {
+    const res = await post({ name: "weakness_feedback_missed", debateId: OWNED });
+    expect(res.status).toBe(200);
+    expect(h.record).toHaveBeenCalledWith(h.state.user!.id, "weakness_feedback_missed", { debateId: OWNED });
+  });
+
   it("rejects a valid UUID that belongs to another user", async () => {
     const res = await post({ name: "repair_started", debateId: FOREIGN });
     expect(res.status).toBe(400);

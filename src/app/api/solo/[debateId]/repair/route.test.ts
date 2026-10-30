@@ -187,4 +187,16 @@ describe("POST /api/solo/[debateId]/repair — duplicate submissions", () => {
     expect(recordEvent).not.toHaveBeenCalled();
     expect((await res.json()).succeeded).toBe(true);
   });
+  it("ignores a claimed help level before any failed attempt and withholds help", async () => {
+    const res = await POST(
+      new Request("http://x/api/solo/debate-1/repair", {
+        method: "POST",
+        body: JSON.stringify({ rewrite: "Another rewrite with 40% data from a 2022 survey.", helpLevel: 3 }),
+      }),
+      { params: Promise.resolve({ debateId: "debate-1" }) },
+    );
+    const json = await res.json();
+    expect(json.helpLevel).toBe(0);
+    expect(json.unlockedLevel).toBe(0);
+  });
 });

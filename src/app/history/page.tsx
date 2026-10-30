@@ -9,6 +9,13 @@ import { loadJudgeValidation } from "@/lib/judgeValidationServer";
 import { allowsCompetitiveClaims } from "@/lib/judgeValidation";
 import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
+import LoopChainPanel from "@/components/LoopChainPanel";
+import WeaknessLibraryPanel from "@/components/WeaknessLibraryPanel";
+import LoopStreakPanel from "@/components/LoopStreakPanel";
+import ReminderOptInPanel from "@/components/ReminderOptInPanel";
+import { loadReminderPrefs } from "@/lib/reminderPrefsServer";
+import { loadLoopStreak } from "@/lib/loopStreakServer";
+import { loadLoopChain } from "@/lib/loopChainServer";
 import { historyLoopMap, type HistoryLoopState } from "@/lib/historyLoop";
 
 export const dynamic = "force-dynamic";
@@ -114,6 +121,10 @@ export default async function HistoryPage() {
     );
   }
 
+  const loopChain = await loadLoopChain(user.id).catch(() => []);
+  const reminderPrefs = await loadReminderPrefs(user.id).catch(() => null);
+  const loopStreak = await loadLoopStreak(user.id, timeZone).catch(() => null);
+
   return (
     <AppShell width="narrow">
       <PageHeader
@@ -127,6 +138,11 @@ export default async function HistoryPage() {
           </>
         }
       />
+
+      <LoopChainPanel chain={loopChain} />
+      <WeaknessLibraryPanel chain={loopChain} />
+      {loopStreak && <LoopStreakPanel streak={loopStreak} />}
+      {reminderPrefs && <ReminderOptInPanel initialOptedIn={reminderPrefs.optedIn} />}
 
       <section className="flex flex-col gap-3">
         <div className="section-heading">

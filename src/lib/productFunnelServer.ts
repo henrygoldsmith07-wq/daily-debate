@@ -11,6 +11,7 @@
 // so the graph work stays proportional to the repairs being measured.
 
 import "server-only";
+import { helpLevelFromSignals } from "./repairHints";
 
 import { createServiceClient } from "@/lib/backend/server";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
@@ -72,7 +73,7 @@ export async function loadFunnelData(): Promise<FunnelData> {
       .limit(MAX_EVENTS + 1),
     service
       .from("repair_results")
-      .select("id, user_id, debate_id, target_kind, score, succeeded, created_at")
+      .select("id, user_id, debate_id, target_kind, score, succeeded, created_at, signals")
       .order("created_at", { ascending: false })
       .limit(MAX_REPAIRS + 1),
     service
@@ -144,6 +145,7 @@ export async function loadFunnelData(): Promise<FunnelData> {
     score: row.score,
     succeeded: row.succeeded,
     created_at: row.created_at,
+    help_level: helpLevelFromSignals((row as { signals?: unknown }).signals),
   }));
   const retests: RepairRetestAnalyticsRow[] = boundedRetestRows.rows.map((row) => ({
     repair_result_id: row.repair_result_id,
