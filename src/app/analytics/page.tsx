@@ -2,9 +2,23 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadFunnelData } from "@/lib/productFunnelServer";
-import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, FUNNEL_MIN_SAMPLE } from "@/lib/productFunnel";
+import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, summarizeFeedbackMissed, FUNNEL_MIN_SAMPLE } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
+import { statsByHelpLevel, HELP_STAT_MIN_ATTEMPTS } from "@/lib/repairHints";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
+import { loadAggregateLoopChain, loadRecheckFunnelInputs, loadReminderOutcomeInputs } from "@/lib/loopChainServer";
+import { loadReminderOutcomeEvents } from "@/lib/reminderPrefsServer";
+import { summariseSentActedPerUser } from "@/lib/reminderDelivery";
+import { REMINDER_MIN_SAMPLE, reminderOutcome } from "@/lib/retestReminder";
+import { RECHECK_MIN_SAMPLE, recheckFunnel } from "@/lib/spacedRecheck";
+import { loadDurableGainSummary } from "@/lib/spacedRecheckServer";
+import { summarizeRecurrenceByKind, RECURRENCE_MIN_REPAIRS } from "@/lib/recurrenceAlert";
+import { CHAIN_RATE_MIN_DECIDED, summarizeChainByKind } from "@/lib/loopChain";
+import { loadPhraseReuseSummary } from "@/lib/phraseReuseServer";
+import { MIN_REUSE_SAMPLE } from "@/lib/repairPhraseReuse";
+import { loadSecondOpinionSummary } from "@/lib/secondOpinionServer";
+import { SECOND_OPINION_MIN_SAMPLE } from "@/lib/repairSecondOpinion";
+import { loadSteeringSummary } from "@/lib/steeringServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
 
@@ -65,11 +79,25 @@ export default async function AnalyticsPage() {
   const { events, repairs, retests, debateWeaknesses, completeness } = funnelData;
   const funnel = buildFunnelReport(events, {});
   const weeklyLoop = buildWeeklyLoop(events, funnel.generatedAt);
+  const feedbackMissed = summarizeFeedbackMissed(events);
   const effectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { retests });
   const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { retests });
 
+  const helpStats = statsByHelpLevel(repairs.map((r) => ({ helpLevel: (r.help_level ?? 0) as 0 | 1 | 2 | 3, demonstrated: r.succeeded })));
+
   const aiOpsData = await loadAiOpsData();
   const aiOps = aiOpsData.status === "unavailable" ? null : aiOpsData.report;
+  const steering = await loadSteeringSummary();
+  const chainAgg = await loadAggregateLoopChain();
+  const recheckInputs = await loadRecheckFunnelInputs();
+  const reminderInputs = await loadReminderOutcomeInputs();
+  const reminder = reminderInputs ? reminderOutcome(reminderInputs, new Date()) : null;
+  const sentActedRows = await loadReminderOutcomeEvents();
+  const sentActed = sentActedRows ? summariseSentActedPerUser(sentActedRows) : null;
+  const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
+  const durable = await loadDurableGainSummary();
+  const reuse = await loadPhraseReuseSummary();
+  const secondOpinion = await loadSecondOpinionSummary();
 
   return (
     <AppShell width="narrow">
@@ -78,6 +106,115 @@ export default async function AnalyticsPage() {
         title="Product funnel"
         description={`User-level rates over the last ${funnel.windowDays} days — ${funnel.eventsAnalysed} events from ${funnel.usersAnalysed} users. Rates are shown only at ≥5-user samples; below that they say "not yet measurable" rather than reporting noise.`}
       />
+
+      {chainAgg && chainAgg.entries.length > 0 && (
+        <section className="surface-card p-5" aria-labelledby="chain-agg-heading" data-testid="chain-agg">
+          <h2 id="chain-agg-heading" className="text-sm font-semibold">Repair to retest chain by skill</h2>
+          <p className="mt-1 text-xs text-ink3">Observational and unvalidated. A rate shows only after {CHAIN_RATE_MIN_DECIDED} measurable retests for that skill; recurrence is not measured.{chainAgg.capped ? " Newest 500 repairs only." : ""}</p>
+          <ul className="mt-3 space-y-1">
+            {summarizeChainByKind(chainAgg.entries).map((k) => (
+              <li key={k.kind} className="text-sm" data-testid="chain-agg-row" data-status={k.status}>
+                <span className="font-medium capitalize">{k.kind}</span>
+                <span className="text-ink3">{` · ${k.repairs} repairs · ${k.pending} pending · `}{k.demonstratedShare === null ? `insufficient_evidence (${k.decided}/${CHAIN_RATE_MIN_DECIDED} measurable)` : `${Math.round(k.demonstratedShare * 100)}% showed the skill (${k.demonstrated}/${k.decided})`}</span>
+              </li>
+            ))}
+          </ul>
+          <h3 className="mt-4 text-xs font-semibold">Repeat repairs by skill (proxy for &ldquo;came back&rdquo;, unvalidated)</h3>
+          <ul className="mt-1 space-y-1" data-testid="recurrence-agg">
+            {summarizeRecurrenceByKind(chainAgg.entries).map((k) => (
+              <li key={k.kind} className="text-sm" data-testid="recurrence-agg-row">
+                <span className="font-medium capitalize">{k.kind}</span>
+                <span className="text-ink3">{` · ${k.repairs} landed repairs · `}{k.share === null ? `insufficient_evidence (${k.repairs}/${RECURRENCE_MIN_REPAIRS})` : `${Math.round(k.share * 100)}% repaired again (${k.repeated}/${k.repairs})`}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {sentActed && (
+        <section className="surface-card p-5" aria-labelledby="reminder-sent-heading" data-testid="reminder-sent-acted" data-evidence={sentActed.status === "ok" ? "unvalidated" : "insufficient_evidence"}>
+          <h2 id="reminder-sent-heading" className="text-sm font-semibold">In-app reminders: sent vs acted</h2>
+          <p className="mt-1 text-xs text-ink3">
+            {sentActed.status === "ok"
+              ? `${sentActed.acted}/${sentActed.sent} reminders followed within 48h (${Math.round(sentActed.actedRate * 100)}%). Unvalidated; cannot show a reminder caused the retest.`
+              : `insufficient_evidence (${sentActed.sent}/${sentActed.needed} reminders sent before a rate is shown).`}
+          </p>
+        </section>
+      )}
+      {reminder && reminder.overdue > 0 && (
+        <section className="surface-card p-5" aria-labelledby="reminder-heading" data-testid="reminder-outcome" data-evidence={reminder.label}>
+          <h2 id="reminder-heading" className="text-sm font-semibold">Overdue retest reminders</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {reminder.overdue} retests went 2+ days overdue.{" "}
+            {reminder.actedShare === null ? `insufficient_evidence (${reminder.overdue}/${REMINDER_MIN_SAMPLE} needed before a rate is shown)` : `${Math.round(reminder.actedShare * 100)}% completed within a day (${reminder.actedAfterOverdue}/${reminder.overdue})`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Descriptive only; cannot show a reminder caused the retest. Unvalidated.</p>
+        </section>
+      )}
+      {recheck && recheck.eligible > 0 && (
+        <section className="surface-card p-5" aria-labelledby="recheck-heading" data-testid="recheck-funnel" data-evidence={recheck.evidence}>
+          <h2 id="recheck-heading" className="text-sm font-semibold">7-day re-check funnel</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {recheck.eligible} observed retests: {recheck.waiting} waiting, {recheck.due} due, {recheck.expired} expired.{" "}
+            {recheck.expiredShare === null ? `insufficient_evidence (${recheck.eligible}/${RECHECK_MIN_SAMPLE} needed before a rate is shown)` : `${Math.round(recheck.expiredShare * 100)}% expired unused`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Counts only; durability is not claimed. Unvalidated.</p>
+        </section>
+      )}
+      {durable && durable.durable + durable.notDurable + durable.inconclusive > 0 && (
+        <section className="surface-card p-5" aria-labelledby="durable-heading" data-testid="durable-gain" data-evidence={durable.evidence}>
+          <h2 id="durable-heading" className="text-sm font-semibold">7-day re-check outcomes</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {durable.durable} skill still showed, {durable.notDurable} weakness back.{" "}
+            {durable.durableShare === null
+              ? `insufficient_evidence (${durable.durable + durable.notDurable}/${RECHECK_MIN_SAMPLE} conclusive re-checks needed before a share is shown)`
+              : `${Math.round(durable.durableShare * 100)}% of conclusive re-checks still showed the skill`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">
+            One re-check per repair, same detector as the first retest; full debates only. Unvalidated, not evidence of lasting learning.
+          </p>
+        </section>
+      )}
+      {reuse && reuse.total > 0 && (
+        <section className="surface-card p-5" aria-labelledby="reuse-heading" data-testid="phrase-reuse" data-evidence={reuse.label}>
+          <h2 id="reuse-heading" className="text-sm font-semibold">Repair phrases reused in retests</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {reuse.rate === null
+              ? `insufficient_evidence (${reuse.total}/${MIN_REUSE_SAMPLE} retests needed before a rate is shown)`
+              : `${Math.round(reuse.rate * 100)}% of retests reused a phrase from the repair (${reuse.reusedCount}/${reuse.total})`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Word overlap only. Unvalidated, not evidence the repair worked.</p>
+        </section>
+      )}
+      {secondOpinion && secondOpinion.total > 0 && (
+        <section className="surface-card p-5" aria-labelledby="second-opinion-heading" data-testid="second-opinion-stats" data-evidence="unvalidated">
+          <h2 id="second-opinion-heading" className="text-sm font-semibold">Second opinions after failed retests</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {secondOpinion.insufficient
+              ? `insufficient_evidence (${secondOpinion.total}/${SECOND_OPINION_MIN_SAMPLE} failed retests needed before a breakdown is shown)`
+              : `${secondOpinion.restated} repeated the original line, ${secondOpinion.notReused} did not reuse the repair, ${secondOpinion.reusedButMissed} reused it but the skill was still not observed (of ${secondOpinion.total})`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Descriptive word-overlap categories. Unvalidated, not evidence a suggestion works.</p>
+        </section>
+      )}
+      {steering && (
+        <section className="surface-card p-5" aria-labelledby="steering-heading" data-testid="steering-stats">
+          <h2 id="steering-heading" className="text-sm font-semibold">Coach focus steering</h2>
+          <p className="mt-1 text-xs text-ink2">
+            Last {steering.windowDays} days, {steering.total} debates with a focus: {steering.reRepair} kept the same skill after a failed retest, {steering.movedOn} moved on from a repaired skill, {steering.unsteered} plain lowest-skill picks
+            {steering.steeredShare !== null && ` (${Math.round(steering.steeredShare * 100)}% steered)`}.
+          </p>
+          <p className="mt-1 text-xs text-ink3">{steering.note}{steering.truncated ? " Read capped at the newest 2000 debates." : ""}</p>
+        </section>
+      )}
+
+      <section className="surface-card p-5" aria-labelledby="feedback-missed-heading" data-testid="feedback-missed-summary">
+        <h2 id="feedback-missed-heading" className="text-sm font-semibold">&ldquo;This feedback missed&rdquo; flags</h2>
+        <p className="mt-1 text-sm text-ink2">
+          {feedbackMissed.flaggedDebates} flagged across {feedbackMissed.flaggedUsers} learners, {feedbackMissed.completedDebates} completed debates
+          {feedbackMissed.flagRate !== null ? ` (${Math.round(feedbackMissed.flagRate * 100)}% flagged)` : ""}.
+        </p>
+        <p className="mt-1 text-xs text-ink3">{feedbackMissed.note}</p>
+      </section>
 
       <section className="surface-card p-5" aria-labelledby="funnel-heading">
         <h2 id="funnel-heading" className="text-sm font-semibold">Training funnel</h2>
@@ -221,6 +358,18 @@ export default async function AnalyticsPage() {
         <p className="mt-2 text-xs text-ink3">
           Dashes mean the cohort still has users inside that window — they are pending, not churned.
         </p>
+      </section>
+
+      <section className="surface-card p-5" aria-labelledby="help-heading" data-testid="help-level-stats">
+        <h2 id="help-heading" className="text-sm font-semibold">Repair success by help level</h2>
+        <p className="mt-1 text-xs text-ink3">
+          Saved repair attempts grouped by the hint the learner had unlocked. Unvalidated, and not causal: learners who need more help are not comparable to those who need none. Rates appear at {HELP_STAT_MIN_ATTEMPTS}+ attempts per level.
+        </p>
+        <div className="mt-2">
+          {helpStats.map((s) => (
+            <RateRow key={s.level} label={s.label} numerator={s.demonstrated} denominator={s.attempts} rate={s.rate} note={s.rate === null ? `insufficient evidence (${s.attempts} attempts)` : "unvalidated"} />
+          ))}
+        </div>
       </section>
 
       {aiOps && (

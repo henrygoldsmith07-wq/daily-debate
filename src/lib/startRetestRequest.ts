@@ -5,13 +5,14 @@ export async function startRetestRequest(
   topicId: string,
   doFetch: typeof fetch = fetch,
   online: boolean = typeof navigator === "undefined" || navigator.onLine !== false,
+  format: "sprint" | "full" = "sprint",
 ): Promise<StartRetestResult> {
   if (!online) return { ok: false, error: "You appear to be offline — reconnect and try again." };
   try {
     const res = await doFetch("/api/solo/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topicId, side: "challenge", format: "sprint" }),
+      body: JSON.stringify({ topicId, side: "challenge", format }),
     });
     const data = await res.json();
     if (!res.ok) return { ok: false, error: data?.error || "Failed to start debate." };

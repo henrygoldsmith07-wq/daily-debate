@@ -19,6 +19,9 @@ import type { DebateSummaryPayload, ReplayView } from "./types";
 import type { SurfaceValidation } from "@/lib/judgeValidation";
 import { trackEvent } from "@/lib/trackClientEvent";
 import { formatLabelFor, type DebateFormat } from "@/lib/sprint";
+import type { RecurrenceAlert } from "@/lib/recurrenceAlert";
+import { recurrenceAlertNote } from "@/lib/recurrenceAlert";
+import { closeCallNote } from "@/lib/resultSnapshot";
 
 export interface DebateResultCardProps {
   view: ReplayView;
@@ -42,6 +45,7 @@ export interface DebateResultCardProps {
   soloValidation?: SurfaceValidation | null;
   /** Judge-output validation for the repair exercise mounted below. */
   repairValidation?: SurfaceValidation | null;
+  recurrenceAlert?: RecurrenceAlert | null;
 }
 
 export function DebateResultCard({
@@ -56,8 +60,10 @@ export function DebateResultCard({
   onRepairSucceeded,
   soloValidation = null,
   repairValidation = null,
+  recurrenceAlert = null,
 }: DebateResultCardProps) {
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  const [feedbackMissed, setFeedbackMissed] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
   // Copy the plain-text summary for learners who want to revisit it elsewhere.
@@ -168,7 +174,21 @@ export function DebateResultCard({
                         <dt className="font-semibold text-ink3">Your repair</dt>
                         <dd className="italic">&ldquo;{retestOutcome.comparison.after}&rdquo;</dd>
                       </div>
+                      {retestOutcome.comparison.reusedPhrases?.length ? (
+                        <div data-testid="repair-phrase-reuse">
+                          <dt className="font-semibold text-ink3">Repair wording you used again (unvalidated)</dt>
+                          <dd className="italic">
+                            {retestOutcome.comparison.reusedPhrases.map((p) => `\u201c${p}\u201d`).join(", ")}
+                          </dd>
+                        </div>
+                      ) : null}
                     </dl>
+                  )}
+                  {retestOutcome.secondOpinion && (
+                    <p className="mt-2 text-xs" data-testid="repair-second-opinion">
+                      <span className="font-semibold text-ink3">Another angle (unvalidated): </span>
+                      {retestOutcome.secondOpinion.suggestion}
+                    </p>
                   )}
                 </>
               ) : (
@@ -195,6 +215,34 @@ export function DebateResultCard({
               <p className="text-xs uppercase tracking-wide text-[var(--speak)]">Main weakness</p>
               <p className="mt-1 text-base font-semibold">{weakness.headline}</p>
               <p className="mt-1 text-sm leading-6 text-ink2">{weakness.whyItMatters}</p>
+              {closeCallNote(weakness) && (
+                <p className="mt-2 text-xs leading-5 text-ink3" data-testid="weakness-close-call">{closeCallNote(weakness)}</p>
+              )}
+              {snapshot?.uncertainty && snapshot.uncertainty.length > 0 && (
+                <p className="mt-1 text-xs leading-5 text-ink3" data-testid="weakness-uncertainty">Read with care: {snapshot.uncertainty[0]}</p>
+              )}
+              <div className="mt-3">
+                {feedbackMissed ? (
+                  <p className="text-xs text-ink3" data-testid="weakness-feedback-thanks">Thanks, noted. This helps check how often the feedback misses.</p>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-xs text-ink3 underline underline-offset-2"
+                    data-testid="weakness-feedback-missed"
+                    onClick={() => {
+                      setFeedbackMissed(true);
+                      trackEvent("weakness_feedback_missed", { format, debateId });
+                    }}
+                  >
+                    This feedback missed
+                  </button>
+                )}
+              </div>
+              {recurrenceAlert && (
+                <p className="mt-2 text-xs leading-5 text-ink3" data-testid="weakness-came-back">
+                  {recurrenceAlertNote(recurrenceAlert)}
+                </p>
+              )}
               {snapshot?.recurrence?.label && (
                 <p className="mt-2 text-xs font-medium text-[var(--speak)]" data-testid="weakness-recurrence">
                   ↻ {snapshot.recurrence.label}

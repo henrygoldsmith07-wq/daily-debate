@@ -7,6 +7,7 @@ import { pickRepairTarget, scoreRepair, type RepairScore, type RepairState } fro
 import { WEAKNESS_CONSEQUENCE, repairSuccessTransition } from "@/lib/retest";
 import ValidationStatusLine from "./ValidationStatusLine";
 import type { SurfaceValidation } from "@/lib/judgeValidation";
+import { HELP_LEVEL_LABELS, type HelpContent, type HelpLevel } from "@/lib/repairHints";
 import { trackEvent } from "@/lib/trackClientEvent";
 
 interface RepairFeedback {
@@ -43,6 +44,8 @@ export default function ArgumentRepair({
   const [result, setResult] = useState<RepairScore | null>(null);
   const [persisted, setPersisted] = useState<RepairFeedback | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [help, setHelp] = useState<HelpContent[]>([]);
+  const [revealed, setRevealed] = useState<HelpLevel>(0);
   const [error, setError] = useState<string | null>(null);
 
   if (!target) {
@@ -84,7 +87,7 @@ export default function ArgumentRepair({
       const res = await fetch(`/api/solo/${debateId}/repair`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rewrite: draft }),
+        body: JSON.stringify({ rewrite: draft, helpLevel: revealed }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to record the repair.");
@@ -94,6 +97,7 @@ export default function ArgumentRepair({
         succeeded: data.succeeded,
         feedback: data.feedback,
       });
+      if (Array.isArray(data.help)) setHelp(data.help);
       onCompleted?.(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to record the repair.");
@@ -171,6 +175,32 @@ export default function ArgumentRepair({
       </div>
       {error && <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>}
 
+      {help.length > 0 && !persisted?.succeeded && (
+        <div className="repair-help" data-testid="repair-help">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink3">Help unlocked after your attempt</p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {help.map((h) => (
+              <button
+                key={h.level}
+                type="button"
+                onClick={() => setRevealed((r) => (Math.max(r, h.level) as HelpLevel))}
+                className="btn px-3 py-1 text-xs"
+                data-testid={`reveal-help-${h.level}`}
+                aria-expanded={revealed >= h.level}
+              >
+                {revealed >= h.level ? HELP_LEVEL_LABELS[h.level] : `Show ${HELP_LEVEL_LABELS[h.level].toLowerCase()}`}
+              </button>
+            ))}
+          </div>
+          {help.filter((h) => revealed >= h.level).map((h) => (
+            <p key={h.level} className="mt-2 text-sm leading-6 text-ink2" data-testid={`help-text-${h.level}`}>
+              <span className="font-semibold">{h.label}:</span> {h.text}
+            </p>
+          ))}
+          <p className="mt-2 text-xs text-ink3">Using help is recorded with your attempt and the retest still measures you without it. Help level is practice context, not a score.</p>
+        </div>
+      )}
+
       {shown && (
         <div className="repair-result" role="status" aria-live="polite" data-testid="repair-feedback">
           <div className="flex items-baseline justify-between gap-3">
@@ -195,7 +225,7 @@ export default function ArgumentRepair({
             {shown.succeeded ? "What worked" : "What to add"}
           </p>
           <ul className="mt-1 list-inside list-disc text-xs leading-5 text-ink3">
-            {shown.signals.map((signal) => <li key={signal}>{signal}</li>)}
+            {shown.signals.filter((x) => !x.startsWith("help_level:")).map((signal) => <li key={signal}>{signal}</li>)}
           </ul>
           <p className="mt-2 text-xs text-ink3">This is formative practice feedback based on observable structure, not a revised debate score or a validated ability measure. The real test is whether you can use the same move later without the repair prompt.</p>
         </div>

@@ -4,6 +4,7 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
 import { pickRepairTarget, scoreRepair, type RepairTarget } from "@/lib/argumentRepair";
+import { clampHelpLevel, maxUnlockedLevel, tagHelpSignal, unlockedHelp } from "@/lib/repairHints";
 import { recordProductEventForUser } from "@/lib/productEvents";
 import { REPAIR_KIND_TO_DIMENSION } from "@/lib/repairRetest";
 import { dateKeyInTimeZone, normalizeIanaTimeZone } from "@/lib/timeZone";
@@ -26,6 +27,22 @@ async function finalAssessmentFor(db: Awaited<ReturnType<typeof createClient>>, 
     mergeAssessmentGraphs(assessments.map((a) => a.graph)),
     { sideA: "a", sideB: "ai", extractionSource: "deterministic", labelA: "You", labelB: "AI opponent" },
   );
+}
+
+async function failedAttemptsFor(
+  db: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  debateId: string,
+  kind: string,
+) {
+  const { count } = await db
+    .from("repair_results")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("debate_id", debateId)
+    .eq("target_kind", kind)
+    .eq("succeeded", false);
+  return count ?? 0;
 }
 
 /** GET: the one repair target for this debate (server-picked, consequential). */
@@ -54,7 +71,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ deba
   const assessment = await finalAssessmentFor(db, debateId);
   const target = assessment ? pickRepairTarget(assessment.graph) : null;
   if (!target) return NextResponse.json({ target: null });
-  return NextResponse.json({ target });
+  const failedAttempts = await failedAttemptsFor(db, user.id, debateId, target.kind);
+  return NextResponse.json({
+    target,
+    failedAttempts,
+    unlockedLevel: maxUnlockedLevel(failedAttempts),
+    help: unlockedHelp(target, failedAttempts),
+  });
 }
 
 /**
@@ -95,6 +118,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   const target: RepairTarget | null = assessment ? pickRepairTarget(assessment.graph) : null;
   if (!target) return NextResponse.json({ error: "No repair target found for this debate." }, { status: 404 });
 
+  const priorFailed = await failedAttemptsFor(db, user.id, debateId, target.kind);
+  const helpLevel = clampHelpLevel(body?.helpLevel, priorFailed);
   const result = scoreRepair(target, rewrite);
   const succeeded = result.score >= REPAIR_SUCCESS_THRESHOLD;
 
@@ -131,7 +156,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     rewrite_text: rewrite,
     score: result.score,
     succeeded,
-    signals: result.signals,
+    signals: tagHelpSignal(result.signals, helpLevel),
   });
   if (insertError) {
     console.error("Failed to persist repair result:", insertError);
@@ -223,6 +248,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     state: result.state,
     signals: result.signals,
     succeeded,
+    helpLevel,
+    failedAttempts: succeeded || duplicate ? priorFailed : priorFailed + 1,
+    unlockedLevel: maxUnlockedLevel(succeeded || duplicate ? priorFailed : priorFailed + 1),
+    help: unlockedHelp(target, succeeded || duplicate ? priorFailed : priorFailed + 1),
     feedback: succeeded
       ? "Recorded. You demonstrated the requested repair move in this prompted practice. Your next debate will test whether it transfers."
       : result.state === "partially_repaired"
