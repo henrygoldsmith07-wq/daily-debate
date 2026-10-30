@@ -56,3 +56,19 @@ export async function loadRecheckFunnelInputs(): Promise<{ retest_outcome: "skil
     return null;
   }
 }
+
+/** M17: retest assignments for the sent-vs-acted view. completed_at stands in for "acted". */
+export async function loadReminderOutcomeInputs(): Promise<{ availableAt: string; startedAt: string | null }[] | null> {
+  try {
+    const service = createServiceClient();
+    const { data, error } = await service
+      .from("repair_retests")
+      .select("assigned_at, completed_at")
+      .order("assigned_at", { ascending: false })
+      .limit(1000);
+    if (error) return null;
+    return (data ?? []).map((r) => ({ availableAt: r.assigned_at as string, startedAt: (r.completed_at as string | null) ?? null }));
+  } catch {
+    return null;
+  }
+}

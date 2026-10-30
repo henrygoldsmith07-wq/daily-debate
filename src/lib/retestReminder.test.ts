@@ -58,3 +58,16 @@ describe("reminderOutcome", () => {
     expect(o.label).toBe("descriptive_unvalidated");
   });
 });
+
+import { reminderOutcome as _outcome, REMINDER_MIN_SAMPLE as _MIN } from "./retestReminder";
+describe("reminderOutcome gate", () => {
+  const n = new Date("2026-10-30T12:00:00Z");
+  it("stays insufficient_evidence under the sample gate and counts acted", () => {
+    const r = _outcome([{ availableAt: "2026-10-20T00:00:00Z", startedAt: "2026-10-22T10:00:00Z" }], n);
+    expect(r).toMatchObject({ overdue: 1, actedAfterOverdue: 1, actedShare: null, label: "insufficient_evidence" });
+  });
+  it("shows a share once the gate passes", () => {
+    const rows = Array.from({ length: _MIN }, (_, i) => ({ availableAt: "2026-10-20T00:00:00Z", startedAt: i < 5 ? "2026-10-22T10:00:00Z" : null }));
+    expect(_outcome(rows, n)).toMatchObject({ actedShare: 0.25, label: "descriptive_unvalidated" });
+  });
+});
