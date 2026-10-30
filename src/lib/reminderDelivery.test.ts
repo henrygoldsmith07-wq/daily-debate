@@ -86,3 +86,14 @@ describe("prefsFromEvents (M18 slice 4)", () => {
     expect(isClientProductEventName("reminder_sent")).toBe(false);
   });
 });
+
+describe("summariseSentActedPerUser", () => {
+  it("does not credit one user's action to another user's reminder", async () => {
+    const { summariseSentActedPerUser } = await import("./reminderDelivery");
+    const rows = [1, 2, 3, 4, 5].map((h) => ({ userId: `u${h}`, event: { type: "reminder_sent" as const, sentAt: new Date(Date.UTC(2026, 9, 1, h)).toISOString() } }));
+    rows.push({ userId: "u1", event: { type: "reminder_acted" as never, actedAt: new Date(Date.UTC(2026, 9, 1, 6)).toISOString() } as never });
+    const s = summariseSentActedPerUser(rows as never);
+    expect(s).toMatchObject({ status: "ok", sent: 5, acted: 1 });
+    expect(summariseSentActedPerUser(rows.slice(0, 3) as never).status).toBe("insufficient_evidence");
+  });
+});

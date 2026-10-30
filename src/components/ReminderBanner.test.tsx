@@ -17,5 +17,6 @@ describe("ReminderBanner", () => {
     const html = renderToStaticMarkup(<ReminderBanner message={reminderMessage(d)} />);
     expect(html).toContain("Your retest is ready");
     expect(html).toContain("not a score");
+    expect(html).toContain("See what is due");
   });
 });

@@ -102,15 +102,11 @@ export type ReminderActedSummary =
   | { status: "insufficient_evidence"; sent: number; needed: number }
   | { status: "ok"; sent: number; acted: number; actedRate: number; label: "unvalidated" };
 
-/** M18 slice 3: sent-vs-acted summary, sample-gated. Not evidence reminders cause retests. */
-export function summariseReminderOutcomes(events: readonly ReminderOutcomeEvent[]): ReminderActedSummary {
+function countActed(events: readonly ReminderOutcomeEvent[]): { sent: number; acted: number } {
   const sent = events.filter((e) => e.type === "reminder_sent" && Number.isFinite(Date.parse(e.sentAt ?? "")));
   const acted = events
     .filter((e) => e.type === "reminder_acted" && Number.isFinite(Date.parse(e.actedAt ?? "")))
     .map((e) => Date.parse(e.actedAt as string));
-  if (sent.length < REMINDER_MIN_SAMPLE) {
-    return { status: "insufficient_evidence", sent: sent.length, needed: REMINDER_MIN_SAMPLE };
-  }
   const used = new Set<number>();
   let n = 0;
   for (const s of sent) {
@@ -121,7 +117,29 @@ export function summariseReminderOutcomes(events: readonly ReminderOutcomeEvent[
       n++;
     }
   }
-  return { status: "ok", sent: sent.length, acted: n, actedRate: n / sent.length, label: "unvalidated" };
+  return { sent: sent.length, acted: n };
+}
+
+/** M18 slice 3: sent-vs-acted summary, sample-gated. Not evidence reminders cause retests. */
+export function summariseReminderOutcomes(events: readonly ReminderOutcomeEvent[]): ReminderActedSummary {
+  const { sent, acted: n } = countActed(events);
+  if (sent < REMINDER_MIN_SAMPLE) return { status: "insufficient_evidence", sent, needed: REMINDER_MIN_SAMPLE };
+  return { status: "ok", sent, acted: n, actedRate: n / sent, label: "unvalidated" };
+}
+
+/** Matches acted to sent within each user (never across users), then gates on total sent. */
+export function summariseSentActedPerUser(rows: readonly { userId: string; event: ReminderOutcomeEvent }[]): ReminderActedSummary {
+  const by = new Map<string, ReminderOutcomeEvent[]>();
+  for (const r of rows) by.set(r.userId, [...(by.get(r.userId) ?? []), r.event]);
+  let sent = 0;
+  let acted = 0;
+  for (const evs of by.values()) {
+    const c = countActed(evs);
+    sent += c.sent;
+    acted += c.acted;
+  }
+  if (sent < REMINDER_MIN_SAMPLE) return { status: "insufficient_evidence", sent, needed: REMINDER_MIN_SAMPLE };
+  return { status: "ok", sent, acted, actedRate: acted / sent, label: "unvalidated" };
 }
 
 export interface ReminderPrefEvent {

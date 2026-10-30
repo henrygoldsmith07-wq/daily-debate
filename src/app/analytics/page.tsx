@@ -7,6 +7,8 @@ import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 import { statsByHelpLevel, HELP_STAT_MIN_ATTEMPTS } from "@/lib/repairHints";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
 import { loadAggregateLoopChain, loadRecheckFunnelInputs, loadReminderOutcomeInputs } from "@/lib/loopChainServer";
+import { loadReminderOutcomeEvents } from "@/lib/reminderPrefsServer";
+import { summariseSentActedPerUser } from "@/lib/reminderDelivery";
 import { REMINDER_MIN_SAMPLE, reminderOutcome } from "@/lib/retestReminder";
 import { RECHECK_MIN_SAMPLE, recheckFunnel } from "@/lib/spacedRecheck";
 import { loadDurableGainSummary } from "@/lib/spacedRecheckServer";
@@ -88,6 +90,8 @@ export default async function AnalyticsPage() {
   const recheckInputs = await loadRecheckFunnelInputs();
   const reminderInputs = await loadReminderOutcomeInputs();
   const reminder = reminderInputs ? reminderOutcome(reminderInputs, new Date()) : null;
+  const sentActedRows = await loadReminderOutcomeEvents();
+  const sentActed = sentActedRows ? summariseSentActedPerUser(sentActedRows) : null;
   const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
   const durable = await loadDurableGainSummary();
   const reuse = await loadPhraseReuseSummary();
@@ -121,6 +125,16 @@ export default async function AnalyticsPage() {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+      {sentActed && (
+        <section className="surface-card p-5" aria-labelledby="reminder-sent-heading" data-testid="reminder-sent-acted" data-evidence={sentActed.status === "ok" ? "unvalidated" : "insufficient_evidence"}>
+          <h2 id="reminder-sent-heading" className="text-sm font-semibold">In-app reminders: sent vs acted</h2>
+          <p className="mt-1 text-xs text-ink3">
+            {sentActed.status === "ok"
+              ? `${sentActed.acted}/${sentActed.sent} reminders followed within 48h (${Math.round(sentActed.actedRate * 100)}%). Unvalidated; cannot show a reminder caused the retest.`
+              : `insufficient_evidence (${sentActed.sent}/${sentActed.needed} reminders sent before a rate is shown).`}
+          </p>
         </section>
       )}
       {reminder && reminder.overdue > 0 && (
