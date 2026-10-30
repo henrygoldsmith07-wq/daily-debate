@@ -6,6 +6,9 @@ export const CLIENT_PRODUCT_EVENT_NAMES = [
   "repair_started",
   "weakness_feedback_missed",
   "loop_streak_viewed",
+  "reminder_opted_in",
+  "reminder_opted_out",
+  "reminder_acted",
 ] as const;
 
 export type ClientProductEventName = (typeof CLIENT_PRODUCT_EVENT_NAMES)[number];

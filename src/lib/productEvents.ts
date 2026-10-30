@@ -61,7 +61,11 @@ export type ProductEventName =
   | "challenge_link_created"
   | "challenge_link_accepted"
   | "weakness_feedback_missed"
-  | "loop_streak_viewed";
+  | "loop_streak_viewed"
+  | "reminder_opted_in"
+  | "reminder_opted_out"
+  | "reminder_sent"
+  | "reminder_acted";
 
 export interface ProductEventContext {
   format?: DebateFormat;
@@ -97,6 +101,10 @@ export const PRODUCT_EVENT_NAMES: readonly ProductEventName[] = [
   "challenge_link_accepted",
   "weakness_feedback_missed",
   "loop_streak_viewed",
+  "reminder_opted_in",
+  "reminder_opted_out",
+  "reminder_sent",
+  "reminder_acted",
 ] as const;
 
 export function isProductEventName(value: unknown): value is ProductEventName {
