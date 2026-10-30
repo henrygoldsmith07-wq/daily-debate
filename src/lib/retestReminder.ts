@@ -45,3 +45,53 @@ export function reminderCopy(s: ReminderState): string | null {
   if (s.tone === "overdue") return `Your ${what} has waited ${s.daysWaiting} days. A short one now still counts (unvalidated).`;
   return `Your ${what} is ready.`;
 }
+
+/** Sample gate before any acted-share is shown (same as the re-check gate). */
+export const REMINDER_MIN_SAMPLE = 20;
+
+export interface ReminderOutcomeInput {
+  /** ISO time the step became reminder-eligible. */
+  availableAt: string;
+  /** ISO time the learner started it, or null if still waiting. */
+  startedAt: string | null;
+}
+
+export interface ReminderOutcome {
+  eligible: number;
+  /** Started within 24h after becoming overdue (2+ days waiting). */
+  actedAfterOverdue: number;
+  overdue: number;
+  /** Share of overdue steps acted on; null until the sample gate passes. */
+  actedShare: number | null;
+  label: "insufficient_evidence" | "descriptive_unvalidated";
+}
+
+/**
+ * Sent-vs-acted without a new event type: derived from existing retest start
+ * times. Descriptive only; it cannot show a reminder caused the start.
+ */
+export function reminderOutcome(rows: readonly ReminderOutcomeInput[], now: Date): ReminderOutcome {
+  let eligible = 0;
+  let overdue = 0;
+  let acted = 0;
+  const t = now.getTime();
+  for (const r of rows) {
+    const at = Date.parse(r.availableAt);
+    if (!Number.isFinite(at) || !Number.isFinite(t) || at > t) continue;
+    eligible++;
+    const overdueAt = at + 2 * DAY_MS;
+    const started = r.startedAt ? Date.parse(r.startedAt) : NaN;
+    const wasOverdue = t >= overdueAt;
+    if (!wasOverdue) continue;
+    overdue++;
+    if (Number.isFinite(started) && started >= overdueAt && started <= overdueAt + DAY_MS) acted++;
+  }
+  const ok = overdue >= REMINDER_MIN_SAMPLE;
+  return {
+    eligible,
+    overdue,
+    actedAfterOverdue: acted,
+    actedShare: ok ? acted / overdue : null,
+    label: ok ? "descriptive_unvalidated" : "insufficient_evidence",
+  };
+}

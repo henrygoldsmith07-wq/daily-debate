@@ -36,3 +36,25 @@ describe("overdue recheck copy", () => {
     expect(_copy(s)).toContain("unvalidated");
   });
 });
+
+import { reminderOutcome } from "./retestReminder";
+describe("reminderOutcome", () => {
+  const n = new Date("2026-10-30T12:00:00Z");
+  it("is insufficient_evidence below the sample gate", () => {
+    const o = reminderOutcome([{ availableAt: "2026-10-20T00:00:00Z", startedAt: "2026-10-22T05:00:00Z" }], n);
+    expect(o.actedShare).toBeNull();
+    expect(o.label).toBe("insufficient_evidence");
+    expect(o.actedAfterOverdue).toBe(1);
+  });
+  it("reports a share once gated, ignoring future and bad rows", () => {
+    const rows = Array.from({ length: 20 }, (_, i) => ({
+      availableAt: "2026-10-20T00:00:00Z",
+      startedAt: i < 5 ? "2026-10-22T05:00:00Z" : null,
+    }));
+    rows.push({ availableAt: "2027-01-01T00:00:00Z", startedAt: null }, { availableAt: "bad", startedAt: null });
+    const o = reminderOutcome(rows, n);
+    expect(o.overdue).toBe(20);
+    expect(o.actedShare).toBe(0.25);
+    expect(o.label).toBe("descriptive_unvalidated");
+  });
+});
