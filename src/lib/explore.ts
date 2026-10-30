@@ -174,7 +174,7 @@ export async function listExplore(viewer: string | null, limit = 20): Promise<Ex
 }
 
 export async function getExploreDebate(viewer: string | null, kind: ExploreKind, id: string): Promise<ExploreDebate | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
   if (kind === "solo") {
     const [row] = await queryRows<SoloRow>(`${SOLO_SELECT} AND d.id = $1`, [id]);
     if (!row) return null;
