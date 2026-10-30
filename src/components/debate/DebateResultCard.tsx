@@ -184,6 +184,12 @@ export function DebateResultCard({
                       ) : null}
                     </dl>
                   )}
+                  {retestOutcome.secondOpinion && (
+                    <p className="mt-2 text-xs" data-testid="repair-second-opinion">
+                      <span className="font-semibold text-ink3">Another angle (unvalidated): </span>
+                      {retestOutcome.secondOpinion.suggestion}
+                    </p>
+                  )}
                 </>
               ) : (
                 <>

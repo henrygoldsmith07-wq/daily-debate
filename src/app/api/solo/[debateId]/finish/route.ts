@@ -16,6 +16,7 @@ import { loadSoloFinalizationContext } from "@/lib/solo/finalizationContext";
 import { repairKindToDimension } from "@/lib/repairRetest";
 import { retestAssignmentFor, retestOutcomeFor, RETEST_OUTCOME_DETAIL, RETEST_OUTCOME_LABELS, retestComparisonFor, type RetestOutcome } from "@/lib/retest";
 import { reusedRepairPhrases } from "@/lib/repairPhraseReuse";
+import { secondOpinionFor } from "@/lib/repairSecondOpinion";
 import { retestAssignmentStillOpen } from "@/lib/repairRetestServer";
 import { countWeaknessesForSide, debateOpportunities } from "@/lib/repairEffectiveness";
 import { isRepairKind, type RepairKind } from "@/lib/argumentRepair";
@@ -478,6 +479,18 @@ async function finishSoloDebate(
         ...coachingUpdate,
         retestOutcome: {
           ...coachingUpdate.retestOutcome,
+          secondOpinion: (() => {
+            const base = retestComparisonFor(repairRow);
+            if (!base) return null;
+            const so = secondOpinionFor({
+              outcome: String(coachingUpdate.retestOutcome?.outcome ?? ""),
+              before: base.before,
+              after: base.after,
+              retestTurns: answered.map((turn) => String(turn.user_message)),
+              skillLabel: String(coachingUpdate.retestOutcome?.skillLabel ?? "this skill"),
+            });
+            return so ? { label: so.label, suggestion: so.suggestion } : null;
+          })(),
           comparison: (() => {
             const base = retestComparisonFor(repairRow);
             if (!base) return base;
