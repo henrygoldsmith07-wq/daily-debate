@@ -87,3 +87,39 @@ export function reminderMessage(d: Extract<DispatchDecision, { send: true }>): R
 export function reminderSentEvent(d: Extract<DispatchDecision, { send: true }>, now: Date) {
   return { type: "reminder_sent" as const, kind: d.kind, daysWaiting: d.daysWaiting, sentAt: now.toISOString() };
 }
+
+export interface ReminderOutcomeEvent {
+  type: "reminder_sent" | "reminder_acted";
+  sentAt?: string;
+  actedAt?: string;
+}
+
+export const REMINDER_MIN_SAMPLE = 5;
+/** A reminder counts as acted on if the learner starts within this window. */
+export const REMINDER_ACT_WINDOW_MS = 48 * 3_600_000;
+
+export type ReminderActedSummary =
+  | { status: "insufficient_evidence"; sent: number; needed: number }
+  | { status: "ok"; sent: number; acted: number; actedRate: number; label: "unvalidated" };
+
+/** M18 slice 3: sent-vs-acted summary, sample-gated. Not evidence reminders cause retests. */
+export function summariseReminderOutcomes(events: readonly ReminderOutcomeEvent[]): ReminderActedSummary {
+  const sent = events.filter((e) => e.type === "reminder_sent" && Number.isFinite(Date.parse(e.sentAt ?? "")));
+  const acted = events
+    .filter((e) => e.type === "reminder_acted" && Number.isFinite(Date.parse(e.actedAt ?? "")))
+    .map((e) => Date.parse(e.actedAt as string));
+  if (sent.length < REMINDER_MIN_SAMPLE) {
+    return { status: "insufficient_evidence", sent: sent.length, needed: REMINDER_MIN_SAMPLE };
+  }
+  const used = new Set<number>();
+  let n = 0;
+  for (const s of sent) {
+    const t = Date.parse(s.sentAt as string);
+    const i = acted.findIndex((a, idx) => !used.has(idx) && a >= t && a - t <= REMINDER_ACT_WINDOW_MS);
+    if (i >= 0) {
+      used.add(i);
+      n++;
+    }
+  }
+  return { status: "ok", sent: sent.length, acted: n, actedRate: n / sent.length, label: "unvalidated" };
+}

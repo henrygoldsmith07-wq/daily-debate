@@ -43,3 +43,19 @@ describe("reminder message", () => {
     expect(e.sentAt).toBe("2026-10-30T10:00:00.000Z");
   });
 });
+
+import { summariseReminderOutcomes } from "@/lib/reminderDelivery";
+
+describe("summariseReminderOutcomes", () => {
+  const sent = (h: number) => ({ type: "reminder_sent" as const, sentAt: new Date(Date.UTC(2026, 9, 1, h)).toISOString() });
+  it("gates small samples", () => {
+    expect(summariseReminderOutcomes([sent(1), sent(2)]).status).toBe("insufficient_evidence");
+  });
+  it("counts each action once, inside the window", () => {
+    const evs = [1, 2, 3, 4, 5].map(sent);
+    evs.push({ type: "reminder_acted" as never, actedAt: new Date(Date.UTC(2026, 9, 1, 10)).toISOString() } as never);
+    evs.push({ type: "reminder_acted" as never, actedAt: new Date(Date.UTC(2026, 9, 9, 10)).toISOString() } as never);
+    const r = summariseReminderOutcomes(evs);
+    expect(r).toMatchObject({ status: "ok", sent: 5, acted: 1, label: "unvalidated" });
+  });
+});
