@@ -9,6 +9,7 @@ import { loadAiOpsData } from "@/lib/aiOpsServer";
 import { loadAggregateLoopChain, loadRecheckFunnelInputs } from "@/lib/loopChainServer";
 import { RECHECK_MIN_SAMPLE, recheckFunnel } from "@/lib/spacedRecheck";
 import { loadDurableGainSummary } from "@/lib/spacedRecheckServer";
+import { summarizeRecurrenceByKind, RECURRENCE_MIN_REPAIRS } from "@/lib/recurrenceAlert";
 import { CHAIN_RATE_MIN_DECIDED, summarizeChainByKind } from "@/lib/loopChain";
 import { loadPhraseReuseSummary } from "@/lib/phraseReuseServer";
 import { MIN_REUSE_SAMPLE } from "@/lib/repairPhraseReuse";
@@ -105,6 +106,15 @@ export default async function AnalyticsPage() {
               <li key={k.kind} className="text-sm" data-testid="chain-agg-row" data-status={k.status}>
                 <span className="font-medium capitalize">{k.kind}</span>
                 <span className="text-ink3">{` · ${k.repairs} repairs · ${k.pending} pending · `}{k.demonstratedShare === null ? `insufficient_evidence (${k.decided}/${CHAIN_RATE_MIN_DECIDED} measurable)` : `${Math.round(k.demonstratedShare * 100)}% showed the skill (${k.demonstrated}/${k.decided})`}</span>
+              </li>
+            ))}
+          </ul>
+          <h3 className="mt-4 text-xs font-semibold">Repeat repairs by skill (proxy for &ldquo;came back&rdquo;, unvalidated)</h3>
+          <ul className="mt-1 space-y-1" data-testid="recurrence-agg">
+            {summarizeRecurrenceByKind(chainAgg.entries).map((k) => (
+              <li key={k.kind} className="text-sm" data-testid="recurrence-agg-row">
+                <span className="font-medium capitalize">{k.kind}</span>
+                <span className="text-ink3">{` · ${k.repairs} landed repairs · `}{k.share === null ? `insufficient_evidence (${k.repairs}/${RECURRENCE_MIN_REPAIRS})` : `${Math.round(k.share * 100)}% repaired again (${k.repeated}/${k.repairs})`}</span>
               </li>
             ))}
           </ul>

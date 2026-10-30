@@ -32,6 +32,7 @@ export default function DebateRoom({
   initialTurns,
   completedResult,
   soloValidation = null,
+  recurrenceAlert = null,
   repairValidation = null,
 }: DebateRoomProps) {
   const initialPending = initialTurns[initialTurns.length - 1];
@@ -146,6 +147,7 @@ export default function DebateRoom({
         onRepairSucceeded={() => setRepairSucceeded(true)}
         soloValidation={soloValidation}
         repairValidation={repairValidation}
+        recurrenceAlert={recurrenceAlert}
       />
     );
   }
