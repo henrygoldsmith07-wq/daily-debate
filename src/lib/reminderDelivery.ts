@@ -61,3 +61,29 @@ export function decideDispatch(
   if (Number.isFinite(last) && now.getTime() - last < 86_400_000) return { send: false, reason: "recently_sent" };
   return { send: true, kind: s.kind, daysWaiting: s.daysWaiting };
 }
+
+export interface ReminderMessage {
+  subject: string;
+  body: string;
+}
+
+/** M18 slice 2: plain, non-promissory copy for a dispatched reminder. */
+export function reminderMessage(d: Extract<DispatchDecision, { send: true }>): ReminderMessage {
+  const days = Math.max(0, Math.floor(d.daysWaiting));
+  const wait = days === 0 ? "today" : days === 1 ? "1 day" : `${days} days`;
+  if (d.kind === "retest") {
+    return {
+      subject: "Your retest is ready",
+      body: `Your repair has been waiting ${wait === "today" ? "since today" : wait}. A retest is the only way to see whether it held. This is not a score of how well it works.`,
+    };
+  }
+  return {
+    subject: "Your re-check is ready",
+    body: `Your re-check has been waiting ${wait === "today" ? "since today" : wait}. It shows whether a gain lasted; one result is not proof.`,
+  };
+}
+
+/** Event payload stored in product_events context (no migration needed). */
+export function reminderSentEvent(d: Extract<DispatchDecision, { send: true }>, now: Date) {
+  return { type: "reminder_sent" as const, kind: d.kind, daysWaiting: d.daysWaiting, sentAt: now.toISOString() };
+}

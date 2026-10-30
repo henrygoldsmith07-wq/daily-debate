@@ -29,3 +29,17 @@ describe("reminder delivery", () => {
     expect(decideDispatch([], prefs, null, new Date("2026-10-30T12:00:00Z"))).toEqual({ send: false, reason: "nothing_due" });
   });
 });
+
+import { reminderMessage, reminderSentEvent } from "@/lib/reminderDelivery";
+describe("reminder message", () => {
+  it("retest copy makes no effectiveness claim", () => {
+    const m = reminderMessage({ send: true, kind: "retest", daysWaiting: 2 });
+    expect(m.subject).toMatch(/retest/i);
+    expect(m.body).toMatch(/2 days/);
+    expect(m.body).toMatch(/not a score/);
+  });
+  it("event carries kind and ISO time", () => {
+    const e = reminderSentEvent({ send: true, kind: "retest", daysWaiting: 1 }, new Date("2026-10-30T10:00:00Z"));
+    expect(e.sentAt).toBe("2026-10-30T10:00:00.000Z");
+  });
+});
