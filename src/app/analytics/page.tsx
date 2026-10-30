@@ -6,7 +6,8 @@ import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, summarize
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 import { statsByHelpLevel, HELP_STAT_MIN_ATTEMPTS } from "@/lib/repairHints";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
-import { loadAggregateLoopChain, loadRecheckFunnelInputs } from "@/lib/loopChainServer";
+import { loadAggregateLoopChain, loadRecheckFunnelInputs, loadReminderOutcomeInputs } from "@/lib/loopChainServer";
+import { REMINDER_MIN_SAMPLE, reminderOutcome } from "@/lib/retestReminder";
 import { RECHECK_MIN_SAMPLE, recheckFunnel } from "@/lib/spacedRecheck";
 import { loadDurableGainSummary } from "@/lib/spacedRecheckServer";
 import { summarizeRecurrenceByKind, RECURRENCE_MIN_REPAIRS } from "@/lib/recurrenceAlert";
@@ -85,6 +86,8 @@ export default async function AnalyticsPage() {
   const steering = await loadSteeringSummary();
   const chainAgg = await loadAggregateLoopChain();
   const recheckInputs = await loadRecheckFunnelInputs();
+  const reminderInputs = await loadReminderOutcomeInputs();
+  const reminder = reminderInputs ? reminderOutcome(reminderInputs, new Date()) : null;
   const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
   const durable = await loadDurableGainSummary();
   const reuse = await loadPhraseReuseSummary();
@@ -118,6 +121,16 @@ export default async function AnalyticsPage() {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+      {reminder && reminder.overdue > 0 && (
+        <section className="surface-card p-5" aria-labelledby="reminder-heading" data-testid="reminder-outcome" data-evidence={reminder.label}>
+          <h2 id="reminder-heading" className="text-sm font-semibold">Overdue retest reminders</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {reminder.overdue} retests went 2+ days overdue.{" "}
+            {reminder.actedShare === null ? `insufficient_evidence (${reminder.overdue}/${REMINDER_MIN_SAMPLE} needed before a rate is shown)` : `${Math.round(reminder.actedShare * 100)}% completed within a day (${reminder.actedAfterOverdue}/${reminder.overdue})`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Descriptive only; cannot show a reminder caused the retest. Unvalidated.</p>
         </section>
       )}
       {recheck && recheck.eligible > 0 && (
