@@ -13,7 +13,7 @@ Daily Debate is a daily reasoning trainer built around one loop:
 5. **Test again** — the next debate carries the same focus and assesses whether you demonstrated the target behaviour.
 6. **Measure** — Progress shows seven skill dimensions with simple trends; improvement claims stay observational until enough debates exist.
 
-Guests get the same loop deterministically, without an account or any network call, before signing up.
+Guests get the same loop without an account: today's motion against the live AI opponent (the transcript goes to the AI provider only to write its replies and is not stored), or a guided case that never leaves the device. Feedback, repair and retest checks are deterministic and local either way.
 
 ## Why
 
@@ -52,6 +52,7 @@ Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only chec
 | `<LABEL>_MODEL` / `<LABEL>_FALLBACK_MODELS` | optional | Per-provider model chain (e.g. `GROQ_MODEL`). Defaults and priority order live in `config/ai-providers.json`, shared by the app, the benchmark and topic generation. Free rosters change often; override when a provider retires a default. A provider that answers 429 is skipped by later requests until its Retry-After passes. The model that actually served is stamped into every verdict. |
 | `AI_DAILY_SPEND_CAP_USD` | optional | Daily AI spend cap, default `10`; `off` disables. When hit: opponent/judge degrade to an explicit retryable unavailable state (never silent). |
 | `AI_SPEND_UNCOSTED_CALL_USD` | optional | Declared charge for each call with no recorded cost (classifier.dev), default `0.02`. Free-tier provider calls are logged at $0 unless the provider reports a cost. |
+| `GUEST_AI_DAILY_CALLS` | optional | Global cap on live guest opponent calls per 24h, default `400` (each visitor is also limited to 8/day). `GUEST_AI_DISABLED=1` keeps every guest on the guided case. |
 | `CLASSIFIER_DEV_ENABLED` | optional | `1` sends argument texts to classifier.dev. Default off everywhere until the service is disclosed in the privacy policy. |
 | `NEXT_PUBLIC_EXPERIMENTAL_SURFACES` | optional | `1` re-enables the parked surfaces in navigation (PvP, friend challenges, voice input, corpus-validation pages). Default off — see [docs/status.md](docs/status.md). |
 | `OPENROUTER_MODEL` | optional | Defaults to `nvidia/nemotron-3-super-120b-a12b:free`. |

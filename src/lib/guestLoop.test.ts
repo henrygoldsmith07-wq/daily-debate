@@ -169,7 +169,7 @@ describe("parseGuestArenaProgress", () => {
     expect(parseGuestArenaProgress("{not json")).toBeNull();
     expect(parseGuestArenaProgress(42)).toBeNull();
     expect(parseGuestArenaProgress(null)).toBeNull();
-    expect(parseGuestArenaProgress("x".repeat(20_001))).toBeNull();
+    expect(parseGuestArenaProgress("x".repeat(40_001))).toBeNull();
     expect(parseGuestArenaProgress({ ...validProgress, version: 2 })).toBeNull();
   });
 
@@ -192,6 +192,40 @@ describe("parseGuestArenaProgress", () => {
     expect(parsed?.responses[0].length).toBe(4000);
     expect(parsed?.repair?.label.length).toBe(100);
     expect(parsed?.repair?.text.length).toBe(4000);
+  });
+});
+
+describe("parseGuestArenaProgress — live guest sprint", () => {
+  const live = {
+    motion: { title: "Should cities ban cars?", prompt: "Weigh access against air quality.", category: "Policy" },
+    persona: "skeptic" as const,
+    opponents: ["Opening.", "Second."],
+    retest: null,
+  };
+
+  it("round-trips a live snapshot with its transcript", () => {
+    const progress = { ...validProgress, stage: "debate" as const, mode: "live" as const, live };
+    expect(parseGuestArenaProgress(encodeGuestArenaProgress(progress))).toEqual(progress);
+  });
+
+  it("treats a snapshot without a mode as guided (older builds)", () => {
+    expect(parseGuestArenaProgress(validProgress)?.mode).toBeUndefined();
+  });
+
+  it("never half-restores a live sprint whose transcript is missing or malformed", () => {
+    expect(parseGuestArenaProgress({ ...validProgress, stage: "debate", mode: "live" })).toBeNull();
+    expect(parseGuestArenaProgress({ ...validProgress, mode: "pvp" })).toBeNull();
+    expect(parseGuestArenaProgress({ ...validProgress, mode: "live", live: { ...live, opponents: ["a", "b", "c", "d"] } })).toBeNull();
+    expect(parseGuestArenaProgress({ ...validProgress, mode: "live", live: { ...live, motion: { title: "" } } })).toBeNull();
+  });
+
+  it("restores a live home snapshot without a transcript", () => {
+    expect(parseGuestArenaProgress({ ...validProgress, stage: "home", mode: "live" })?.mode).toBe("live");
+  });
+
+  it("falls back to the balanced opponent for an unknown persona", () => {
+    const parsed = parseGuestArenaProgress({ ...validProgress, mode: "live", live: { ...live, persona: "villain" } });
+    expect(parsed?.live?.persona).toBe("balanced");
   });
 });
 

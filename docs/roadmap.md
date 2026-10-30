@@ -43,6 +43,10 @@ day. Re-read them after two weeks of real data instead of defending them.
 **What counts as progress:** the weekly row goes up. **What does not:** new
 features, new surfaces, or claims.
 
+**Competitor-copy changes (Oct 2026), each tied to one scorecard number:**
+live guest sprint on today's motion → debate starts + completion (read guest
+sprints on `/analytics`).
+
 ## Active backlog (serves the loop only)
 
 - **Retest timing.** The repair → deliberate-retest hand-off exists; make the

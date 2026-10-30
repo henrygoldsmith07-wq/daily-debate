@@ -21,6 +21,7 @@ import { SECOND_OPINION_MIN_SAMPLE } from "@/lib/repairSecondOpinion";
 import { loadSteeringSummary } from "@/lib/steeringServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
+import { loadGuestSprintWeeks } from "@/lib/guestSprintCounterServer";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +89,7 @@ export default async function AnalyticsPage() {
   const aiOpsData = await loadAiOpsData();
   const aiOps = aiOpsData.status === "unavailable" ? null : aiOpsData.report;
   const steering = await loadSteeringSummary();
+  const guestSprints = await loadGuestSprintWeeks();
   const chainAgg = await loadAggregateLoopChain();
   const recheckInputs = await loadRecheckFunnelInputs();
   const reminderInputs = await loadReminderOutcomeInputs();
@@ -327,6 +329,42 @@ export default async function AnalyticsPage() {
           Returning = active users whose first-ever activity was before that week. Completion is dashed below{" "}
           {FUNNEL_MIN_SAMPLE} starts — no rate is made from noise, and zeros are never inferred when data is missing.
         </p>
+      </section>
+
+      <section className="surface-card p-5" aria-labelledby="guest-sprints-heading">
+        <h2 id="guest-sprints-heading" className="text-sm font-semibold">Live guest sprints</h2>
+        <p className="mt-1 text-xs text-ink3">
+          Signed-out debates against the live AI opponent, from the anonymous day-level counter (guest_sprint_daily: two
+          integers per day, no identifiers). Guests are not in product_events, so these are not in the table above.
+        </p>
+        {guestSprints === null ? (
+          <p className="mt-3 text-xs text-ink3">Guest sprint counts could not be read — an availability failure, not zero.</p>
+        ) : guestSprints.length === 0 ? (
+          <p className="mt-3 text-xs text-ink3">No live guest sprints recorded yet.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="text-ink3">
+                  <th className="py-1 pr-3 font-medium">Week</th>
+                  <th className="py-1 pr-3 font-semibold">Started</th>
+                  <th className="py-1 pr-3 font-semibold">Completed</th>
+                  <th className="py-1 font-semibold">Completion</th>
+                </tr>
+              </thead>
+              <tbody className="tabular">
+                {guestSprints.map((w) => (
+                  <tr key={w.weekStart} className="border-t border-[var(--rule)]">
+                    <td className="py-1.5 pr-3 font-medium">{w.weekStart}</td>
+                    <td className="py-1.5 pr-3">{w.started}</td>
+                    <td className="py-1.5 pr-3">{w.completed}</td>
+                    <td className="py-1.5">{w.started < FUNNEL_MIN_SAMPLE ? "—" : pct(Math.min(1, w.completed / w.started))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="surface-card p-5" aria-labelledby="cohorts-heading">

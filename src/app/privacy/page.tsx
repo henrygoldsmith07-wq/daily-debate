@@ -45,7 +45,7 @@ export default async function PrivacyPage() {
       <main id="main" className="mx-auto w-full max-w-2xl px-6 py-12">
         <h1 className="text-2xl font-semibold tracking-tight">Privacy</h1>
         <p className="mt-2 text-sm text-ink3">
-          Last updated 2026-10-18. This is a UK-GDPR-oriented notice for a small self-hosted service operated from
+          Last updated 2026-10-30. This is a UK-GDPR-oriented notice for a small self-hosted service operated from
           the UK. It states what is actually stored and who processes it — nothing more.
         </p>
 
@@ -69,8 +69,10 @@ export default async function PrivacyPage() {
               error text.
             </li>
             <li>
-              <strong>Guest practice</strong> stays on your device. Nothing is stored server-side until you create an
-              account.
+              <strong>Guest practice</strong> is not stored server-side. With the live AI opponent, the transcript of
+              that practice is sent to an AI provider (below) only to write the opponent&apos;s next move, and is not
+              kept by us. The guided case never leaves your device. Rate limits key on your IP address for 24 hours,
+              and we keep only a daily count of guest debates started and finished — no text, no identifier.
             </li>
           </ul>
         </section>
