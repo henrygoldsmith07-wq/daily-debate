@@ -19,7 +19,9 @@ import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
 import RetestStartButton from "@/components/RetestStartButton";
 import { closedRechecks, nextDueRecheck, recheckCopy, recheckStatus, selectRecheckForStart } from "@/lib/spacedRecheck";
 import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
-import { reminderCopy, reminderState } from "@/lib/retestReminder";
+import { reminderCopy, reminderState, type ReminderInput } from "@/lib/retestReminder";
+import { deliverInAppReminder } from "@/lib/reminderDispatchServer";
+import ReminderBanner from "@/components/ReminderBanner";
 import { continueKicker, isRetestHero } from "@/lib/retestHero";
 import { loadLoopChain } from "@/lib/loopChainServer";
 import { nudgeCopy, pickWeaknessNudge } from "@/lib/weaknessNudge";
@@ -456,6 +458,11 @@ export default async function DashboardPage() {
 
   const headerPills = homeHeaderPills(profile);
   const todayKey = dateKeyInTimeZone(profile?.timezone ?? "UTC");
+  const reminderItems: ReminderInput[] = [
+    ...coachingContext.pendingRetests.map((r) => ({ kind: "retest" as const, availableAt: r.attemptedAt })),
+    ...(dueAt ? [{ kind: "recheck" as const, availableAt: dueAt }] : []),
+  ];
+  const reminderMsg = await deliverInAppReminder(user.id, reminderItems, recheckNow);
   const week = profile ? weekDays(todayKey, streakDays(profile.current_streak, profile.last_activity_date, todayKey)) : [];
 
   return (
@@ -475,6 +482,8 @@ export default async function DashboardPage() {
           )
         }
       />
+
+      {reminderMsg && <ReminderBanner message={reminderMsg} />}
 
       {/* ── Carried over from guest practice: why this account started non-empty ── */}
       {guestCarryover && (
