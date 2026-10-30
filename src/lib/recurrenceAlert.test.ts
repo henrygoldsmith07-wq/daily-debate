@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectRecurrence, summarizeRecurrenceByKind, RECURRENCE_MIN_REPAIRS } from "./recurrenceAlert";
+import { detectRecurrence, summarizeRecurrenceByKind, RECURRENCE_MIN_REPAIRS, recurringKinds } from "./recurrenceAlert";
 import type { ChainEntry } from "./loopChain";
 
 const e = (kind: string, stage: string, repairedAt: string) => ({ targetKind: kind, stage, repairedAt }) as unknown as ChainEntry;
@@ -38,5 +38,13 @@ describe("summarizeRecurrenceByKind", () => {
   });
   it("reports share at the minimum", () => {
     expect(summarizeRecurrenceByKind(mk(RECURRENCE_MIN_REPAIRS))[0].share).toBeCloseTo(0.9);
+  });
+});
+
+describe("recurringKinds", () => {
+  it("needs 3 landed repairs of a kind", () => {
+    const two = [e("logic", "retest_pending", "2026-10-01"), e("logic", "retest_pending", "2026-10-02")];
+    expect(recurringKinds(two)).toEqual([]);
+    expect(recurringKinds([...two, e("logic", "retest_pending", "2026-10-03"), e("impact", "retest_pending", "2026-10-03")])).toEqual(["logic"]);
   });
 });

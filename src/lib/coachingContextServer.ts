@@ -16,6 +16,8 @@ import {
 import { failedRetestVerdictsForUser } from "./repairRetestServer";
 import { failedRetestDimensions, repairedRetestDimensions } from "./repairRetest";
 import { latestDrillOutcomes } from "./adaptiveCoachServer";
+import { loadLoopChain } from "./loopChainServer";
+import { recurringKinds } from "./recurrenceAlert";
 import type { CoachDimension } from "./adaptiveCoach";
 import type { CoachingContextDegradationReason } from "./types";
 
@@ -88,6 +90,14 @@ export async function loadCoachingContext(
     repairedDimensions = repairedRetestDimensions(verdicts);
   } catch {
     // Steering is advisory; ledger ordering still works without it.
+  }
+
+  // M15: a skill repaired 3+ times keeps coming back; steer focus to it (unvalidated).
+  try {
+    const recurring = recurringKinds(await loadLoopChain(userId)) as CoachDimension[];
+    reRepairDimensions = [...new Set([...reRepairDimensions, ...recurring])];
+  } catch {
+    // advisory only
   }
 
   const pendingRetests = repairResult.status === "fulfilled"

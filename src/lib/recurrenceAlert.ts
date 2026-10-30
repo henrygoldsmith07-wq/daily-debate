@@ -55,3 +55,9 @@ export function summarizeRecurrenceByKind(chain: ChainEntry[]): KindRecurrence[]
     return { kind, repairs: sorted.length, repeated, share: sorted.length >= RECURRENCE_MIN_REPAIRS ? repeated / sorted.length : null };
   });
 }
+
+/** Skills whose repair has recurred enough (3+ landed repairs) to steer the next focus back to them. */
+export const RECURRENCE_STEER_MIN_REPAIRS = 3;
+export function recurringKinds(chain: ChainEntry[]): ChainKind[] {
+  return summarizeRecurrenceByKind(chain).filter((k) => k.repairs >= RECURRENCE_STEER_MIN_REPAIRS).map((k) => k.kind);
+}
