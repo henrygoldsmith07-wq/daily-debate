@@ -16,6 +16,7 @@ import { loadSoloFinalizationContext } from "@/lib/solo/finalizationContext";
 import { repairKindToDimension } from "@/lib/repairRetest";
 import { retestAssignmentFor, retestOutcomeFor, RETEST_OUTCOME_DETAIL, RETEST_OUTCOME_LABELS, retestComparisonFor, type RetestOutcome } from "@/lib/retest";
 import { reusedRepairPhrases } from "@/lib/repairPhraseReuse";
+import { retestTurnEvidence } from "@/lib/retestEvidence";
 import { secondOpinionFor } from "@/lib/repairSecondOpinion";
 import { retestAssignmentStillOpen } from "@/lib/repairRetestServer";
 import { countWeaknessesForSide, debateOpportunities } from "@/lib/repairEffectiveness";
@@ -499,7 +500,12 @@ async function finishSoloDebate(
               repairRow?.rewrite_text ?? "",
               answered.map((turn) => String(turn.user_message)),
             );
-            return reused.length ? { ...base, reusedPhrases: reused } : base;
+            const evidence = retestTurnEvidence(base.before, answered.map((turn) => String(turn.user_message)));
+            return {
+              ...base,
+              ...(reused.length ? { reusedPhrases: reused } : {}),
+              ...(evidence ? { evidence } : {}),
+            };
           })(),
         },
       };
