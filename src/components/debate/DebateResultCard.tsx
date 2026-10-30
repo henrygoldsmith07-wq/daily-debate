@@ -19,6 +19,8 @@ import type { DebateSummaryPayload, ReplayView } from "./types";
 import type { SurfaceValidation } from "@/lib/judgeValidation";
 import { trackEvent } from "@/lib/trackClientEvent";
 import { formatLabelFor, type DebateFormat } from "@/lib/sprint";
+import type { RecurrenceAlert } from "@/lib/recurrenceAlert";
+import { recurrenceAlertNote } from "@/lib/recurrenceAlert";
 import { closeCallNote } from "@/lib/resultSnapshot";
 
 export interface DebateResultCardProps {
@@ -43,6 +45,7 @@ export interface DebateResultCardProps {
   soloValidation?: SurfaceValidation | null;
   /** Judge-output validation for the repair exercise mounted below. */
   repairValidation?: SurfaceValidation | null;
+  recurrenceAlert?: RecurrenceAlert | null;
 }
 
 export function DebateResultCard({
@@ -57,6 +60,7 @@ export function DebateResultCard({
   onRepairSucceeded,
   soloValidation = null,
   repairValidation = null,
+  recurrenceAlert = null,
 }: DebateResultCardProps) {
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
   const [feedbackMissed, setFeedbackMissed] = useState(false);
@@ -228,6 +232,11 @@ export function DebateResultCard({
                   </button>
                 )}
               </div>
+              {recurrenceAlert && (
+                <p className="mt-2 text-xs leading-5 text-ink3" data-testid="weakness-came-back">
+                  {recurrenceAlertNote(recurrenceAlert)}
+                </p>
+              )}
               {snapshot?.recurrence?.label && (
                 <p className="mt-2 text-xs font-medium text-[var(--speak)]" data-testid="weakness-recurrence">
                   ↻ {snapshot.recurrence.label}

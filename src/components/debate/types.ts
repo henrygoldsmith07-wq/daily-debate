@@ -70,4 +70,6 @@ export interface DebateRoomProps {
   soloValidation?: SurfaceValidation | null;
   /** Judge-output validation for the repair surface (repair targets below). */
   repairValidation?: SurfaceValidation | null;
+  /** M15: a previously repaired weakness kind showed up again in this debate. */
+  recurrenceAlert?: import("@/lib/recurrenceAlert").RecurrenceAlert | null;
 }
