@@ -6,6 +6,7 @@ import MessageComposer, { type ComposerSubmitData } from "./MessageComposer";
 import { VerdictExplainPanel } from "./ArgGraphView";
 import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
 import type { PvpMatch, PvpTurn, PvpVerdict } from "@/lib/types";
+import ClaimsPanel from "./ClaimsPanel";
 import { TURN_ABANDON_MINUTES } from "@/lib/types";
 import { allowsCompetitiveClaims, type SurfaceValidation } from "@/lib/judgeValidation";
 
@@ -316,6 +317,14 @@ export default function PvpRoom({
             </div>
           </div>
           {verdict && <VerdictExplainPanel verdict={verdict} playerAName={playerAName} playerBName={playerBName} competitiveClaimsAllowed={competitiveClaimsAllowed} />}
+          <ClaimsPanel
+            sources={turns.map((turn) => ({
+              speaker: turn.player_id === currentUserId ? "You" : nameFor(turn.player_id),
+              side: (turn.player_id === match.player_a ? match.player_a_side : match.player_a_side === "for" ? "against" : "for") as "for" | "against",
+              round: turn.round_number,
+              text: turn.message,
+            }))}
+          />
         </div>
       )}
     </div>
