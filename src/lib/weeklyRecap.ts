@@ -31,3 +31,16 @@ export function buildWeeklyRecap(loop: WeeklyLoop): WeeklyRecap {
   lines.push(`Not enough measured retests to say whether repairs held (${loop.observableTotal} of ${MIN_RETESTS_FOR_RATE}).`);
   return { state: "counts_only", lines };
 }
+
+export const RECAP_VIEW_MIN_USERS = 5;
+
+export type RecapViewSummary =
+  | { status: "insufficient_evidence"; viewers: number; needed: number }
+  | { status: "ok"; viewers: number; views: number };
+
+/** Distinct viewers of the weekly recap; a count only appears at >= 5 users. */
+export function summariseRecapViews(rows: { userId: string }[]): RecapViewSummary {
+  const viewers = new Set(rows.map((r) => r.userId)).size;
+  if (viewers < RECAP_VIEW_MIN_USERS) return { status: "insufficient_evidence", viewers, needed: RECAP_VIEW_MIN_USERS };
+  return { status: "ok", viewers, views: rows.length };
+}

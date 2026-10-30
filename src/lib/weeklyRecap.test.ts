@@ -28,3 +28,15 @@ describe("buildWeeklyRecap", () => {
     expect(r.lines.join(" ")).toContain("Unvalidated");
   });
 });
+
+import { summariseRecapViews } from "./weeklyRecap";
+describe("summariseRecapViews", () => {
+  it("hides counts under 5 distinct viewers", () => {
+    const rows = Array.from({ length: 20 }, () => ({ userId: "a" }));
+    expect(summariseRecapViews(rows)).toEqual({ status: "insufficient_evidence", viewers: 1, needed: 5 });
+  });
+  it("shows counts at 5 viewers", () => {
+    const rows = ["a", "b", "c", "d", "e", "a"].map((userId) => ({ userId }));
+    expect(summariseRecapViews(rows)).toEqual({ status: "ok", viewers: 5, views: 6 });
+  });
+});
