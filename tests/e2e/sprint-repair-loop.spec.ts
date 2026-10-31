@@ -103,6 +103,12 @@ test.describe("daily sprint repair loop", () => {
     await page.goto("/");
     await expect(page.getByTestId("start-sprint")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("Retest after repair", { exact: true })).toHaveCount(0);
+    // After the first completed debate, Today offers push reminders (the
+    // e2e server has test VAPID keys). Nothing is asked until a click.
+    // Playwright's headless shell always reports notifications as denied,
+    // so the card shows its "blocked" state there; a real browser shows the
+    // "Turn on reminders" button (data-state="off").
+    await expect(page.getByTestId("push-optin")).toHaveAttribute("data-state", /^(off|blocked)$/);
 
     await page.goto(debateUrl);
     await expect(page.getByText(/Replay/i).first()).toBeVisible({ timeout: 15_000 });
