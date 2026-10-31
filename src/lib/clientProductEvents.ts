@@ -10,6 +10,7 @@ export const CLIENT_PRODUCT_EVENT_NAMES = [
   "reminder_opted_in",
   "reminder_opted_out",
   "reminder_acted",
+  "result_shared",
 ] as const;
 
 export type ClientProductEventName = (typeof CLIENT_PRODUCT_EVENT_NAMES)[number];

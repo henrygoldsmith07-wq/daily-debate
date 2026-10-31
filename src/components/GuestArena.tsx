@@ -8,6 +8,7 @@ import PageHeader from "./PageHeader";
 import SidePicker, { type SideChoice } from "./SidePicker";
 import WeekStreak from "./WeekStreak";
 import ShareResultButton from "./ShareResultButton";
+import { dailyNumber, guestRoundMark, LIVE_GUEST_MOTION_ID, sharePath, shareText as buildShareText } from "@/lib/shareCard";
 import { dailyAccentStyle } from "@/lib/dailyAccent";
 import { addGuestPracticeDay, GUEST_PRACTICE_DAYS_KEY, parseGuestPracticeDays, weekDays } from "@/lib/weekStreak";
 import {
@@ -578,6 +579,7 @@ function GuestDebate({
 
 function GuestResult({
   motion,
+  side,
   responses,
   repairSucceeded,
   acceptedRepairText,
@@ -588,6 +590,7 @@ function GuestResult({
   onRestart,
 }: {
   motion: GuestMotion;
+  side: "for" | "against";
   responses: string[];
   repairSucceeded: boolean;
   /**
@@ -639,7 +642,18 @@ function GuestResult({
   // The headline counts kinds of move that showed up at least once — the same
   // observations listed below, summed, never a score or a rating.
   const movesFound = observations.filter(([, count]) => count > 0).length;
-  const shareText = `I argued "${motion.motion}" on Daily Debate: ${movesFound} of ${observations.length} debate moves showed up in my writing. Your turn.`;
+  // Wordle-style: day number (only for today's shared motion), side, one
+  // square per round, repair state. No words from the learner's writing.
+  const shareCard = {
+    ...(motion.id === LIVE_GUEST_MOTION_ID ? { dayNumber: dailyNumber(new Date().toISOString()) } : {}),
+    side,
+    marks: responses.map((response, index) => {
+      const chips = assessGuestResponse(response, rounds[index]?.opponent ?? "", index).chips;
+      const seen = (label: string) => chips.some((chip) => chip.label === label && chip.observed);
+      return guestRoundMark({ opponent: seen("Opponent"), claim: seen("Claim"), reasoning: seen("Reasoning") });
+    }),
+    repaired: repairSucceeded || repairAssessment?.succeeded === true,
+  };
 
   return (
     <div className="app-shell app-shell-guest">
@@ -671,7 +685,7 @@ function GuestResult({
               ))}
             </ul>
             <div className="mt-3">
-              <ShareResultButton title="Daily Debate" text={shareText} />
+              <ShareResultButton title="Daily Debate" text={buildShareText(shareCard)} path={sharePath(shareCard)} />
             </div>
           </section>
 
@@ -1305,6 +1319,7 @@ export default function GuestArena({
     return (
       <GuestResult
         motion={motion}
+        side={side}
         responses={responses}
         repairSucceeded={!!repair}
         acceptedRepairText={repair?.text ?? null}

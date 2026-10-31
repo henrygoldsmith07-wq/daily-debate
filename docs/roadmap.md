@@ -47,6 +47,8 @@ features, new surfaces, or claims.
 
 - live guest sprint on today's motion → debate starts + completion (read
   guest sprints on `/analytics`);
+- spoiler-free share card (copied from Wordle) → new users (read
+  `result_shared` on `/analytics`);
 - Web Push streak-saver (copied from Duolingo) → D1 return (read push sent
   vs opened on `/analytics`).
 

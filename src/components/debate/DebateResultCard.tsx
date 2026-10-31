@@ -22,11 +22,15 @@ import { formatLabelFor, type DebateFormat } from "@/lib/sprint";
 import type { RecurrenceAlert } from "@/lib/recurrenceAlert";
 import { recurrenceAlertNote } from "@/lib/recurrenceAlert";
 import { closeCallNote } from "@/lib/resultSnapshot";
+import ShareResultButton from "../ShareResultButton";
+import { dailyNumber, sharePath, shareText, soloRoundMarks, type ShareCardInput } from "@/lib/shareCard";
 
 export interface DebateResultCardProps {
   view: ReplayView;
   format: DebateFormat;
   debateId: string;
+  /** The learner's side, for the shared result card. */
+  side?: "for" | "against";
   /** The deliberate retest assignment this debate is serving, if any. */
   repairRetest: NonNullable<SoloDebate["coaching"]>["repairRetest"] | null;
   /**
@@ -52,6 +56,7 @@ export function DebateResultCard({
   view,
   format,
   debateId,
+  side,
   repairRetest,
   retestOutcome,
   completedRepaired,
@@ -339,6 +344,25 @@ export function DebateResultCard({
             >
               {showFullAnalysis ? "Hide full analysis" : "View full analysis"}
             </button>
+            {view.fresh && side && (() => {
+              // Wordle-style share: today's number, side, one square per
+              // opponent move answered or dropped, repair state. No text
+              // from the debate, no score.
+              const card: ShareCardInput = {
+                dayNumber: dailyNumber(new Date().toISOString()),
+                side,
+                marks: soloRoundMarks(view.argGraph),
+                repaired: view.repaired,
+              };
+              return (
+                <ShareResultButton
+                  title="Daily Debate"
+                  text={shareText(card)}
+                  path={sharePath(card)}
+                  onShared={() => trackEvent("result_shared", { format, side, debateId })}
+                />
+              );
+            })()}
             {view.fresh && (
               <button type="button" onClick={copyResult} className="btn btn-ghost px-3 py-1.5 text-xs">
                 <span aria-hidden="true">{copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}</span>

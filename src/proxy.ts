@@ -10,6 +10,7 @@ export function proxy(request: NextRequest) {
     pathname === "/research" ||
     pathname === "/metrics" ||
     pathname === "/benchmark" ||
+    pathname === "/s" ||
     pathname === "/privacy" ||
     pathname === "/terms" ||
     // Published debates are public by the debaters' choice (042): reading
