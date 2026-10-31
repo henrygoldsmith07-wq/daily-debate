@@ -18,6 +18,7 @@ import { experimentalSurfacesEnabled } from "./featureFlags";
 export type NavIconName =
   | "today"
   | "pvp"
+  | "explore"
   | "progress"
   | "dna"
   | "history"
@@ -60,10 +61,10 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         href: "/pvp",
         label: "Player vs Player",
-        description: "Debate another player on today's motion",
+        description: "Debate someone who disagrees with you on today's motion",
         icon: "pvp",
-        experimental: true,
       },
+
     ],
   },
   {
@@ -95,6 +96,19 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "Leaderboard",
         description: "Practice activity and points across players",
         icon: "leaderboard",
+      },
+    ],
+  },
+  {
+    id: "community",
+    label: "Community",
+    items: [
+      {
+        href: "/explore",
+        label: "Explore",
+        description: "Debates people published, and who argued better",
+        icon: "explore",
+        primary: true,
       },
     ],
   },

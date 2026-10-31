@@ -7,7 +7,8 @@ import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
 import { statsByHelpLevel, HELP_STAT_MIN_ATTEMPTS } from "@/lib/repairHints";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
 import { loadAggregateLoopChain, loadRecheckFunnelInputs, loadReminderOutcomeInputs } from "@/lib/loopChainServer";
-import { loadReminderOutcomeEvents } from "@/lib/reminderPrefsServer";
+import { summariseRecapViews } from "@/lib/weeklyRecap";
+import { loadRecapViewRows, loadReminderOutcomeEvents } from "@/lib/reminderPrefsServer";
 import { summariseSentActedPerUser } from "@/lib/reminderDelivery";
 import { REMINDER_MIN_SAMPLE, reminderOutcome } from "@/lib/retestReminder";
 import { RECHECK_MIN_SAMPLE, recheckFunnel } from "@/lib/spacedRecheck";
@@ -96,6 +97,8 @@ export default async function AnalyticsPage() {
   const reminder = reminderInputs ? reminderOutcome(reminderInputs, new Date()) : null;
   const sentActedRows = await loadReminderOutcomeEvents();
   const sentActed = sentActedRows ? summariseSentActedPerUser(sentActedRows) : null;
+  const recapRows = await loadRecapViewRows();
+  const recapViews = recapRows ? summariseRecapViews(recapRows) : null;
   const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
   const durable = await loadDurableGainSummary();
   const reuse = await loadPhraseReuseSummary();
@@ -130,6 +133,16 @@ export default async function AnalyticsPage() {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+      {recapViews && (
+        <section className="surface-card p-5" aria-labelledby="recap-views-heading" data-testid="recap-views" data-evidence={recapViews.status === "ok" ? "unvalidated" : "insufficient_evidence"}>
+          <h2 id="recap-views-heading" className="text-sm font-semibold">Weekly recap: who looked</h2>
+          <p className="mt-1 text-xs text-ink3">
+            {recapViews.status === "ok"
+              ? `${recapViews.viewers} learners opened the recap (${recapViews.views} views). Unvalidated; opening it does not show it helped.`
+              : `insufficient_evidence (${recapViews.viewers}/${recapViews.needed} viewers before a count is shown).`}
+          </p>
         </section>
       )}
       {sentActed && (

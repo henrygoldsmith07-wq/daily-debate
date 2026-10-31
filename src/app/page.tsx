@@ -19,6 +19,8 @@ import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
 import RetestStartButton from "@/components/RetestStartButton";
 import { closedRechecks, nextDueRecheck, recheckCopy, recheckStatus, selectRecheckForStart } from "@/lib/spacedRecheck";
+import WeeklyRecapCard from "@/components/WeeklyRecapCard";
+import { loadWeeklyLoop } from "@/lib/weeklyLoopServer";
 import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
 import { reminderCopy, reminderState, type ReminderInput } from "@/lib/retestReminder";
 import { deliverInAppReminder } from "@/lib/reminderDispatchServer";
@@ -93,6 +95,7 @@ export default async function DashboardPage() {
   journeyInputsPromise.catch(() => undefined); // awaited (and surfaced) below
   // M9 re-check inputs, read in parallel with the rest of Today; best-effort.
   const recheckInputsPromise = loadRecheckInputs(db, user.id).catch(() => null);
+  const weeklyLoopPromise = loadWeeklyLoop(user.id).catch(() => null);
   const sharedTopic = await getTodayTopic();
 
   const coachingContext = await loadCoachingContext(user.id, { currentTopicId: sharedTopic.id });
@@ -358,6 +361,7 @@ export default async function DashboardPage() {
   // a closed re-check never reappears. Best-effort: never blocks Today.
   const recheckNow = new Date();
   const recheckInputs = await recheckInputsPromise;
+  const weeklyLoopToday = await weeklyLoopPromise;
   const recheckClosed = recheckInputs ? closedRechecks(recheckInputs.debates) : new Map();
   const recheckRows = (recheckInputs?.repairs ?? []).map((r) => ({
     retest_outcome: r.retest_outcome,
@@ -550,6 +554,7 @@ export default async function DashboardPage() {
           screen is for. The training target and the loop explain it, so they
           follow (they used to push Start ~1,450px down a phone screen). ── */}
       <WeekStreak days={week} />
+      {weeklyLoopToday && <WeeklyRecapCard loop={weeklyLoopToday} />}
 
       <TopicCard
         topic={topic}

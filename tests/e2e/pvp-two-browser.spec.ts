@@ -102,6 +102,10 @@ test.describe("two-browser pvp full-flow", () => {
     if (!playerA.url().includes(matchId!)) await playerA.goto(`/pvp/${matchId}`);
     if (!playerB.url().includes(matchId!)) await playerB.goto(`/pvp/${matchId}`);
 
+    // ── Both rooms run the same server-stamped turn clock ──
+    await expect(playerA.getByTestId("turn-clock")).toContainText(/\d:\d{2}/, { timeout: 10_000 });
+    await expect(playerB.getByTestId("turn-clock")).toContainText(/\d:\d{2}/, { timeout: 10_000 });
+
     await expect(playerA.getByText(/You.*arguing/i).first()).toBeVisible({ timeout: 15_000 });
     await expect(playerB.getByText(/You.*arguing/i).first()).toBeVisible({ timeout: 15_000 });
 

@@ -33,7 +33,7 @@ vi.mock("@/lib/backend/server", () => ({
 }));
 
 import { POST } from "./route";
-import { TURN_ABANDON_MINUTES } from "@/lib/types";
+import { PVP_TURN_GRACE_SECONDS, PVP_TURN_SECONDS } from "@/lib/pvpTurnClock";
 
 const call = () =>
   POST(new Request("http://localhost/api/pvp/m1/forfeit", { method: "POST" }), {
@@ -53,7 +53,7 @@ beforeEach(() => {
       player_b: "b",
       status: "active",
       current_turn_player: "b",
-      turn_started_at: ago(TURN_ABANDON_MINUTES + 5),
+      turn_started_at: ago((PVP_TURN_SECONDS + PVP_TURN_GRACE_SECONDS) / 60 + 1),
     },
     error: null,
   };
