@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { MotionPosition, PositionTallyView } from "@/lib/positionTally";
 
 interface PositionState {
@@ -64,16 +64,17 @@ export default function PositionPills({
     }
   }
 
+  const labelId = useId();
   const position = state?.position ?? null;
   const tally = state?.tally ?? null;
 
   return (
     <div className={`position-pills${compact ? " is-compact" : ""}`} data-testid="position-pills" data-position={position ?? "none"}>
       <div className="position-pills-row">
-        <span className="position-pills-label" id="position-pills-label">
+        <span className="position-pills-label" id={labelId}>
           {position ? "You stand" : "Where do you stand?"}
         </span>
-        <div className="position-pills-choices" role="group" aria-labelledby="position-pills-label">
+        <div className="position-pills-choices" role="group" aria-labelledby={labelId}>
           {(["for", "against"] as const).map((option) => (
             <button
               key={option}
@@ -89,7 +90,7 @@ export default function PositionPills({
         </div>
       </div>
       {tally ? (
-        <div className="position-tally" aria-label={`${tally.forShare}% agree and ${tally.againstShare}% disagree, from ${tally.total} positions`}>
+        <div className="position-tally">
           <div className="position-tally-bar" aria-hidden="true">
             <span className="position-tally-for" style={{ width: `${tally.forShare}%` }} />
           </div>

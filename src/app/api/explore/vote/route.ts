@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { castVote, getExploreDebate, type ExploreKind } from "@/lib/explore";
+import { castVote, getExploreDebate, isDebateId, type ExploreKind } from "@/lib/explore";
 
 // One vote per viewer per published debate: which side ARGUED BETTER. The
 // database function is the only writer and refuses unpublished debates and a
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => null)) as { kind?: unknown; id?: unknown; choice?: unknown } | null;
   const kind = body?.kind === "solo" || body?.kind === "pvp" ? (body.kind as ExploreKind) : null;
-  const id = typeof body?.id === "string" ? body.id : null;
+  const id = isDebateId(body?.id) ? body.id : null;
   const choice = body?.choice === "for" || body?.choice === "against" ? body.choice : null;
   if (!kind || !id || !choice) return NextResponse.json({ error: "Choose a side to vote for." }, { status: 400 });
 

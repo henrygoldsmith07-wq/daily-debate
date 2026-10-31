@@ -93,9 +93,14 @@ export default async function AppShell({
         <div className="app-main">
           <header className="app-topbar app-topbar-guest">
             <Brand compact />
-            <Link href="/login" className="btn btn-secondary px-3 py-1.5 text-xs">
-              Sign in
-            </Link>
+            <nav className="flex items-center gap-2" aria-label="Guest">
+              <Link href="/explore" className="btn btn-ghost px-3 py-1.5 text-xs">
+                Explore
+              </Link>
+              <Link href="/login" className="btn btn-secondary px-3 py-1.5 text-xs">
+                Sign in
+              </Link>
+            </nav>
           </header>
           <main id="main" className={contentClass}>
             {children}

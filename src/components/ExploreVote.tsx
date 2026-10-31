@@ -85,7 +85,9 @@ export default function ExploreVote({
           </button>
         </div>
       ) : (
-        <Link href="/login" className="explore-vote-signin">Sign in to vote and see the split →</Link>
+        <Link href={`/login?next=${encodeURIComponent(`/explore/${kind}/${id}`)}`} className="explore-vote-signin">
+          Sign in to vote and see the split →
+        </Link>
       )}
       <p className="explore-vote-note">A crowd&apos;s read of the arguments, not a ruling on which side is right.</p>
       {error && <p className="text-xs text-[var(--bad)]" role="alert">{error}</p>}
