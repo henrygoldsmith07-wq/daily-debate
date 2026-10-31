@@ -7,7 +7,7 @@ import { CLIENT_PRODUCT_EVENT_NAMES } from "./clientProductEvents";
 
 // The best-effort recorder swallows insert errors, so an event name the
 // database CHECK constraint does not list is silently never recorded (this
-// happened to six events between migrations 035 and 043). Keep the two lists
+// happened to seven events between migrations 035 and 044). Keep the two lists
 // identical: the latest migration that declares the constraint is the truth.
 
 const MIGRATIONS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "database", "migrations");

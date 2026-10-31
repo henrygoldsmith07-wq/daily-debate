@@ -43,6 +43,9 @@ day. Re-read them after two weeks of real data instead of defending them.
 **What counts as progress:** the weekly row goes up. **What does not:** new
 features, new surfaces, or claims.
 
+Spoiler-free share card (Oct 2026, copied from Wordle) → new users (read
+`result_shared` on `/analytics`).
+
 ## Active backlog (serves the loop only)
 
 - **Retest timing.** The repair → deliberate-retest hand-off exists; make the
