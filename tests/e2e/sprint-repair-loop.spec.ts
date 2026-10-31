@@ -73,6 +73,8 @@ test.describe("daily sprint repair loop", () => {
 
     // 5. Simplified result: one main weakness, not a wall of analytics.
     await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 30_000 });
+    // A fresh result offers the spoiler-free share card.
+    await expect(page.getByTestId("result-card").getByRole("button", { name: /share result/i })).toBeVisible();
     await expect(page.getByTestId("main-weakness")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("fix-this-now")).toBeVisible();
 

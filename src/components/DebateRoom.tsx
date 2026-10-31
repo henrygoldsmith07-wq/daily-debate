@@ -139,6 +139,7 @@ export default function DebateRoom({
         view={view}
         format={format}
         debateId={debate.id}
+        side={debate.side === "against" ? "against" : "for"}
         repairRetest={repairRetest}
         retestOutcome={debate.coaching?.retestOutcome ?? null}
         completedRepaired={!!completedResult?.repaired}
