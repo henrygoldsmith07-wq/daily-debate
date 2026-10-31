@@ -22,6 +22,8 @@ import { SECOND_OPINION_MIN_SAMPLE } from "@/lib/repairSecondOpinion";
 import { loadSteeringSummary } from "@/lib/steeringServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
+import { loadGuestSprintWeeks } from "@/lib/guestSprintCounterServer";
+import { loadPushWeeks } from "@/lib/webPushServer";
 
 export const dynamic = "force-dynamic";
 
@@ -89,12 +91,14 @@ export default async function AnalyticsPage() {
   const aiOpsData = await loadAiOpsData();
   const aiOps = aiOpsData.status === "unavailable" ? null : aiOpsData.report;
   const steering = await loadSteeringSummary();
+  const guestSprints = await loadGuestSprintWeeks();
   const chainAgg = await loadAggregateLoopChain();
   const recheckInputs = await loadRecheckFunnelInputs();
   const reminderInputs = await loadReminderOutcomeInputs();
   const reminder = reminderInputs ? reminderOutcome(reminderInputs, new Date()) : null;
   const sentActedRows = await loadReminderOutcomeEvents();
   const sentActed = sentActedRows ? summariseSentActedPerUser(sentActedRows) : null;
+  const pushWeeks = await loadPushWeeks();
   const recapRows = await loadRecapViewRows();
   const recapViews = recapRows ? summariseRecapViews(recapRows) : null;
   const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
@@ -133,6 +137,27 @@ export default async function AnalyticsPage() {
           </ul>
         </section>
       )}
+      <section className="surface-card p-5" aria-labelledby="push-weeks-heading" data-testid="push-weeks">
+        <h2 id="push-weeks-heading" className="text-sm font-semibold">Push reminders: sent vs opened</h2>
+        <p className="mt-1 text-xs text-ink3">
+          From push_deliveries. Opened = the notification was clicked. Unvalidated: an open does not show a reminder
+          caused a debate.
+        </p>
+        {pushWeeks === null ? (
+          <p className="mt-2 text-xs text-ink3">Push deliveries could not be read — an availability failure, not zero.</p>
+        ) : pushWeeks.length === 0 ? (
+          <p className="mt-2 text-xs text-ink3">No push reminders sent yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-xs tabular">
+            {pushWeeks.map((w) => (
+              <li key={w.weekStart}>
+                {w.weekStart}: {w.sent} sent · {w.opened} opened
+                {w.sent >= FUNNEL_MIN_SAMPLE ? ` (${pct(w.opened / w.sent)})` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       {recapViews && (
         <section className="surface-card p-5" aria-labelledby="recap-views-heading" data-testid="recap-views" data-evidence={recapViews.status === "ok" ? "unvalidated" : "insufficient_evidence"}>
           <h2 id="recap-views-heading" className="text-sm font-semibold">Weekly recap: who looked</h2>
@@ -340,6 +365,42 @@ export default async function AnalyticsPage() {
           Returning = active users whose first-ever activity was before that week. Completion is dashed below{" "}
           {FUNNEL_MIN_SAMPLE} starts — no rate is made from noise, and zeros are never inferred when data is missing.
         </p>
+      </section>
+
+      <section className="surface-card p-5" aria-labelledby="guest-sprints-heading">
+        <h2 id="guest-sprints-heading" className="text-sm font-semibold">Live guest sprints</h2>
+        <p className="mt-1 text-xs text-ink3">
+          Signed-out debates against the live AI opponent, from the anonymous day-level counter (guest_sprint_daily: two
+          integers per day, no identifiers). Guests are not in product_events, so these are not in the table above.
+        </p>
+        {guestSprints === null ? (
+          <p className="mt-3 text-xs text-ink3">Guest sprint counts could not be read — an availability failure, not zero.</p>
+        ) : guestSprints.length === 0 ? (
+          <p className="mt-3 text-xs text-ink3">No live guest sprints recorded yet.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="text-ink3">
+                  <th className="py-1 pr-3 font-medium">Week</th>
+                  <th className="py-1 pr-3 font-semibold">Started</th>
+                  <th className="py-1 pr-3 font-semibold">Completed</th>
+                  <th className="py-1 font-semibold">Completion</th>
+                </tr>
+              </thead>
+              <tbody className="tabular">
+                {guestSprints.map((w) => (
+                  <tr key={w.weekStart} className="border-t border-[var(--rule)]">
+                    <td className="py-1.5 pr-3 font-medium">{w.weekStart}</td>
+                    <td className="py-1.5 pr-3">{w.started}</td>
+                    <td className="py-1.5 pr-3">{w.completed}</td>
+                    <td className="py-1.5">{w.started < FUNNEL_MIN_SAMPLE ? "—" : pct(Math.min(1, w.completed / w.started))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="surface-card p-5" aria-labelledby="cohorts-heading">

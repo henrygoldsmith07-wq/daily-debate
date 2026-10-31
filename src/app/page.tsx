@@ -5,6 +5,7 @@ import AppShell from "@/components/AppShell";
 import { guestCarryoverNotes } from "@/lib/guestLoop";
 import PageHeader from "@/components/PageHeader";
 import GuestArena from "@/components/GuestArena";
+import { guestLiveAvailable } from "@/lib/guestLiveServer";
 import PageViewEvent from "@/components/PageViewEvent";
 import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import { loadChallengeAssignment } from "@/lib/solo/challengeSide";
@@ -24,6 +25,8 @@ import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
 import { reminderCopy, reminderState, type ReminderInput } from "@/lib/retestReminder";
 import { deliverInAppReminder } from "@/lib/reminderDispatchServer";
 import ReminderBanner from "@/components/ReminderBanner";
+import PushOptIn from "@/components/PushOptIn";
+import { pushAvailable, pushConfig } from "@/lib/webPushServer";
 import { continueKicker, isRetestHero } from "@/lib/retestHero";
 import { loadLoopChain } from "@/lib/loopChainServer";
 import { nudgeCopy, pickWeaknessNudge } from "@/lib/weaknessNudge";
@@ -72,7 +75,16 @@ export default async function DashboardPage() {
   const user = await getCurrentUser();
 
   if (!user) {
-    return <GuestArena validation={guestValidation} />;
+    // Signed-out visitors debate today's shared motion against the live AI
+    // opponent when the server can bound anonymous calls; otherwise the
+    // guided case, which never leaves the device.
+    const liveMotion = guestLiveAvailable() ? await getTodayTopic().catch(() => null) : null;
+    return (
+      <GuestArena
+        validation={guestValidation}
+        live={liveMotion ? { title: liveMotion.title, prompt: liveMotion.prompt, category: liveMotion.category } : null}
+      />
+    );
   }
 
   // getTodayTopic never throws — it falls back to a curated motion when
@@ -467,6 +479,7 @@ export default async function DashboardPage() {
     ...(dueAt ? [{ kind: "recheck" as const, availableAt: dueAt }] : []),
   ];
   const reminderMsg = await deliverInAppReminder(user.id, reminderItems, recheckNow);
+  const pushPublicKey = pushAvailable() ? pushConfig()?.publicKey ?? null : null;
   const week = profile ? weekDays(todayKey, streakDays(profile.current_streak, profile.last_activity_date, todayKey)) : [];
 
   return (
@@ -790,6 +803,10 @@ export default async function DashboardPage() {
           </article>
         </div>
       </section>
+      {/* Push reminders: asked only after the first completed debate, once
+          the learner has seen the loop (Duolingo's streak-saver, with its
+          rule: protect the channel). */}
+      {pushPublicKey && (coachingContext.ledger?.debates ?? 0) >= 1 ? <PushOptIn publicKey={pushPublicKey} /> : null}
     </AppShell>
   );
 }

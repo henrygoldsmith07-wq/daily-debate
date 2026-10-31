@@ -43,8 +43,14 @@ day. Re-read them after two weeks of real data instead of defending them.
 **What counts as progress:** the weekly row goes up. **What does not:** new
 features, new surfaces, or claims.
 
-Spoiler-free share card (Oct 2026, copied from Wordle) → new users (read
-`result_shared` on `/analytics`).
+**Competitor-copy changes (Oct 2026), each tied to one scorecard number:**
+
+- live guest sprint on today's motion → debate starts + completion (read
+  guest sprints on `/analytics`);
+- spoiler-free share card (copied from Wordle) → new users (read
+  `result_shared` on `/analytics`);
+- Web Push streak-saver (copied from Duolingo) → D1 return (read push sent
+  vs opened on `/analytics`).
 
 ## Active backlog (serves the loop only)
 

@@ -3,7 +3,7 @@
 import { guestChallengeSide } from "@/lib/guestSide";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import PageHeader from "./PageHeader";
 import SidePicker, { type SideChoice } from "./SidePicker";
 import WeekStreak from "./WeekStreak";
@@ -35,6 +35,20 @@ import { SPRINT_ESTIMATE_MINUTES } from "@/lib/sprint";
 import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import { guestAccountBenefits } from "@/lib/guestAccountBenefits";
 import { SIGN_UP_PATH } from "@/lib/authRedirect";
+import ThinkingIndicator from "./ThinkingIndicator";
+import { OPPONENT_PERSONA_LIST, type OpponentPersonaId } from "@/lib/opponentPersona";
+import {
+  buildLiveGuestMotion,
+  emptyGuestLiveState,
+  GUEST_LIVE_FALLBACK_OPPONENT,
+  GUEST_LIVE_FALLBACK_RETEST,
+  GUEST_LIVE_ROUNDS,
+  guestLiveHistory,
+  type GuestLiveMotion,
+  type GuestLiveState,
+} from "@/lib/guestLive";
+import type { GuestArenaMode } from "@/lib/guestLoop";
+import { readTurnResponse, TURN_STREAM_ACCEPT } from "@/lib/turnStreamClient";
 
 // Restore this tab's in-progress guest practice, if any. Runs at initial
 // render only (lazy initializer) so server HTML and the first client paint
@@ -46,6 +60,8 @@ function restoreArena(today: string): {
   responses: string[];
   repair: { kind: GuestSkill; label: string; text: string; succeeded: boolean } | null;
   retestDemonstrated: boolean | null;
+  mode: GuestArenaMode | null;
+  live: GuestLiveState | null;
 } {
   try {
     const parsed = parseGuestArenaProgress(window.sessionStorage.getItem(GUEST_ARENA_STORAGE_KEY));
@@ -58,22 +74,30 @@ function restoreArena(today: string): {
         ? { kind: parsed.repair.kind as GuestSkill, label: parsed.repair.label, text: parsed.repair.text, succeeded: parsed.repair.succeeded }
         : null,
       retestDemonstrated: parsed.retestDemonstrated,
+      mode: parsed.mode ?? null,
+      live: parsed.live ?? null,
     };
   } catch {
     // Corrupt or stale cache degrades to a fresh home — never half-restored.
-    return { stage: "home", side: "for", responses: [], repair: null, retestDemonstrated: null };
+    return { stage: "home", side: "for", responses: [], repair: null, retestDemonstrated: null, mode: null, live: null };
   }
 }
 
 // The guest loop mirrors the signed-in product loop:
 //   debate -> one weakness -> fix it now -> retest it -> see what moved.
 //
-// Everything here is deterministic and local. No provider call, no account, no
-// cost: guest mode is a real but deliberately limited sample of the product, not
-// a degraded copy of it. Nothing leaves the device: mid-practice progress sits
-// in this tab's sessionStorage (a reload resumes where you left off), and the
-// closing summary sits in localStorage for the signup form. The closing signup
-// prompt appears only AFTER the learner has actually seen value.
+// Two opponents, one loop:
+//   * live (default when the server offers it): today's shared motion against
+//     the real AI opponent, via the stateless /api/guest/turn route. Only the
+//     transcript is sent, to generate the opponent's replies; nothing is stored.
+//   * guided: a scripted sample case that never leaves the device. Chosen by
+//     the learner ("Use a guided case instead"), or the automatic fallback
+//     whenever the live opponent is unavailable, rate limited or failing.
+// Feedback, the weakness, the repair and the retest check are the same
+// deterministic local checks in both. Mid-practice progress sits in this tab's
+// sessionStorage (a reload resumes where you left off), and the closing summary
+// sits in localStorage for the signup form. The closing signup prompt appears
+// only AFTER the learner has actually seen value.
 
 type Stage = "home" | "debate" | "result" | "retest" | "done";
 
@@ -103,7 +127,32 @@ function readGuestDays(): string | null {
   }
 }
 
-function GuestHome({ motion, today, onStart }: { motion: GuestMotion; today: string; onStart: (side: "for" | "against") => void }) {
+interface GuestHomeLive {
+  /** Today's shared motion when the live opponent is on offer; null = guided only. */
+  motion: GuestLiveMotion | null;
+  mode: GuestArenaMode;
+  persona: OpponentPersonaId;
+  onPersona: (persona: OpponentPersonaId) => void;
+  onMode: (mode: GuestArenaMode) => void;
+  /** Why the learner is on the guided case after asking for the live one. */
+  notice: string | null;
+}
+
+function GuestHome({
+  motion,
+  today,
+  onStart,
+  live,
+}: {
+  motion: GuestMotion;
+  today: string;
+  onStart: (side: "for" | "against") => void;
+  live: GuestHomeLive;
+}) {
+  const isLive = live.mode === "live" && live.motion !== null;
+  const shownTitle = isLive && live.motion ? live.motion.title : motion.motion;
+  const shownTopic = isLive && live.motion ? live.motion.category?.trim() || "Today" : motion.topic;
+  const personaLabel = OPPONENT_PERSONA_LIST.find((p) => p.id === live.persona)?.label ?? "Balanced";
   const [side, setSide] = useState<SideChoice>("challenge");
   const rawDays = useSyncExternalStore(subscribeToStorage, readGuestDays, () => null);
   const week = weekDays(today, parseGuestPracticeDays(rawDays));
@@ -128,31 +177,63 @@ function GuestHome({ motion, today, onStart }: { motion: GuestMotion; today: str
             actions={<span className="pill">Guest mode</span>}
           />
 
-          <WeekStreak days={week} note="kept on this device" />
-
           <section className="home-motion-card has-daily-accent surface-card" style={dailyAccentStyle(today)} aria-labelledby="guest-motion">
             <div className="home-motion-heading">
               <div>
                 <p className="home-motion-kicker">Today&apos;s motion</p>
                 <p className="home-motion-meta">
-                  {motion.topic} · {motion.rounds.length} rounds · about {SPRINT_ESTIMATE_MINUTES} minutes
+                  {shownTopic} · {GUEST_LIVE_ROUNDS} rounds · about {SPRINT_ESTIMATE_MINUTES} minutes
                 </p>
               </div>
-              <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">Sample</span>
+              <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]" data-testid="guest-mode-pill">
+                {isLive ? "Live AI opponent" : "Guided case"}
+              </span>
             </div>
 
             <div className="home-motion-body">
               <div>
-                <h2 id="guest-motion" className="home-motion-title">{motion.motion}</h2>
+                <h2 id="guest-motion" className="home-motion-title">{shownTitle}</h2>
                 <p className="home-motion-prompt">
-                  You will get a guided sample opposing case, a clear round goal, and feedback that reacts to what you actually write.
+                  {isLive
+                    ? "Everyone gets this motion today. An AI opponent argues the other side and answers what you actually write."
+                    : "You will get a guided sample opposing case, a clear round goal, and feedback that reacts to what you actually write."}
                 </p>
               </div>
 
+              {live.notice ? (
+                <p className="home-start-note" role="status" data-testid="guest-live-notice">
+                  {live.notice}
+                </p>
+              ) : null}
+
               <div className="home-coaching-focus">
                 <span className="home-coaching-label">Today&apos;s coaching focus</span>
-                <strong>{motion.coachingFocus}</strong>
+                <strong>{isLive ? "Answer what the opponent actually said." : motion.coachingFocus}</strong>
               </div>
+
+              {isLive ? (
+                <details className="home-motion-details">
+                  <summary className="home-motion-details-summary">
+                    <span data-testid="guest-opponent-summary">Opponent: {personaLabel}</span>
+                    <span className="home-motion-details-chevron" aria-hidden="true">+</span>
+                  </summary>
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {OPPONENT_PERSONA_LIST.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => live.onPersona(p.id)}
+                        aria-pressed={live.persona === p.id}
+                        className={`rounded-xl border px-3 py-2 text-left text-sm ${live.persona === p.id ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--accent)]" : "border-[var(--rule)] bg-surface-2 text-ink2"}`}
+                        data-testid={`guest-persona-${p.id}`}
+                      >
+                        {p.label}
+                        <span className="mt-0.5 block text-xs font-normal leading-4 opacity-80">{p.tagline}</span>
+                      </button>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
 
               <div className="home-start-block">
                 <div className="home-side-label">Your side</div>
@@ -170,11 +251,29 @@ function GuestHome({ motion, today, onStart }: { motion: GuestMotion; today: str
                   Start a free practice <span aria-hidden="true">→</span>
                 </button>
                 <p className="home-start-note">
-                  No download, no card. Ends with one weakness, one repair, and a retest. Your guest practice stays on this device.
+                  {isLive
+                    ? "No download, no card. Ends with one weakness, one repair, and a retest. Your answers go to a free-tier AI provider, which may log them, only to write the opponent's replies. We store nothing you write."
+                    : "No download, no card. Ends with one weakness, one repair, and a retest. Your guest practice stays on this device."}
                 </p>
+                {live.motion ? (
+                  <button
+                    type="button"
+                    onClick={() => live.onMode(isLive ? "guided" : "live")}
+                    className="home-start-note text-left underline underline-offset-2"
+                    data-testid="guest-mode-switch"
+                  >
+                    {isLive
+                      ? "Use a guided case instead — nothing leaves this device"
+                      : "Debate the live AI opponent on today's motion instead"}
+                  </button>
+                ) : null}
               </div>
             </div>
           </section>
+
+          {/* Below the motion, not above it: the first screen is the motion and
+              Start; a first-time visitor's week row is empty anyway. */}
+          <WeekStreak days={week} note="kept on this device" />
 
           <section aria-labelledby="guest-skills">
             <div className="section-heading">
@@ -204,7 +303,9 @@ function GuestHome({ motion, today, onStart }: { motion: GuestMotion; today: str
             </div>
             <ol className="home-secondary-grid">
               {[
-                { step: "1", kicker: "Debate", title: "Three rounds against a guided case", copy: "Each round, answer what the opponent actually said instead of just adding another point. The opponent is scripted in guest mode, so nothing you write leaves your device." },
+                isLive
+                  ? { step: "1", kicker: "Debate", title: "Three rounds against an AI opponent", copy: "Each round, answer what the opponent actually said instead of just adding another point. Your answers are used only to write its replies; we do not store them." }
+                  : { step: "1", kicker: "Debate", title: "Three rounds against a guided case", copy: "Each round, answer what the opponent actually said instead of just adding another point. The opponent is scripted in this mode, so nothing you write leaves your device." },
                 { step: "2", kicker: "Fix", title: "One weakness, repaired immediately", copy: "You see the missing move, why it matters, and rewrite it yourself." },
                 { step: "3", kicker: "Retest", title: "See whether it moved", copy: "You argue again and we check whether the repair held under debate conditions." },
               ].map((item) => (
@@ -241,6 +342,21 @@ function GuestHome({ motion, today, onStart }: { motion: GuestMotion; today: str
   );
 }
 
+interface GuestOpponentPending {
+  /** Round index being generated; GUEST_LIVE_ROUNDS = the retest challenge. */
+  index: number;
+  text: string;
+  status: "loading" | "error";
+  message?: string;
+}
+
+interface GuestDebateLive {
+  pending: GuestOpponentPending | null;
+  personaLabel: string;
+  onRetry: (index: number) => void;
+  onGuided: (index: number) => void;
+}
+
 function GuestDebate({
   motion,
   side,
@@ -248,6 +364,8 @@ function GuestDebate({
   onRoundSubmit,
   onFinish,
   initialRound,
+  live,
+  notice,
 }: {
   motion: GuestMotion;
   side: "for" | "against";
@@ -256,15 +374,25 @@ function GuestDebate({
   onFinish: () => void;
   /** Resume a reloaded tab at the first unanswered round (completed rounds are kept). */
   initialRound?: number;
+  /** Live opponent state; absent for the guided case, whose rounds are all scripted. */
+  live?: GuestDebateLive;
+  /** One line explaining a switch to the guided case mid-flow. */
+  notice?: string | null;
 }) {
   const [round, setRound] = useState(() => Math.min(Math.max(initialRound ?? 0, 0), rounds.length - 1));
   const [response, setResponse] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const activeRound = rounds[round];
+  const pendingHere = live?.pending && live.pending.index === round ? live.pending : null;
+  // The opponent's move is ready once its text has been committed; until then
+  // a live round shows the reply as it streams in, and the composer waits.
+  const opponentReady = activeRound.opponent.trim().length > 0;
+  const opponentText = opponentReady ? activeRound.opponent : pendingHere?.text ?? "";
+  const opponentFailed = !opponentReady && pendingHere?.status === "error";
   const assessment = submitted ? assessGuestResponse(response, activeRound.opponent, round) : null;
 
   function submit() {
-    if (response.trim().length < 12) return;
+    if (!opponentReady || response.trim().length < 12) return;
     onRoundSubmit(round, response.trim());
     setSubmitted(true);
   }
@@ -313,15 +441,42 @@ function GuestDebate({
                   invents urgency the flow does not have. */}
               <span>{round + 1 === rounds.length ? "Final round" : "Take your time"}</span>
             </div>
+            {notice ? (
+              <p className="mt-3 text-xs leading-5 text-ink3" role="status" data-testid="guest-live-notice">
+                {notice}
+              </p>
+            ) : null}
 
             <div className="mt-6 space-y-4">
               <div className="flex gap-3">
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface-2)] text-xs font-semibold text-ink3">AI</div>
-                <div className="max-w-2xl rounded-2xl rounded-tl-sm border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-ink2">
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-ink3">Opponent</p>
-                  {activeRound.opponent}
+                <div
+                  className="max-w-2xl rounded-2xl rounded-tl-sm border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-ink2"
+                  data-testid="guest-opponent"
+                  aria-live="polite"
+                  aria-busy={!opponentReady}
+                >
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-ink3">
+                    {live ? `Opponent · ${live.personaLabel}` : "Opponent"}
+                  </p>
+                  {opponentText}
+                  {!opponentReady && !opponentFailed ? <ThinkingIndicator label={opponentText ? "Still writing" : "Opponent is thinking"} /> : null}
                 </div>
               </div>
+              {opponentFailed && live ? (
+                <div className="surface-card p-4" role="alert" data-testid="guest-opponent-error">
+                  <p className="text-sm font-semibold">The opponent couldn&apos;t answer.</p>
+                  <p className="mt-1 text-sm text-ink2">{pendingHere?.message ?? "Try again, or carry on with a guided challenge."}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => live.onRetry(round)} className="btn btn-primary px-4 py-2 text-sm">
+                      Try again
+                    </button>
+                    <button type="button" onClick={() => live.onGuided(round)} className="btn btn-secondary px-4 py-2 text-sm">
+                      Carry on with a guided challenge
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {submitted && (
                 <div className="ml-auto flex max-w-2xl justify-end gap-3">
                   <div className="rounded-2xl rounded-tr-sm bg-[var(--speak)] px-4 py-3 text-sm leading-6 text-[var(--on-speak)]">
@@ -338,6 +493,7 @@ function GuestDebate({
                 <p className="mt-2 text-sm text-ink2">{activeRound.prompt}</p>
                 <textarea
                   id="guest-response"
+                  disabled={!opponentReady}
                   value={response}
                   onChange={(event) => setResponse(event.target.value)}
                   placeholder="Write 2-4 sentences..."
@@ -348,7 +504,7 @@ function GuestDebate({
                 />
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                   <span id="guest-response-count" className="text-xs text-ink3">{response.trim().length}/12 minimum characters</span>
-                  <button type="button" onClick={submit} disabled={response.trim().length < 12} className="btn btn-primary px-4 py-2 text-sm">
+                  <button type="button" onClick={submit} disabled={!opponentReady || response.trim().length < 12} className="btn btn-primary px-4 py-2 text-sm">
                     Send response <span aria-hidden="true">→</span>
                   </button>
                 </div>
@@ -412,7 +568,7 @@ function GuestDebate({
               </div>
             </div>
             <p className="px-1 text-xs leading-5 text-ink3">
-              Guest feedback only checks what is visible in your wording. An account saves your debates and keeps coaching you on the same weakness over time.
+              Guest feedback only checks what is visible in your wording{live ? "; the AI only writes the opponent's replies" : ""}. An account saves your debates and keeps coaching you on the same weakness over time.
             </p>
           </aside>
         </main>
@@ -892,16 +1048,22 @@ function GuestDone({
   );
 }
 
+const LIVE_UNAVAILABLE_NOTICE =
+  "The live opponent isn't available right now, so this practice uses a guided case on a sample motion. Nothing you write leaves this device.";
+
 export default function GuestArena({
   validation = null,
+  live: liveMotion = null,
 }: {
   /** Live judge-output validation for the guest surface, from the report the page loaded. */
   validation?: SurfaceValidation | null;
+  /** Today's shared motion when the server offers the live AI opponent to guests. */
+  live?: GuestLiveMotion | null;
 } = {}) {
   // Read the motion day before restoring state: the cache is invalidated per
   // motion day, so the day must be resolved first.
   const today = new Date().toISOString().slice(0, 10);
-  const motion = guestMotionForDay(today);
+  const guidedMotion = guestMotionForDay(today);
   const restored = restoreArena(today);
 
   const [stage, setStage] = useState<Stage>(() => restored.stage);
@@ -909,6 +1071,25 @@ export default function GuestArena({
   const [responses, setResponses] = useState<string[]>(() => restored.responses);
   const [repair, setRepair] = useState<{ kind: GuestSkill; label: string; text: string; succeeded: boolean } | null>(() => restored.repair);
   const [retestDemonstrated, setRetestDemonstrated] = useState<boolean | null>(() => restored.retestDemonstrated);
+  // Live is the default whenever the server offers it. A restored sprint keeps
+  // its own mode (and transcript); a restored home re-reads today's offer.
+  const [mode, setMode] = useState<GuestArenaMode>(() => {
+    if (restored.stage !== "home" && restored.mode === "live" && restored.live) return "live";
+    if (restored.stage !== "home") return "guided";
+    if (!liveMotion) return "guided";
+    return restored.mode ?? "live";
+  });
+  const [liveState, setLiveState] = useState<GuestLiveState | null>(() => {
+    if (restored.stage !== "home" && restored.live) return restored.live;
+    return liveMotion ? emptyGuestLiveState(liveMotion, restored.live?.persona) : null;
+  });
+  const [pending, setPending] = useState<GuestOpponentPending | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // One request per opponent slot at a time, even when an effect runs twice.
+  const inflight = useRef<number | null>(null);
+
+  const isLive = mode === "live" && liveState !== null;
+  const motion = isLive && liveState ? buildLiveGuestMotion(liveState) : guidedMotion;
 
   // Persist every transition. Best effort like the signup carry-through:
   // private browsing may deny storage; the flow still finishes.
@@ -916,12 +1097,107 @@ export default function GuestArena({
     try {
       window.sessionStorage.setItem(
         GUEST_ARENA_STORAGE_KEY,
-        encodeGuestArenaProgress({ version: 1, motionDate: today, stage, side, responses, repair, retestDemonstrated }),
+        encodeGuestArenaProgress({
+          version: 1,
+          motionDate: today,
+          stage,
+          side,
+          responses,
+          repair,
+          retestDemonstrated,
+          mode,
+          ...(isLive && liveState ? { live: liveState } : {}),
+        }),
       );
     } catch {
       // Storage unavailable — nothing cached, nothing broken.
     }
-  }, [today, stage, side, responses, repair, retestDemonstrated]);
+  }, [today, stage, side, responses, repair, retestDemonstrated, mode, isLive, liveState]);
+
+  function commitOpponent(index: number, text: string) {
+    setLiveState((current) => {
+      if (!current) return current;
+      if (index >= GUEST_LIVE_ROUNDS) {
+        // The retest challenge freezes once the learner has seen one.
+        return current.retest === null ? { ...current, retest: text } : current;
+      }
+      if (current.opponents[index]) return current;
+      const opponents = [...current.opponents];
+      opponents[index] = text;
+      return { ...current, opponents };
+    });
+  }
+
+  function fallBackToGuided(message: string) {
+    setMode("guided");
+    setResponses([]);
+    setNotice(message);
+  }
+
+  async function requestOpponent(index: number) {
+    if (!liveState || inflight.current === index) return;
+    inflight.current = index;
+    setPending({ index, text: "", status: "loading" });
+    const history = guestLiveHistory(liveState.opponents, responses, index - 1);
+    try {
+      const res = await fetch("/api/guest/turn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: index === 0 ? "application/json" : TURN_STREAM_ACCEPT },
+        body: JSON.stringify({ side, persona: liveState.persona, history }),
+      });
+      const outcome = await readTurnResponse(res, {
+        onDelta: (text) => setPending((current) => (current && current.index === index ? { ...current, text: current.text + text } : current)),
+        onReset: () => setPending((current) => (current && current.index === index ? { ...current, text: "" } : current)),
+      });
+      const aiMessage = outcome?.body.aiMessage;
+      if (!outcome || outcome.status >= 400 || typeof aiMessage !== "string" || !aiMessage.trim()) {
+        const message = typeof outcome?.body.error === "string" ? outcome.body.error : undefined;
+        throw Object.assign(new Error(message ?? "no reply"), { userMessage: message });
+      }
+      commitOpponent(index, aiMessage.trim());
+      setPending(null);
+    } catch (error) {
+      const message = (error as { userMessage?: string }).userMessage;
+      if (index === 0) {
+        // Nothing has been written yet: switch the whole practice to the
+        // guided case rather than make the learner wait on a dead opponent.
+        setPending(null);
+        fallBackToGuided(LIVE_UNAVAILABLE_NOTICE);
+      } else if (index >= GUEST_LIVE_ROUNDS) {
+        // The retest challenge is not worth a visible failure: use the
+        // motion-independent one.
+        setPending(null);
+        commitOpponent(index, GUEST_LIVE_FALLBACK_RETEST);
+      } else {
+        setPending({ index, text: "", status: "error", message });
+      }
+    } finally {
+      inflight.current = null;
+    }
+  }
+
+  // The live sprint asks for exactly the opponent move it is missing: the
+  // opening, the reply to the latest answer, or (after the third answer) the
+  // retest's fresh challenge. Also resumes a reloaded tab.
+  useEffect(() => {
+    if (!isLive || !liveState || pending || inflight.current !== null) return;
+    if (stage !== "debate" && stage !== "result") return;
+    const next = Math.min(responses.length, GUEST_LIVE_ROUNDS);
+    let slot: number | null = null;
+    if (next < GUEST_LIVE_ROUNDS) {
+      if (stage === "debate" && !liveState.opponents[next]) slot = next;
+    } else if (liveState.retest === null) {
+      slot = GUEST_LIVE_ROUNDS;
+    }
+    if (slot === null) return;
+    // Scheduled, not called inline: the request updates state, and a cleared
+    // timer means a double-run effect still sends exactly one request.
+    const requested = slot;
+    const timer = window.setTimeout(() => void requestOpponent(requested), 0);
+    return () => window.clearTimeout(timer);
+    // requestOpponent reads the current closure; the deps below are what decide the slot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive, stage, responses.length, liveState?.opponents.length, liveState?.retest, pending]);
 
   function finishRetest(demonstrated: boolean) {
     saveGuestLoop(demonstrated ? "observed" : "not-observed");
@@ -974,6 +1250,10 @@ export default function GuestArena({
     }
   }
 
+  function freshLiveState(persona?: OpponentPersonaId): GuestLiveState | null {
+    return liveMotion ? emptyGuestLiveState(liveMotion, persona ?? liveState?.persona) : null;
+  }
+
   function restart() {
     try {
       window.sessionStorage.removeItem(GUEST_ARENA_STORAGE_KEY);
@@ -984,6 +1264,9 @@ export default function GuestArena({
     setResponses([]);
     setRepair(null);
     setRetestDemonstrated(null);
+    setPending(null);
+    setLiveState(freshLiveState());
+    if (!liveMotion) setMode("guided");
   }
 
   function recordResponses(roundIndex: number, response: string) {
@@ -1001,6 +1284,7 @@ export default function GuestArena({
   if (stage === "debate") {
     return (
       <GuestDebate
+        key={mode}
         motion={motion}
         side={side}
         rounds={motion.rounds}
@@ -1010,6 +1294,23 @@ export default function GuestArena({
           recordPracticeDay();
           setStage("result");
         }}
+        notice={mode === "guided" ? notice : null}
+        live={
+          isLive && liveState
+            ? {
+                pending,
+                personaLabel: OPPONENT_PERSONA_LIST.find((p) => p.id === liveState.persona)?.label ?? "Balanced",
+                onRetry: (index) => {
+                  setPending(null);
+                  void requestOpponent(index);
+                },
+                onGuided: (index) => {
+                  setPending(null);
+                  commitOpponent(index, GUEST_LIVE_FALLBACK_OPPONENT[index] ?? GUEST_LIVE_FALLBACK_RETEST);
+                },
+              }
+            : undefined
+        }
       />
     );
   }
@@ -1024,7 +1325,12 @@ export default function GuestArena({
         acceptedRepairText={repair?.text ?? null}
         validation={validation}
         onRepairSucceeded={(kind, label, text, succeeded) => setRepair({ kind, label, text, succeeded })}
-        onRetest={() => setStage("retest")}
+        onRetest={() => {
+          // Freeze the retest challenge before it is shown: a late-arriving
+          // generated one must never replace text the learner is answering.
+          if (isLive && liveState?.retest === null) commitOpponent(GUEST_LIVE_ROUNDS, GUEST_LIVE_FALLBACK_RETEST);
+          setStage("retest");
+        }}
         onSignUp={saveBeforeRetest}
         onRestart={restart}
       />
@@ -1062,12 +1368,26 @@ export default function GuestArena({
 
   return (
     <GuestHome
-      motion={motion}
+      motion={guidedMotion}
       today={today}
+      live={{
+        motion: liveMotion,
+        mode: liveMotion ? mode : "guided",
+        persona: liveState?.persona ?? "balanced",
+        onPersona: (persona) => setLiveState((current) => (current ? { ...current, persona } : current)),
+        onMode: (nextMode) => {
+          setNotice(null);
+          setMode(nextMode);
+        },
+        notice: mode === "guided" ? notice : null,
+      }}
       onStart={(nextSide) => {
         setSide(nextSide);
         setResponses([]);
         setRepair(null);
+        setRetestDemonstrated(null);
+        setPending(null);
+        setLiveState(freshLiveState());
         setStage("debate");
       }}
     />
