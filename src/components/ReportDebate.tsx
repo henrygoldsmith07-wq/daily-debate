@@ -11,7 +11,7 @@ const REASONS: { value: ReportReason; label: string }[] = [
 ];
 
 /**
- * Report a published debate (migration 043). Collapsed by default so it never
+ * Report a published debate (migration 046). Collapsed by default so it never
  * competes with reading or voting. One report per reader; three from
  * different accounts take the debate off Explore, which the confirmation says
  * rather than promising a review that may not happen.

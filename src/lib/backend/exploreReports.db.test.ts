@@ -3,7 +3,7 @@ import pg from "pg";
 import { applyTestMigrations } from "../../../tests/helpers/applyTestMigrations";
 
 /**
- * Explore reports (migration 043), against real Postgres: one report per
+ * Explore reports (migration 046), against real Postgres: one report per
  * reader per published debate, a participant cannot report their own, and
  * three reports from distinct accounts take a debate off Explore (unpublished
  * and stamped so its author cannot put it back). Own users and topic date, so
@@ -63,7 +63,7 @@ const report = (reporter: string, kind: string, debate: string, reason = "abuse"
     .query<{ outcome: string }>("SELECT report_debate($1, $2, $3, $4) AS outcome", [reporter, kind, debate, reason])
     .then((r) => r.rows[0].outcome);
 
-d("Explore reports (migration 043)", () => {
+d("Explore reports (migration 046)", () => {
   beforeAll(async () => {
     pool = new pg.Pool({ connectionString: databaseUrl, max: 4 });
     await applyTestMigrations(pool);

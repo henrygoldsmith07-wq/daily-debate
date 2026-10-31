@@ -3,7 +3,7 @@ import { createClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { REPORT_REASONS, isDebateId, reportDebate, type ExploreKind, type ReportReason } from "@/lib/explore";
 
-// Report a published debate (migration 043). One report per reader per
+// Report a published debate (migration 046). One report per reader per
 // debate; three from distinct accounts take it off Explore. The database
 // function is the only writer and refuses unpublished debates and a
 // participant reporting their own.

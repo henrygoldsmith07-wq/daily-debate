@@ -224,7 +224,7 @@ export async function castVote(voter: string, kind: ExploreKind, id: string, cho
 
 /**
  * Publish or withdraw a finished solo debate. Returns false when it is not the
- * owner's finished debate, or when reports have taken it off Explore (043):
+ * owner's finished debate, or when reports have taken it off Explore (046):
  * withdrawing still works, republishing does not.
  */
 export async function setSoloPublished(owner: string, debateId: string, publish: boolean): Promise<boolean> {
@@ -262,7 +262,7 @@ export const REPORT_REASONS = ["abuse", "personal_info", "spam", "other"] as con
 export type ReportReason = (typeof REPORT_REASONS)[number];
 export type ReportOutcome = "recorded" | "taken_down" | "already_reported" | "not_public" | "own_debate";
 
-/** Report a published debate (043). Three reports from distinct accounts take it off Explore. */
+/** Report a published debate (046). Three reports from distinct accounts take it off Explore. */
 export async function reportDebate(reporter: string, kind: ExploreKind, id: string, reason: ReportReason): Promise<ReportOutcome> {
   const [row] = await queryRows<{ outcome: ReportOutcome }>("SELECT report_debate($1, $2, $3, $4) AS outcome", [reporter, kind, id, reason]);
   return row?.outcome ?? "not_public";
