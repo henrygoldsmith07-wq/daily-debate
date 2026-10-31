@@ -3,7 +3,7 @@ import "server-only";
 import { isDatabaseConfigured } from "./backend/env";
 import { queryRows } from "./backend/sql";
 
-// Anonymous day-level counters for live guest sprints (migration 042).
+// Anonymous day-level counters for live guest sprints (migration 043).
 // Two integers per UTC day and nothing else — see the migration header.
 
 export type GuestSprintMilestone = "started" | "completed";
