@@ -10,6 +10,7 @@ export function proxy(request: NextRequest) {
     pathname === "/research" ||
     pathname === "/metrics" ||
     pathname === "/benchmark" ||
+    pathname === "/s" ||
     pathname === "/privacy" ||
     pathname === "/terms";
   const isApiRoute = pathname.startsWith("/api");

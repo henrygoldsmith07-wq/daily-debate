@@ -12,6 +12,7 @@ describe("routing proxy", () => {
     "/research",
     "/metrics",
     "/benchmark",
+    "/s?n=71&s=a&g=apd&r=1",
   ])("allows public route %s", (path) => {
     const response = proxy(new NextRequest(`https://daily-debate.test${path}`));
 

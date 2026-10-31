@@ -78,6 +78,14 @@ test.describe("guest practice honesty", () => {
     // The headline counts kinds of move observed, out of the five listed below it.
     await expect(page.getByTestId("guest-headline")).toContainText(/[0-5]\/5/);
     await expect(page.getByRole("button", { name: /share result/i })).toBeVisible();
+    // Wordle-style share: side, one square per round, repair state, link —
+    // and none of the learner's words.
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.getByRole("button", { name: /share result/i }).click();
+    await expect(page.getByText("Copied to your clipboard.")).toBeVisible();
+    const shared = await page.evaluate(() => navigator.clipboard.readText());
+    expect(shared).toMatch(/^Daily Debate practice · (For|Against)\n[🟩🟨🟥]{3}\nRepair still to do\nhttp.*\/s\?/u);
+    expect(shared).not.toMatch(/notifications|phone-free|lessons/i);
     await expect(page.getByTestId("guest-main-weakness")).toContainText("Evidence");
 
     const repair = page.getByLabel("Your improved version");

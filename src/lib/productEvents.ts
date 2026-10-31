@@ -66,7 +66,8 @@ export type ProductEventName =
   | "reminder_opted_in"
   | "reminder_opted_out"
   | "reminder_sent"
-  | "reminder_acted";
+  | "reminder_acted"
+  | "result_shared";
 
 export interface ProductEventContext {
   format?: DebateFormat;
@@ -107,6 +108,7 @@ export const PRODUCT_EVENT_NAMES: readonly ProductEventName[] = [
   "reminder_opted_out",
   "reminder_sent",
   "reminder_acted",
+  "result_shared",
 ] as const;
 
 export function isProductEventName(value: unknown): value is ProductEventName {
