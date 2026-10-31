@@ -78,12 +78,18 @@ export default function PushOptIn({ publicKey }: { publicKey: string }) {
     try {
       const registration = await navigator.serviceWorker.getRegistration("/");
       const subscription = await registration?.pushManager.getSubscription();
-      await fetch("/api/push/subscription", {
+      const endpoint = subscription?.endpoint ?? null;
+      // Unsubscribe in the browser first: that alone guarantees no further
+      // pushes arrive, whatever happens to the request below. If the server
+      // row survives a failed DELETE, its next send gets 404/410 from the
+      // push service and dispatchPushes deletes it.
+      await subscription?.unsubscribe();
+      const res = await fetch("/api/push/subscription", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: subscription?.endpoint ?? null }),
-      });
-      await subscription?.unsubscribe();
+        body: JSON.stringify({ endpoint }),
+      }).catch(() => null);
+      if (res && !res.ok && res.status !== 401) console.warn("push opt-out not recorded on the server", res.status);
       setState("off");
     } catch {
       setState("error");
