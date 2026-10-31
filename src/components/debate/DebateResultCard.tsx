@@ -187,6 +187,17 @@ export function DebateResultCard({
                           </dd>
                         </div>
                       ) : null}
+                      {retestOutcome.comparison.evidence ? (
+                        <div data-testid="retest-turn-evidence">
+                          <dt className="font-semibold text-ink3">Turn-level check (unvalidated, word overlap only)</dt>
+                          <dd>
+                            {retestOutcome.comparison.evidence.persisted
+                              ? `Your original wording largely came back in turn ${retestOutcome.comparison.evidence.turn}: `
+                              : `Closest to your original line was turn ${retestOutcome.comparison.evidence.turn}, and the wording changed: `}
+                            <span className="italic">&ldquo;{retestOutcome.comparison.evidence.excerpt}&rdquo;</span>
+                          </dd>
+                        </div>
+                      ) : null}
                     </dl>
                   )}
                   {retestOutcome.secondOpinion && (
