@@ -43,8 +43,12 @@ day. Re-read them after two weeks of real data instead of defending them.
 **What counts as progress:** the weekly row goes up. **What does not:** new
 features, new surfaces, or claims.
 
-Web Push streak-saver (Oct 2026, copied from Duolingo) → D1 return (read
-push sent vs opened on `/analytics`).
+**Competitor-copy changes (Oct 2026), each tied to one scorecard number:**
+
+- live guest sprint on today's motion → debate starts + completion (read
+  guest sprints on `/analytics`);
+- Web Push streak-saver (copied from Duolingo) → D1 return (read push sent
+  vs opened on `/analytics`).
 
 ## Active backlog (serves the loop only)
 

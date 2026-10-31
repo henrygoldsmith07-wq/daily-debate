@@ -9,7 +9,12 @@ import { encodeGuestArenaProgress, GUEST_ARENA_STORAGE_KEY } from "@/lib/guestLo
 
 const FLAG = "NEXT_PUBLIC_EXPERIMENTAL_SURFACES";
 
-function renderAtStage(progress: Parameters<typeof encodeGuestArenaProgress>[0] | null): string {
+const LIVE = { title: "Should cities ban private cars from their centres?", prompt: "Weigh access against air.", category: "Policy" };
+
+function renderAtStage(
+  progress: Parameters<typeof encodeGuestArenaProgress>[0] | null,
+  live: typeof LIVE | null = null,
+): string {
   if (progress) {
     vi.stubGlobal("window", {
       location: { href: "http://localhost/" },
@@ -20,7 +25,7 @@ function renderAtStage(progress: Parameters<typeof encodeGuestArenaProgress>[0] 
       },
     });
   }
-  return renderToStaticMarkup(<GuestArena />);
+  return renderToStaticMarkup(<GuestArena live={live} />);
 }
 
 describe("GuestArena first visit", () => {
@@ -97,5 +102,63 @@ describe("GuestArena first visit", () => {
     const html = renderAtStage({ version: 1, motionDate: today, stage: "debate", side: "for", responses: [], repair: null, retestDemonstrated: null });
     expect(html).toContain('aria-describedby="guest-response-count"');
     expect(html).toContain('id="guest-response-count"');
+  });
+
+  it("offers today's motion against the live AI opponent, and says where answers go", () => {
+    const html = renderAtStage(null, LIVE);
+    expect(html).toContain(LIVE.title);
+    expect(html).toContain("Live AI opponent");
+    expect(html).toContain("go to a free-tier AI provider, which may log them");
+    expect(html).toContain("We store nothing you write");
+    expect(html).toContain("Use a guided case instead");
+    // The local-only promise is never shown next to the live opponent.
+    expect(html).not.toContain("Your guest practice stays on this device");
+  });
+
+  it("stays on the guided case, with its local-only promise, when live is not offered", () => {
+    const html = renderAtStage(null, null);
+    expect(html).toContain("Guided case");
+    expect(html).toContain("Your guest practice stays on this device");
+    expect(html).not.toContain('data-testid="guest-mode-switch"');
+  });
+
+  it("resumes a live sprint from its stored transcript and names the opponent", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const html = renderAtStage({
+      version: 1,
+      motionDate: today,
+      stage: "debate",
+      side: "for",
+      responses: ["Cities should ban cars because clean air protects children."],
+      repair: null,
+      retestDemonstrated: null,
+      mode: "live",
+      live: {
+        motion: LIVE,
+        persona: "lawyer",
+        opponents: ["Cars carry people buses cannot.", "Which study shows the health gain?"],
+        retest: null,
+      },
+    }, LIVE);
+    expect(html).toContain(LIVE.title);
+    expect(html).toContain("Which study shows the health gain?");
+    expect(html).toContain("Opponent · The Lawyer");
+  });
+
+  it("keeps the composer closed until a live opponent has answered", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const html = renderAtStage({
+      version: 1,
+      motionDate: today,
+      stage: "debate",
+      side: "for",
+      responses: [],
+      repair: null,
+      retestDemonstrated: null,
+      mode: "live",
+      live: { motion: LIVE, persona: "balanced", opponents: [], retest: null },
+    }, LIVE);
+    expect(html).toContain("Opponent is thinking");
+    expect(html).toMatch(/<textarea[^>]*id="guest-response"[^>]*disabled=""/);
   });
 });

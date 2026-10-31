@@ -7,6 +7,8 @@
 // profiles.guest_context after signup). Never free text beyond bounded fields,
 // never a trust boundary: the server re-validates everything.
 
+import { parseGuestLiveState, type GuestLiveState } from "./guestLive";
+
 export interface GuestLoopSummary {
   motion: string;
   weaknessKind: string;
@@ -156,11 +158,22 @@ export interface GuestArenaProgress {
   responses: string[];
   repair: GuestArenaRepair | null;
   retestDemonstrated: boolean | null;
+  /**
+   * "live" = today's motion against the AI opponent; "guided" = the scripted
+   * sample case that never leaves the device. Absent on snapshots written
+   * before live guest sprints existed, which were all guided.
+   */
+  mode?: GuestArenaMode;
+  /** The live sprint's motion and opponent turns, so a reload resumes it. */
+  live?: GuestLiveState;
 }
+
+export type GuestArenaMode = "live" | "guided";
 
 export const GUEST_ARENA_STORAGE_KEY = "daily-debate-guest-arena";
 
-const ARENA_WIRE_CAP = 20_000;
+// Three 4,000-char responses, a repair and a live transcript fit comfortably.
+const ARENA_WIRE_CAP = 40_000;
 const ARENA_MAX_RESPONSES = 8;
 const ARENA_MAX_TEXT = 4000;
 
@@ -207,6 +220,15 @@ export function parseGuestArenaProgress(raw: unknown): GuestArenaProgress | null
   if (v.retestDemonstrated !== null && v.retestDemonstrated !== undefined && typeof v.retestDemonstrated !== "boolean") {
     return null;
   }
+  if (v.mode !== undefined && v.mode !== "live" && v.mode !== "guided") return null;
+  let live: GuestLiveState | undefined;
+  if (v.live !== undefined && v.live !== null) {
+    const parsed = parseGuestLiveState(v.live);
+    if (!parsed) return null;
+    live = parsed;
+  }
+  // A live sprint past the home screen cannot resume without its transcript.
+  if (v.mode === "live" && v.stage !== "home" && !live) return null;
   return {
     version: 1,
     motionDate: v.motionDate,
@@ -215,6 +237,8 @@ export function parseGuestArenaProgress(raw: unknown): GuestArenaProgress | null
     responses,
     repair,
     retestDemonstrated: (v.retestDemonstrated ?? null) as boolean | null,
+    ...(v.mode ? { mode: v.mode as GuestArenaMode } : {}),
+    ...(live ? { live } : {}),
   };
 }
 

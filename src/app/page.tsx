@@ -5,6 +5,7 @@ import AppShell from "@/components/AppShell";
 import { guestCarryoverNotes } from "@/lib/guestLoop";
 import PageHeader from "@/components/PageHeader";
 import GuestArena from "@/components/GuestArena";
+import { guestLiveAvailable } from "@/lib/guestLiveServer";
 import PageViewEvent from "@/components/PageViewEvent";
 import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import { loadChallengeAssignment } from "@/lib/solo/challengeSide";
@@ -74,7 +75,16 @@ export default async function DashboardPage() {
   const user = await getCurrentUser();
 
   if (!user) {
-    return <GuestArena validation={guestValidation} />;
+    // Signed-out visitors debate today's shared motion against the live AI
+    // opponent when the server can bound anonymous calls; otherwise the
+    // guided case, which never leaves the device.
+    const liveMotion = guestLiveAvailable() ? await getTodayTopic().catch(() => null) : null;
+    return (
+      <GuestArena
+        validation={guestValidation}
+        live={liveMotion ? { title: liveMotion.title, prompt: liveMotion.prompt, category: liveMotion.category } : null}
+      />
+    );
   }
 
   // getTodayTopic never throws — it falls back to a curated motion when

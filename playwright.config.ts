@@ -36,6 +36,9 @@ export default defineConfig({
       // browser-layer route mocks in the specs cannot see server-side calls).
       ...(process.env.E2E_DATABASE_URL ? { DATABASE_URL: process.env.E2E_DATABASE_URL } : {}),
       ...(process.env.E2E_MOCK_AI ? { E2E_MOCK_AI: process.env.E2E_MOCK_AI } : {}),
+      // Every spec shares one client IP, so the live guest sprint's per-IP
+      // daily allowance (two sprints) would otherwise run out mid-suite.
+      GUEST_AI_IP_CALLS: process.env.GUEST_AI_IP_CALLS ?? "500",
       // The e2e specs exist to exercise the parked surfaces (PvP, friend
       // challenges, voice), so the production build under test gets the
       // experimental-surfaces flag regardless of the host environment.

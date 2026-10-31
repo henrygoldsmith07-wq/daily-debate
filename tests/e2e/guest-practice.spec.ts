@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 // The guest motion rotates by UTC day: `guestMotionForDay` indexes
 // `GUEST_MOTIONS` by `daysSinceEpoch % length`, and `GuestArena` reads the
@@ -20,10 +20,26 @@ import { test, expect } from "@playwright/test";
 //   Math.floor(Date.parse("2026-10-08T00:00:00Z") / 86_400_000) % 7 === 0
 const PINNED_GUEST_DAY = "2026-10-08T12:00:00.000Z";
 
+// These specs exercise the GUIDED case (scripted, local). When the server
+// offers the live AI opponent (database + AI configured, as in CI), the guest
+// home opens on it, so switch to the guided case first — the same control a
+// learner uses. Without the live offer the home is already guided.
+async function useGuidedCase(page: Page) {
+  const pill = page.getByTestId("guest-mode-pill");
+  const toGuided = page.getByRole("button", { name: /use a guided case instead/i });
+  if ((await toGuided.count()) === 0) return;
+  // Retried: a click that lands before hydration does nothing.
+  await expect(async () => {
+    if (await toGuided.count()) await toGuided.click();
+    await expect(pill).toHaveText(/guided case/i, { timeout: 1_000 });
+  }).toPass();
+}
+
 test.describe("guest practice honesty", () => {
   test("feedback reacts to the writing and the result leads into one repair", async ({ page }) => {
     await page.clock.setFixedTime(new Date(PINNED_GUEST_DAY));
     await page.goto("/");
+    await useGuidedCase(page);
 
     // Guards the pin itself: if GUEST_MOTIONS is reordered or resized, this
     // fails here with a legible reason instead of surfacing later as an
@@ -114,6 +130,7 @@ test.describe("guest practice honesty", () => {
   test("a trigger word alone cannot pass the repair", async ({ page }) => {
     await page.clock.setFixedTime(new Date(PINNED_GUEST_DAY));
     await page.goto("/");
+    await useGuidedCase(page);
     await page.getByRole("button", { name: /start a free practice/i }).click();
 
     const response = page.getByLabel("Your response");
