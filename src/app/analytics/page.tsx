@@ -22,6 +22,7 @@ import { SECOND_OPINION_MIN_SAMPLE } from "@/lib/repairSecondOpinion";
 import { loadSteeringSummary } from "@/lib/steeringServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
+import { loadPushWeeks } from "@/lib/webPushServer";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,7 @@ export default async function AnalyticsPage() {
   const reminder = reminderInputs ? reminderOutcome(reminderInputs, new Date()) : null;
   const sentActedRows = await loadReminderOutcomeEvents();
   const sentActed = sentActedRows ? summariseSentActedPerUser(sentActedRows) : null;
+  const pushWeeks = await loadPushWeeks();
   const recapRows = await loadRecapViewRows();
   const recapViews = recapRows ? summariseRecapViews(recapRows) : null;
   const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
@@ -133,6 +135,27 @@ export default async function AnalyticsPage() {
           </ul>
         </section>
       )}
+      <section className="surface-card p-5" aria-labelledby="push-weeks-heading" data-testid="push-weeks">
+        <h2 id="push-weeks-heading" className="text-sm font-semibold">Push reminders: sent vs opened</h2>
+        <p className="mt-1 text-xs text-ink3">
+          From push_deliveries. Opened = the notification was clicked. Unvalidated: an open does not show a reminder
+          caused a debate.
+        </p>
+        {pushWeeks === null ? (
+          <p className="mt-2 text-xs text-ink3">Push deliveries could not be read — an availability failure, not zero.</p>
+        ) : pushWeeks.length === 0 ? (
+          <p className="mt-2 text-xs text-ink3">No push reminders sent yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-xs tabular">
+            {pushWeeks.map((w) => (
+              <li key={w.weekStart}>
+                {w.weekStart}: {w.sent} sent · {w.opened} opened
+                {w.sent >= FUNNEL_MIN_SAMPLE ? ` (${pct(w.opened / w.sent)})` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       {recapViews && (
         <section className="surface-card p-5" aria-labelledby="recap-views-heading" data-testid="recap-views" data-evidence={recapViews.status === "ok" ? "unvalidated" : "insufficient_evidence"}>
           <h2 id="recap-views-heading" className="text-sm font-semibold">Weekly recap: who looked</h2>
