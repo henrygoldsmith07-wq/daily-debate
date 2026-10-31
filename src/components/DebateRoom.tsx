@@ -25,6 +25,8 @@ import { useDebateError, useDebateSession } from "./debate/useDebateSession";
 import { useDebateSpeech } from "./debate/useDebateSpeech";
 import { useResponseWindow } from "./debate/useResponseWindow";
 import type { DebateRoomProps, ReplayView } from "./debate/types";
+import ClaimsPanel from "./ClaimsPanel";
+import PublishToggle from "./PublishToggle";
 
 export default function DebateRoom({
   debate,
@@ -135,6 +137,7 @@ export default function DebateRoom({
 
   if (view) {
     return (
+      <div className="flex flex-col gap-5">
       <DebateResultCard
         view={view}
         format={format}
@@ -150,6 +153,14 @@ export default function DebateRoom({
         repairValidation={repairValidation}
         recurrenceAlert={recurrenceAlert}
       />
+      <ClaimsPanel
+        sources={session.turns.flatMap((turn) => [
+          { speaker: "Opponent", side: aiSide, round: turn.round_number, text: turn.ai_message },
+          { speaker: "You", side: debate.side, round: turn.round_number, text: turn.user_message },
+        ])}
+      />
+      <PublishToggle kind="solo" id={debate.id} initialPublished={Boolean(debate.published_at)} />
+      </div>
     );
   }
 

@@ -62,6 +62,7 @@ export type ProductEventName =
   | "challenge_link_accepted"
   | "weakness_feedback_missed"
   | "loop_streak_viewed"
+  | "weekly_recap_viewed"
   | "reminder_opted_in"
   | "reminder_opted_out"
   | "reminder_sent"
@@ -102,6 +103,7 @@ export const PRODUCT_EVENT_NAMES: readonly ProductEventName[] = [
   "challenge_link_accepted",
   "weakness_feedback_missed",
   "loop_streak_viewed",
+  "weekly_recap_viewed",
   "reminder_opted_in",
   "reminder_opted_out",
   "reminder_sent",

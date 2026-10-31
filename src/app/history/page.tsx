@@ -8,7 +8,6 @@ import { normalizeIanaTimeZone } from "@/lib/timeZone";
 import { loadJudgeValidation } from "@/lib/judgeValidationServer";
 import { allowsCompetitiveClaims } from "@/lib/judgeValidation";
 import { framePvpOutcome } from "@/lib/pvpOutcomeFraming";
-import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import LoopChainPanel from "@/components/LoopChainPanel";
 import WeaknessLibraryPanel from "@/components/WeaknessLibraryPanel";
@@ -44,11 +43,7 @@ export default async function HistoryPage() {
       <AppShell width="narrow">
         <SignedOut
           title="Sign in to see your debate history"
-          description={
-            experimentalSurfacesEnabled()
-              ? "Your finished debates, scores and PvP results are kept with your account."
-              : "Your finished debates and the feedback on each one are kept with your account."
-          }
+          description="Your finished debates, scores and PvP results are kept with your account."
         />
       </AppShell>
     );
@@ -88,10 +83,6 @@ export default async function HistoryPage() {
   // The timezone read is excluded on purpose: it only formats dates, so a
   // missing profile row or a transient failure of that cosmetic read must not
   // replace the learner's whole record with an error card.
-  // PvP is parked behind the experimental flag. A new user with the flag off
-  // should not see "0 PvP shown" for a mode they cannot reach; anyone with
-  // real PvP records still sees them.
-  const showPvp = experimentalSurfacesEnabled() || pvpMatches.length > 0;
   const loadError = soloRes.error ?? pvpRes.error ?? null;
   const topicIds = [...new Set([...soloDebates, ...pvpMatches].map((row) => row.topic_id))];
   const topicTitles = new Map<string, string>();
@@ -116,7 +107,7 @@ export default async function HistoryPage() {
   if (loadError) {
     return (
       <AppShell width="narrow">
-        <PageHeader eyebrow="Your practice" title="History" description={showPvp ? "Your solo and PvP debate records" : "Your debate records"} />
+        <PageHeader eyebrow="Your practice" title="History" description="Your solo and PvP debate records" />
         <div className="surface-card p-5" role="alert">
           <p className="text-sm font-semibold text-[var(--bad)]">History could not be loaded</p>
           <p className="mt-1 text-sm text-ink3">
@@ -139,15 +130,11 @@ export default async function HistoryPage() {
       <PageHeader
         eyebrow="Your record"
         title="Your debates"
-        description={
-          showPvp
-            ? `Latest debates, newest first. Up to ${HISTORY_LIMIT} solo and ${HISTORY_LIMIT} PvP records are shown.`
-            : `Latest debates, newest first. Up to ${HISTORY_LIMIT} are shown.`
-        }
+        description={`Latest debates, newest first. Up to ${HISTORY_LIMIT} solo and ${HISTORY_LIMIT} PvP records are shown.`}
         actions={
           <>
             <span className="pill tabular">{soloDebates.length} solo shown</span>
-            {showPvp && <span className="pill tabular">{pvpMatches.length} PvP shown</span>}
+            <span className="pill tabular">{pvpMatches.length} PvP shown</span>
           </>
         }
       />
@@ -221,7 +208,6 @@ export default async function HistoryPage() {
         )}
       </section>
 
-      {showPvp && (
       <section className="flex flex-col gap-3">
         <div className="section-heading">
           <h2>Player vs player</h2>
@@ -306,7 +292,6 @@ export default async function HistoryPage() {
           })
         )}
       </section>
-      )}
     </AppShell>
   );
 }

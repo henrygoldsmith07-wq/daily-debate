@@ -128,6 +128,44 @@ test.describe("solo full-flow", () => {
     await expect(page.getByTestId("fix-this-now")).toBeVisible();
     await expect(page.getByText(/Debate complete|Replay/i).first()).toBeVisible({ timeout: 15_000 });
 
+    // 6a. Claims panel: every claim attributed and tagged by phrasing only.
+    // The rounds above cite "NREL data", so at least one is checkable.
+    const claims = page.getByTestId("claims-panel");
+    await expect(claims).toBeVisible();
+    await claims.locator("summary").click();
+    await expect(claims.getByText(/not whether it is true/i)).toBeVisible();
+    await expect(claims.locator(".claims-tag-checkable").first()).toBeVisible();
+    await expect(claims.getByRole("region", { name: "Claims by You" })).toBeVisible();
+
+    // 6a'. Explore: private by default; publishing is the learner's explicit
+    // choice, and a different viewer can then vote on who argued better.
+    const publish = page.getByTestId("publish-toggle");
+    await expect(publish).toContainText("Private");
+    await publish.getByRole("button", { name: /publish to explore/i }).click();
+    await expect(publish).toContainText("Published on Explore.");
+    const debateId = new URL(debateUrl).pathname.split("/").pop()!;
+    // The author sees their own debate in the feed but cannot vote on it.
+    await page.goto(`/explore/solo/${debateId}`);
+    await expect(page.getByTestId("explore-transcript")).toBeVisible();
+    await expect(page.getByTestId("explore-vote")).toContainText("your debate");
+    const viewerContext = await page.context().browser()!.newContext({ baseURL: test.info().project.use.baseURL });
+    mockAIProviders(viewerContext);
+    const viewer = await viewerContext.newPage();
+    await viewer.goto("/login");
+    await viewer.getByLabel(/email/i).fill("e2e-l@test.local");
+    await viewer.getByLabel(/password/i).fill("e2e-test-pass-123");
+    await viewer.getByTestId("auth-submit").click();
+    await viewer.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
+    await viewer.goto("/explore");
+    const card = viewer.getByTestId("explore-card").filter({ has: viewer.locator(`a[href="/explore/solo/${debateId}"]`) });
+    await expect(card).toBeVisible();
+    // No split before voting, so the crowd cannot steer the vote.
+    await expect(card.getByTestId("explore-vote")).not.toContainText(/vote(s)?\b.*·/);
+    await card.getByRole("group", { name: "Who argued better?" }).getByRole("button").first().click();
+    await expect(card.getByTestId("explore-vote")).toContainText("1 vote");
+    await viewerContext.close();
+    await page.goto(debateUrl);
+
     // 6b. The advanced analysis (graph + tracking grid) sits behind disclosure.
     await page.getByTestId("toggle-full-analysis").click();
 

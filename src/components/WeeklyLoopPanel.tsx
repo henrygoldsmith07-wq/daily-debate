@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { WeeklyLoop } from "@/lib/weeklyLoop";
 import { MIN_RETESTS_FOR_RATE } from "@/lib/weeklyLoop";
+import { buildWeeklyRecap } from "@/lib/weeklyRecap";
 
 export default function WeeklyLoopPanel({ loop }: { loop: WeeklyLoop }) {
   const cells: Array<[string, string]> = [
@@ -10,6 +11,7 @@ export default function WeeklyLoopPanel({ loop }: { loop: WeeklyLoop }) {
     ["Repairs landed", String(loop.repairsSucceeded)],
     ["Retests done", String(loop.retestsCompleted)],
   ];
+  const recap = buildWeeklyRecap(loop);
   return (
     <section className="surface-card p-5" aria-labelledby="weekly-loop-heading" data-testid="weekly-loop">
       <h2 id="weekly-loop-heading" className="text-sm font-semibold">This week in your loop</h2>
@@ -17,6 +19,9 @@ export default function WeeklyLoopPanel({ loop }: { loop: WeeklyLoop }) {
       <p className="mt-1 text-xs text-ink3" data-testid="weekly-compare">
         {`Previous 7 days: ${loop.previousDebates} ${loop.previousDebates === 1 ? "debate" : "debates"}. Counts only, not a measure of improvement.`}
       </p>
+      <ul className="mt-2 space-y-1 text-sm" data-testid="weekly-recap">
+        {recap.lines.map((l) => <li key={l}>{l}</li>)}
+      </ul>
       <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
         {cells.map(([k, v]) => (
           <div key={k}>
