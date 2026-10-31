@@ -44,8 +44,11 @@ day. Re-read them after two weeks of real data instead of defending them.
 features, new surfaces, or claims.
 
 **Competitor-copy changes (Oct 2026), each tied to one scorecard number:**
-live guest sprint on today's motion → debate starts + completion (read guest
-sprints on `/analytics`).
+
+- live guest sprint on today's motion → debate starts + completion (read
+  guest sprints on `/analytics`);
+- Web Push streak-saver (copied from Duolingo) → D1 return (read push sent
+  vs opened on `/analytics`).
 
 ## Active backlog (serves the loop only)
 

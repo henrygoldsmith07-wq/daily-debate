@@ -53,6 +53,8 @@ Requests run through the Next.js 16 proxy in `src/proxy.ts`. The proxy only chec
 | `AI_DAILY_SPEND_CAP_USD` | optional | Daily AI spend cap, default `10`; `off` disables. When hit: opponent/judge degrade to an explicit retryable unavailable state (never silent). |
 | `AI_SPEND_UNCOSTED_CALL_USD` | optional | Declared charge for each call with no recorded cost (classifier.dev), default `0.02`. Free-tier provider calls are logged at $0 unless the provider reports a cost. |
 | `GUEST_AI_DAILY_CALLS` | optional | Global cap on live guest opponent calls per 24h, default `400` (each visitor is also limited to 8/day). `GUEST_AI_DISABLED=1` keeps every guest on the guided case. |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | optional | Web Push reminders. Generate with `npx web-push generate-vapid-keys`; subject is `mailto:` or `https:`. All three unset = no opt-in shown, nothing sent. |
+| `PUSH_DISPATCH_SECRET` | optional | ≥32 characters; protects `POST /api/push/dispatch`. Set the same value as the `PUSH_DISPATCH_SECRET` repository secret; the hourly `push-dispatch` workflow calls the URL in the `PROD_HEALTH_URL` variable. |
 | `CLASSIFIER_DEV_ENABLED` | optional | `1` sends argument texts to classifier.dev. Default off everywhere until the service is disclosed in the privacy policy. |
 | `NEXT_PUBLIC_EXPERIMENTAL_SURFACES` | optional | `1` re-enables the parked surfaces in navigation (PvP, friend challenges, voice input, corpus-validation pages). Default off — see [docs/status.md](docs/status.md). |
 | `OPENROUTER_MODEL` | optional | Defaults to `nvidia/nemotron-3-super-120b-a12b:free`. |

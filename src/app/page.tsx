@@ -25,6 +25,8 @@ import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
 import { reminderCopy, reminderState, type ReminderInput } from "@/lib/retestReminder";
 import { deliverInAppReminder } from "@/lib/reminderDispatchServer";
 import ReminderBanner from "@/components/ReminderBanner";
+import PushOptIn from "@/components/PushOptIn";
+import { pushAvailable, pushConfig } from "@/lib/webPushServer";
 import { continueKicker, isRetestHero } from "@/lib/retestHero";
 import { loadLoopChain } from "@/lib/loopChainServer";
 import { nudgeCopy, pickWeaknessNudge } from "@/lib/weaknessNudge";
@@ -477,6 +479,7 @@ export default async function DashboardPage() {
     ...(dueAt ? [{ kind: "recheck" as const, availableAt: dueAt }] : []),
   ];
   const reminderMsg = await deliverInAppReminder(user.id, reminderItems, recheckNow);
+  const pushPublicKey = pushAvailable() ? pushConfig()?.publicKey ?? null : null;
   const week = profile ? weekDays(todayKey, streakDays(profile.current_streak, profile.last_activity_date, todayKey)) : [];
 
   return (
@@ -800,6 +803,10 @@ export default async function DashboardPage() {
           </article>
         </div>
       </section>
+      {/* Push reminders: asked only after the first completed debate, once
+          the learner has seen the loop (Duolingo's streak-saver, with its
+          rule: protect the channel). */}
+      {pushPublicKey && (coachingContext.ledger?.debates ?? 0) >= 1 ? <PushOptIn publicKey={pushPublicKey} /> : null}
     </AppShell>
   );
 }

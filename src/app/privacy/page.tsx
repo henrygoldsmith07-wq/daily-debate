@@ -24,6 +24,11 @@ const PROCESSORS = [
       "Generate your AI opponent, the finish summary, the daily topic, and PvP verdicts. Debate transcripts and the motion are sent to the first enabled provider that answers, so your content may reach any of them. These are free tiers: the providers may log prompts and, under their own terms, use them to improve their models (Google's free Gemini tier and some free OpenRouter models do). Don't write anything in a debate you would not want a third party to read.",
   },
   {
+    name: "Your browser's push service (Google, Apple, Mozilla or Microsoft)",
+    what:
+      "Only if you turn on reminders. Your browser gives us a push address and keys; we store them and send an encrypted reminder (a fixed title and line of text, nothing you wrote) through the push service your browser uses. Turning reminders off, or deleting your account, deletes them.",
+  },
+  {
     name: "classifier.dev (argument-structure classification)",
     what:
       "Disabled by default. If the operator enables `CLASSIFIER_DEV_ENABLED=1`, argument texts (truncated to 4,000 characters) plus the motion title and prompt are sent for rhetorical-role classification. No ids, winners, scores, or political judgements are sent.",
@@ -45,7 +50,7 @@ export default async function PrivacyPage() {
       <main id="main" className="mx-auto w-full max-w-2xl px-6 py-12">
         <h1 className="text-2xl font-semibold tracking-tight">Privacy</h1>
         <p className="mt-2 text-sm text-ink3">
-          Last updated 2026-10-30. This is a UK-GDPR-oriented notice for a small self-hosted service operated from
+          Last updated 2026-10-31. This is a UK-GDPR-oriented notice for a small self-hosted service operated from
           the UK. It states what is actually stored and who processes it — nothing more.
         </p>
 
@@ -62,6 +67,10 @@ export default async function PrivacyPage() {
             <li>
               <strong>Progress:</strong> skill points, streaks, repairs, drills, and allowlisted funnel events (no free
               text, no device or cross-site identifiers).
+            </li>
+            <li>
+              <strong>Push reminders (optional):</strong> your browser&apos;s push address and keys, and for each
+              reminder sent, its kind (streak or waiting repair), when it was sent and whether it was opened.
             </li>
             <li>
               <strong>Operational telemetry:</strong> <code>ai_call_log</code> records operation, model, token counts,

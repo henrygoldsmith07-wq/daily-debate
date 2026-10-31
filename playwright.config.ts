@@ -1,4 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
+import webpush from "web-push";
+
+// Throwaway VAPID keys so the push opt-in renders in the production build
+// under test (nothing is ever sent: no dispatch runs in e2e).
+const vapid = webpush.generateVAPIDKeys();
 
 // E2E for Daily Debate. testDir is scoped to tests/e2e so Playwright never
 // picks up the vitest unit tests in src/lib (default testMatch would).
@@ -38,6 +43,9 @@ export default defineConfig({
       // challenges, voice), so the production build under test gets the
       // experimental-surfaces flag regardless of the host environment.
       NEXT_PUBLIC_EXPERIMENTAL_SURFACES: "1",
+      NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? vapid.publicKey,
+      VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY ?? vapid.privateKey,
+      VAPID_SUBJECT: process.env.VAPID_SUBJECT ?? "mailto:e2e@example.com",
     },
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
