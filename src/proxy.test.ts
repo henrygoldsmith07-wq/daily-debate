@@ -12,11 +12,19 @@ describe("routing proxy", () => {
     "/research",
     "/metrics",
     "/benchmark",
+    "/explore",
+    "/explore/solo/2f1c6f4e-8d2a-4b8e-9c1a-0d6c3f8e5b21",
   ])("allows public route %s", (path) => {
     const response = proxy(new NextRequest(`https://daily-debate.test${path}`));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("does not open look-alike paths when it opens Explore", () => {
+    const response = proxy(new NextRequest("https://daily-debate.test/explorer"));
+
+    expect(response.status).toBe(307);
   });
 
   it("redirects a protected page when the session cookie is absent", () => {

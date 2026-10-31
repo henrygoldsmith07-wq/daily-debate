@@ -1,12 +1,28 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import ClaimsPanel from "@/components/ClaimsPanel";
 import ExploreVote from "@/components/ExploreVote";
+import ReportDebate from "@/components/ReportDebate";
 import { getCurrentUser } from "@/lib/currentViewer";
 import { getExploreDebate } from "@/lib/explore";
 
 export const dynamic = "force-dynamic";
+
+// A shared link should name the motion and both debaters, not the app.
+export async function generateMetadata({ params }: { params: Promise<{ kind: string; id: string }> }): Promise<Metadata> {
+  const { kind, id } = await params;
+  if (kind !== "solo" && kind !== "pvp") return {};
+  const debate = await getExploreDebate(null, kind, id).catch(() => null);
+  if (!debate) return {};
+  const description = `${debate.for.name} for, ${debate.against.name} against. Read both sides and vote on who argued better.`;
+  return {
+    title: `${debate.topicTitle} · Daily Debate`,
+    description,
+    openGraph: { title: debate.topicTitle, description },
+  };
+}
 
 export default async function ExploreDebatePage({ params }: { params: Promise<{ kind: string; id: string }> }) {
   const { kind, id } = await params;
@@ -63,6 +79,7 @@ export default async function ExploreDebatePage({ params }: { params: Promise<{ 
           isParticipant={debate.isParticipant}
           signedIn={Boolean(user)}
         />
+        {user && !debate.isParticipant ? <ReportDebate kind={debate.kind} id={debate.id} /> : null}
       </section>
 
       <ClaimsPanel sources={debate.turns.map((turn) => ({ speaker: turn.speaker, side: turn.side, round: turn.round, text: turn.text }))} />

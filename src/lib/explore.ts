@@ -60,6 +60,11 @@ function excerpt(text: string | null | undefined): string | null {
   return clean.length > EXCERPT_CHARS ? `${clean.slice(0, EXCERPT_CHARS - 1).trimEnd()}…` : clean;
 }
 
+/** Debate ids are uuids. Checked before any query, so a bad id is a 400 or 404, never a failed cast. */
+export function isDebateId(id: unknown): id is string {
+  return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
 function opposite(side: DebateSide): DebateSide {
   return side === "for" ? "against" : "for";
 }
@@ -174,7 +179,7 @@ export async function listExplore(viewer: string | null, limit = 20): Promise<Ex
 }
 
 export async function getExploreDebate(viewer: string | null, kind: ExploreKind, id: string): Promise<ExploreDebate | null> {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+  if (!isDebateId(id)) return null;
   if (kind === "solo") {
     const [row] = await queryRows<SoloRow>(`${SOLO_SELECT} AND d.id = $1`, [id]);
     if (!row) return null;
@@ -217,19 +222,23 @@ export async function castVote(voter: string, kind: ExploreKind, id: string, cho
   return row?.outcome ?? "not_public";
 }
 
-/** Publish or withdraw a finished solo debate. Returns false when it is not the owner's finished debate. */
+/**
+ * Publish or withdraw a finished solo debate. Returns false when it is not the
+ * owner's finished debate, or when reports have taken it off Explore (043):
+ * withdrawing still works, republishing does not.
+ */
 export async function setSoloPublished(owner: string, debateId: string, publish: boolean): Promise<boolean> {
   const rows = await queryRows<{ id: string }>(
     `UPDATE solo_debates
         SET published_at = CASE WHEN $3 THEN COALESCE(published_at, now()) ELSE NULL END
-      WHERE id = $1 AND user_id = $2 AND status = 'completed'
+      WHERE id = $1 AND user_id = $2 AND status = 'completed' AND (NOT $3 OR explore_blocked_at IS NULL)
       RETURNING id`,
     [debateId, owner, publish],
   );
   return rows.length === 1;
 }
 
-/** Record one player's yes/no on publishing a finished match. Both must say yes. */
+/** Record one player's yes/no on publishing a finished match. Both must say yes; a match taken down by reports cannot go back up. */
 export async function setPvpPublished(
   player: string,
   matchId: string,
@@ -239,7 +248,7 @@ export async function setPvpPublished(
     `UPDATE pvp_matches
         SET player_a_publish = CASE WHEN player_a = $2 THEN $3 ELSE player_a_publish END,
             player_b_publish = CASE WHEN player_b = $2 THEN $3 ELSE player_b_publish END
-      WHERE id = $1 AND status = 'completed' AND (player_a = $2 OR player_b = $2)
+      WHERE id = $1 AND status = 'completed' AND (player_a = $2 OR player_b = $2) AND (NOT $3 OR explore_blocked_at IS NULL)
       RETURNING player_a, player_a_publish, player_b_publish`,
     [matchId, player, publish],
   );
@@ -247,4 +256,21 @@ export async function setPvpPublished(
   if (!row) return null;
   const isA = row.player_a === player;
   return { mine: publish, theirs: isA ? row.player_b_publish : row.player_a_publish };
+}
+
+export const REPORT_REASONS = ["abuse", "personal_info", "spam", "other"] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+export type ReportOutcome = "recorded" | "taken_down" | "already_reported" | "not_public" | "own_debate";
+
+/** Report a published debate (043). Three reports from distinct accounts take it off Explore. */
+export async function reportDebate(reporter: string, kind: ExploreKind, id: string, reason: ReportReason): Promise<ReportOutcome> {
+  const [row] = await queryRows<{ outcome: ReportOutcome }>("SELECT report_debate($1, $2, $3, $4) AS outcome", [reporter, kind, id, reason]);
+  return row?.outcome ?? "not_public";
+}
+
+/** True when reports have taken this debate off Explore, so the publish route can say why it refused. */
+export async function isExploreBlocked(kind: ExploreKind, id: string): Promise<boolean> {
+  const table = kind === "solo" ? "solo_debates" : "pvp_matches";
+  const rows = await queryRows<{ blocked: boolean }>(`SELECT explore_blocked_at IS NOT NULL AS blocked FROM ${table} WHERE id = $1`, [id]);
+  return rows[0]?.blocked === true;
 }

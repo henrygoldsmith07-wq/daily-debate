@@ -163,7 +163,25 @@ test.describe("solo full-flow", () => {
     await expect(card.getByTestId("explore-vote")).not.toContainText(/vote(s)?\b.*·/);
     await card.getByRole("group", { name: "Who argued better?" }).getByRole("button").first().click();
     await expect(card.getByTestId("explore-vote")).toContainText("1 vote");
+    // A reader can report a published debate from its page; one report leaves it up.
+    await viewer.goto(`/explore/solo/${debateId}`);
+    const report = viewer.getByTestId("explore-report");
+    await report.locator("summary").click();
+    await report.getByLabel("Spam or nonsense").check();
+    await report.getByRole("button", { name: "Send report" }).click();
+    await expect(report).toContainText("your report is in");
     await viewerContext.close();
+    // Published debates are readable without an account; voting asks to sign in and comes back here.
+    const anonContext = await page.context().browser()!.newContext({ baseURL: test.info().project.use.baseURL });
+    const anon = await anonContext.newPage();
+    await anon.goto(`/explore/solo/${debateId}`);
+    await expect(anon.getByTestId("explore-transcript")).toBeVisible();
+    await expect(anon.getByRole("link", { name: /sign in to vote/i })).toHaveAttribute(
+      "href",
+      `/login?next=${encodeURIComponent(`/explore/solo/${debateId}`)}`,
+    );
+    await expect(anon.getByTestId("explore-report")).toHaveCount(0);
+    await anonContext.close();
     await page.goto(debateUrl);
 
     // 6b. The advanced analysis (graph + tracking grid) sits behind disclosure.

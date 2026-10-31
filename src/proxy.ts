@@ -11,7 +11,11 @@ export function proxy(request: NextRequest) {
     pathname === "/metrics" ||
     pathname === "/benchmark" ||
     pathname === "/privacy" ||
-    pathname === "/terms";
+    pathname === "/terms" ||
+    // Published debates are public by the debaters' choice (042): reading
+    // needs no account, voting and reporting do.
+    pathname === "/explore" ||
+    pathname.startsWith("/explore/");
   const isApiRoute = pathname.startsWith("/api");
   if (isPublicRoute || isApiRoute || request.cookies.has(SESSION_COOKIE)) {
     return NextResponse.next();
