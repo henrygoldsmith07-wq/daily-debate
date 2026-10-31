@@ -53,7 +53,9 @@ describe("judge-validation status reaches the surfaces that render judge output"
   it("the dashboard passes the guest entry to GuestArena on both visitor paths", () => {
     const page = read("app", "page.tsx");
     expect(page).toContain('loadJudgeValidation().surfaces["guest"]');
-    expect(page.match(/<GuestArena validation=\{guestValidation\} \/>/g)?.length).toBe(2);
+    // Both visitor paths (no database, signed out) pass it; the signed-out
+    // path also passes today's live motion.
+    expect(page.match(/<GuestArena\s+validation=\{guestValidation\}/g)?.length).toBe(2);
   });
 
   it("GuestArena threads the entry into its result view", () => {
