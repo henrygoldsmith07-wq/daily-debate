@@ -65,6 +65,8 @@ export interface SoloDebate {
   result_payload?: PersistedSoloResult | null;
   finalization_token?: string | null;
   finalization_started_at?: string | null;
+  /** Set while the learner has published this debate on Explore (migration 042). */
+  published_at?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -268,6 +270,9 @@ export interface PvpMatch {
   turn_started_at?: string | null;
   winner_id: string | null;
   judge_verdict: PvpVerdict | null;
+  /** Each player's consent to publish on Explore (migration 042); null = undecided. */
+  player_a_publish?: boolean | null;
+  player_b_publish?: boolean | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -369,6 +374,3 @@ export const MIN_ROUNDS = 5;
 // `pvp_matches.round_limit` column — PVP_ROUNDS must match its default (5).
 export const MAX_ROUNDS = 12;
 export const PVP_ROUNDS = 5;
-// A PvP turn older than this can be claimed as a forfeit by the waiting
-// opponent, and new submissions past it are rejected as late.
-export const TURN_ABANDON_MINUTES = 30;
