@@ -68,3 +68,15 @@ export function weekStatsLine(longestStreak: number, debatesFinished: number): s
   if (finished >= 1) parts.push(finished === 1 ? "1 debate" : `${finished} debates`);
   return parts.length ? parts.join(" · ") : null;
 }
+
+/** Below this many, a "people debated today's motion" count reads as empty, not as company. */
+export const MOTION_DEBATERS_MIN = 10;
+
+/**
+ * "142 people have debated today's motion" (NYT Games / Wordle), or null
+ * when the count is unreadable or too small to mean anything.
+ */
+export function motionDebatersLine(debaters: number | null): string | null {
+  if (debaters === null || !Number.isFinite(debaters) || debaters < MOTION_DEBATERS_MIN) return null;
+  return `${Math.floor(debaters).toLocaleString("en-GB")} people have debated today's motion`;
+}

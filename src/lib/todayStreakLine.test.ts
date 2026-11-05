@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCountdown, msUntilNextMotion, todayStreakLine, weekStatsLine } from "./todayStreakLine";
+import { formatCountdown, motionDebatersLine, msUntilNextMotion, todayStreakLine, weekStatsLine } from "./todayStreakLine";
 import type { StreakStatus } from "./streakFreeze";
 
 describe("msUntilNextMotion", () => {
@@ -54,5 +54,14 @@ describe("weekStatsLine", () => {
     expect(weekStatsLine(12, 23)).toBe("Best streak 12 days · 23 debates");
     expect(weekStatsLine(1, 1)).toBe("1 debate");
     expect(weekStatsLine(0, 0)).toBeNull();
+  });
+});
+
+describe("motionDebatersLine", () => {
+  it("shows a real count only once it means company", () => {
+    expect(motionDebatersLine(1420)).toBe("1,420 people have debated today's motion");
+    expect(motionDebatersLine(10)).toBe("10 people have debated today's motion");
+    expect(motionDebatersLine(9)).toBeNull();
+    expect(motionDebatersLine(null)).toBeNull();
   });
 });
