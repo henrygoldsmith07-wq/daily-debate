@@ -13,7 +13,8 @@ import type { ChallengePreview } from "@/lib/challengeMe";
 import SkillProfileBars from "@/components/SkillProfileBars";
 import SkillRadar from "@/components/SkillRadar";
 import WeekStreak from "@/components/WeekStreak";
-import { streakDays, weekDays } from "@/lib/weekStreak";
+import { weekDays } from "@/lib/weekStreak";
+import { streakFreezeNote, streakPractisedDays } from "@/lib/streakFreeze";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
@@ -472,7 +473,7 @@ export default async function DashboardPage() {
     timeZone: profile?.timezone ?? "UTC",
   }).format(new Date());
 
-  const headerPills = homeHeaderPills(profile);
+  const headerPills = homeHeaderPills(profile ? { ...profile, current_streak: profile.streak.streak } : null);
   const todayKey = dateKeyInTimeZone(profile?.timezone ?? "UTC");
   const reminderItems: ReminderInput[] = [
     ...coachingContext.pendingRetests.map((r) => ({ kind: "retest" as const, availableAt: r.attemptedAt })),
@@ -480,7 +481,16 @@ export default async function DashboardPage() {
   ];
   const reminderMsg = await deliverInAppReminder(user.id, reminderItems, recheckNow);
   const pushPublicKey = pushAvailable() ? pushConfig()?.publicKey ?? null : null;
-  const week = profile ? weekDays(todayKey, streakDays(profile.current_streak, profile.last_activity_date, todayKey)) : [];
+  const streak = profile?.streak ?? null;
+  const week =
+    profile && streak
+      ? weekDays(
+          todayKey,
+          streakPractisedDays(streak, profile.last_activity_date),
+          streak.state === "none" || !streak.frozenDay ? [] : [streak.frozenDay],
+        )
+      : [];
+  const streakNote = streak ? streakFreezeNote(streak, todayKey) : null;
 
   return (
     <AppShell>
@@ -556,7 +566,7 @@ export default async function DashboardPage() {
       {/* ── Today's motion and the Start button lead: it is the one thing this
           screen is for. The training target and the loop explain it, so they
           follow (they used to push Start ~1,450px down a phone screen). ── */}
-      <WeekStreak days={week} />
+      <WeekStreak days={week} note={streakNote ?? undefined} />
       {weeklyLoopToday && <WeeklyRecapCard loop={weeklyLoopToday} />}
 
       <TopicCard

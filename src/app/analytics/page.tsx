@@ -24,6 +24,7 @@ import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
 import { loadGuestSprintWeeks } from "@/lib/guestSprintCounterServer";
 import { loadPushWeeks } from "@/lib/webPushServer";
+import { loadStreakFreezeWeeks } from "@/lib/streakFreezeServer";
 
 export const dynamic = "force-dynamic";
 
@@ -99,6 +100,7 @@ export default async function AnalyticsPage() {
   const sentActedRows = await loadReminderOutcomeEvents();
   const sentActed = sentActedRows ? summariseSentActedPerUser(sentActedRows) : null;
   const pushWeeks = await loadPushWeeks();
+  const freezeWeeks = await loadStreakFreezeWeeks();
   const recapRows = await loadRecapViewRows();
   const recapViews = recapRows ? summariseRecapViews(recapRows) : null;
   const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
@@ -153,6 +155,26 @@ export default async function AnalyticsPage() {
               <li key={w.weekStart}>
                 {w.weekStart}: {w.sent} sent · {w.opened} opened
                 {w.sent >= FUNNEL_MIN_SAMPLE ? ` (${pct(w.opened / w.sent)})` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section className="surface-card p-5" aria-labelledby="freeze-weeks-heading" data-testid="streak-freeze-weeks">
+        <h2 id="freeze-weeks-heading" className="text-sm font-semibold">Streak freezes: streaks kept over a missed day</h2>
+        <p className="mt-1 text-xs text-ink3">
+          From streak_freeze_uses, by the week of the missed day. Meant to move returning users; unvalidated: a kept
+          streak does not show the learner would not have come back anyway.
+        </p>
+        {freezeWeeks === null ? (
+          <p className="mt-2 text-xs text-ink3">Streak freezes could not be read — an availability failure, not zero.</p>
+        ) : freezeWeeks.length === 0 ? (
+          <p className="mt-2 text-xs text-ink3">No streak freezes used yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-xs tabular">
+            {freezeWeeks.map((w) => (
+              <li key={w.weekStart}>
+                {w.weekStart}: {w.used} kept · {w.learners} learners
               </li>
             ))}
           </ul>

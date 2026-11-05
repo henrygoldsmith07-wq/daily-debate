@@ -134,7 +134,7 @@ export default async function AppShell({
             <LevelChip
               level={profile.level}
               points={profile.total_points}
-              streak={profile.current_streak}
+              streak={profile.streak.streak}
             />
           )}
           {signOutButton}
@@ -150,7 +150,7 @@ export default async function AppShell({
             <LevelChip
               level={profile.level}
               points={profile.total_points}
-              streak={profile.current_streak}
+              streak={profile.streak.streak}
               compact
             />
           )}
@@ -167,7 +167,7 @@ export default async function AppShell({
                 <LevelChip
                   level={profile.level}
                   points={profile.total_points}
-                  streak={profile.current_streak}
+                  streak={profile.streak.streak}
                 />
               )}
               {signOutButton}
