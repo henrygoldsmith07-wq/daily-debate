@@ -75,6 +75,24 @@ describe("pushMessage", () => {
     expect(pushMessage({ send: true, kind: "streak", streak: 9 })).toMatchObject({ title: "Keep your 9-day streak", url: "/?src=push" });
   });
 
+  it("streak copy names today's motion when there is one, with a start button", () => {
+    const message = pushMessage({ send: true, kind: "streak", streak: 3 }, "  Should cities\nban cars? ");
+    expect(message).toMatchObject({
+      body: "Today's motion: Should cities ban cars?",
+      action: { id: "start", title: "Start today's debate" },
+    });
+    expect(pushMessage({ send: true, kind: "streak", streak: 3 }, null).body).toBe("Today's motion takes about four minutes.");
+    const long = pushMessage({ send: true, kind: "streak", streak: 3 }, "x".repeat(200)).body;
+    expect(long.endsWith("…")).toBe(true);
+    expect(long.length).toBe("Today's motion: ".length + 90);
+  });
+
+  it("never puts the motion in the retest push, which must not tie the test to a day", () => {
+    const message = pushMessage({ send: true, kind: "retest", streak: 0 }, "Should cities ban cars?");
+    expect(`${message.title} ${message.body}`).not.toContain("cities");
+    expect(message.action).toBeUndefined();
+  });
+
   it("frozen streak copy says the freeze is holding and today keeps it", () => {
     expect(pushMessage({ send: true, kind: "streak", streak: 6, frozen: true })).toMatchObject({
       title: "Keep your 6-day streak",

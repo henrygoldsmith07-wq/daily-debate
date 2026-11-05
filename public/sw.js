@@ -19,6 +19,9 @@ self.addEventListener("push", (event) => {
       icon: "/icon-192.png",
       badge: "/icon-192.png",
       tag: "daily-debate-reminder",
+      // One button, which opens the same page as the notification itself.
+      actions:
+        data.action && typeof data.action.title === "string" ? [{ action: "start", title: data.action.title }] : [],
       data: { url, id: typeof data.id === "string" ? data.id : null },
     }),
   );
