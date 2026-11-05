@@ -369,6 +369,7 @@ export function DebateResultCard({
                 side,
                 marks: soloRoundMarks(view.argGraph),
                 repaired: view.repaired,
+                streak: freshResult?.streak,
               };
               return (
                 <ShareResultButton

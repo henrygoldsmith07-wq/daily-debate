@@ -65,6 +65,8 @@ export interface ShareCardInput {
   side: "for" | "against";
   marks: readonly RoundMark[];
   repaired: boolean;
+  /** The learner's streak after this debate (Duolingo shares it). Text only, never in the share link. */
+  streak?: number;
 }
 
 /** The share sheet text; the link travels separately (share sheets add it themselves). */
@@ -74,6 +76,7 @@ export function shareText(input: ShareCardInput, url?: string): string {
   const lines = [`${heading} · ${side}`];
   if (input.marks.length) lines.push(squares(input.marks));
   lines.push(input.repaired ? "Weakness repaired ✓" : "Repair still to do");
+  if (typeof input.streak === "number" && input.streak >= 2) lines.push(`🔥 ${Math.floor(input.streak)}-day streak`);
   if (url) lines.push(url);
   return lines.join("\n");
 }
