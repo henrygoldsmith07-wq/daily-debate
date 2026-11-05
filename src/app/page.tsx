@@ -15,7 +15,8 @@ import SkillRadar from "@/components/SkillRadar";
 import WeekStreak from "@/components/WeekStreak";
 import { weekDays } from "@/lib/weekStreak";
 import { streakFreezeNote, streakPractisedDays } from "@/lib/streakFreeze";
-import { msUntilNextMotion, todayStreakLine } from "@/lib/todayStreakLine";
+import { msUntilNextMotion, todayStreakLine, weekStatsLine } from "@/lib/todayStreakLine";
+import { countFinishedDebates } from "@/lib/todayCountsServer";
 import { localHour } from "@/lib/reminderDelivery";
 import NextMotionCountdown from "@/components/NextMotionCountdown";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
@@ -159,7 +160,15 @@ export default async function DashboardPage() {
   });
   const topic = motion.topic;
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, previousDebateBundle, openDrillRow, challengePreview] =
+  const [
+    { data: activeDebate },
+    { data: profile },
+    { data: evidenceRows },
+    previousDebateBundle,
+    openDrillRow,
+    challengePreview,
+    debatesFinished,
+  ] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -246,6 +255,8 @@ export default async function DashboardPage() {
           rule: assignment.rule,
         }))
         .catch(() => null),
+      // Wordle's stats line: debates finished, beside the best streak.
+      countFinishedDebates(user.id),
     ]);
   // Unpack the previous-debate bundle fired inside the parallel block above.
   const previousDebate = previousDebateBundle.previousDebate;
@@ -505,6 +516,7 @@ export default async function DashboardPage() {
       })?.text ??
       null
     : null;
+  const weekStats = profile && debatesFinished !== null ? weekStatsLine(profile.longest_streak ?? 0, debatesFinished) : null;
   // Today's motion is done: end the day on when the next one arrives (Wordle).
   const finishedTodaysMotion = !activeDebate && previousDebate?.topic_id === topic.id;
 
@@ -582,7 +594,7 @@ export default async function DashboardPage() {
       {/* ── Today's motion and the Start button lead: it is the one thing this
           screen is for. The training target and the loop explain it, so they
           follow (they used to push Start ~1,450px down a phone screen). ── */}
-      <WeekStreak days={week} note={streakNote ?? undefined} />
+      <WeekStreak days={week} note={streakNote ?? undefined} stats={weekStats ?? undefined} />
       {finishedTodaysMotion && <NextMotionCountdown initialMs={msUntilNextMotion(new Date())} />}
       {weeklyLoopToday && <WeeklyRecapCard loop={weeklyLoopToday} />}
 
