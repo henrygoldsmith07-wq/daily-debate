@@ -66,6 +66,7 @@ interface Candidate {
   timezone: string | null;
   last_activity_date: string | Date | null;
   current_streak: number | null;
+  streak_freeze_used_on: string | Date | null;
   last_push_at: string | Date | null;
   last_retest_push_at: string | Date | null;
 }
@@ -111,7 +112,7 @@ export async function dispatchPushes(now: Date = new Date(), send: Sender = defa
   if (!config || !isDatabaseConfigured()) return summary;
 
   const candidates = await queryRows<Candidate>(
-    `SELECT p.id AS user_id, p.timezone, p.last_activity_date, p.current_streak,
+    `SELECT p.id AS user_id, p.timezone, p.last_activity_date, p.current_streak, p.streak_freeze_used_on,
             (SELECT max(sent_at) FROM push_deliveries d WHERE d.user_id = p.id) AS last_push_at,
             (SELECT max(sent_at) FROM push_deliveries d WHERE d.user_id = p.id AND d.kind = 'retest') AS last_retest_push_at
        FROM profiles p
@@ -125,6 +126,7 @@ export async function dispatchPushes(now: Date = new Date(), send: Sender = defa
       timeZone: c.timezone ?? "UTC",
       lastActivityDate: dateKey(c.last_activity_date),
       currentStreak: Number(c.current_streak ?? 0),
+      freezeUsedOn: dateKey(c.streak_freeze_used_on),
       lastPushAt: iso(c.last_push_at),
       lastRetestPushAt: iso(c.last_retest_push_at),
     };

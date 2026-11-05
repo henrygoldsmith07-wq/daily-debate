@@ -50,7 +50,11 @@ features, new surfaces, or claims.
 - spoiler-free share card (copied from Wordle) → new users (read
   `result_shared` on `/analytics`);
 - Web Push streak-saver (copied from Duolingo) → D1 return (read push sent
-  vs opened on `/analytics`).
+  vs opened on `/analytics`);
+- streak freeze (copied from Duolingo, Nov 2026) → returning users (read
+  streak freezes on `/analytics`). Shipped before the baseline week was
+  recorded, so its effect cannot be separated from the three above until
+  there are weeks with and without it.
 
 ## Active backlog (serves the loop only)
 
