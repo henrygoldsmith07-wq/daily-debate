@@ -54,6 +54,15 @@ describe("decidePush", () => {
     expect(decidePush({ ...input(), pendingRetests: 1 })).toMatchObject({ kind: "streak" });
   });
 
+  it("saves a streak a freeze is holding over yesterday, once per freeze cooldown", () => {
+    const missedYesterday = input({ lastActivityDate: "2026-10-28" });
+    expect(decidePush(missedYesterday)).toEqual({ send: true, kind: "streak", streak: 4, frozen: true });
+    // A freeze already covered 2026-10-25, so none is left for 2026-10-29: the streak has lapsed.
+    expect(decidePush({ ...missedYesterday, freezeUsedOn: "2026-10-25" })).toMatchObject({ send: false, reason: "nothing_due" });
+    expect(decidePush({ ...missedYesterday, freezeUsedOn: "2026-10-22" })).toMatchObject({ send: true, frozen: true });
+    expect(decidePush(input({ lastActivityDate: "2026-10-27" }))).toMatchObject({ send: false, reason: "nothing_due" });
+  });
+
   it("has nothing to say to a learner with no streak and no open loop", () => {
     expect(decidePush(input({ lastActivityDate: "2026-10-01", currentStreak: 0 }))).toMatchObject({ send: false, reason: "nothing_due" });
     expect(decidePush(input({ lastActivityDate: null, currentStreak: 0 }))).toMatchObject({ send: false, reason: "nothing_due" });
@@ -64,6 +73,13 @@ describe("pushMessage", () => {
   it("streak copy names the streak and the four-minute sprint", () => {
     expect(pushMessage({ send: true, kind: "streak", streak: 1 }).title).toBe("Keep your 1-day streak");
     expect(pushMessage({ send: true, kind: "streak", streak: 9 })).toMatchObject({ title: "Keep your 9-day streak", url: "/?src=push" });
+  });
+
+  it("frozen streak copy says the freeze is holding and today keeps it", () => {
+    expect(pushMessage({ send: true, kind: "streak", streak: 6, frozen: true })).toMatchObject({
+      title: "Keep your 6-day streak",
+      body: "A streak freeze is covering yesterday. Debate today to keep it.",
+    });
   });
 
   it("retest copy obeys the disclosure rule: no skill named, no day tied to the test", () => {

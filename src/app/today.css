@@ -133,6 +133,7 @@
   background: transparent;
 }
 .week-streak-day.is-practised .week-streak-dot { border-color: var(--speak); background: var(--speak); }
+.week-streak-day.is-frozen .week-streak-dot { border-style: dashed; border-color: var(--speak); background: transparent; }
 .week-streak-day.is-today .week-streak-dot { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink-3); }
 .week-streak-day.is-future { opacity: 0.45; }
 .week-streak-label { color: var(--ink-3); font-size: 0.6rem; font-weight: 700; }

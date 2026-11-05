@@ -8,6 +8,8 @@ export interface WeekDay {
   /** One-letter weekday label, Monday first. */
   label: string;
   practised: boolean;
+  /** A missed day a streak freeze covered, or will cover if today is practised (048). */
+  frozen: boolean;
   isToday: boolean;
   isFuture: boolean;
 }
@@ -25,33 +27,19 @@ function timeToKey(time: number): string {
   return new Date(time).toISOString().slice(0, 10);
 }
 
-export function weekDays(todayKey: string, practised: Iterable<string>): WeekDay[] {
+export function weekDays(todayKey: string, practised: Iterable<string>, frozen: Iterable<string> = []): WeekDay[] {
   const today = keyToTime(todayKey);
   if (today === null) return [];
   const done = new Set(practised);
+  const kept = new Set(frozen);
   // getUTCDay: Sunday is 0. Shift so Monday starts the week.
   const offset = (new Date(today).getUTCDay() + 6) % 7;
   const monday = today - offset * DAY_MS;
   return LABELS.map((label, index) => {
     const time = monday + index * DAY_MS;
     const key = timeToKey(time);
-    return { key, label, practised: done.has(key), isToday: time === today, isFuture: time > today };
+    return { key, label, practised: done.has(key), frozen: !done.has(key) && kept.has(key), isToday: time === today, isFuture: time > today };
   });
-}
-
-/**
- * The days a signed-in streak covers. The profile stores only the current
- * streak length and the last active day, which is exactly enough to name the
- * consecutive days ending there. A streak whose last day is before yesterday
- * has lapsed and covers nothing this week.
- */
-export function streakDays(currentStreak: number, lastActivityKey: string | null | undefined, todayKey: string): string[] {
-  const last = lastActivityKey ? keyToTime(lastActivityKey) : null;
-  const today = keyToTime(todayKey);
-  if (last === null || today === null || currentStreak <= 0) return [];
-  if (today - last > DAY_MS || last > today) return [];
-  const length = Math.min(Math.floor(currentStreak), 7);
-  return Array.from({ length }, (_, index) => timeToKey(last - index * DAY_MS));
 }
 
 /** Guest practice days live in localStorage; this keeps the list valid and bounded. */

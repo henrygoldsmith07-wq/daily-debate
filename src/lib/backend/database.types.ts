@@ -8,6 +8,7 @@ export type ProfileRow = {
   current_streak: number;
   longest_streak: number;
   last_activity_date: string | null;
+  streak_freeze_used_on: string | null;
   timezone: string;
   timezone_initialized_at: string | null;
   /** Guest practice loop summary carried through signup (migration 035). */

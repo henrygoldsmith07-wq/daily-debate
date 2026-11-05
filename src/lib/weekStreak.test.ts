@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addGuestPracticeDay, parseGuestPracticeDays, streakDays, weekDays } from "./weekStreak";
+import { addGuestPracticeDay, parseGuestPracticeDays, weekDays } from "./weekStreak";
 import { DAILY_ACCENT_HUES, dailyAccentHue } from "./dailyAccent";
 
 describe("weekDays", () => {
@@ -18,28 +18,13 @@ describe("weekDays", () => {
     expect(weekDays("2026-11-01", [])[6]).toMatchObject({ key: "2026-11-01", isToday: true });
   });
 
+  it("marks a frozen day only when it was not practised", () => {
+    const days = weekDays("2026-10-28", ["2026-10-26", "2026-10-28"], ["2026-10-27", "2026-10-28"]);
+    expect(days.map((d) => d.frozen)).toEqual([false, true, false, false, false, false, false]);
+  });
+
   it("returns nothing for a malformed day", () => {
     expect(weekDays("not-a-date", [])).toEqual([]);
-  });
-});
-
-describe("streakDays", () => {
-  it("names the consecutive days ending on the last active day", () => {
-    expect(streakDays(3, "2026-10-28", "2026-10-28")).toEqual(["2026-10-28", "2026-10-27", "2026-10-26"]);
-  });
-
-  it("still counts a streak last extended yesterday", () => {
-    expect(streakDays(2, "2026-10-27", "2026-10-28")).toEqual(["2026-10-27", "2026-10-26"]);
-  });
-
-  it("drops a lapsed streak instead of drawing stale dots", () => {
-    expect(streakDays(5, "2026-10-20", "2026-10-28")).toEqual([]);
-  });
-
-  it("caps at a week and ignores zero or missing data", () => {
-    expect(streakDays(40, "2026-10-28", "2026-10-28")).toHaveLength(7);
-    expect(streakDays(0, "2026-10-28", "2026-10-28")).toEqual([]);
-    expect(streakDays(3, null, "2026-10-28")).toEqual([]);
   });
 });
 

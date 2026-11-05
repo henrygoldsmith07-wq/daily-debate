@@ -9,6 +9,7 @@
 // to a day.
 
 import { DEFAULT_REMINDER_PREFS, inQuietHours, localHour } from "./reminderDelivery";
+import { freezeAvailableFor } from "./streakFreeze";
 import { dateKeyInTimeZone } from "./timeZone";
 
 export type PushKind = "streak" | "retest";
@@ -27,6 +28,8 @@ export interface PushDecisionInput {
   /** Local date (YYYY-MM-DD) of the learner's last practice, from profiles. */
   lastActivityDate: string | null;
   currentStreak: number;
+  /** Most recent day a streak freeze covered (profiles.streak_freeze_used_on). */
+  freezeUsedOn?: string | null;
   pendingRetests: number;
   /** Most recent push of any kind, ISO. */
   lastPushAt: string | null;
@@ -35,7 +38,7 @@ export interface PushDecisionInput {
 }
 
 export type PushDecision =
-  | { send: true; kind: PushKind; streak: number }
+  | { send: true; kind: PushKind; streak: number; /** A freeze is holding yesterday; today keeps the streak. */ frozen?: boolean }
   | { send: false; reason: "outside_window" | "quiet_hours" | "recently_sent" | "practised_today" | "nothing_due" };
 
 function previousDay(dateKey: string): string {
@@ -63,6 +66,15 @@ export function decidePush(input: PushDecisionInput): PushDecision {
   if (input.lastActivityDate === previousDay(today) && input.currentStreak >= 1) {
     return { send: true, kind: "streak", streak: input.currentStreak };
   }
+  // Missed yesterday, but a streak freeze (048) will cover it if they debate today.
+  const yesterday = previousDay(today);
+  if (
+    input.lastActivityDate === previousDay(yesterday) &&
+    input.currentStreak >= 1 &&
+    freezeAvailableFor(yesterday, input.freezeUsedOn)
+  ) {
+    return { send: true, kind: "streak", streak: input.currentStreak, frozen: true };
+  }
   if (input.pendingRetests > 0 && !within(input.lastRetestPushAt, RETEST_PUSH_MIN_GAP_MS, now)) {
     return { send: true, kind: "retest", streak: input.currentStreak };
   }
@@ -81,7 +93,9 @@ export function pushMessage(decision: Extract<PushDecision, { send: true }>): Pu
     const days = decision.streak === 1 ? "1-day" : `${decision.streak}-day`;
     return {
       title: `Keep your ${days} streak`,
-      body: "Today's motion takes about four minutes.",
+      body: decision.frozen
+        ? "A streak freeze is covering yesterday. Debate today to keep it."
+        : "Today's motion takes about four minutes.",
       url: "/?src=push",
     };
   }
