@@ -15,6 +15,8 @@ import SkillRadar from "@/components/SkillRadar";
 import WeekStreak from "@/components/WeekStreak";
 import { weekDays } from "@/lib/weekStreak";
 import { streakFreezeNote, streakPractisedDays } from "@/lib/streakFreeze";
+import { msUntilNextMotion } from "@/lib/todayStreakLine";
+import NextMotionCountdown from "@/components/NextMotionCountdown";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
@@ -491,6 +493,8 @@ export default async function DashboardPage() {
         )
       : [];
   const streakNote = streak ? streakFreezeNote(streak, todayKey) : null;
+  // Today's motion is done: end the day on when the next one arrives (Wordle).
+  const finishedTodaysMotion = !activeDebate && previousDebate?.topic_id === topic.id;
 
   return (
     <AppShell>
@@ -567,6 +571,7 @@ export default async function DashboardPage() {
           screen is for. The training target and the loop explain it, so they
           follow (they used to push Start ~1,450px down a phone screen). ── */}
       <WeekStreak days={week} note={streakNote ?? undefined} />
+      {finishedTodaysMotion && <NextMotionCountdown initialMs={msUntilNextMotion(new Date())} />}
       {weeklyLoopToday && <WeeklyRecapCard loop={weeklyLoopToday} />}
 
       <TopicCard

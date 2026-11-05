@@ -138,7 +138,10 @@
 .week-streak-day.is-future { opacity: 0.45; }
 .week-streak-label { color: var(--ink-3); font-size: 0.6rem; font-weight: 700; }
 .week-streak-day.is-today .week-streak-label { color: var(--ink); }
+.week-streak-notes { display: flex; flex-direction: column; gap: 0.15rem; }
 .week-streak-note { margin: 0; color: var(--ink-3); font-size: 0.72rem; }
+.next-motion { margin: 0; color: var(--ink-3); font-size: 0.78rem; }
+.next-motion strong { color: var(--ink); font-variant-numeric: tabular-nums; }
 .week-streak-note strong { color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* --- skill radar --------------------------------------------------------------- */
