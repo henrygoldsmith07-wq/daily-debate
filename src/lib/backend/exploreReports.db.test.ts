@@ -6,7 +6,8 @@ import { applyTestMigrations } from "../../../tests/helpers/applyTestMigrations"
  * Explore reports (migration 046), against real Postgres: one report per
  * reader per published debate, a participant cannot report their own, and
  * three reports from distinct accounts take a debate off Explore (unpublished
- * and stamped so its author cannot put it back). Own users and topic date, so
+ * and stamped so its author cannot put it back), including when the last two
+ * reports arrive together (047). Own users and topic date, so
  * no other suite collides.
  */
 
@@ -122,6 +123,46 @@ d("Explore reports (migration 046)", () => {
       [match],
     );
     expect(row.rows[0]).toEqual({ player_a_publish: false, player_b_publish: false, blocked: true });
+  });
+
+  // Two reports in flight at once must not both count against a stale total.
+  // Without a lock on the debate row, each READ COMMITTED transaction sees the
+  // committed reports plus only its own, so the second and third reports in
+  // flight together both see two and the debate stays up with three (047).
+  it.each(["solo", "pvp"] as const)("takes a %s debate down when the last two reports race", async (kind) => {
+    const debate = kind === "solo" ? await publishedSolo() : await publishedMatch();
+    expect(await report(user(kind === "solo" ? 1 : 2), kind, debate)).toBe("recorded");
+    const [a, b] = await Promise.all([pool.connect(), pool.connect()]);
+    try {
+      await a.query("BEGIN");
+      await b.query("BEGIN");
+      const call = "SELECT report_debate($1, $2, $3, 'abuse') AS outcome";
+      const bPid = (await b.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const first = (await a.query<{ outcome: string }>(call, [user(3), kind, debate])).rows[0].outcome;
+      let settled = false;
+      const second = b.query<{ outcome: string }>(call, [user(4), kind, debate]).finally(() => {
+        settled = true;
+      });
+      // Commit A only once B has either finished (it counted without waiting)
+      // or is blocked on a lock, so B's count really overlaps A's open report.
+      for (let i = 0; i < 200 && !settled; i += 1) {
+        const waiting = await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", [bPid]);
+        if (waiting.rowCount) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      await a.query("COMMIT");
+      const secondOutcome = (await second).rows[0].outcome;
+      await b.query("COMMIT");
+      expect([first, secondOutcome]).toEqual(["recorded", "taken_down"]);
+    } finally {
+      await a.query("ROLLBACK").catch(() => undefined);
+      await b.query("ROLLBACK").catch(() => undefined);
+      a.release();
+      b.release();
+    }
+    const table = kind === "solo" ? "solo_debates" : "pvp_matches";
+    const row = await pool.query(`SELECT explore_blocked_at IS NOT NULL AS blocked FROM ${table} WHERE id = $1`, [debate]);
+    expect(row.rows[0].blocked).toBe(true);
   });
 
   it("refuses unpublished debates and unknown reasons or kinds", async () => {
