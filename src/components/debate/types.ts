@@ -25,6 +25,8 @@ export interface DebateSummaryPayload {
   snapshot?: ResultSnapshot;
   trainingSummary?: TrainingSummary;
   summarySource?: "ai" | "fallback";
+  /** The learner's streak right after this finish (not persisted; fresh results only). */
+  streak?: number;
 }
 
 /** The server-rebuilt result a replayed (already completed) debate arrives with. */

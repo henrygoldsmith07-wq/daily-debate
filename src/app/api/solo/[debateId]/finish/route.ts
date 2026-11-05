@@ -571,5 +571,15 @@ async function finishSoloDebate(
     );
   }
 
-  return NextResponse.json(durableDebate.result_payload as PersistedSoloResult);
+  // The streak as finalization left it, for the result's streak milestone and
+  // share line. Not persisted: a replay is not the moment the streak grew.
+  let streak: number | undefined;
+  try {
+    const { data: streakRow } = await db.from("profiles").select("current_streak").eq("id", user.id).single();
+    if (typeof streakRow?.current_streak === "number") streak = streakRow.current_streak;
+  } catch {
+    // Best effort: the result stands without it.
+  }
+
+  return NextResponse.json({ ...(durableDebate.result_payload as PersistedSoloResult), ...(streak !== undefined ? { streak } : {}) });
 }
