@@ -15,7 +15,8 @@ import SkillRadar from "@/components/SkillRadar";
 import WeekStreak from "@/components/WeekStreak";
 import { weekDays } from "@/lib/weekStreak";
 import { streakFreezeNote, streakPractisedDays } from "@/lib/streakFreeze";
-import { msUntilNextMotion } from "@/lib/todayStreakLine";
+import { msUntilNextMotion, todayStreakLine } from "@/lib/todayStreakLine";
+import { localHour } from "@/lib/reminderDelivery";
 import NextMotionCountdown from "@/components/NextMotionCountdown";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
@@ -492,7 +493,18 @@ export default async function DashboardPage() {
           streak.state === "none" || !streak.frozenDay ? [] : [streak.frozenDay],
         )
       : [];
-  const streakNote = streak ? streakFreezeNote(streak, todayKey) : null;
+  // One streak line at most: the freeze note, else the evening at-risk or the
+  // welcome-back line (Duolingo).
+  const streakNote = streak
+    ? streakFreezeNote(streak, todayKey) ??
+      todayStreakLine({
+        status: streak,
+        longestStreak: profile?.longest_streak ?? 0,
+        hasPractised: !!profile?.last_activity_date,
+        localHour: localHour(new Date(), profile?.timezone ?? "UTC"),
+      })?.text ??
+      null
+    : null;
   // Today's motion is done: end the day on when the next one arrives (Wordle).
   const finishedTodaysMotion = !activeDebate && previousDebate?.topic_id === topic.id;
 
