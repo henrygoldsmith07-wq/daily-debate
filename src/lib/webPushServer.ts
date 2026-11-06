@@ -86,6 +86,18 @@ export interface DispatchSummary {
   failed: number;
 }
 
+/** Today's shared motion (rolls over at 00:00 UTC), or null when none is stored yet. */
+async function todaysMotionTitle(): Promise<string | null> {
+  try {
+    const [row] = await queryRows<{ title: string }>(
+      "SELECT title FROM daily_topics WHERE topic_date = (now() AT TIME ZONE 'utc')::date LIMIT 1",
+    );
+    return row?.title ?? null;
+  } catch {
+    return null;
+  }
+}
+
 type Sender = (sub: SubscriptionRow, payload: string, config: PushConfig) => Promise<void>;
 
 const defaultSender: Sender = async (sub, payload, config) => {
@@ -119,6 +131,7 @@ export async function dispatchPushes(now: Date = new Date(), send: Sender = defa
       WHERE EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.user_id = p.id)`,
   );
   summary.users = candidates.length;
+  const motionTitle = candidates.length ? await todaysMotionTitle() : null;
 
   for (const c of candidates) {
     const base = {
@@ -151,7 +164,7 @@ export async function dispatchPushes(now: Date = new Date(), send: Sender = defa
       `INSERT INTO push_deliveries (user_id, kind) VALUES ($1, $2) RETURNING id`,
       [c.user_id, decision.kind satisfies PushKind],
     );
-    const message = pushMessage(decision);
+    const message = pushMessage(decision, motionTitle);
     const payload = JSON.stringify({ ...message, id: delivery.id });
 
     let delivered = false;

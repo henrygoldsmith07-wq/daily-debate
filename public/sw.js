@@ -13,15 +13,22 @@ self.addEventListener("push", (event) => {
   }
   const title = typeof data.title === "string" ? data.title : "Daily Debate";
   const url = typeof data.url === "string" && data.url.startsWith("/") ? data.url : "/";
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body: typeof data.body === "string" ? data.body : "",
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
-      tag: "daily-debate-reminder",
-      data: { url, id: typeof data.id === "string" ? data.id : null },
-    }),
-  );
+  // Badge the installed app icon until today is practised (Today clears it).
+  const badge =
+    self.navigator && typeof self.navigator.setAppBadge === "function"
+      ? self.navigator.setAppBadge(1).catch(() => undefined)
+      : Promise.resolve();
+  const notification = self.registration.showNotification(title, {
+    body: typeof data.body === "string" ? data.body : "",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    tag: "daily-debate-reminder",
+    // One button, which opens the same page as the notification itself.
+    actions:
+      data.action && typeof data.action.title === "string" ? [{ action: "start", title: data.action.title }] : [],
+    data: { url, id: typeof data.id === "string" ? data.id : null },
+  });
+  event.waitUntil(Promise.all([badge, notification]));
 });
 
 self.addEventListener("notificationclick", (event) => {

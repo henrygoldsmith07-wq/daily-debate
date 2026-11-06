@@ -24,6 +24,7 @@ import { recurrenceAlertNote } from "@/lib/recurrenceAlert";
 import { closeCallNote } from "@/lib/resultSnapshot";
 import ShareResultButton from "../ShareResultButton";
 import { dailyNumber, sharePath, shareText, soloRoundMarks, type ShareCardInput } from "@/lib/shareCard";
+import { streakMilestone } from "@/lib/streakMilestone";
 
 export interface DebateResultCardProps {
   view: ReplayView;
@@ -131,6 +132,21 @@ export function DebateResultCard({
           <p className="-mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
             {view.fresh ? "Finished just now" : "Past debate"}
           </p>
+
+          {/* Duolingo's streak celebration, only on the finish that reached it. */}
+          {(() => {
+            const milestone = view.fresh ? streakMilestone(freshResult?.streak) : null;
+            return milestone ? (
+              <div
+                className="rounded-lg border border-[var(--speak)]/40 bg-surface-2 px-3 py-2 text-sm"
+                role="status"
+                data-testid="streak-milestone"
+              >
+                <span className="font-semibold">{milestone.title}</span>
+                <span className="text-ink3"> · {milestone.detail}</span>
+              </div>
+            ) : null;
+          })()}
 
           {/* Today's focus outcome — the goal the learner was actually given.
               It is NOT the retest verdict: since the disclosure policy, the
@@ -353,6 +369,7 @@ export function DebateResultCard({
                 side,
                 marks: soloRoundMarks(view.argGraph),
                 repaired: view.repaired,
+                streak: freshResult?.streak,
               };
               return (
                 <ShareResultButton

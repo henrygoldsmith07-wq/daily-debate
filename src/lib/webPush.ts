@@ -86,17 +86,35 @@ export interface PushMessage {
   body: string;
   /** Same-origin path the notification opens; carries src=push for attribution. */
   url: string;
+  /** One notification button (copied from Duolingo's "Start lesson"); it opens the same url. */
+  action?: { id: "start"; title: string };
 }
 
-export function pushMessage(decision: Extract<PushDecision, { send: true }>): PushMessage {
+/** Longest motion title a push body carries before it is cut with an ellipsis. */
+export const PUSH_MOTION_CHARS = 90;
+
+function motionLine(title: string | null | undefined): string | null {
+  const clean = (title ?? "").replace(/\s+/g, " ").trim();
+  if (!clean) return null;
+  const cut = clean.length > PUSH_MOTION_CHARS ? `${clean.slice(0, PUSH_MOTION_CHARS - 1).trimEnd()}…` : clean;
+  return `Today's motion: ${cut}`;
+}
+
+/**
+ * `motionTitle` is today's shared motion (NYT Games names the day's puzzle).
+ * It goes only into the streak push: the retest push must not tie the test
+ * to a day (retestDisclosure.ts).
+ */
+export function pushMessage(decision: Extract<PushDecision, { send: true }>, motionTitle?: string | null): PushMessage {
   if (decision.kind === "streak") {
     const days = decision.streak === 1 ? "1-day" : `${decision.streak}-day`;
     return {
       title: `Keep your ${days} streak`,
       body: decision.frozen
         ? "A streak freeze is covering yesterday. Debate today to keep it."
-        : "Today's motion takes about four minutes.",
+        : motionLine(motionTitle) ?? "Today's motion takes about four minutes.",
       url: "/?src=push",
+      action: { id: "start", title: "Start today's debate" },
     };
   }
   return {

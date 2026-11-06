@@ -55,6 +55,15 @@ features, new surfaces, or claims.
   streak freezes on `/analytics`). Shipped before the baseline week was
   recorded, so its effect cannot be separated from the three above until
   there are weeks with and without it.
+- ten small copies (Nov 2026), shipped together, each one line on an
+  existing surface: next-motion countdown and "N people debated today"
+  (Wordle / NYT Games); streak-at-risk evening line, welcome back, perfect
+  week, result streak milestones, streak line in the share text and app
+  icon badge (Duolingo); best streak and debates played (Wordle stats);
+  today's motion and a Start button in the streak push (NYT Games /
+  Duolingo). Shipped as one batch against the one-change-a-week rule, so
+  they can only be read together: watch D1 return and returning users,
+  and cut the batch back if neither moves.
 
 ## Active backlog (serves the loop only)
 

@@ -15,6 +15,11 @@ import SkillRadar from "@/components/SkillRadar";
 import WeekStreak from "@/components/WeekStreak";
 import { weekDays } from "@/lib/weekStreak";
 import { streakFreezeNote, streakPractisedDays } from "@/lib/streakFreeze";
+import { motionDebatersLine, msUntilNextMotion, todayStreakLine, weekStatsLine } from "@/lib/todayStreakLine";
+import { countFinishedDebates, countMotionDebaters } from "@/lib/todayCountsServer";
+import { localHour } from "@/lib/reminderDelivery";
+import NextMotionCountdown from "@/components/NextMotionCountdown";
+import AppBadgeClear from "@/components/AppBadgeClear";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
@@ -156,7 +161,16 @@ export default async function DashboardPage() {
   });
   const topic = motion.topic;
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, previousDebateBundle, openDrillRow, challengePreview] =
+  const [
+    { data: activeDebate },
+    { data: profile },
+    { data: evidenceRows },
+    previousDebateBundle,
+    openDrillRow,
+    challengePreview,
+    debatesFinished,
+    motionDebaters,
+  ] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -243,6 +257,11 @@ export default async function DashboardPage() {
           rule: assignment.rule,
         }))
         .catch(() => null),
+      // Wordle's stats line: debates finished, beside the best streak.
+      countFinishedDebates(user.id),
+      // NYT Games' "N people played today": only for the shared motion, which
+      // everyone gets; a personalised motion is not a shared day.
+      topic.id === sharedTopic.id ? countMotionDebaters(sharedTopic.id) : Promise.resolve(null),
     ]);
   // Unpack the previous-debate bundle fired inside the parallel block above.
   const previousDebate = previousDebateBundle.previousDebate;
@@ -490,7 +509,22 @@ export default async function DashboardPage() {
           streak.state === "none" || !streak.frozenDay ? [] : [streak.frozenDay],
         )
       : [];
-  const streakNote = streak ? streakFreezeNote(streak, todayKey) : null;
+  // One streak line at most: the freeze note, else the evening at-risk or the
+  // welcome-back line (Duolingo).
+  const streakNote = streak
+    ? streakFreezeNote(streak, todayKey) ??
+      todayStreakLine({
+        status: streak,
+        longestStreak: profile?.longest_streak ?? 0,
+        hasPractised: !!profile?.last_activity_date,
+        localHour: localHour(new Date(), profile?.timezone ?? "UTC"),
+      })?.text ??
+      null
+    : null;
+  const debatersLine = motionDebatersLine(motionDebaters);
+  const weekStats = profile && debatesFinished !== null ? weekStatsLine(profile.longest_streak ?? 0, debatesFinished) : null;
+  // Today's motion is done: end the day on when the next one arrives (Wordle).
+  const finishedTodaysMotion = !activeDebate && previousDebate?.topic_id === topic.id;
 
   return (
     <AppShell>
@@ -566,7 +600,9 @@ export default async function DashboardPage() {
       {/* ── Today's motion and the Start button lead: it is the one thing this
           screen is for. The training target and the loop explain it, so they
           follow (they used to push Start ~1,450px down a phone screen). ── */}
-      <WeekStreak days={week} note={streakNote ?? undefined} />
+      <WeekStreak days={week} note={streakNote ?? undefined} stats={weekStats ?? undefined} />
+      {finishedTodaysMotion && <NextMotionCountdown initialMs={msUntilNextMotion(new Date())} />}
+      {streak?.state === "practised_today" && <AppBadgeClear />}
       {weeklyLoopToday && <WeeklyRecapCard loop={weeklyLoopToday} />}
 
       <TopicCard
@@ -586,6 +622,11 @@ export default async function DashboardPage() {
         challengePreview={challengePreview}
         firstFocus={firstFocus}
       />
+      {debatersLine && (
+        <p className="next-motion" data-testid="motion-debaters">
+          {debatersLine}
+        </p>
+      )}
       {lapsedSkillKey && (
         <p
           className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink3"

@@ -84,6 +84,14 @@ describe("shareText", () => {
     expect(shareText({ ...input, dayNumber: undefined, repaired: false }, "u")).toBe("Daily Debate practice · Against\n🟩🟨🟥\nRepair still to do\nu");
   });
 
+  it("adds the streak line from two days, and keeps it out of the share link", () => {
+    expect(shareText({ ...input, streak: 12 }, "URL")).toBe(
+      "Daily Debate #71 · Against\n🟩🟨🟥\nWeakness repaired ✓\n🔥 12-day streak\nURL",
+    );
+    expect(shareText({ ...input, streak: 1 }, "URL")).not.toContain("streak");
+    expect(shareQuery({ ...input, streak: 12 })).toBe(shareQuery(input));
+  });
+
   it("never contains anything but the fixed vocabulary", () => {
     const text = shareText(input, "URL");
     expect(text.replace(/Daily Debate #71 · Against|Weakness repaired ✓|URL|[🟩🟨🟥⬜\n]/gu, "")).toBe("");
