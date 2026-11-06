@@ -3,6 +3,8 @@ import { createClient } from "@/lib/backend/server";
 import AppShell from "@/components/AppShell";
 import SignedOut from "@/components/SignedOut";
 import PageHeader from "@/components/PageHeader";
+import PracticeCalendar from "@/components/PracticeCalendar";
+import { loadPracticeCalendar } from "@/lib/practiceCalendarServer";
 import type { PvpVerdict } from "@/lib/types";
 import { normalizeIanaTimeZone } from "@/lib/timeZone";
 import { loadJudgeValidation } from "@/lib/judgeValidationServer";
@@ -125,6 +127,8 @@ export default async function HistoryPage() {
   const reminderPrefs = await loadReminderPrefs(user.id).catch(() => null);
   const loopStreak = await loadLoopStreak(user.id, timeZone).catch(() => null);
 
+  const calendar = await loadPracticeCalendar(user.id, timeZone);
+
   return (
     <AppShell width="narrow">
       <PageHeader
@@ -139,6 +143,7 @@ export default async function HistoryPage() {
         }
       />
 
+      <PracticeCalendar grid={calendar} />
       <LoopChainPanel chain={loopChain} />
       <WeaknessLibraryPanel chain={loopChain} />
       {loopStreak && <LoopStreakPanel streak={loopStreak} />}
