@@ -21,6 +21,8 @@ import { isDebateModeId, type DebateModeId } from "@/lib/debateModes";
 import { minRoundsFor, resolveDebateFormat } from "@/lib/sprint";
 import { DebateLivePanel } from "./debate/DebateLivePanel";
 import { DebateResultCard } from "./debate/DebateResultCard";
+import DownloadTranscript from "./debate/DownloadTranscript";
+import { toIsoOrNull } from "@/lib/isoTimestamp";
 import { useDebateError, useDebateSession } from "./debate/useDebateSession";
 import { useDebateSpeech } from "./debate/useDebateSpeech";
 import { useResponseWindow } from "./debate/useResponseWindow";
@@ -161,6 +163,12 @@ export default function DebateRoom({
         ])}
       />
       <PublishToggle kind="solo" id={debate.id} initialPublished={Boolean(debate.published_at)} />
+      <DownloadTranscript
+        topicTitle={topic.title}
+        side={debate.side === "against" ? "against" : "for"}
+        day={(toIsoOrNull(debate.completed_at) ?? toIsoOrNull(debate.created_at) ?? "").slice(0, 10)}
+        turns={session.turns.map((turn) => ({ round: turn.round_number, opponent: turn.ai_message, learner: turn.user_message }))}
+      />
       </div>
     );
   }
