@@ -65,7 +65,9 @@ features, new surfaces, or claims.
   they can only be read together: watch D1 return and returning users,
   and cut the batch back if neither moves.
 - rematch on a fresh result ("Argue the other side", "Rematch, harder";
-  copied from direct AI-debate competitors) → debate starts.
+  copied from direct AI-debate competitors) → debate starts;
+- "Install the app" via the browser's install prompt (copied from
+  ArguFight / MindDuel shipping as phone apps) → D1 return.
 
 ## Active backlog (serves the loop only)
 

@@ -20,6 +20,7 @@ import { countFinishedDebates, countMotionDebaters } from "@/lib/todayCountsServ
 import { localHour } from "@/lib/reminderDelivery";
 import NextMotionCountdown from "@/components/NextMotionCountdown";
 import AppBadgeClear from "@/components/AppBadgeClear";
+import InstallAppButton from "@/components/InstallAppButton";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
@@ -858,6 +859,8 @@ export default async function DashboardPage() {
           the learner has seen the loop (Duolingo's streak-saver, with its
           rule: protect the channel). */}
       {pushPublicKey && (coachingContext.ledger?.debates ?? 0) >= 1 ? <PushOptIn publicKey={pushPublicKey} /> : null}
+      {/* Same timing as the push ask: once the learner has finished a debate. */}
+      {(coachingContext.ledger?.debates ?? 0) >= 1 ? <InstallAppButton /> : null}
     </AppShell>
   );
 }
