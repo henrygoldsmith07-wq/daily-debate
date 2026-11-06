@@ -3,6 +3,7 @@ import "server-only";
 import { AuthApi, type CookieStore, type ResetTokenSender } from "./auth";
 import { tableQuery, type TableName } from "./query";
 import { queryRows } from "./sql";
+import { RATING_COLLECTION_TARGET } from "@/lib/corpus";
 
 type RpcArgs = Record<string, string | number | boolean | null>;
 
@@ -270,13 +271,15 @@ export class BackendClient {
         return { data: rows, error: null };
       }
       if (name === "delete_app_account") {
-        // Single-statement account erasure (migration 037): atomic — a failure
-        // rolls the whole function back, so "error" never means partial state.
-        const rows = await queryRows<{ delete_app_account: Record<string, unknown> }>(
-          "SELECT delete_app_account($1) AS delete_app_account",
-          [args.p_user_id],
+        // Single-statement account erasure: atomic — a failure rolls the
+        // whole function back, so "error" never means partial state. v2
+        // (migration 051) also recounts and, below the collection target,
+        // reopens the corpus items that lost one of this learner's ratings.
+        const rows = await queryRows<{ result: Record<string, unknown> }>(
+          "SELECT delete_app_account_v2($1, $2) AS result",
+          [args.p_user_id, RATING_COLLECTION_TARGET],
         );
-        return { data: rows[0]?.delete_app_account ?? null, error: null };
+        return { data: rows[0]?.result ?? null, error: null };
       }
       const rows = await queryRows<{ value: number }>(
         "SELECT increment_total_points($1, $2, $3) AS value",
