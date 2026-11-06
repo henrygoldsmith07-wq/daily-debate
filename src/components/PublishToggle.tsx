@@ -22,6 +22,8 @@ export default function PublishToggle({
   opponentConsent?: boolean | null;
 }) {
   const [mine, setMine] = useState(initialPublished);
+  // Solo only (050): publish under "A debater" instead of the username (Kialo Edu's anonymous participation).
+  const [anonymous, setAnonymous] = useState(false);
   const [theirs, setTheirs] = useState<boolean | null>(opponentConsent);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +35,7 @@ export default function PublishToggle({
       const res = await fetch("/api/explore/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, id, publish }),
+        body: JSON.stringify({ kind, id, publish, ...(kind === "solo" && publish ? { anonymous } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not update publishing.");
@@ -61,8 +63,8 @@ export default function PublishToggle({
         <p className="publish-toggle-kicker" id={`publish-${id}`}>Explore</p>
         <p className="publish-toggle-status" aria-live="polite">{status}</p>
         <p className="publish-toggle-note">
-          Publishing shows your username and every argument in this debate to anyone, and lets people vote on who argued
-          better.{kind === "pvp" ? " Both players must agree; either of you can take it down." : " You can take it down at any time."}
+          Publishing shows {kind === "solo" && anonymous ? "every argument" : "your username and every argument"} in this
+          debate to anyone, and lets people vote on who argued better.{kind === "pvp" ? " Both players must agree; either of you can take it down." : " You can take it down at any time."}
           {live ? (
             <>
               {" "}
@@ -70,6 +72,18 @@ export default function PublishToggle({
             </>
           ) : null}
         </p>
+        {kind === "solo" && !mine && (
+          <label className="mt-1 flex items-center gap-2 text-xs text-ink2">
+            <input
+              type="checkbox"
+              checked={anonymous}
+              onChange={(event) => setAnonymous(event.target.checked)}
+              disabled={saving}
+              data-testid="publish-anonymous"
+            />
+            Publish without my username (shown as &ldquo;A debater&rdquo;)
+          </label>
+        )}
         {error && <p className="text-xs text-[var(--bad)]" role="alert">{error}</p>}
       </div>
       <button

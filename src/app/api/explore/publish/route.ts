@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = (await request.json().catch(() => null)) as { kind?: unknown; id?: unknown; publish?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { kind?: unknown; id?: unknown; publish?: unknown; anonymous?: unknown } | null;
   const id = isDebateId(body?.id) ? body.id : null;
   const publish = typeof body?.publish === "boolean" ? body.publish : null;
   if (!id || publish === null || (body?.kind !== "solo" && body?.kind !== "pvp")) {
@@ -30,12 +30,12 @@ export async function POST(request: Request) {
 
   try {
     if (body.kind === "solo") {
-      const ok = await setSoloPublished(user.id, id, publish);
+      const ok = await setSoloPublished(user.id, id, publish, body.anonymous === true);
       if (!ok) {
         if (publish && (await isExploreBlocked("solo", id))) return takenDown;
         return NextResponse.json({ error: "Only your own finished debate can be published." }, { status: 404 });
       }
-      return NextResponse.json({ published: publish });
+      return NextResponse.json({ published: publish, anonymous: publish && body.anonymous === true });
     }
     const result = await setPvpPublished(user.id, id, publish);
     if (!result) {

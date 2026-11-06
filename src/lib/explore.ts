@@ -72,6 +72,7 @@ function opposite(side: DebateSide): DebateSide {
 interface SoloRow {
   id: string;
   user_id: string;
+  published_anonymously: boolean | null;
   side: DebateSide;
   title: string;
   published_at: string;
@@ -94,7 +95,7 @@ interface PvpRow {
 }
 
 const SOLO_SELECT = `
-  SELECT d.id, d.user_id, d.side, t.title, d.published_at::text AS published_at, p.username,
+  SELECT d.id, d.user_id, d.published_anonymously, d.side, t.title, d.published_at::text AS published_at, p.username,
     (SELECT user_message FROM solo_debate_turns s WHERE s.debate_id = d.id AND s.user_message IS NOT NULL ORDER BY round_number LIMIT 1) AS first_user,
     (SELECT ai_message FROM solo_debate_turns s WHERE s.debate_id = d.id ORDER BY round_number LIMIT 1) AS first_ai
   FROM solo_debates d
@@ -114,7 +115,9 @@ const PVP_SELECT = `
   WHERE m.status = 'completed' AND m.player_a_publish IS TRUE AND m.player_b_publish IS TRUE`;
 
 function soloItem(row: SoloRow, viewer: string | null): Omit<ExploreItem, "votes" | "myVote"> {
-  const learner: ExploreSide = { name: row.username || FALLBACK_NAME, ai: false, excerpt: excerpt(row.first_user) };
+  // Published anonymously (050): the fallback name, as for an account with no username.
+  const learnerName = row.published_anonymously ? FALLBACK_NAME : row.username || FALLBACK_NAME;
+  const learner: ExploreSide = { name: learnerName, ai: false, excerpt: excerpt(row.first_user) };
   const ai: ExploreSide = { name: AI_OPPONENT_NAME, ai: true, excerpt: excerpt(row.first_ai) };
   return {
     kind: "solo",
@@ -225,15 +228,17 @@ export async function castVote(voter: string, kind: ExploreKind, id: string, cho
 /**
  * Publish or withdraw a finished solo debate. Returns false when it is not the
  * owner's finished debate, or when reports have taken it off Explore (046):
- * withdrawing still works, republishing does not.
+ * withdrawing still works, republishing does not. `anonymous` (050) publishes
+ * it under the fallback name instead of the learner's username.
  */
-export async function setSoloPublished(owner: string, debateId: string, publish: boolean): Promise<boolean> {
+export async function setSoloPublished(owner: string, debateId: string, publish: boolean, anonymous = false): Promise<boolean> {
   const rows = await queryRows<{ id: string }>(
     `UPDATE solo_debates
-        SET published_at = CASE WHEN $3 THEN COALESCE(published_at, now()) ELSE NULL END
+        SET published_at = CASE WHEN $3 THEN COALESCE(published_at, now()) ELSE NULL END,
+            published_anonymously = CASE WHEN $3 THEN $4 ELSE published_anonymously END
       WHERE id = $1 AND user_id = $2 AND status = 'completed' AND (NOT $3 OR explore_blocked_at IS NULL)
       RETURNING id`,
-    [debateId, owner, publish],
+    [debateId, owner, publish, anonymous],
   );
   return rows.length === 1;
 }

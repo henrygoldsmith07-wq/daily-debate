@@ -67,7 +67,10 @@ features, new surfaces, or claims.
 - rematch on a fresh result ("Argue the other side", "Rematch, harder";
   copied from direct AI-debate competitors) → debate starts;
 - "Install the app" via the browser's install prompt (copied from
-  ArguFight / MindDuel shipping as phone apps) → D1 return.
+  ArguFight / MindDuel shipping as phone apps) → D1 return;
+- practice calendar on History (DebateMaster AI) → returning users;
+  transcript download (Practice Debate) and anonymous publishing on
+  Explore (Kialo Edu) → published debates.
 
 ## Active backlog (serves the loop only)
 
