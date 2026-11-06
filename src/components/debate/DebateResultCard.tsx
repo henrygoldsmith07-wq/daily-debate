@@ -25,6 +25,8 @@ import { closeCallNote } from "@/lib/resultSnapshot";
 import ShareResultButton from "../ShareResultButton";
 import { dailyNumber, sharePath, shareText, soloRoundMarks, type ShareCardInput } from "@/lib/shareCard";
 import { streakMilestone } from "@/lib/streakMilestone";
+import RematchActions from "./RematchActions";
+import type { OpponentDifficulty, OpponentPersonaId } from "@/lib/opponentPersona";
 
 export interface DebateResultCardProps {
   view: ReplayView;
@@ -51,6 +53,8 @@ export interface DebateResultCardProps {
   /** Judge-output validation for the repair exercise mounted below. */
   repairValidation?: SurfaceValidation | null;
   recurrenceAlert?: RecurrenceAlert | null;
+  /** Same-motion rematch on a fresh result (RematchActions). */
+  rematch?: { topicId: string; persona: OpponentPersonaId; difficulty: OpponentDifficulty } | null;
 }
 
 export function DebateResultCard({
@@ -67,6 +71,7 @@ export function DebateResultCard({
   soloValidation = null,
   repairValidation = null,
   recurrenceAlert = null,
+  rematch = null,
 }: DebateResultCardProps) {
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
   const [feedbackMissed, setFeedbackMissed] = useState(false);
@@ -390,6 +395,15 @@ export function DebateResultCard({
                   {copyState === "copied" ? "Summary copied to clipboard" : copyState === "failed" ? "Copy failed" : ""}
                 </span>
               </button>
+            )}
+            {view.fresh && side && rematch && (
+              <RematchActions
+                topicId={rematch.topicId}
+                side={side}
+                format={format}
+                persona={rematch.persona}
+                difficulty={rematch.difficulty}
+              />
             )}
             {!view.fresh && (
               <Link href="/history" className="btn btn-ghost px-3 py-1.5 text-xs">

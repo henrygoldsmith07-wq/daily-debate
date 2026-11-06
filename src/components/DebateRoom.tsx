@@ -152,6 +152,7 @@ export default function DebateRoom({
         soloValidation={soloValidation}
         repairValidation={repairValidation}
         recurrenceAlert={recurrenceAlert}
+        rematch={{ topicId: debate.topic_id, persona: debate.persona, difficulty: debate.difficulty }}
       />
       <ClaimsPanel
         sources={session.turns.flatMap((turn) => [
