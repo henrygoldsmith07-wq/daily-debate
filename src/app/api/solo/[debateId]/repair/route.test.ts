@@ -89,9 +89,10 @@ vi.mock("@/lib/observableAssessment", () => ({
   assessArgumentGraph: vi.fn(() => ({ graph: { nodes: [] } })),
   mergeAssessmentGraphs: vi.fn(() => ({ nodes: [] })),
 }));
-vi.mock("@/lib/argumentRepair", () => ({
+vi.mock("@/lib/argumentRepair", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/argumentRepair")>(),
   pickRepairTarget: vi.fn(() => ({ kind: "evidence", sourceText: "An unsupported claim." })),
-  scoreRepair: vi.fn(() => ({ score: 75, state: "repaired", signals: [] })),
+  scoreRepair: vi.fn(() => ({ score: 75, state: "repair_demonstrated", signals: [] })),
 }));
 const recordEvent = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("@/lib/productEvents", () => ({ recordProductEventForUser: recordEvent }));
