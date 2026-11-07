@@ -8,8 +8,9 @@
  * accident.
  *
  * `NEXT_PUBLIC_EXPERIMENTAL_SURFACES` gates the surfaces the roadmap parks
- * until the daily loop has real weekly users: PvP, friend challenges, voice
- * input, and the corpus-validation destinations. The flag hides them from
+ * until the daily loop has real weekly users: PvP, friend challenges and the
+ * corpus-validation destinations. Voice input left that list in Nov 2026
+ * (copied from Debatable's voice-first practice): see voiceInputEnabled. The flag hides them from
  * navigation and primary entry points only — every route, component, and test
  * behind the flag stays in the codebase and passes with the flag set to "1"
  * (the e2e webServer sets it, because those specs exist to exercise these
@@ -18,4 +19,14 @@
 
 export function experimentalSurfacesEnabled(): boolean {
   return process.env.NEXT_PUBLIC_EXPERIMENTAL_SURFACES === "1";
+}
+
+/**
+ * Voice input in the debate composer, on by default wherever the browser has
+ * speech recognition (Chrome, Edge). `NEXT_PUBLIC_VOICE_INPUT=0` turns it off.
+ * Unlike the experimental flag this one defaults ON, so only an exact "0"
+ * disables it.
+ */
+export function voiceInputEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_VOICE_INPUT !== "0";
 }

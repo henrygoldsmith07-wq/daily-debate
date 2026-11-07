@@ -134,7 +134,7 @@ pages) are additionally hidden from navigation behind
 ### Also parked
 
 - **Speech:** real STT beyond the browser Web Speech API; speech debates.
-  (Voice input exists behind the experimental-surfaces flag, Chrome-family.)
+  (Browser voice input is on by default since Nov 2026, Chrome-family.)
 - **Sharing:** public shareable debate replay.
 - **Citation & evidence depth:** live citation fetching (the offline
   allowlist, quote verification, claim-to-source matching, and source-date
