@@ -5,7 +5,7 @@ const h = vi.hoisted(() => {
     timezone: "America/Los_Angeles" as string | null,
     drillFilters: null as Map<string, unknown> | null,
     drillUpdate: null as Record<string, unknown> | null,
-    duplicateRow: null as { id: string } | null,
+    duplicateRow: null as { id: string; score: number; succeeded: boolean; signals: string[] } | null,
     assignment: { id: "drill-1", attempt_text: null } as { id: string; attempt_text: string | null } | null,
     priorRepairTexts: [] as string[],
     drillUpdateFilters: null as Map<string, unknown> | null,
@@ -180,12 +180,19 @@ describe("POST /api/solo/[debateId]/repair — duplicate submissions", () => {
   });
 
   it("does not store or re-emit an identical rewrite that is already saved", async () => {
-    h.state.duplicateRow = { id: "existing" };
+    h.state.duplicateRow = { id: "existing", score: 40, succeeded: false, signals: ["saved signal", "help_level:1"] };
+    h.state.drillUpdate = null;
     const res = await post();
     expect(res.status).toBe(200);
     expect(h.state.inserts).toBe(0);
     expect(recordEvent).not.toHaveBeenCalled();
-    expect((await res.json()).succeeded).toBe(true);
+    expect(h.state.drillUpdate).toBeNull();
+    expect(await res.json()).toMatchObject({
+      succeeded: false,
+      state: "partially_repaired",
+      signals: ["saved signal"],
+      helpLevel: 1,
+    });
   });
   it("ignores a claimed help level before any failed attempt and withholds help", async () => {
     const res = await POST(

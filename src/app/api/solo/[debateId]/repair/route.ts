@@ -3,8 +3,8 @@ import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
-import { isRepairKind, pickRepairTarget, scoreRepair, type RepairTarget } from "@/lib/argumentRepair";
-import { clampHelpLevel, maxUnlockedLevel, tagHelpSignal, unlockedHelp } from "@/lib/repairHints";
+import { isRepairKind, pickRepairTarget, repairStateFromScore, scoreRepair, type RepairTarget } from "@/lib/argumentRepair";
+import { clampHelpLevel, helpLevelFromSignals, maxUnlockedLevel, tagHelpSignal, unlockedHelp, visibleSignals } from "@/lib/repairHints";
 import { recordProductEventForUser } from "@/lib/productEvents";
 import { REPAIR_KIND_TO_DIMENSION } from "@/lib/repairRetest";
 import { dateKeyInTimeZone, normalizeIanaTimeZone } from "@/lib/timeZone";
@@ -176,9 +176,38 @@ async function submitRepair(request: Request, { params }: RouteContext) {
   if (!target) return NextResponse.json({ error: "No repair target found for this debate." }, { status: 404 });
 
   const priorFailed = await failedAttemptsFor(db, user.id, debateId, target.kind);
-  const helpLevel = clampHelpLevel(body?.helpLevel, priorFailed);
-  const result = scoreRepair(target, rewrite);
-  const succeeded = result.score >= REPAIR_SUCCESS_THRESHOLD;
+  // A double-click, a network retry or a re-sent request carries the same
+  // rewrite. Persisting it again would inflate repair counts and the repair
+  // funnel, so an identical stored rewrite for this debate and target is
+  // answered from the stored row: nothing new is written or emitted.
+  const { data: duplicate, error: duplicateError } = await db
+    .from("repair_results")
+    .select("id, score, succeeded, signals")
+    .eq("user_id", user.id)
+    .eq("debate_id", debateId)
+    .eq("target_kind", target.kind)
+    .eq("rewrite_text", rewrite)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  requireRepairRead(duplicateError);
+  if (duplicate) {
+    const signals = Array.isArray(duplicate.signals)
+      ? duplicate.signals.filter((signal): signal is string => typeof signal === "string")
+      : [];
+    return NextResponse.json({
+      target,
+      state: duplicate.succeeded ? "repair_demonstrated" : repairStateFromScore(duplicate.score),
+      signals: visibleSignals(signals),
+      succeeded: duplicate.succeeded,
+      helpLevel: helpLevelFromSignals(signals),
+      failedAttempts: priorFailed,
+      unlockedLevel: maxUnlockedLevel(priorFailed),
+      help: unlockedHelp(target, priorFailed),
+      feedback: "Already recorded. This is the saved feedback for this version; no new attempt or drill update was made.",
+    });
+  }
 
   const { data: priorSuccess, error: priorSuccessError } = await db
     .from("repair_results")
@@ -192,23 +221,11 @@ async function submitRepair(request: Request, { params }: RouteContext) {
 
   requireRepairRead(priorSuccessError);
 
-  // A double-click, a network retry or a re-sent request carries the same
-  // rewrite. Persisting it again would inflate repair counts and the repair
-  // funnel, so an identical stored rewrite for this debate and target is
-  // answered from the stored row: nothing new is written or emitted.
-  const { data: duplicate, error: duplicateError } = await db
-    .from("repair_results")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("debate_id", debateId)
-    .eq("target_kind", target.kind)
-    .eq("rewrite_text", rewrite)
-    .limit(1)
-    .maybeSingle();
+  const helpLevel = clampHelpLevel(body?.helpLevel, priorFailed);
+  const result = scoreRepair(target, rewrite);
+  const succeeded = result.score >= REPAIR_SUCCESS_THRESHOLD;
 
-  requireRepairRead(duplicateError);
-
-  const { error: insertError } = duplicate ? { error: null } : await db.from("repair_results").insert({
+  const { error: insertError } = await db.from("repair_results").insert({
     user_id: user.id,
     debate_id: debateId,
     target_kind: target.kind,
@@ -226,9 +243,8 @@ async function submitRepair(request: Request, { params }: RouteContext) {
 
   // Link the repair into the coaching system: if today's drill assignment
   // targets the same dimension, the latest submitted rewrite becomes the
-  // assignment's formative attempt. Do this for retries too — otherwise a
-  // better second draft is persisted in repair_results while coaching remains
-  // stuck on the first draft. We deliberately do NOT compare the two scores:
+  // assignment's formative attempt. A changed draft updates coaching; an
+  // identical replay returns above without touching today's assignment.
   // repair and drill rubrics are formative signals, not a shared skill scale.
   try {
     const service = createServiceClient();
@@ -289,18 +305,16 @@ async function submitRepair(request: Request, { params }: RouteContext) {
     console.error("Failed to link repair to drill assignment:", error);
   }
 
-  if (!duplicate) {
-    await recordProductEventForUser(user.id, "repair_attempted", {
-      reason: result.state,
-      debateId,
-    });
-  }
+  await recordProductEventForUser(user.id, "repair_attempted", {
+    reason: result.state,
+    debateId,
+  });
 
   // A prompted rewrite demonstrating the requested structure is not a later
   // learning outcome. Give it its own event, then close the episode exactly
   // once on the first successful attempt. Legacy repair_completed remains
   // readable in analytics but is no longer emitted by new code.
-  if (succeeded && !duplicate) {
+  if (succeeded) {
     await recordProductEventForUser(user.id, "repair_demonstrated", {
       reason: target.kind,
       debateId,
@@ -319,9 +333,9 @@ async function submitRepair(request: Request, { params }: RouteContext) {
     signals: result.signals,
     succeeded,
     helpLevel,
-    failedAttempts: succeeded || duplicate ? priorFailed : priorFailed + 1,
-    unlockedLevel: maxUnlockedLevel(succeeded || duplicate ? priorFailed : priorFailed + 1),
-    help: unlockedHelp(target, succeeded || duplicate ? priorFailed : priorFailed + 1),
+    failedAttempts: succeeded ? priorFailed : priorFailed + 1,
+    unlockedLevel: maxUnlockedLevel(succeeded ? priorFailed : priorFailed + 1),
+    help: unlockedHelp(target, succeeded ? priorFailed : priorFailed + 1),
     feedback: succeeded
       ? "Recorded. You demonstrated the requested repair move in this prompted practice. Your next debate will test whether it transfers."
       : result.state === "partially_repaired"
