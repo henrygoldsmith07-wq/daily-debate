@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ArgGraph } from "@/lib/argGraph";
 import type { RepairTarget } from "@/lib/argumentRepair";
-import { pickRepairTarget, scoreRepair, type RepairScore, type RepairState } from "@/lib/argumentRepair";
+import { pickRepairTarget, repairSourceOwner, scoreRepair, type RepairScore, type RepairState } from "@/lib/argumentRepair";
 import { WEAKNESS_CONSEQUENCE, repairSuccessTransition } from "@/lib/retest";
 import ValidationStatusLine from "./ValidationStatusLine";
 import type { SurfaceValidation } from "@/lib/judgeValidation";
@@ -75,12 +75,18 @@ export default function ArgumentRepair({
     );
   }
 
+  const sourceOwner = repairSourceOwner(target, graph);
+
   async function checkRepair() {
     if (submitting) return;
     setPersisted(null);
-    const local = scoreRepair(target!, draft);
-    setResult(local);
-    if (!debateId) return;
+    // With a debate id the server verdict is authoritative; showing the local
+    // score first could flash "Repair demonstrated" and then contradict it.
+    if (!debateId) {
+      setResult(scoreRepair(target!, draft));
+      return;
+    }
+    setResult(null);
     setSubmitting(true);
     setError(null);
     try {
@@ -89,8 +95,8 @@ export default function ArgumentRepair({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rewrite: draft, helpLevel: revealed }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to record the repair.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to record the repair. Your draft is still here — try again.");
       setPersisted({
         state: data.state,
         signals: data.signals,
@@ -120,7 +126,9 @@ export default function ArgumentRepair({
           <p className="repair-overline">One-minute repair</p>
           <h2 id="repair-title" className="mt-1 text-xl font-semibold tracking-tight">Repair the weak link</h2>
           <p className="mt-1 max-w-xl text-sm leading-6 text-ink3">
-            Rewrite this one move from your debate and get an explainable, skill-specific check. Your debate score never changes.
+            {sourceOwner === "opponent"
+              ? "Answer this one opposing move from your debate and get an explainable, skill-specific check. Your debate score never changes."
+              : "Rewrite this one move of yours and get an explainable, skill-specific check. Your debate score never changes."}
           </p>
         </div>
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">{target.label}</span>
@@ -129,7 +137,7 @@ export default function ArgumentRepair({
       <ValidationStatusLine validation={validation} testId="repair-validation-state" />
 
       <div className="repair-target" data-testid="repair-source">
-        <p className="repair-target-label">From your debate{typeof target.sourceRound === "number" ? ` · round ${target.sourceRound}` : ""}</p>
+        <p className="repair-target-label">From your debate · {sourceOwner === "opponent" ? "opponent's move" : "your move"}{typeof target.sourceRound === "number" ? ` · round ${target.sourceRound}` : ""}</p>
         <p className="mt-1 text-sm leading-6 text-ink2">“{target.sourceText}”</p>
       </div>
 

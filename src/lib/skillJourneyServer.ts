@@ -14,6 +14,7 @@ import type { ObservableAssessment } from "./observableAssessment";
 import { countWeaknessesForSide, debateOpportunities, type DebateWeaknessRow } from "./repairEffectiveness";
 import type { RepairRecord } from "./retest";
 import { retestOutcomeFromAssignment } from "./retest";
+import { compareIsoAsc, toIsoOrNull } from "./isoTimestamp";
 
 export interface JourneyInputs {
   repairs: RepairRecord[];
@@ -33,11 +34,11 @@ interface RetestRow {
  * timestamptz columns come back as Date objects; the public record shape and
  * every Date.parse consumer expect ISO strings. Normalise once at the read.
  */
-function isoString(value: unknown): string {
-  return value instanceof Date ? value.toISOString() : typeof value === "string" ? value : new Date().toISOString();
+function isoString(value: unknown): string | null {
+  return toIsoOrNull(value);
 }
 
-/** Load repairs + per-debate weakness counts for one user (bounded history). */
+/** Load recent repairs and debate observations, returned in chronological order. */
 export async function buildJourneyInputsForUser(userId: string): Promise<JourneyInputs> {
   const db = await createClient();
   const [{ data: repairRows }, { data: debates }, { data: retests }] = await Promise.all([
@@ -45,20 +46,20 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
       .from("repair_results")
       .select("id, user_id, debate_id, target_kind, source_text, rewrite_text, score, succeeded, created_at")
       .eq("user_id", userId)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(50),
     db
       .from("solo_debates")
       .select("id, completed_at, format")
       .eq("user_id", userId)
       .eq("status", "completed")
-      .order("completed_at", { ascending: true })
+      .order("completed_at", { ascending: false })
       .limit(30),
     db
       .from("repair_retests")
       .select("repair_result_id, assigned_debate_id, assigned_at, completed_at, observable, demonstrated")
       .eq("user_id", userId)
-      .order("assigned_at", { ascending: true })
+      .order("assigned_at", { ascending: false })
       .limit(100),
   ]);
 
@@ -67,8 +68,9 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
   for (const row of (retests ?? []) as unknown as RetestRow[]) {
     const current = retestByRepair.get(row.repair_result_id);
     const assignedAt = isoString(row.assigned_at);
+    if (!assignedAt) continue;
     const candidate: RetestRow = { ...row, assigned_at: assignedAt, completed_at: row.completed_at ? isoString(row.completed_at) : null };
-    if (!current || Date.parse(assignedAt) > Date.parse(isoString(current.assigned_at))) {
+    if (!current || Date.parse(assignedAt) > Date.parse(current.assigned_at as string)) {
       retestByRepair.set(row.repair_result_id, candidate);
     }
   }
@@ -80,19 +82,21 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
     debateFormat.set(debate.id as string, debate.format as string);
   }
 
-  const repairs: RepairRecord[] = (repairRows ?? []).map((row) => {
+  const repairs: RepairRecord[] = (repairRows ?? []).flatMap((row) => {
     // timestamptz comes back as Date; the public record shape is ISO strings.
     const r = row as unknown as RepairRecord & { id: string; created_at: string | Date };
+    const createdAt = isoString(r.created_at);
+    if (!createdAt) return [];
     const retest = retestByRepair.get(r.id);
-    return {
+    return [{
       ...r,
-      created_at: isoString(r.created_at),
+      created_at: createdAt,
       retest_debate_id: retest?.assigned_debate_id ?? null,
       retest_outcome: retest
         ? retestOutcomeFromAssignment(retest, debateFormat.get(retest.assigned_debate_id) ?? null)
         : null,
       retest_completed_at: retest?.completed_at ? isoString(retest.completed_at) : null,
-    };
+    }];
   });
 
   // One batched read for every debate's turns (was one sequential query per
@@ -117,6 +121,8 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
 
   const rows: DebateWeaknessRow[] = [];
   for (const debate of debates ?? []) {
+    const completedAt = isoString(debate.completed_at);
+    if (!completedAt) continue;
     const graphs = turnsByDebate.get(debate.id as string) ?? [];
     if (!graphs.length) continue;
     const merged = assessArgumentGraph(mergeAssessmentGraphs(graphs), {
@@ -129,11 +135,14 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
     rows.push({
       debateId: debate.id as string,
       userId,
-      completedAt: debate.completed_at ? isoString(debate.completed_at) : new Date().toISOString(),
+      completedAt,
       kinds: countWeaknessesForSide(merged.graph, "a"),
       opps: debateOpportunities(merged.graph, "a"),
     });
   }
 
-  return { repairs, weaknessRows: rows };
+  return {
+    repairs: repairs.sort((a, b) => compareIsoAsc(a.created_at, b.created_at)),
+    weaknessRows: rows.sort((a, b) => compareIsoAsc(a.completedAt, b.completedAt)),
+  };
 }
