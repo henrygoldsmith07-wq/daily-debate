@@ -70,7 +70,12 @@ features, new surfaces, or claims.
   ArguFight / MindDuel shipping as phone apps) → D1 return;
 - practice calendar on History (DebateMaster AI) → returning users;
   transcript download (Practice Debate) and anonymous publishing on
-  Explore (Kialo Edu) → published debates.
+  Explore (Kialo Edu) → published debates;
+- voice input on by default (Debatable) and past motions (Kialo Edu /
+  Practice Debate) → debate starts; prep cards (DebateOwl) → completion
+  rate. These three relax roadmap rules by the owner's choice (Nov 2026):
+  voice leaves the experimental flag, past motions is a new surface, and
+  prep un-parks "research/prep mode".
 
 ## Active backlog (serves the loop only)
 
@@ -134,7 +139,7 @@ pages) are additionally hidden from navigation behind
 ### Also parked
 
 - **Speech:** real STT beyond the browser Web Speech API; speech debates.
-  (Voice input exists behind the experimental-surfaces flag, Chrome-family.)
+  (Browser voice input is on by default since Nov 2026, Chrome-family.)
 - **Sharing:** public shareable debate replay.
 - **Citation & evidence depth:** live citation fetching (the offline
   allowlist, quote verification, claim-to-source matching, and source-date

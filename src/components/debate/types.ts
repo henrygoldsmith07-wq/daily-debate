@@ -65,7 +65,8 @@ export interface ReplayView {
 
 export interface DebateRoomProps {
   debate: SoloDebate;
-  topic: { title: string; prompt: string };
+  /** topic_date is set for stored motions; the share card numbers the debate by it. */
+  topic: { title: string; prompt: string; topic_date?: string | null };
   initialTurns: SoloDebateTurn[];
   completedResult?: CompletedResultView | null;
   /** Judge-output validation for the training surface (scores shown here). */

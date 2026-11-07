@@ -54,6 +54,8 @@ export interface DebateResultCardProps {
   /** Judge-output validation for the repair exercise mounted below. */
   repairValidation?: SurfaceValidation | null;
   recurrenceAlert?: RecurrenceAlert | null;
+  /** The motion's date (YYYY-MM-DD); a past motion is shared under its own day's number. */
+  topicDate?: string | null;
   /** Same-motion rematch on a fresh result (RematchActions). */
   rematch?: { topicId: string; persona: OpponentPersonaId; difficulty: OpponentDifficulty } | null;
 }
@@ -73,6 +75,7 @@ export function DebateResultCard({
   repairValidation = null,
   recurrenceAlert = null,
   rematch = null,
+  topicDate = null,
 }: DebateResultCardProps) {
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
   const [feedbackMissed, setFeedbackMissed] = useState(false);
@@ -385,7 +388,7 @@ export function DebateResultCard({
               // opponent move answered or dropped, repair state. No text
               // from the debate, no score.
               const card: ShareCardInput = {
-                dayNumber: dailyNumber(new Date().toISOString()),
+                dayNumber: dailyNumber(topicDate && /^\d{4}-\d{2}-\d{2}/.test(topicDate) ? topicDate : new Date().toISOString()),
                 side,
                 marks: soloRoundMarks(view.argGraph),
                 repaired: view.repaired,

@@ -125,3 +125,18 @@ export function mockPvpJudge(): { rationale: string; argGraph: ArgGraph } {
     },
   };
 }
+
+export function mockMotionPrep(): import("./motionPrep").MotionPrep {
+  return {
+    for: {
+      strongest: "The measurable benefit is large and arrives quickly for the people most affected.",
+      ifTheySay: "The costs fall on people who never agreed to them.",
+      reply: "Then target the transition support at them; that answers the cost without giving up the benefit.",
+    },
+    against: {
+      strongest: "The change shifts real costs onto people with the least room to absorb them.",
+      ifTheySay: "The benefit is too large to give up over transition costs.",
+      reply: "A benefit that depends on unfunded costs is a transfer, not a gain; show who pays first.",
+    },
+  };
+}

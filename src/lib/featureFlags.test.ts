@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { experimentalSurfacesEnabled } from "./featureFlags";
+import { experimentalSurfacesEnabled, voiceInputEnabled } from "./featureFlags";
 
 const FLAG = "NEXT_PUBLIC_EXPERIMENTAL_SURFACES";
 
@@ -26,5 +26,33 @@ describe("experimentalSurfacesEnabled", () => {
       process.env[FLAG] = value;
       expect(experimentalSurfacesEnabled()).toBe(false);
     }
+  });
+});
+
+describe("voiceInputEnabled", () => {
+  const VOICE = "NEXT_PUBLIC_VOICE_INPUT";
+  const previous = process.env[VOICE];
+
+  afterEach(() => {
+    if (previous === undefined) delete process.env[VOICE];
+    else process.env[VOICE] = previous;
+  });
+
+  it("is on by default and off only for an exact \"0\"", () => {
+    delete process.env[VOICE];
+    expect(voiceInputEnabled()).toBe(true);
+    for (const value of ["", "1", "true", " 0"]) {
+      process.env[VOICE] = value;
+      expect(voiceInputEnabled()).toBe(true);
+    }
+    process.env[VOICE] = "0";
+    expect(voiceInputEnabled()).toBe(false);
+  });
+
+  it("does not depend on the experimental-surfaces flag", () => {
+    delete process.env.NEXT_PUBLIC_EXPERIMENTAL_SURFACES;
+    delete process.env[VOICE];
+    expect(experimentalSurfacesEnabled()).toBe(false);
+    expect(voiceInputEnabled()).toBe(true);
   });
 });

@@ -19,7 +19,8 @@
 import providerConfig from "../../config/ai-providers.json";
 import type { DebateSide, DebateSummary, TopicSource, TurnScores } from "./types";
 import { finalizePvpAssessment } from "./observableAssessment";
-import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, streamMockDebateTurn, mockDebateSummary, mockPvpJudge } from "./aiE2eMock";
+import { parseMotionPrep, type MotionPrep } from "./motionPrep";
+import { e2eMockAiEnabled, mockDebateOpening, mockDebateTurn, streamMockDebateTurn, mockDebateSummary, mockPvpJudge, mockMotionPrep } from "./aiE2eMock";
 import { recordAiCall, classifyAiError } from "./aiTelemetry";
 import { isValidDebateTurn, isValidGeneratedTopic, isValidJudgeExtraction, isValidOpening, isValidSummary } from "./aiSchema";
 import { ensureSpendWithinCap, reserveSpendCall, SPEND_RESERVATION_FALLBACK_USD } from "./spendCap";
@@ -986,6 +987,42 @@ export async function debateOpening(params: {
     instruction: `Open a debate on "${params.topicTitle}" — ${params.topicPrompt}\nArgue the "${params.aiSide}" side in 2-4 sentences, stating a clear, specific opening claim (not a vague restatement of the prompt).${opponentStyle}`,
   });
   return result.aiMessage;
+}
+
+// --- Motion prep (DebateOwl-style prep cards) --------------------------------
+
+const PREP_SIDE_SCHEMA = {
+  type: "object",
+  properties: {
+    strongest: { type: "string", description: "This side's single strongest point, one or two sentences." },
+    ifTheySay: { type: "string", description: "The other side's most likely objection to it, as they would say it, one sentence." },
+    reply: { type: "string", description: "A short, specific answer to that objection, one or two sentences." },
+  },
+  required: ["strongest", "ifTheySay", "reply"],
+};
+
+const PREP_SCHEMA = {
+  type: "object",
+  properties: { for: PREP_SIDE_SCHEMA, against: PREP_SIDE_SCHEMA },
+  required: ["for", "against"],
+};
+
+/**
+ * Prep for a motion: both sides' strongest point and one "If they say..."
+ * exchange each. Generated once per motion and cached (motionPrepServer.ts).
+ * It is about the motion only and must not coach a debating skill.
+ */
+export async function generateMotionPrep(params: { topicTitle: string; topicPrompt: string }): Promise<MotionPrep> {
+  if (e2eMockAiEnabled()) return mockMotionPrep();
+  const result = await chatJson<MotionPrep>({
+    schema: PREP_SCHEMA,
+    operation: "motion_prep",
+    maxTokens: 700,
+    validate: (value) => parseMotionPrep(value) !== null,
+    instruction: `Prepare a learner for a debate on "${params.topicTitle}" — ${params.topicPrompt}
+For EACH side ("for" and "against"), give: its single strongest point; the other side's most likely objection to that point, phrased as they would say it; and a short, specific reply to that objection. Be even-handed: both sides get an equally strong case. Plain language, no sources invented, no advice about debating technique.`,
+  });
+  return parseMotionPrep(result) as MotionPrep;
 }
 
 const SUMMARY_SCHEMA = {

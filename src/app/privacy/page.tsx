@@ -29,6 +29,11 @@ const PROCESSORS = [
       "Only if you turn on reminders. Your browser gives us a push address and keys; we store them and send an encrypted reminder (a fixed title and line of text, nothing you wrote) through the push service your browser uses. Turning reminders off, or deleting your account, deletes them.",
   },
   {
+    name: "Your browser's speech service (Google in Chrome, Microsoft in Edge)",
+    what:
+      "Only if you press Speak instead. Your browser records and transcribes your speech itself, and Chrome and Edge send that audio to their own speech service to do it; we receive only the resulting text, as if you had typed it. We never receive or store audio.",
+  },
+  {
     name: "classifier.dev (argument-structure classification)",
     what:
       "Disabled by default. If the operator enables `CLASSIFIER_DEV_ENABLED=1`, argument texts (truncated to 4,000 characters) plus the motion title and prompt are sent for rhetorical-role classification. No ids, winners, scores, or political judgements are sent.",
