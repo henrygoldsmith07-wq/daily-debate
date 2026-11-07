@@ -17,6 +17,7 @@ import { experimentalSurfacesEnabled } from "./featureFlags";
 
 export type NavIconName =
   | "today"
+  | "motions"
   | "pvp"
   | "explore"
   | "progress"
@@ -57,6 +58,12 @@ export const NAV_SECTIONS: NavSection[] = [
         description: "Today's motion and your next rep",
         icon: "today",
         primary: true,
+      },
+      {
+        href: "/motions",
+        label: "Past motions",
+        description: "Debate any of the last 30 daily motions",
+        icon: "motions",
       },
       {
         href: "/pvp",
