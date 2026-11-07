@@ -47,6 +47,9 @@ export function isLikelyMaliciousUrl(url: string): boolean {
   } catch { return true; }
 }
 
+const INJECTION_RE =
+  /\b(?:ignore|disregard) (?:all |any )?(?:the )?(?:previous|prior|above|earlier) (?:instructions|prompts?)\b|\byou are now (?:in )?(?:developer mode|dan\b|an? (?:unrestricted|unfiltered|jailbroken) )|\bjailbreak (?:mode|prompt)\b/i;
+
 export function moderateMessage(text: string): ModerationFlag[] {
   const out: ModerationFlag[] = [];
   if (BANNED_RE.test(text)) out.push({ kind: "harassment", note: "Harassment language detected.", severity: "high" });
@@ -54,7 +57,10 @@ export function moderateMessage(text: string): ModerationFlag[] {
   if (DOXX_RE.test(text)) out.push({ kind: "harassment", note: "Possible personal data (doxxing) detected.", severity: "high" });
   if (SPAM_RE.test(text)) out.push({ kind: "spam", note: "Repeated characters — likely spam.", severity: "low" });
   if (text.length > 30 && text === text.toUpperCase()) out.push({ kind: "excessive_caps", note: "All caps.", severity: "low" });
-  if (/ignore previous instructions|you are now|jailbreak/i.test(text)) out.push({ kind: "injected_instruction", note: "Instruction injection attempt.", severity: "high" });
+  // Narrow on purpose: this blocks the turn outright, and bare "you are now" or
+  // "jailbreak" rejected ordinary arguments ("you are now paying twice"). Prompts
+  // fence debate text as untrusted data, so this is only a backstop.
+  if (INJECTION_RE.test(text)) out.push({ kind: "injected_instruction", note: "Instruction injection attempt.", severity: "high" });
   if (UNSAFE_RE.test(text)) out.push({ kind: "unsafe_content", note: "Potentially unsafe content.", severity: "high" });
 
   const urls = [...text.matchAll(MALICIOUS_URL_RE)].map((m) => m[1]);

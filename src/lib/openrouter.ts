@@ -25,7 +25,7 @@ import { recordAiCall, classifyAiError } from "./aiTelemetry";
 import { isValidDebateTurn, isValidGeneratedTopic, isValidJudgeExtraction, isValidOpening, isValidSummary } from "./aiSchema";
 import { ensureSpendWithinCap, reserveSpendCall, SPEND_RESERVATION_FALLBACK_USD } from "./spendCap";
 import type { ArgumentRoute } from "./argumentTaxonomy";
-import { renderUntrusted, renderUntrustedTranscript, UNTRUSTED_INSTRUCTION } from "./untrustedContent";
+import { fenceUntrusted, renderTranscriptFromRows, renderUntrusted, renderUntrustedTranscript, UNTRUSTED_INSTRUCTION } from "./untrustedContent";
 import { readSseStream } from "./sse";
 import { createJsonFieldStream } from "./jsonFieldStream";
 
@@ -309,6 +309,7 @@ async function post(
   { instruction, schema, maxTokens }: ResolvedChatOptions,
   compat: Compat,
   stream?: { signal?: AbortSignal },
+  signal?: AbortSignal,
 ): Promise<Response> {
   const { provider, key, model: m } = step;
   const payload: Record<string, unknown> = {
@@ -345,7 +346,7 @@ async function post(
         : {}),
     },
     body: JSON.stringify(payload),
-    ...(stream?.signal ? { signal: stream.signal } : {}),
+    ...((stream?.signal ?? signal) ? { signal: stream?.signal ?? signal } : {}),
   });
 }
 
@@ -370,8 +371,23 @@ async function tryModel<T>(
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const startedAt = Date.now();
-    const response = await post(step, options, compat);
-    const body: unknown = await response.json().catch(() => null);
+    // Bound the attempt by the remaining retry budget, and treat a transport
+    // failure as this step failing: previously a hung connection held the
+    // request open and a network error escaped the failover chain entirely.
+    const controller = new AbortController();
+    const budgetTimer = setTimeout(() => controller.abort(), Math.max(1_000, deadline - Date.now()));
+    let fetched: { response: Response; body: unknown };
+    try {
+      const res = await post(step, options, compat, undefined, controller.signal);
+      fetched = { response: res, body: await res.json().catch(() => null) };
+    } catch (error) {
+      const message = `transport failed: ${(error as Error).message}`;
+      recordAttempt(step, options.operation, startedAt, undefined, undefined, "error", message);
+      return { ok: false, error: `${m}: ${message}` };
+    } finally {
+      clearTimeout(budgetTimer);
+    }
+    const { response, body } = fetched;
     const usage = (body as { usage?: OpenRouterUsage })?.usage;
     const record = (outcome: "ok" | "error", error?: string) =>
       recordAiCall({
@@ -1021,14 +1037,16 @@ const SUMMARY_SCHEMA = {
 
 export async function summarizeSoloDebate(params: {
   topicTitle: string;
-  transcript: string;
+  /** Server rows: speaker and round come from the database, never the message text. */
+  turns: Array<{ speaker: string; round: number; message: string }>;
 }): Promise<DebateSummary> {
   if (e2eMockAiEnabled()) return mockDebateSummary();
+  const transcript = fenceUntrusted(renderTranscriptFromRows(params.turns));
   return chatJson<DebateSummary>({
     schema: SUMMARY_SCHEMA,
     operation: "summarize_solo",
     validate: isValidSummary,
-    instruction: `Here is a full debate practice transcript on "${params.topicTitle}":\n\n${UNTRUSTED_INSTRUCTION}\n\n${params.transcript}\n\nGive the user a short overall assessment of their critical-thinking performance, with specific strengths and areas to improve.`,
+    instruction: `Here is a full debate practice transcript on "${params.topicTitle}":\n\n${UNTRUSTED_INSTRUCTION}\n\n${transcript}\n\nGive the user a short overall assessment of their critical-thinking performance, with specific strengths and areas to improve.`,
   });
 }
 

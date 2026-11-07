@@ -40,9 +40,7 @@ describe("same-day retest rules", () => {
       attemptedAt: `${TODAY}T09:00:00.000Z`,
       topicId: "topic-a",
     };
-    // Pinned to the same TODAY as the anchor: without it the real clock moved
-    // past REPAIR_RETEST_EXPIRY_DAYS (14) on 2026-11-07 and the anchor expired.
-    const nowMs = Date.parse(`${TODAY}T18:00:00.000Z`);
+    const nowMs = Date.parse(`${TODAY}T12:00:00.000Z`);
     expect(selectEligiblePendingRetest([], [repairedToday], "topic-b", nowMs)?.repairResultId).toBe("r-today");
     expect(selectEligiblePendingRetest([], [repairedToday], "topic-a", nowMs)).toBeNull();
   });

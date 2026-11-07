@@ -28,6 +28,10 @@ export interface RepairTarget {
   sourceNodeId?: string;
   /** Debate round the quoted text came from, when known. */
   sourceRound?: number;
+  /** Whose words `sourceText` quotes: rebuttal/engagement targets quote the opponent. */
+  sourceOwner?: "you" | "opponent";
+  /** No evidenced weakness was found; this is an optional practice rep, not a diagnosis. */
+  practiceOnly?: boolean;
 }
 
 export interface RepairScore {
@@ -122,6 +126,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
       sourceText: unsupported.text,
       sourceNodeId: unsupported.id,
       sourceRound: unsupported.round,
+      sourceOwner: "you",
     };
   }
 
@@ -137,6 +142,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
         sourceText: node.text,
         sourceNodeId: node.id,
         sourceRound: node.round,
+        sourceOwner: "you",
       };
     }
   }
@@ -154,6 +160,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
         sourceText: `${first.text} / ${second.text}`,
         sourceNodeId: first.id,
         sourceRound: first.round,
+        sourceOwner: "you",
       };
     }
   }
@@ -174,6 +181,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
       sourceText: unansweredOpportunity.text,
       sourceNodeId: unansweredOpportunity.id,
       sourceRound: unansweredOpportunity.round,
+      sourceOwner: "opponent",
     };
   }
 
@@ -189,6 +197,7 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
         sourceText: claim.text,
         sourceNodeId: claim.id,
         sourceRound: claim.round,
+        sourceOwner: "you",
       };
     }
   }
@@ -217,21 +226,56 @@ export function pickRepairTarget(graph: ArgGraph): RepairTarget | null {
       sourceText: engagementGap.text,
       sourceNodeId: engagementGap.id,
       sourceRound: engagementGap.round,
+      sourceOwner: "opponent",
     };
   }
 
+  // Nothing above found an evidenced weakness. Offer an optional practice rep
+  // rather than presenting a flaw, and quote exactly the text the prompt asks
+  // the learner to work on (previously it quoted the learner's own move while
+  // asking them to answer the opponent's).
+  const opponentLast = graph.nodes
+    .filter((node) => node.owner !== "a" && node.text.trim())
+    .reduce<ArgNode | undefined>((latest, node) => (!latest || (node.round ?? 0) >= (latest.round ?? 0) ? node : latest), undefined);
+  if (opponentLast) {
+    return {
+      kind: "clarity",
+      label: "Practice rep",
+      title: "Sharpen your answer",
+      prompt:
+        "No clear weakness was flagged in this debate, so this is optional practice. Answer the opponent's last move in tighter form: name what it claims, test the assumption it rests on, and say why your position still holds.",
+      sourceText: opponentLast.text,
+      sourceNodeId: opponentLast.id,
+      sourceRound: opponentLast.round,
+      sourceOwner: "opponent",
+      practiceOnly: true,
+    };
+  }
   const longest = [...own].sort((a, b) => b.text.length - a.text.length)[0] ?? firstOwnClaim(graph);
   if (!longest) return null;
   return {
     kind: "clarity",
-    label: "Engagement opportunity",
-    title: "Answer the move they made",
+    label: "Practice rep",
+    title: "Pre-empt the objection",
     prompt:
-      "Take the opponent's last move and answer it before anything else: name what they claimed, test the assumption it rests on, and say why your answer follows. Keep your own claim for the sentence after.",
+      "No clear weakness was flagged in this debate, so this is optional practice. Name the strongest objection to this move of yours, then answer it: test the assumption the objection rests on and say why your position still holds.",
     sourceText: longest.text,
     sourceNodeId: longest.id,
     sourceRound: longest.round,
+    sourceOwner: "you",
+    practiceOnly: true,
   };
+}
+
+/**
+ * Whose words a target quotes. Targets persisted before `sourceOwner` existed
+ * are resolved from the graph node, then from the kind.
+ */
+export function repairSourceOwner(target: RepairTarget, graph?: Pick<ArgGraph, "nodes"> | null): "you" | "opponent" {
+  if (target.sourceOwner) return target.sourceOwner;
+  const node = target.sourceNodeId ? graph?.nodes?.find((n) => n.id === target.sourceNodeId) : undefined;
+  if (node) return node.owner === "a" ? "you" : "opponent";
+  return target.kind === "rebuttal" ? "opponent" : "you";
 }
 
 /**

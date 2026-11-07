@@ -247,14 +247,17 @@ async function finishSoloDebate(
   }
   const { topic, priorAssessments, priorDebateKinds } = finalizationContext;
 
-  const transcript = answered
-    .map((turn) => `AI: ${turn.ai_message}\nUser: ${turn.user_message}`)
-    .join("\n\n");
+  // Typed rows, not a raw "AI:/User:" string: a learner's text could otherwise
+  // forge transcript lines and steer the generated feedback.
+  const summaryTurns = answered.flatMap((turn) => [
+    { speaker: "AI (opposing)", round: turn.round_number, message: turn.ai_message ?? "" },
+    { speaker: "User", round: turn.round_number, message: turn.user_message ?? "" },
+  ]);
 
   let summary;
   let summarySource: "ai" | "fallback" = "ai";
   try {
-    summary = await summarizeSoloDebate({ topicTitle: topic.title, transcript });
+    summary = await summarizeSoloDebate({ topicTitle: topic.title, turns: summaryTurns });
   } catch (error) {
     console.error("Failed to summarize debate:", error);
     summarySource = "fallback";
