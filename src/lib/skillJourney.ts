@@ -139,7 +139,15 @@ export function buildSkillJourney(
   void opts;
   const byDimension = new Map<CoachDimension, SkillJourneyEntry>();
 
-  const sorted = [...repairs].sort((a, b) => compareIsoAsc(a.created_at, b.created_at));
+  // A retry cannot erase success or move its transfer-observation clock.
+  const episodes = new Map<string, RepairRecord>();
+  for (const repair of [...repairs].sort((a, b) => compareIsoAsc(a.created_at, b.created_at))) {
+    if (!Number.isFinite(Date.parse(repair.created_at))) continue;
+    const key = `${repair.user_id}\0${repair.debate_id}\0${repair.target_kind}`;
+    const current = episodes.get(key);
+    if (!current?.succeeded) episodes.set(key, repair);
+  }
+  const sorted = [...episodes.values()].sort((a, b) => compareIsoAsc(a.created_at, b.created_at));
   for (const repair of sorted) {
     const dimension = REPAIR_KIND_TO_DIMENSION[repair.target_kind];
     if (!dimension) continue;
