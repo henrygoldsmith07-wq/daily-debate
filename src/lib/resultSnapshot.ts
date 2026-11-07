@@ -192,7 +192,11 @@ export function buildResultSnapshot(
   // a repeated miss is the most valuable thing to repair next.
   let weakness: ResultWeakness | null = null;
   let weaknessKind: string | null = null;
-  const repair = pickRepairTarget(graph);
+  const pickedRepair = pickRepairTarget(graph);
+  // A practice-only target means no weakness check fired: never present it as
+  // a weakness, a close call, or a recurrence.
+  const practiceRep = pickedRepair?.practiceOnly ? pickedRepair : null;
+  const repair = practiceRep ? null : pickedRepair;
   const presentKinds: string[] = [];
   if (unsupported.length > 0) presentKinds.push("evidence");
   if (unanswered.length > 0 || (opponentMoves > 0 && rebuttals < opponentMoves)) presentKinds.push("rebuttal");
@@ -237,6 +241,14 @@ export function buildResultSnapshot(
       whyItMatters: WEAKNESS_WHY[repair.kind] ?? "One concrete move from this debate is worth rewriting.",
       repair,
       kind: weaknessKind,
+    };
+  } else if (practiceRep) {
+    // kind stays null so coaching, recurrence and retest data record no weakness.
+    weakness = {
+      headline: "No clear weakness flagged this time",
+      whyItMatters: "None of the weakness checks fired on this debate. An optional practice rep is below if you want one.",
+      repair: practiceRep,
+      kind: null,
     };
   }
 
