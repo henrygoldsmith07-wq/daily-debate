@@ -13,6 +13,7 @@ import { useState, type RefObject } from "react";
 import type { SoloDebate } from "@/lib/types";
 import Link from "next/link";
 import ArgumentRepair, { FixThisNowButton } from "../ArgumentRepair";
+import { repairSourceOwner } from "@/lib/argumentRepair";
 import { ArgGraphInline, TrackingGrid } from "../ArgGraphView";
 import ValidationStatusLine from "../ValidationStatusLine";
 import type { DebateSummaryPayload, ReplayView } from "./types";
@@ -238,9 +239,23 @@ export function DebateResultCard({
           {/* One main weakness + why it matters (+ repeated-weakness signal) */}
           {weakness && (
             <div className="rounded-lg border border-[var(--speak)]/30 bg-[var(--speak-soft)] p-4" data-testid="main-weakness">
-              <p className="text-xs uppercase tracking-wide text-[var(--speak)]">Main weakness</p>
+              <p className="text-xs uppercase tracking-wide text-[var(--speak)]">
+                {weakness.repair?.practiceOnly ? "This debate's read" : "Main weakness"}
+              </p>
               <p className="mt-1 text-base font-semibold">{weakness.headline}</p>
               <p className="mt-1 text-sm leading-6 text-ink2">{weakness.whyItMatters}</p>
+              {/* The evidence for the diagnosis stays visible even after the repair panel collapses. */}
+              {weakness.repair?.sourceText && !weakness.repair.practiceOnly && (
+                <figure className="mt-2 border-l-2 border-[var(--speak)]/40 pl-3" data-testid="weakness-evidence">
+                  <figcaption className="text-xs text-ink3">
+                    {repairSourceOwner(weakness.repair, view.argGraph) === "opponent" ? "The opposing move" : "Seen in your argument"}
+                    {typeof weakness.repair.sourceRound === "number" ? ` · round ${weakness.repair.sourceRound}` : ""}
+                  </figcaption>
+                  <blockquote className="mt-0.5 text-sm leading-6 text-ink2">
+                    “{weakness.repair.sourceText.length > 280 ? `${weakness.repair.sourceText.slice(0, 277).trimEnd()}…` : weakness.repair.sourceText}”
+                  </blockquote>
+                </figure>
+              )}
               {closeCallNote(weakness) && (
                 <p className="mt-2 text-xs leading-5 text-ink3" data-testid="weakness-close-call">{closeCallNote(weakness)}</p>
               )}
