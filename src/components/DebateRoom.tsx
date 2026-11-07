@@ -155,6 +155,7 @@ export default function DebateRoom({
         repairValidation={repairValidation}
         recurrenceAlert={recurrenceAlert}
         rematch={{ topicId: debate.topic_id, persona: debate.persona, difficulty: debate.difficulty }}
+        topicDate={toIsoOrNull(topic.topic_date)?.slice(0, 10) ?? null}
       />
       <ClaimsPanel
         sources={session.turns.flatMap((turn) => [

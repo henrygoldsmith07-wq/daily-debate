@@ -628,6 +628,11 @@ export default async function DashboardPage() {
           {debatersLine}
         </p>
       )}
+      <p className="next-motion">
+        <Link href="/motions" className="underline underline-offset-2" data-testid="past-motions-link">
+          Or debate one of the last 30 motions
+        </Link>
+      </p>
       {lapsedSkillKey && (
         <p
           className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink3"
