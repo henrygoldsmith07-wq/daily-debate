@@ -3,7 +3,7 @@ import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { assessArgumentGraph, mergeAssessmentGraphs } from "@/lib/observableAssessment";
 import type { ObservableAssessment } from "@/lib/observableAssessment";
-import { pickRepairTarget, scoreRepair, type RepairTarget } from "@/lib/argumentRepair";
+import { isRepairKind, pickRepairTarget, scoreRepair, type RepairTarget } from "@/lib/argumentRepair";
 import { clampHelpLevel, maxUnlockedLevel, tagHelpSignal, unlockedHelp } from "@/lib/repairHints";
 import { recordProductEventForUser } from "@/lib/productEvents";
 import { REPAIR_KIND_TO_DIMENSION } from "@/lib/repairRetest";
@@ -27,6 +27,33 @@ async function finalAssessmentFor(db: Awaited<ReturnType<typeof createClient>>, 
     mergeAssessmentGraphs(assessments.map((a) => a.graph)),
     { sideA: "a", sideB: "ai", extractionSource: "deterministic", labelA: "You", labelB: "AI opponent" },
   );
+}
+
+/**
+ * The target the result screen persisted at finish is the one the learner was
+ * shown, so it is the one scored. Re-deriving it from turns diverges whenever
+ * extraction or ranking rules change between finish and repair.
+ */
+function persistedRepairTarget(resultPayload: unknown): RepairTarget | null {
+  const repair = (resultPayload as { snapshot?: { weakness?: { repair?: unknown } | null } | null } | null)
+    ?.snapshot?.weakness?.repair;
+  if (!repair || typeof repair !== "object") return null;
+  const t = repair as Partial<RepairTarget>;
+  if (!isRepairKind(t.kind)) return null;
+  if (typeof t.sourceText !== "string" || !t.sourceText.trim()) return null;
+  if (typeof t.label !== "string" || typeof t.title !== "string" || typeof t.prompt !== "string") return null;
+  return t as RepairTarget;
+}
+
+/** Persisted target first; legacy debates without a snapshot re-derive it. */
+async function repairTargetFor(
+  db: Awaited<ReturnType<typeof createClient>>,
+  debate: { id: string; result_payload?: unknown },
+): Promise<RepairTarget | null> {
+  const persisted = persistedRepairTarget(debate.result_payload);
+  if (persisted) return persisted;
+  const assessment = await finalAssessmentFor(db, debate.id);
+  return assessment ? pickRepairTarget(assessment.graph) : null;
 }
 
 async function failedAttemptsFor(
@@ -59,7 +86,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ deba
 
   const { data: debate } = await db
     .from("solo_debates")
-    .select("id, status")
+    .select("id, status, result_payload")
     .eq("id", debateId)
     .eq("user_id", user.id)
     .single();
@@ -68,8 +95,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ deba
     return NextResponse.json({ error: "Finish the debate before repairing it." }, { status: 409 });
   }
 
-  const assessment = await finalAssessmentFor(db, debateId);
-  const target = assessment ? pickRepairTarget(assessment.graph) : null;
+  const target = await repairTargetFor(db, debate);
   if (!target) return NextResponse.json({ target: null });
   const failedAttempts = await failedAttemptsFor(db, user.id, debateId, target.kind);
   return NextResponse.json({
@@ -105,7 +131,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
 
   const { data: debate } = await db
     .from("solo_debates")
-    .select("id, status")
+    .select("id, status, result_payload")
     .eq("id", debateId)
     .eq("user_id", user.id)
     .single();
@@ -114,8 +140,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     return NextResponse.json({ error: "Finish the debate before repairing it." }, { status: 409 });
   }
 
-  const assessment = await finalAssessmentFor(db, debateId);
-  const target: RepairTarget | null = assessment ? pickRepairTarget(assessment.graph) : null;
+  const target = await repairTargetFor(db, debate);
   if (!target) return NextResponse.json({ error: "No repair target found for this debate." }, { status: 404 });
 
   const priorFailed = await failedAttemptsFor(db, user.id, debateId, target.kind);
