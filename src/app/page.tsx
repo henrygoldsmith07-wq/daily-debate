@@ -21,6 +21,7 @@ import { localHour } from "@/lib/reminderDelivery";
 import NextMotionCountdown from "@/components/NextMotionCountdown";
 import AppBadgeClear from "@/components/AppBadgeClear";
 import InstallAppButton from "@/components/InstallAppButton";
+import PrepCards from "@/components/PrepCards";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
@@ -628,6 +629,7 @@ export default async function DashboardPage() {
           {debatersLine}
         </p>
       )}
+      {!finishedTodaysMotion && <PrepCards topicId={topic.id} />}
       <p className="next-motion">
         <Link href="/motions" className="underline underline-offset-2" data-testid="past-motions-link">
           Or debate one of the last 30 motions
