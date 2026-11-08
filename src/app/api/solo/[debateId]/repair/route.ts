@@ -10,6 +10,7 @@ import { REPAIR_KIND_TO_DIMENSION } from "@/lib/repairRetest";
 import { dateKeyInTimeZone, normalizeIanaTimeZone } from "@/lib/timeZone";
 
 const REPAIR_SUCCESS_THRESHOLD = 60;
+const MAX_REPAIR_REQUEST_BYTES = 8_192;
 
 class RepairReadUnavailable extends Error {}
 
@@ -18,6 +19,46 @@ function requireRepairRead(error: unknown) {
 }
 
 type RouteContext = { params: Promise<{ debateId: string }> };
+
+async function readRepairBody(request: Request): Promise<{ ok: true; body: unknown } | { ok: false; tooLarge: boolean }> {
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_REPAIR_REQUEST_BYTES) {
+    return { ok: false, tooLarge: true };
+  }
+  if (!request.body) return { ok: false, tooLarge: false };
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_REPAIR_REQUEST_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return { ok: false, tooLarge: true };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { ok: false, tooLarge: false };
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return { ok: true, body: JSON.parse(new TextDecoder().decode(bytes)) };
+  } catch {
+    return { ok: false, tooLarge: false };
+  }
+}
 
 async function withRepairReadRecovery(action: () => Promise<Response>): Promise<Response> {
   try {
@@ -153,7 +194,11 @@ async function submitRepair(request: Request, { params }: RouteContext) {
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json().catch(() => null);
+  const parsedBody = await readRepairBody(request);
+  if (!parsedBody.ok && parsedBody.tooLarge) {
+    return NextResponse.json({ error: "Repair request is too large." }, { status: 413 });
+  }
+  const body = parsedBody.ok ? parsedBody.body as { rewrite?: unknown; helpLevel?: unknown } : null;
   const rewrite = typeof body?.rewrite === "string" ? body.rewrite.trim() : "";
   if (!rewrite) return NextResponse.json({ error: "rewrite is required." }, { status: 400 });
   if (rewrite.length > 2000) {

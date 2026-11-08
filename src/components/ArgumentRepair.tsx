@@ -123,8 +123,10 @@ export default function ArgumentRepair({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="repair-overline">One-minute repair</p>
-          <h2 id="repair-title" className="mt-1 text-xl font-semibold tracking-tight">Repair the weak link</h2>
+          <p className="repair-overline">{target.practiceOnly ? "One-minute practice" : "One-minute repair"}</p>
+          <h2 id="repair-title" className="mt-1 text-xl font-semibold tracking-tight">
+            {target.practiceOnly ? "Practise one reasoning move" : "Repair the weak link"}
+          </h2>
           <p className="mt-1 max-w-xl text-sm leading-6 text-ink3">
             {sourceOwner === "opponent"
               ? "Answer this one opposing move from your debate and get an explainable, skill-specific check. Your debate score never changes."
@@ -141,12 +143,19 @@ export default function ArgumentRepair({
         <p className="mt-1 text-sm leading-6 text-ink2">“{target.sourceText}”</p>
       </div>
 
-      <div>
-        <p className="text-xs uppercase tracking-wide text-ink3">Why it weakened the argument</p>
-        <p className="mt-1 text-sm leading-6 text-ink2" data-testid="repair-consequence">
-          {WEAKNESS_CONSEQUENCE[target.kind] ?? "This move left an opening a careful opponent would use."}
+      {target.practiceOnly ? (
+        <p className="text-sm leading-6 text-ink3">
+          No clear weakness was flagged in this debate. This is optional practice,
+          not evidence that the quoted move was weak.
         </p>
-      </div>
+      ) : (
+        <div>
+          <p className="text-xs uppercase tracking-wide text-ink3">Why it weakened the argument</p>
+          <p className="mt-1 text-sm leading-6 text-ink2" data-testid="repair-consequence">
+            {WEAKNESS_CONSEQUENCE[target.kind] ?? "This move left an opening a careful opponent would use."}
+          </p>
+        </div>
+      )}
 
       <div>
         <p className="text-sm font-semibold text-ink">{target.title}</p>
