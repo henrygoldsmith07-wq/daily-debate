@@ -67,7 +67,7 @@ function InsightCard({ item }: { item: ArgumentDnaInsight }) {
   );
 }
 
-function TimelineChart({ periods }: { periods: DnaPeriodSummary[] }) {
+function TimelineChart({ periods, selectedPeriodKey }: { periods: DnaPeriodSummary[]; selectedPeriodKey: string | null }) {
   const width = 720;
   const height = 220;
   const pad = { left: 42, right: 18, top: 18, bottom: 34 };
@@ -80,30 +80,44 @@ function TimelineChart({ periods }: { periods: DnaPeriodSummary[] }) {
     );
   }
 
-  const values = measured.map((period) => period.score ?? 0);
-  const min = Math.max(0, Math.floor(Math.min(...values) / 10) * 10 - 10);
-  const max = Math.min(100, Math.ceil(Math.max(...values) / 10) * 10 + 10);
-  const span = Math.max(1, max - min);
+  // Keep the full score range visible. A locally zoomed axis made small
+  // month-to-month changes look much larger than the stored score movement.
+  const min = 0;
+  const max = 100;
+  const span = max - min;
   const x = (index: number) => pad.left + (index / Math.max(1, measured.length - 1)) * (width - pad.left - pad.right);
   const y = (value: number) => pad.top + (1 - (value - min) / span) * (height - pad.top - pad.bottom);
   const line = measured.map((period, index) => `${x(index)},${y(period.score ?? min)}`).join(" ");
+  const area = `${pad.left},${y(0)} ${line} ${x(measured.length - 1)},${y(0)}`;
 
   return (
     <div className="dna-chart-wrap">
-      <svg className="dna-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Average debate score by month">
-        {[0, 0.5, 1].map((ratio) => {
-          const value = min + span * (1 - ratio);
+      <svg className="dna-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Average debate score by month on a zero to one hundred scale">
+        <defs>
+          <linearGradient id="dna-chart-fill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="var(--dna-accent)" stopOpacity="0.24" />
+            <stop offset="100%" stopColor="var(--dna-accent)" stopOpacity="0.015" />
+          </linearGradient>
+        </defs>
+        {[0, 50, 100].map((value) => {
+          const ratio = 1 - value / 100;
           return (
-            <g key={ratio}>
+            <g key={value}>
               <line x1={pad.left} x2={width - pad.right} y1={pad.top + ratio * (height - pad.top - pad.bottom)} y2={pad.top + ratio * (height - pad.top - pad.bottom)} className="dna-grid-line" />
-              <text x={pad.left - 10} y={pad.top + ratio * (height - pad.top - pad.bottom) + 4} textAnchor="end" className="dna-axis-label">{Math.round(value)}</text>
+              <text x={pad.left - 10} y={pad.top + ratio * (height - pad.top - pad.bottom) + 4} textAnchor="end" className="dna-axis-label">{value}</text>
             </g>
           );
         })}
+        {measured.length > 1 && <polygon points={area} className="dna-chart-area" />}
         <polyline points={line} className="dna-chart-line" />
         {measured.map((period, index) => (
           <g key={period.key}>
-            <circle cx={x(index)} cy={y(period.score ?? min)} r="5" className="dna-chart-point" />
+            <circle
+              cx={x(index)}
+              cy={y(period.score ?? min)}
+              r={period.key === selectedPeriodKey ? "7" : "5"}
+              className={`dna-chart-point${period.key === selectedPeriodKey ? " is-selected" : ""}`}
+            />
             <title>{`${formatMonth(period.key)} · ${Math.round(period.score ?? 0)}/100 ${period.format === "pvp" ? "judge score" : "length-normalised debate"} average`}</title>
             {(index === 0 || index === measured.length - 1 || measured.length < 6) && (
               <text x={x(index)} y={height - 10} textAnchor={index === 0 ? "start" : index === measured.length - 1 ? "end" : "middle"} className="dna-axis-label">{formatMonth(period.key)}</text>
@@ -189,6 +203,9 @@ export default function ArgumentDnaView({ model, focus }: { model: ArgumentDnaMo
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(model.comparison.latest?.id ?? null);
   const latest = model.comparison.latest;
   const selected = model.snapshots.find((snapshot) => snapshot.id === selectedSnapshotId) ?? latest;
+  const selectedPeriodKey = selected
+    ? model.periods.find((period) => period.lastSnapshotId === selected.id)?.key ?? null
+    : null;
   const periods = useMemo(() => {
     if (range === "all") return model.periods;
     return model.periods.slice(-Number(range));
@@ -278,7 +295,7 @@ export default function ArgumentDnaView({ model, focus }: { model: ArgumentDnaMo
           </div>
         </div>
         <div className="dna-panel dna-timeline-panel">
-          <TimelineChart periods={periods} />
+          <TimelineChart periods={periods} selectedPeriodKey={selectedPeriodKey} />
           <div className="dna-period-rail" aria-label="Debate periods">
             {periods.map((period) => <button key={period.key} type="button" className={selected?.id === period.lastSnapshotId ? "active" : ""} onClick={() => setSelectedSnapshotId(period.lastSnapshotId)} aria-pressed={selected?.id === period.lastSnapshotId}><span>{formatMonth(period.key)}</span><small>{periodCountLabel(period)}</small></button>)}
           </div>
