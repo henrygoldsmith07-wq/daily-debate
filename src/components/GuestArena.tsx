@@ -332,13 +332,9 @@ function GuestHome({
             </ol>
           </details>
 
-          {hasPractised && (
-            <section aria-labelledby="guest-account">
-              <div className="section-heading">
-                <h2 id="guest-account">With an account</h2>
-                <span className="section-heading-note">Free</span>
-              </div>
-              <div className="home-secondary-grid">
+            <details className="home-motion-details surface-card p-4">
+              <summary className="home-motion-details-summary">With an account · Free</summary>
+              <div className="home-secondary-grid mt-4">
                 {guestAccountBenefits(experimentalSurfacesEnabled()).map((item) => (
                   <article key={item.title} className="home-secondary-card">
                     <p className="home-secondary-kicker">{item.kicker}</p>
@@ -347,8 +343,7 @@ function GuestHome({
                   </article>
                 ))}
               </div>
-            </section>
-          )}
+            </details>
         </main>
       </div>
     </div>
