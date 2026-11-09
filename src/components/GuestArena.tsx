@@ -178,6 +178,7 @@ function GuestHome({
               <h1 id="guest-welcome-title">Think clearly.<br /><span>Argue with purpose.</span></h1>
               <p className="guest-welcome-copy">Take a side. Find one gap in your reasoning. Leave with a move you can use in your next argument.</p>
               <div className="guest-welcome-facts" aria-label="Practice details">
+                <span>Guest mode</span>
                 <span>About {SPRINT_ESTIMATE_MINUTES} minutes</span>
                 <span>No account needed</span>
               </div>
@@ -312,7 +313,7 @@ function GuestHome({
 
           {hasPractised && <WeekStreak days={week} note="kept on this device" />}
 
-          <details className="home-motion-details surface-card p-4">
+          <details id="guest-skills" className="home-motion-details surface-card p-4">
             <summary className="home-motion-details-summary">What this practice measures</summary>
             <p className="mt-1 max-w-none text-ink2">
               The full product coaches seven reasoning skills, listed below. Guest practice is a quick local

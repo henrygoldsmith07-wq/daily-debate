@@ -173,7 +173,9 @@ test.describe("guest practice honesty", () => {
     // Guests land on GuestArena (not the authenticated dashboard), so the teaching
     // lives on the guest home itself. Headings and the framing sentence are matched
     // as substrings because they span sibling text nodes / child spans.
-    await expect(page.getByRole("heading", { name: /What this practice measures/i })).toBeVisible();
+    const skillsDisclosure = page.locator("#guest-skills summary");
+    await expect(skillsDisclosure).toBeVisible();
+    await skillsDisclosure.click();
     await expect(page.getByText("seven reasoning skills", { exact: false })).toBeVisible();
     await expect(page.getByText("never a metric number", { exact: false })).toBeVisible();
 
