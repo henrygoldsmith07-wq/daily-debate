@@ -164,14 +164,37 @@ async function getRepair(request: Request, { params }: RouteContext) {
   }
 
   const target = await repairTargetFor(db, debate);
-  if (!target) return NextResponse.json({ target: null });
+  if (!target) return NextResponse.json({ target: null }, { headers: { "Cache-Control": "no-store" } });
   const failedAttempts = await failedAttemptsFor(db, user.id, debateId, target.kind);
+  const { data: latest, error: latestError } = await db
+    .from("repair_results")
+    .select("rewrite_text, score, succeeded, signals")
+    .eq("user_id", user.id)
+    .eq("debate_id", debateId)
+    .eq("target_kind", target.kind)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  requireRepairRead(latestError);
+  const signals = Array.isArray(latest?.signals)
+    ? latest.signals.filter((signal): signal is string => typeof signal === "string")
+    : [];
   return NextResponse.json({
     target,
     failedAttempts,
     unlockedLevel: maxUnlockedLevel(failedAttempts),
     help: unlockedHelp(target, failedAttempts),
-  });
+    // Return the recorded verdict, not a re-score under today's rubric. The
+    // rewrite and its help context belong together when a learner resumes.
+    latestAttempt: latest ? {
+      rewrite: latest.rewrite_text,
+      state: latest.succeeded ? "repair_demonstrated" : repairStateFromScore(latest.score),
+      succeeded: latest.succeeded,
+      signals: visibleSignals(signals),
+      helpLevel: helpLevelFromSignals(signals),
+      feedback: "Saved feedback for your last submitted version. Edit it to continue practising; no new attempt has been recorded.",
+    } : null,
+  }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**

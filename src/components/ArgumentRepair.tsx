@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ArgGraph } from "@/lib/argGraph";
 import type { RepairTarget } from "@/lib/argumentRepair";
 import { pickRepairTarget, repairSourceOwner, scoreRepair, type RepairScore, type RepairState } from "@/lib/argumentRepair";
@@ -47,6 +47,56 @@ export default function ArgumentRepair({
   const [help, setHelp] = useState<HelpContent[]>([]);
   const [revealed, setRevealed] = useState<HelpLevel>(0);
   const [error, setError] = useState<string | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(!!debateId && !!target);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyRequest, setHistoryRequest] = useState(0);
+  const draftEdited = useRef(false);
+  const targetKind = target?.kind;
+  const sourceText = target?.sourceText;
+
+  useEffect(() => {
+    if (!debateId || !targetKind) return;
+    let active = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    async function restoreRepair() {
+      try {
+        const res = await fetch(`/api/solo/${debateId}/repair`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Repair history could not be loaded.");
+        if (data.target?.kind !== targetKind || data.target?.sourceText !== sourceText) {
+          throw new Error("The repair target has changed. Reload the result before continuing.");
+        }
+        if (!active) return;
+        if (Array.isArray(data.help)) setHelp(data.help);
+        // A retry must not replace a draft written after the first read failed.
+        // Reading history never submits an attempt or marks a fresh success.
+        if (data.latestAttempt && !draftEdited.current) {
+          setDraft(data.latestAttempt.rewrite);
+          setPersisted(data.latestAttempt);
+          setRevealed(data.latestAttempt.helpLevel);
+        }
+        setHistoryError(null);
+      } catch (err) {
+        if (!active) return;
+        setHistoryError(err instanceof Error && err.name !== "AbortError"
+          ? err.message
+          : "Repair history could not be loaded. You can retry or write a new version.");
+      } finally {
+        clearTimeout(timeout);
+        if (active) setLoadingHistory(false);
+      }
+    }
+    void restoreRepair();
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [debateId, targetKind, sourceText, historyRequest]);
 
   if (!target) {
     // The repair exercise is the payoff of the result screen: vanishing
@@ -78,7 +128,8 @@ export default function ArgumentRepair({
   const sourceOwner = repairSourceOwner(target, graph);
 
   async function checkRepair() {
-    if (submitting) return;
+    if (submitting || loadingHistory) return;
+    draftEdited.current = true;
     setPersisted(null);
     // With a debate id the server verdict is authoritative; showing the local
     // score first could flash "Repair demonstrated" and then contradict it.
@@ -165,12 +216,13 @@ export default function ArgumentRepair({
       <textarea
         value={draft}
         onChange={(event) => {
+          draftEdited.current = true;
           setDraft(event.target.value);
           if (result) setResult(null);
           if (persisted) setPersisted(null);
         }}
         rows={4}
-        disabled={submitting}
+        disabled={submitting || loadingHistory}
         maxLength={2000}
         placeholder="Write your improved move here…"
         aria-label="Improved argument move"
@@ -183,13 +235,31 @@ export default function ArgumentRepair({
         <button
           type="button"
           onClick={checkRepair}
-          disabled={draft.trim().length < 10 || submitting}
+          disabled={draft.trim().length < 10 || submitting || loadingHistory}
           className="btn btn-primary px-4 py-2 text-sm disabled:opacity-40"
           data-testid="submit-repair"
         >
           {submitting ? "Recording…" : persisted ? "Check this version" : "Submit repair"} <span aria-hidden="true">→</span>
         </button>
       </div>
+      {loadingHistory && <p className="text-sm text-ink3" role="status">Loading saved repair and help…</p>}
+      {historyError && (
+        <div className="flex flex-wrap items-center gap-3" role="alert">
+          <p className="text-sm text-[var(--bad)]">{historyError}</p>
+          <button
+            type="button"
+            disabled={loadingHistory || submitting}
+            onClick={() => {
+              setLoadingHistory(true);
+              setHistoryError(null);
+              setHistoryRequest((request) => request + 1);
+            }}
+            className="btn btn-ghost px-3 py-2 text-sm"
+          >
+            Retry loading saved repair
+          </button>
+        </div>
+      )}
       {error && <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>}
 
       {help.length > 0 && !persisted?.succeeded && (

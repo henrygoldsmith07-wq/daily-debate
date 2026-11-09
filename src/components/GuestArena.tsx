@@ -50,11 +50,11 @@ import {
 import type { GuestArenaMode } from "@/lib/guestLoop";
 import { readTurnResponse, TURN_STREAM_ACCEPT } from "@/lib/turnStreamClient";
 
-// Restore this tab's in-progress guest practice, if any. Runs at initial
-// render only (lazy initializer) so server HTML and the first client paint
-// agree — a reload resumes in one pass, no effect-driven cascading setters.
+// Restore this tab's in-progress guest practice only after hydration. The
+// server cannot read sessionStorage, so the first client render must also use
+// fresh state. The hydrated session mounts once with the complete saved loop.
 // Stale motion day or corrupt cache degrades to defaults silently.
-function restoreArena(today: string): {
+function restoreArena(today: string, canRestore: boolean): {
   stage: Stage;
   side: "for" | "against";
   responses: string[];
@@ -63,6 +63,8 @@ function restoreArena(today: string): {
   mode: GuestArenaMode | null;
   live: GuestLiveState | null;
 } {
+  const fresh = { stage: "home" as const, side: "for" as const, responses: [], repair: null, retestDemonstrated: null, mode: null, live: null };
+  if (!canRestore) return fresh;
   try {
     const parsed = parseGuestArenaProgress(window.sessionStorage.getItem(GUEST_ARENA_STORAGE_KEY));
     if (!parsed || parsed.motionDate !== today) throw new Error("stale or absent");
@@ -79,7 +81,7 @@ function restoreArena(today: string): {
     };
   } catch {
     // Corrupt or stale cache degrades to a fresh home — never half-restored.
-    return { stage: "home", side: "for", responses: [], repair: null, retestDemonstrated: null, mode: null, live: null };
+    return fresh;
   }
 }
 
@@ -373,6 +375,7 @@ function GuestDebate({
   onRoundSubmit,
   onFinish,
   initialRound,
+  initialResponse,
   live,
   notice,
 }: {
@@ -383,14 +386,16 @@ function GuestDebate({
   onFinish: () => void;
   /** Resume a reloaded tab at the first unanswered round (completed rounds are kept). */
   initialRound?: number;
+  /** Saved answer when all rounds are complete but the result has not been opened. */
+  initialResponse?: string;
   /** Live opponent state; absent for the guided case, whose rounds are all scripted. */
   live?: GuestDebateLive;
   /** One line explaining a switch to the guided case mid-flow. */
   notice?: string | null;
 }) {
   const [round, setRound] = useState(() => Math.min(Math.max(initialRound ?? 0, 0), rounds.length - 1));
-  const [response, setResponse] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [response, setResponse] = useState(initialResponse ?? "");
+  const [submitted, setSubmitted] = useState(!!initialResponse);
   const activeRound = rounds[round];
   const pendingHere = live?.pending && live.pending.index === round ? live.pending : null;
   // The opponent's move is ready once its text has been committed; until then
@@ -1060,6 +1065,11 @@ function GuestDone({
 const LIVE_UNAVAILABLE_NOTICE =
   "The live opponent isn't available right now, so this practice uses a guided case on a sample motion. Nothing you write leaves this device.";
 
+// Hydration is a one-way transition, not a changing storage subscription.
+const subscribeToHydration = () => () => {};
+const clientIsHydrated = () => true;
+const serverIsHydrated = () => false;
+
 export default function GuestArena({
   validation = null,
   live: liveMotion = null,
@@ -1069,11 +1079,23 @@ export default function GuestArena({
   /** Today's shared motion when the server offers the live AI opponent to guests. */
   live?: GuestLiveMotion | null;
 } = {}) {
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientIsHydrated, serverIsHydrated);
+  // Keep the server-rendered home for the first client render, then mount a
+  // fresh session whose child round/repair state starts from the saved values.
+  // The temporary home must never persist defaults over an existing practice.
+  return <GuestArenaSession key={hydrated ? "restored" : "server"} canRestore={hydrated} validation={validation} liveMotion={liveMotion} />;
+}
+
+function GuestArenaSession({ canRestore, validation, liveMotion }: {
+  canRestore: boolean;
+  validation: SurfaceValidation | null;
+  liveMotion: GuestLiveMotion | null;
+}) {
   // Read the motion day before restoring state: the cache is invalidated per
   // motion day, so the day must be resolved first.
   const today = new Date().toISOString().slice(0, 10);
   const guidedMotion = guestMotionForDay(today);
-  const restored = restoreArena(today);
+  const [restored] = useState(() => restoreArena(today, canRestore));
 
   const [stage, setStage] = useState<Stage>(() => restored.stage);
   const [side, setSide] = useState<"for" | "against">(() => restored.side);
@@ -1103,6 +1125,7 @@ export default function GuestArena({
   // Persist every transition. Best effort like the signup carry-through:
   // private browsing may deny storage; the flow still finishes.
   useEffect(() => {
+    if (!canRestore) return;
     try {
       window.sessionStorage.setItem(
         GUEST_ARENA_STORAGE_KEY,
@@ -1121,7 +1144,7 @@ export default function GuestArena({
     } catch {
       // Storage unavailable — nothing cached, nothing broken.
     }
-  }, [today, stage, side, responses, repair, retestDemonstrated, mode, isLive, liveState]);
+  }, [canRestore, today, stage, side, responses, repair, retestDemonstrated, mode, isLive, liveState]);
 
   function commitOpponent(index: number, text: string) {
     setLiveState((current) => {
@@ -1298,6 +1321,7 @@ export default function GuestArena({
         side={side}
         rounds={motion.rounds}
         initialRound={Math.min(responses.length, motion.rounds.length - 1)}
+        initialResponse={responses.length === motion.rounds.length ? responses[responses.length - 1] : undefined}
         onRoundSubmit={recordResponses}
         onFinish={() => {
           recordPracticeDay();
