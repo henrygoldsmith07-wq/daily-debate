@@ -155,7 +155,9 @@ function GuestHome({
   const personaLabel = OPPONENT_PERSONA_LIST.find((p) => p.id === live.persona)?.label ?? "Balanced";
   const [side, setSide] = useState<SideChoice>("challenge");
   const rawDays = useSyncExternalStore(subscribeToStorage, readGuestDays, () => null);
-  const week = weekDays(today, parseGuestPracticeDays(rawDays));
+  const practicedDays = parseGuestPracticeDays(rawDays);
+  const hasPractised = practicedDays.length > 0;
+  const week = weekDays(today, practicedDays);
 
   const resolveSide = (): "for" | "against" => (side === "challenge" ? guestChallengeSide() : side);
 
@@ -169,13 +171,23 @@ function GuestHome({
           </Link>
         </header>
 
-        <main id="main" className="app-content max-w-2xl">
-          <PageHeader
+        <main id="main" className="app-content guest-onboarding max-w-2xl">
+          {!hasPractised ? (
+            <section className="guest-welcome" aria-labelledby="guest-welcome-title">
+              <p className="guest-welcome-eyebrow"><span aria-hidden="true" /> Your first Daily Debate</p>
+              <h1 id="guest-welcome-title">Think clearly.<br /><span>Argue with purpose.</span></h1>
+              <p className="guest-welcome-copy">Take a side. Find one gap in your reasoning. Leave with a move you can use in your next argument.</p>
+              <div className="guest-welcome-facts" aria-label="Practice details">
+                <span>About {SPRINT_ESTIMATE_MINUTES} minutes</span>
+                <span>No account needed</span>
+              </div>
+            </section>
+          ) : <PageHeader
             eyebrow="Guest practice"
             title="Today"
-            description="Pick a side and argue it out. Nothing is saved until you make an account."
+            description="One short debate. One clear next move. Try the full learning loop before creating an account."
             actions={<span className="pill">Guest mode</span>}
-          />
+          />}
 
           <section className="home-motion-card has-daily-accent surface-card" style={dailyAccentStyle(today)} aria-labelledby="guest-motion">
             <div className="home-motion-heading">
@@ -273,12 +285,35 @@ function GuestHome({
 
           {/* Below the motion, not above it: the first screen is the motion and
               Start; a first-time visitor's week row is empty anyway. */}
-          <WeekStreak days={week} note="kept on this device" />
+          {!hasPractised && (
+            <section className="guest-journey" aria-label="How Daily Debate works">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink3">A better way to practise</p>
+                  <h2 className="mt-1 text-lg font-semibold tracking-tight">A small practice. A concrete takeaway.</h2>
+                </div>
+                <span className="pill">About {SPRINT_ESTIMATE_MINUTES} minutes</span>
+              </div>
+              <ol className="guest-journey-steps">
+                {[
+                  { number: "01", title: "Take a side", detail: isLive ? "Answer a real AI opponent." : "Answer a guided opposing case." },
+                  { number: "02", title: "Find the gap", detail: "Get one concrete move to strengthen." },
+                  { number: "03", title: "Try it again", detail: "Repair it, then see if it holds." },
+                ].map((step) => (
+                  <li key={step.number}>
+                    <span className="guest-journey-number">{step.number}</span>
+                    <p className="mt-2 text-sm font-semibold">{step.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-ink3">{step.detail}</p>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
 
-          <section aria-labelledby="guest-skills">
-            <div className="section-heading">
-              <h2 id="guest-skills">What this practice measures</h2>
-            </div>
+          {hasPractised && <WeekStreak days={week} note="kept on this device" />}
+
+          <details className="home-motion-details surface-card p-4">
+            <summary className="home-motion-details-summary">What this practice measures</summary>
             <p className="mt-1 max-w-none text-ink2">
               The full product coaches seven reasoning skills, listed below. Guest practice is a quick local
               check of five of the moves behind them (a clear claim, a reason, answering the opponent, comparing
@@ -295,47 +330,25 @@ function GuestHome({
                 </li>
               ))}
             </ol>
-          </section>
+          </details>
 
-          <section aria-labelledby="guest-loop">
-            <div className="section-heading">
-              <h2 id="guest-loop">What you will do</h2>
-            </div>
-            <ol className="home-secondary-grid">
-              {[
-                isLive
-                  ? { step: "1", kicker: "Debate", title: "Three rounds against an AI opponent", copy: "Each round, answer what the opponent actually said instead of just adding another point. Your answers are used only to write its replies; we do not store them." }
-                  : { step: "1", kicker: "Debate", title: "Three rounds against a guided case", copy: "Each round, answer what the opponent actually said instead of just adding another point. The opponent is scripted in this mode, so nothing you write leaves your device." },
-                { step: "2", kicker: "Fix", title: "One weakness, repaired immediately", copy: "You see the missing move, why it matters, and rewrite it yourself." },
-                { step: "3", kicker: "Retest", title: "See whether it moved", copy: "You argue again and we check whether the repair held under debate conditions." },
-              ].map((item) => (
-                <li key={item.step} className="home-secondary-card">
-                  <p className="home-secondary-kicker">
-                    <span aria-hidden="true">Step {item.step} · </span>
-                    {item.kicker}
-                  </p>
-                  <h3>{item.title}</h3>
-                  <p>{item.copy}</p>
-                </li>
-              ))}
-            </ol>
-          </section>
-
-          <section aria-labelledby="guest-account">
-            <div className="section-heading">
-              <h2 id="guest-account">With an account</h2>
-              <span className="section-heading-note">Free</span>
-            </div>
-            <div className="home-secondary-grid">
-              {guestAccountBenefits(experimentalSurfacesEnabled()).map((item) => (
-                <article key={item.title} className="home-secondary-card">
-                  <p className="home-secondary-kicker">{item.kicker}</p>
-                  <h3>{item.title}</h3>
-                  <p>{item.copy}</p>
-                </article>
-              ))}
-            </div>
-          </section>
+          {hasPractised && (
+            <section aria-labelledby="guest-account">
+              <div className="section-heading">
+                <h2 id="guest-account">With an account</h2>
+                <span className="section-heading-note">Free</span>
+              </div>
+              <div className="home-secondary-grid">
+                {guestAccountBenefits(experimentalSurfacesEnabled()).map((item) => (
+                  <article key={item.title} className="home-secondary-card">
+                    <p className="home-secondary-kicker">{item.kicker}</p>
+                    <h3>{item.title}</h3>
+                    <p>{item.copy}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
         </main>
       </div>
     </div>

@@ -215,8 +215,11 @@
 .dna-chart { display: block; width: 100%; min-height: 180px; overflow: visible; }
 .dna-grid-line { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 5; }
 .dna-axis-label { fill: var(--ink-3); font-size: 10px; }
+.dna-chart-area { fill: url(#dna-chart-fill); }
 .dna-chart-line { fill: none; stroke: var(--dna-accent); stroke-linecap: round; stroke-linejoin: round; stroke-width: 3; }
-.dna-chart-point { fill: var(--surface); stroke: var(--dna-accent); stroke-width: 3; }
+.dna-chart-point { fill: var(--surface); stroke: var(--dna-accent); stroke-width: 3; transition: r 160ms ease, fill 160ms ease; }
+.dna-chart g:hover .dna-chart-point { r: 7; fill: var(--dna-accent-soft); }
+.dna-chart-point.is-selected { fill: var(--dna-accent); stroke: var(--surface); stroke-width: 2.5; }
 .dna-chart-empty { display: grid; min-height: 180px; place-items: center; color: var(--ink-3); font-size: 0.78rem; text-align: center; }
 .dna-chart-note { margin: 0.15rem 0 0; color: var(--ink-3); font-size: 0.66rem; }
 .dna-period-rail { display: flex; gap: 0.5rem; margin-top: 0.65rem; overflow-x: auto; padding-bottom: 0.2rem; scrollbar-width: thin; }
@@ -294,6 +297,58 @@
    screen. It is a working card — header strip, motion, coaching focus, and the
    start controls — not a landing-page hero, so the display type and the
    decorative blob that used to sit behind it are gone. */
+.guest-welcome {
+  position: relative;
+  padding: 1.5rem 0 0.5rem;
+}
+.guest-welcome-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  color: var(--speak);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.guest-welcome-eyebrow > span {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--speak);
+  box-shadow: 0 0 0 4px var(--speak-soft);
+}
+.guest-welcome h1 {
+  margin: 0;
+  font-size: clamp(2.25rem, 7vw, 3.6rem);
+  font-weight: 750;
+  line-height: 1.08;
+  letter-spacing: -0.055em;
+}
+.guest-welcome h1 > span { color: var(--speak); }
+.guest-welcome-copy { max-width: 45ch; margin: 1rem 0; color: var(--ink-2); font-size: 0.95rem; line-height: 1.7; }
+.guest-welcome-facts { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; color: var(--ink-3); font-size: 0.72rem; }
+.guest-welcome-facts > span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.guest-welcome-facts > span::before { content: "\2713"; color: var(--speak); font-weight: 700; }
+.guest-onboarding .home-motion-card {
+  border-color: color-mix(in srgb, var(--speak) 22%, var(--line));
+  box-shadow: 0 8px 32px color-mix(in srgb, var(--speak) 7%, transparent);
+}
+.guest-onboarding .home-motion-heading { background: linear-gradient(115deg, var(--speak-soft), var(--surface-2)); }
+.guest-onboarding .home-motion-body { padding: clamp(1rem, 4vw, 1.75rem); gap: 1.25rem; }
+.guest-onboarding .home-start-button { min-height: 52px; border-radius: 12px; font-weight: 700; }
+.guest-journey { padding: 1.5rem 0; }
+.guest-journey-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem; margin: 1.5rem 0 0; padding: 0; list-style: none; }
+.guest-journey-steps li { position: relative; min-width: 0; }
+.guest-journey-steps li:not(:last-child)::after { content: ""; position: absolute; top: 1rem; left: 2.75rem; right: 0; height: 1px; background: var(--line); }
+.guest-journey-number { display: grid; width: 2rem; height: 2rem; place-items: center; border: 1px solid color-mix(in srgb, var(--speak) 25%, var(--line)); border-radius: 50%; background: var(--speak-soft); color: var(--speak); font-size: 0.65rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+@media (max-width: 420px) {
+  .guest-journey-steps { grid-template-columns: 1fr; gap: 1.25rem; }
+  .guest-journey-steps li { padding-left: 3rem; }
+  .guest-journey-number { position: absolute; left: 0; top: 0.25rem; }
+  .guest-journey-steps li:not(:last-child)::after { top: 2.5rem; bottom: -1rem; left: 1rem; right: auto; width: 1px; height: auto; }
+}
 .home-motion-card {
   position: relative;
   overflow: hidden;
