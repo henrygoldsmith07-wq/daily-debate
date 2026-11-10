@@ -187,6 +187,7 @@ function GuestHome({
               <div className="guest-welcome-facts" aria-label="Practice details">
                 <span>About {SPRINT_ESTIMATE_MINUTES} minutes</span>
                 <span>No account needed</span>
+                <span>Guest mode</span>
               </div>
             </section>
           ) : <PageHeader
@@ -199,7 +200,7 @@ function GuestHome({
           <section className="home-motion-card has-daily-accent surface-card" style={dailyAccentStyle(today)} aria-labelledby="guest-motion">
             <div className="home-motion-heading">
               <div>
-                <p className="home-motion-kicker">{hasPractised ? "Your next practice" : "Your first practice"}</p>
+                <p className="home-motion-kicker">Today&apos;s motion · {hasPractised ? "your next practice" : "your first practice"}</p>
                 <p className="home-motion-meta">
                   {shownTopic} · {GUEST_LIVE_ROUNDS} rounds
                 </p>
@@ -239,7 +240,7 @@ function GuestHome({
                 <div className="guest-options-body">
                   <div className="home-side-label">Choose a side</div>
                   <SidePicker side={side} onChange={setSide} ariaLabel="Choose a side" />
-                  {side === "challenge" && <p className="home-start-note" data-testid="guest-challenge-side">We picked a side for this practice. You can change it.</p>}
+                  {side === "challenge" && <p className="home-start-note" data-testid="guest-challenge-side">Today&apos;s pick for you: <strong>{resolveSide() === "for" ? "For" : "Against"}</strong>. You can change it.</p>}
                   <p className="home-start-note"><strong>Coaching focus:</strong> {isLive ? "Answer what the opponent actually said." : motion.coachingFocus}</p>
                   {isLive && <>
                   <p className="home-side-label" data-testid="guest-opponent-summary">Opponent: {personaLabel}</p>
@@ -265,7 +266,7 @@ function GuestHome({
               <div className="home-start-block">
                 <p className="home-start-note" id="guest-practice-privacy">
                   {isLive
-                    ? "An AI provider receives your answers for replies and may log them. Practice is saved only in this browser tab."
+                    ? "Your answers go to a free-tier AI provider, which may log them, only to write the opponent's replies. Practice is saved only in this browser tab."
                     : "Guided practice stays on this device. Nothing you write is sent to an AI provider."}
                 </p>
                 <button
