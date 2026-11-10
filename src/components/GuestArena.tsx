@@ -232,36 +232,37 @@ function GuestHome({
                 <li><span>3</span> Try it again</li>
               </ol>
 
-              <details className="home-motion-details guest-practice-options">
-                <summary className="home-motion-details-summary">
-                  <span>Your side: <strong>{resolveSide() === "for" ? "For" : "Against"}</strong>{isLive ? ` · ${personaLabel} opponent` : ""}</span>
-                  <span className="guest-options-action">Change <span className="home-motion-details-chevron" aria-hidden="true">+</span></span>
-                </summary>
-                <div className="guest-options-body">
-                  <div className="home-side-label">Choose a side</div>
-                  <SidePicker side={side} onChange={setSide} ariaLabel="Choose a side" />
-                  {side === "challenge" && <p className="home-start-note" data-testid="guest-challenge-side">Today&apos;s pick for you: <strong>{resolveSide() === "for" ? "For" : "Against"}</strong>. You can change it.</p>}
-                  <p className="home-start-note"><strong>Coaching focus:</strong> {isLive ? "Answer what the opponent actually said." : motion.coachingFocus}</p>
-                  {isLive && <>
-                  <p className="home-side-label" data-testid="guest-opponent-summary">Opponent: {personaLabel}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {OPPONENT_PERSONA_LIST.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => live.onPersona(p.id)}
-                        aria-pressed={live.persona === p.id}
-                        className={`rounded-xl border px-3 py-2 text-left text-sm ${live.persona === p.id ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--accent)]" : "border-[var(--rule)] bg-surface-2 text-ink2"}`}
-                        data-testid={`guest-persona-${p.id}`}
-                      >
-                        {p.label}
-                        <span className="mt-0.5 block text-xs font-normal leading-4 opacity-80">{p.tagline}</span>
-                      </button>
-                    ))}
+              <div className="home-side-label">
+                Your side: <strong>{resolveSide() === "for" ? "For" : "Against"}</strong>{isLive ? ` · ${personaLabel} opponent` : ""}
+              </div>
+              <SidePicker side={side} onChange={setSide} ariaLabel="Choose a side" />
+              {side === "challenge" && <p className="home-start-note" data-testid="guest-challenge-side">Today&apos;s pick for you: <strong>{resolveSide() === "for" ? "For" : "Against"}</strong>. You can change it.</p>}
+              <p className="home-start-note"><strong>Coaching focus:</strong> {isLive ? "Answer what the opponent actually said." : motion.coachingFocus}</p>
+              {isLive && (
+                <details className="home-motion-details">
+                  <summary className="home-motion-details-summary">
+                    <span data-testid="guest-opponent-summary">Opponent: {personaLabel}</span>
+                    <span className="home-motion-details-chevron" aria-hidden="true">+</span>
+                  </summary>
+                  <div className="guest-options-body">
+                    <div className="grid grid-cols-2 gap-2">
+                      {OPPONENT_PERSONA_LIST.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => live.onPersona(p.id)}
+                          aria-pressed={live.persona === p.id}
+                          className={`rounded-xl border px-3 py-2 text-left text-sm ${live.persona === p.id ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--accent)]" : "border-[var(--rule)] bg-surface-2 text-ink2"}`}
+                          data-testid={`guest-persona-${p.id}`}
+                        >
+                          {p.label}
+                          <span className="mt-0.5 block text-xs font-normal leading-4 opacity-80">{p.tagline}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  </>}
-                </div>
-              </details>
+                </details>
+              )}
 
               <div className="home-start-block">
                 <p className="home-start-note" id="guest-practice-privacy">
@@ -957,7 +958,7 @@ function GuestRetest({
                 <p className="mt-1 text-sm leading-6 text-ink2">{outcome?.headline}</p>
                 <p className="mt-2 text-sm leading-6 text-ink2">{outcome?.detail}</p>
                 <p className="mt-3 text-xs leading-5 text-ink3">
-                  Guest retest checks surface text cues in one response. It does not validate ability or show that learning transfers or lasts.
+                  Guest retest is one observed instance in a single response — a surface text cue. It does not validate ability or show that learning transfers or lasts.
                 </p>
                 {!outcome?.demonstrated && (
                   <button
