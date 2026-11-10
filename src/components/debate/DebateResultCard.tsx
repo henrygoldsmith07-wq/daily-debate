@@ -497,6 +497,7 @@ export function DebateResultCard({
         {view.argGraph && weakness && !completedRepaired && (
           <div ref={repairRef}>
             <ArgumentRepair
+              key={debateId}
               graph={view.argGraph}
               debateId={debateId}
               presetTarget={weakness.repair}

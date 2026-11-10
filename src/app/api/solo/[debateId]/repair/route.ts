@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/readBoundedJson";
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
@@ -19,46 +20,6 @@ function requireRepairRead(error: unknown) {
 }
 
 type RouteContext = { params: Promise<{ debateId: string }> };
-
-async function readRepairBody(request: Request): Promise<{ ok: true; body: unknown } | { ok: false; tooLarge: boolean }> {
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_REPAIR_REQUEST_BYTES) {
-    return { ok: false, tooLarge: true };
-  }
-  if (!request.body) return { ok: false, tooLarge: false };
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > MAX_REPAIR_REQUEST_BYTES) {
-        await reader.cancel().catch(() => undefined);
-        return { ok: false, tooLarge: true };
-      }
-      chunks.push(value);
-    }
-  } catch {
-    return { ok: false, tooLarge: false };
-  } finally {
-    reader.releaseLock();
-  }
-
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return { ok: true, body: JSON.parse(new TextDecoder().decode(bytes)) };
-  } catch {
-    return { ok: false, tooLarge: false };
-  }
-}
 
 async function withRepairReadRecovery(action: () => Promise<Response>): Promise<Response> {
   try {
@@ -164,14 +125,37 @@ async function getRepair(request: Request, { params }: RouteContext) {
   }
 
   const target = await repairTargetFor(db, debate);
-  if (!target) return NextResponse.json({ target: null });
+  if (!target) return NextResponse.json({ target: null }, { headers: { "Cache-Control": "no-store" } });
   const failedAttempts = await failedAttemptsFor(db, user.id, debateId, target.kind);
+  const { data: latest, error: latestError } = await db
+    .from("repair_results")
+    .select("rewrite_text, score, succeeded, signals")
+    .eq("user_id", user.id)
+    .eq("debate_id", debateId)
+    .eq("target_kind", target.kind)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  requireRepairRead(latestError);
+  const signals = Array.isArray(latest?.signals)
+    ? latest.signals.filter((signal): signal is string => typeof signal === "string")
+    : [];
   return NextResponse.json({
     target,
     failedAttempts,
     unlockedLevel: maxUnlockedLevel(failedAttempts),
     help: unlockedHelp(target, failedAttempts),
-  });
+    // Return the recorded verdict, not a re-score under today's rubric. The
+    // rewrite and its help context belong together when a learner resumes.
+    latestAttempt: latest ? {
+      rewrite: latest.rewrite_text,
+      state: latest.succeeded ? "repair_demonstrated" : repairStateFromScore(latest.score),
+      succeeded: latest.succeeded,
+      signals: visibleSignals(signals),
+      helpLevel: helpLevelFromSignals(signals),
+      feedback: "Saved feedback for your last submitted version. Edit it to continue practising; no new attempt has been recorded.",
+    } : null,
+  }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
@@ -194,7 +178,7 @@ async function submitRepair(request: Request, { params }: RouteContext) {
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const parsedBody = await readRepairBody(request);
+  const parsedBody = await readBoundedJson(request, MAX_REPAIR_REQUEST_BYTES);
   if (!parsedBody.ok && parsedBody.tooLarge) {
     return NextResponse.json({ error: "Repair request is too large." }, { status: 413 });
   }

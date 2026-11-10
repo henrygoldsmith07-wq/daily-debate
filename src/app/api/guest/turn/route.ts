@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/readBoundedJson";
 import { NextResponse } from "next/server";
 import { checkRateLimit, checkRateLimitKey } from "@/lib/rateLimit";
 import { debateOpening, debateTurn, debateTurnStream } from "@/lib/openrouter";
@@ -12,6 +13,7 @@ import {
   guestLiveDailyCallCap,
   guestLiveIpCallCap,
   validateGuestHistory,
+  isGuestOpponentReply,
   type GuestLiveHistoryEntry,
 } from "@/lib/guestLive";
 import { guestLiveAvailable } from "@/lib/guestLiveServer";
@@ -36,6 +38,9 @@ import { recordGuestSprint } from "@/lib/guestSprintCounterServer";
  *   the reply to the third answer -> the retest's fresh challenge
  */
 
+// Six 2,000-character messages fit even with six-byte JSON escapes.
+const MAX_GUEST_REQUEST_BYTES = 80_000;
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface GuestTurnContext {
@@ -58,7 +63,16 @@ async function prepare(request: Request): Promise<{ response: Response } | { ctx
     return { response: fallback(503, "unavailable", "The live opponent is not available right now.") };
   }
 
-  const body = await request.json().catch(() => null);
+  const parsed = await readBoundedJson(request, MAX_GUEST_REQUEST_BYTES);
+  if (!parsed.ok) {
+    return {
+      response: NextResponse.json(
+        { error: parsed.tooLarge ? "Guest transcript is too large." : "Invalid JSON request." },
+        { status: parsed.tooLarge ? 413 : 400, headers: { "Cache-Control": "no-store" } },
+      ),
+    };
+  }
+  const body = parsed.body as { side?: unknown; history?: unknown; persona?: unknown } | null;
   const side = body?.side;
   if (side !== "for" && side !== "against") {
     return { response: NextResponse.json({ error: "side must be for or against." }, { status: 400 }) };
@@ -126,6 +140,11 @@ function failureResponse(error: unknown) {
   return fallback(503, "provider_error", "The opponent couldn't answer. Try again, or carry on with a guided challenge.");
 }
 
+function requireGuestReply(text: string): string {
+  if (!isGuestOpponentReply(text)) throw new Error("Opponent reply is outside guest transcript bounds.");
+  return text.trim();
+}
+
 function turnParams(ctx: GuestTurnContext) {
   const isRetestChallenge = ctx.userTurns === GUEST_LIVE_ROUNDS;
   const directive = [
@@ -158,8 +177,9 @@ async function opening(ctx: GuestTurnContext): Promise<Response> {
       aiSide: ctx.side === "for" ? "against" : "for",
       directive: openingDirective(ctx.persona, "challenging", "sprint"),
     });
+    const reply = requireGuestReply(aiMessage);
     await countMilestone(ctx);
-    return NextResponse.json({ aiMessage }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ aiMessage: reply }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return failureResponse(error);
   }
@@ -170,8 +190,9 @@ async function jsonTurn(ctx: GuestTurnContext): Promise<Response> {
     // Only the opponent's move is returned; the model's private feedback
     // field is discarded (guest feedback is the local deterministic check).
     const { aiMessage } = await debateTurn(turnParams(ctx));
+    const reply = requireGuestReply(aiMessage);
     await countMilestone(ctx);
-    return NextResponse.json({ aiMessage }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ aiMessage: reply }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return failureResponse(error);
   }
@@ -210,7 +231,7 @@ function streamTurn(ctx: GuestTurnContext): Response {
             },
             onReset: () => send("reset", {}),
           });
-          result = { status: 200, body: { aiMessage: streamed.result.aiMessage } };
+          result = { status: 200, body: { aiMessage: requireGuestReply(streamed.result.aiMessage) } };
           await countMilestone(ctx);
         } catch (error) {
           const response = failureResponse(error);

@@ -17,6 +17,11 @@ export const GUEST_LIVE_MAX_TEXT = 2000;
 /** Same floor the guest composer enforces before Send is enabled. */
 export const GUEST_LIVE_MIN_RESPONSE = 12;
 
+/** Only commit replies that can be sent back and restored without data loss. */
+export function isGuestOpponentReply(text: unknown): text is string {
+  return typeof text === "string" && text.trim().length > 0 && text.trim().length <= GUEST_LIVE_MAX_TEXT;
+}
+
 /** Opponent calls per IP per 24h: an opening plus three replies is one sprint, so this is two. */
 export const GUEST_LIVE_IP_CALLS_PER_DAY = 8;
 
