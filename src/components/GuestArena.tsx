@@ -1097,7 +1097,9 @@ export default function GuestArena({
   return <GuestArenaSession key={hydrated ? "restored" : "server"} canRestore={hydrated} validation={validation} liveMotion={liveMotion} />;
 }
 
-function GuestArenaSession({ canRestore, validation, liveMotion }: {
+// The hydrated session, exported so the static-render tests can exercise the
+// restored stages without pretending that the first render already hydrated.
+export function GuestArenaSession({ canRestore, validation, liveMotion }: {
   canRestore: boolean;
   validation: SurfaceValidation | null;
   liveMotion: GuestLiveMotion | null;
