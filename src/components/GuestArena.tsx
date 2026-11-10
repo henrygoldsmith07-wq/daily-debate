@@ -30,6 +30,7 @@ import {
   GUEST_LOOP_STORAGE_KEY,
   parseGuestArenaProgress,
   type GuestLoopSummary,
+  type GuestArenaProgress,
 } from "@/lib/guestLoop";
 import { SPRINT_ESTIMATE_MINUTES } from "@/lib/sprint";
 import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
@@ -44,6 +45,7 @@ import {
   GUEST_LIVE_FALLBACK_RETEST,
   GUEST_LIVE_ROUNDS,
   guestLiveHistory,
+  isGuestOpponentReply,
   type GuestLiveMotion,
   type GuestLiveState,
 } from "@/lib/guestLive";
@@ -60,6 +62,7 @@ function restoreArena(today: string, canRestore: boolean): {
   responses: string[];
   repair: { kind: GuestSkill; label: string; text: string; succeeded: boolean } | null;
   retestDemonstrated: boolean | null;
+  retestAttempt?: GuestArenaProgress["retestAttempt"];
   mode: GuestArenaMode | null;
   live: GuestLiveState | null;
 } {
@@ -76,6 +79,7 @@ function restoreArena(today: string, canRestore: boolean): {
         ? { kind: parsed.repair.kind as GuestSkill, label: parsed.repair.label, text: parsed.repair.text, succeeded: parsed.repair.succeeded }
         : null,
       retestDemonstrated: parsed.retestDemonstrated,
+      retestAttempt: parsed.retestAttempt,
       mode: parsed.mode ?? null,
       live: parsed.live ?? null,
     };
@@ -173,14 +177,14 @@ function GuestHome({
           </Link>
         </header>
 
-        <main id="main" className="app-content guest-onboarding max-w-2xl">
+        <main id="main" className={`app-content guest-onboarding ${hasPractised ? "max-w-2xl" : "max-w-5xl"}`}>
+          <div className={`guest-entry${hasPractised ? " guest-entry-returning" : ""}`}>
           {!hasPractised ? (
             <section className="guest-welcome" aria-labelledby="guest-welcome-title">
-              <p className="guest-welcome-eyebrow"><span aria-hidden="true" /> Your first Daily Debate</p>
-              <h1 id="guest-welcome-title">Think clearly.<br /><span>Argue with purpose.</span></h1>
-              <p className="guest-welcome-copy">Take a side. Find one gap in your reasoning. Leave with a move you can use in your next argument.</p>
+              <p className="guest-welcome-eyebrow">A little practice. A clearer point.</p>
+              <h1 id="guest-welcome-title">Make your case.<br /><span>Then make it stronger.</span></h1>
+              <p className="guest-welcome-copy">Try a short debate, find one gap in your reasoning, and rewrite it with a clear next move.</p>
               <div className="guest-welcome-facts" aria-label="Practice details">
-                <span>Guest mode</span>
                 <span>About {SPRINT_ESTIMATE_MINUTES} minutes</span>
                 <span>No account needed</span>
               </div>
@@ -195,9 +199,9 @@ function GuestHome({
           <section className="home-motion-card has-daily-accent surface-card" style={dailyAccentStyle(today)} aria-labelledby="guest-motion">
             <div className="home-motion-heading">
               <div>
-                <p className="home-motion-kicker">Today&apos;s motion</p>
+                <p className="home-motion-kicker">{hasPractised ? "Your next practice" : "Your first practice"}</p>
                 <p className="home-motion-meta">
-                  {shownTopic} · {GUEST_LIVE_ROUNDS} rounds · about {SPRINT_ESTIMATE_MINUTES} minutes
+                  {shownTopic} · {GUEST_LIVE_ROUNDS} rounds
                 </p>
               </div>
               <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]" data-testid="guest-mode-pill">
@@ -210,8 +214,8 @@ function GuestHome({
                 <h2 id="guest-motion" className="home-motion-title">{shownTitle}</h2>
                 <p className="home-motion-prompt">
                   {isLive
-                    ? "Everyone gets this motion today. An AI opponent argues the other side and answers what you actually write."
-                    : "You will get a guided sample opposing case, a clear round goal, and feedback that reacts to what you actually write."}
+                    ? "An AI opponent takes the other side. You answer in a few sentences."
+                    : "Answer a sample opposing case in a few sentences. Your feedback comes from what you write."}
                 </p>
               </div>
 
@@ -221,18 +225,25 @@ function GuestHome({
                 </p>
               ) : null}
 
-              <div className="home-coaching-focus">
-                <span className="home-coaching-label">Today&apos;s coaching focus</span>
-                <strong>{isLive ? "Answer what the opponent actually said." : motion.coachingFocus}</strong>
-              </div>
+              <ol className="guest-practice-path" aria-label="Your practice includes">
+                <li><span>1</span> Debate</li>
+                <li><span>2</span> Repair one move</li>
+                <li><span>3</span> Try it again</li>
+              </ol>
 
-              {isLive ? (
-                <details className="home-motion-details">
-                  <summary className="home-motion-details-summary">
-                    <span data-testid="guest-opponent-summary">Opponent: {personaLabel}</span>
-                    <span className="home-motion-details-chevron" aria-hidden="true">+</span>
-                  </summary>
-                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <details className="home-motion-details guest-practice-options">
+                <summary className="home-motion-details-summary">
+                  <span>Your side: <strong>{resolveSide() === "for" ? "For" : "Against"}</strong>{isLive ? ` · ${personaLabel} opponent` : ""}</span>
+                  <span className="guest-options-action">Change <span className="home-motion-details-chevron" aria-hidden="true">+</span></span>
+                </summary>
+                <div className="guest-options-body">
+                  <div className="home-side-label">Choose a side</div>
+                  <SidePicker side={side} onChange={setSide} ariaLabel="Choose a side" />
+                  {side === "challenge" && <p className="home-start-note" data-testid="guest-challenge-side">We picked a side for this practice. You can change it.</p>}
+                  <p className="home-start-note"><strong>Coaching focus:</strong> {isLive ? "Answer what the opponent actually said." : motion.coachingFocus}</p>
+                  {isLive && <>
+                  <p className="home-side-label" data-testid="guest-opponent-summary">Opponent: {personaLabel}</p>
+                  <div className="grid grid-cols-2 gap-2">
                     {OPPONENT_PERSONA_LIST.map((p) => (
                       <button
                         key={p.id}
@@ -247,29 +258,25 @@ function GuestHome({
                       </button>
                     ))}
                   </div>
-                </details>
-              ) : null}
+                  </>}
+                </div>
+              </details>
 
               <div className="home-start-block">
-                <div className="home-side-label">Your side</div>
-                <SidePicker side={side} onChange={setSide} ariaLabel="Choose a side" />
-                {side === "challenge" ? (
-                  <p className="home-start-note" data-testid="guest-challenge-side">
-                    Today&apos;s pick for you: <strong>{guestChallengeSide() === "for" ? "For" : "Against"}</strong>.
-                  </p>
-                ) : null}
+                <p className="home-start-note" id="guest-practice-privacy">
+                  {isLive
+                    ? "An AI provider receives your answers for replies and may log them. Practice is saved only in this browser tab."
+                    : "Guided practice stays on this device. Nothing you write is sent to an AI provider."}
+                </p>
                 <button
                   type="button"
                   onClick={() => onStart(resolveSide())}
+                  aria-describedby="guest-practice-privacy"
                   className="home-start-button btn btn-primary px-4 py-3 text-sm"
                 >
                   Start a free practice <span aria-hidden="true">→</span>
                 </button>
-                <p className="home-start-note">
-                  {isLive
-                    ? "No download, no card. Ends with one weakness, one repair, and a retest. Your answers go to a free-tier AI provider, which may log them, only to write the opponent's replies. We store nothing you write."
-                    : "No download, no card. Ends with one weakness, one repair, and a retest. Your guest practice stays on this device."}
-                </p>
+                <p className="guest-start-reassurance">No timer. No download. Start with what you think.</p>
                 {live.motion ? (
                   <button
                     type="button"
@@ -286,32 +293,25 @@ function GuestHome({
             </div>
           </section>
 
-          {/* Below the motion, not above it: the first screen is the motion and
-              Start; a first-time visitor's week row is empty anyway. */}
           {!hasPractised && (
-            <section className="guest-journey" aria-label="How Daily Debate works">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink3">A better way to practise</p>
-                  <h2 className="mt-1 text-lg font-semibold tracking-tight">A small practice. A concrete takeaway.</h2>
-                </div>
-                <span className="pill">About {SPRINT_ESTIMATE_MINUTES} minutes</span>
+            <section className="guest-repair-preview" aria-labelledby="guest-preview-heading">
+              <div className="guest-preview-heading">
+                <h2 id="guest-preview-heading">One move can change your case.</h2>
+                <span>Illustrative example</span>
               </div>
-              <ol className="guest-journey-steps">
-                {[
-                  { number: "01", title: "Take a side", detail: isLive ? "Answer a real AI opponent." : "Answer a guided opposing case." },
-                  { number: "02", title: "Find the gap", detail: "Get one concrete move to strengthen." },
-                  { number: "03", title: "Try it again", detail: "Repair it, then see if it holds." },
-                ].map((step) => (
-                  <li key={step.number}>
-                    <span className="guest-journey-number">{step.number}</span>
-                    <p className="mt-2 text-sm font-semibold">{step.title}</p>
-                    <p className="mt-1 text-xs leading-5 text-ink3">{step.detail}</p>
-                  </li>
-                ))}
-              </ol>
+              <div className="guest-preview-original">
+                <p className="guest-preview-label">A first draft</p>
+                <blockquote>“Schools should start later. It would be better for students.”</blockquote>
+              </div>
+              <p className="guest-preview-cue"><span aria-hidden="true">↳</span> Give a reason: how would a later start help?</p>
+              <div className="guest-preview-rewrite">
+                <p className="guest-preview-label">With the reasoning made visible</p>
+                <blockquote>“Schools should start later <mark>because more time to sleep could help students arrive ready to concentrate.</mark>”</blockquote>
+              </div>
+              <p className="guest-preview-note">A clearer link, not a proven claim. Your feedback starts from what you actually write.</p>
             </section>
           )}
+          </div>
 
           {hasPractised && <WeekStreak days={week} note="kept on this device" />}
 
@@ -854,6 +854,8 @@ function GuestRetest({
   weaknessLabel,
   repairText,
   repairSucceeded: repairSucceededFlag,
+  attempt,
+  onAttemptChange,
   onFinish,
   onBack,
 }: {
@@ -863,6 +865,8 @@ function GuestRetest({
   repairText: string;
   /** The real outcome of the repair drill, not a guess from its length. */
   repairSucceeded: boolean;
+  attempt: { response: string; submitted: boolean };
+  onAttemptChange: (attempt: { response: string; submitted: boolean }) => void;
   /** Finish the retest, reporting whether the repaired behaviour was observed. */
   onFinish: (demonstrated: boolean) => void;
   /** Go back to the result screen without answering the retest. */
@@ -872,8 +876,7 @@ function GuestRetest({
   // answered. Re-serving a seen prompt measures recall; an unseen one that
   // requires the same move is the only honest observation of transfer.
   const retestRound = motion.retest;
-  const [response, setResponse] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const { response, submitted } = attempt;
 
   // The retest reads the REAL repair outcome. Guessing from the rewrite's
   // length would let a failed repair slide into "nothing to retest yet", and a
@@ -896,7 +899,7 @@ function GuestRetest({
           <PageHeader
             eyebrow="Deliberate retest"
             title="Now argue it again"
-            description={`You repaired your ${weaknessLabel.toLowerCase()} move. Show it under real debate conditions.`}
+            description={`You repaired your ${weaknessLabel.toLowerCase()} move. Try it against a different objection.`}
             actions={<span className="pill">Guest retest</span>}
           />
 
@@ -921,7 +924,7 @@ function GuestRetest({
                   id="guest-retest-response"
                   aria-describedby="guest-retest-count"
                   value={response}
-                  onChange={(event) => setResponse(event.target.value)}
+                  onChange={(event) => onAttemptChange({ response: event.target.value, submitted: false })}
                   placeholder="Write 2-4 sentences..."
                   rows={5}
                   maxLength={4000}
@@ -932,7 +935,7 @@ function GuestRetest({
                 </p>
                 <button
                   type="button"
-                  onClick={() => setSubmitted(true)}
+                  onClick={() => onAttemptChange({ response, submitted: true })}
                   disabled={response.trim().length < 12}
                   className="btn btn-primary mt-3 w-full px-4 py-3 text-sm"
                 >
@@ -948,13 +951,22 @@ function GuestRetest({
                 data-testid="guest-retest-outcome"
               >
                 <p className="text-sm font-semibold">
-                  {outcome?.demonstrated ? "Observed under pressure" : "Not observed this round"}
+                  {outcome?.demonstrated ? "Text cues detected" : "Not observed this round"}
                 </p>
                 <p className="mt-1 text-sm leading-6 text-ink2">{outcome?.headline}</p>
                 <p className="mt-2 text-sm leading-6 text-ink2">{outcome?.detail}</p>
                 <p className="mt-3 text-xs leading-5 text-ink3">
-                  Guest retest is one observed instance. It is not a validated measure of ability - that needs repeated measurement, which an account provides.
+                  Guest retest checks surface text cues in one response. It does not validate ability or show that learning transfers or lasts.
                 </p>
+                {!outcome?.demonstrated && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary mt-3 px-4 py-2 text-sm"
+                    onClick={() => onAttemptChange({ response, submitted: false })}
+                  >
+                    Revise this response
+                  </button>
+                )}
               </div>
             )}
           </section>
@@ -1021,7 +1033,7 @@ function GuestDone({
           <section className="surface-card p-5 sm:p-6" aria-labelledby="guest-done-outcome" data-testid="guest-done">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink3">What happened</p>
             <h2 id="guest-done-outcome" className="mt-1 text-lg font-semibold">
-              {demonstrated ? "Observed under pressure" : "Not observed this round"}
+              {demonstrated ? "Text cues detected" : "Not observed this round"}
             </h2>
             <ul className="mt-3 space-y-2 text-sm leading-6 text-ink2">
               <li>
@@ -1034,13 +1046,12 @@ function GuestDone({
               <li>
                 <span className="font-semibold text-ink">Retest:</span>{" "}
                 {demonstrated
-                  ? "the repaired move showed up under debate conditions — one observed instance, not a measure of ability."
-                  : "the move did not reappear under pressure. The repair itself still stands as completed practice."}
+                  ? "the local check detected text cues for this move in one response, not proof of a sound answer or learning."
+                  : "the local check did not detect the target cues. This does not establish that the move is absent."}
               </li>
             </ul>
             <p className="mt-3 text-xs leading-5 text-ink3">
-              Guest practice reports single observed instances. Repeated measurement — the thing that turns a rep
-              into evidence of ability — needs an account.
+              Guest practice checks surface text cues. Repetition alone does not validate ability, transfer or retention.
             </p>
           </section>
 
@@ -1098,10 +1109,25 @@ function GuestArenaSession({ canRestore, validation, liveMotion }: {
   const [restored] = useState(() => restoreArena(today, canRestore));
 
   const [stage, setStage] = useState<Stage>(() => restored.stage);
+  const previousStage = useRef(stage);
+  useEffect(() => {
+    if (previousStage.current === stage) return;
+    previousStage.current = stage;
+    // These are in-page steps rather than navigations. Carry keyboard and
+    // screen-reader focus to the new heading, and don't enter the debate at
+    // the scroll position of the start button on the previous screen.
+    const heading = document.querySelector<HTMLElement>("#main h1");
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    }
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [stage]);
   const [side, setSide] = useState<"for" | "against">(() => restored.side);
   const [responses, setResponses] = useState<string[]>(() => restored.responses);
   const [repair, setRepair] = useState<{ kind: GuestSkill; label: string; text: string; succeeded: boolean } | null>(() => restored.repair);
   const [retestDemonstrated, setRetestDemonstrated] = useState<boolean | null>(() => restored.retestDemonstrated);
+  const [retestAttempt, setRetestAttempt] = useState(() => restored.retestAttempt ?? { response: "", submitted: false });
   // Live is the default whenever the server offers it. A restored sprint keeps
   // its own mode (and transcript); a restored home re-reads today's offer.
   const [mode, setMode] = useState<GuestArenaMode>(() => {
@@ -1137,6 +1163,7 @@ function GuestArenaSession({ canRestore, validation, liveMotion }: {
           responses,
           repair,
           retestDemonstrated,
+          retestAttempt,
           mode,
           ...(isLive && liveState ? { live: liveState } : {}),
         }),
@@ -1144,7 +1171,7 @@ function GuestArenaSession({ canRestore, validation, liveMotion }: {
     } catch {
       // Storage unavailable — nothing cached, nothing broken.
     }
-  }, [canRestore, today, stage, side, responses, repair, retestDemonstrated, mode, isLive, liveState]);
+  }, [canRestore, today, stage, side, responses, repair, retestDemonstrated, retestAttempt, mode, isLive, liveState]);
 
   function commitOpponent(index: number, text: string) {
     setLiveState((current) => {
@@ -1182,7 +1209,7 @@ function GuestArenaSession({ canRestore, validation, liveMotion }: {
         onReset: () => setPending((current) => (current && current.index === index ? { ...current, text: "" } : current)),
       });
       const aiMessage = outcome?.body.aiMessage;
-      if (!outcome || outcome.status >= 400 || typeof aiMessage !== "string" || !aiMessage.trim()) {
+      if (!outcome || outcome.status >= 400 || !isGuestOpponentReply(aiMessage)) {
         const message = typeof outcome?.body.error === "string" ? outcome.body.error : undefined;
         throw Object.assign(new Error(message ?? "no reply"), { userMessage: message });
       }
@@ -1296,6 +1323,7 @@ function GuestArenaSession({ canRestore, validation, liveMotion }: {
     setResponses([]);
     setRepair(null);
     setRetestDemonstrated(null);
+    setRetestAttempt({ response: "", submitted: false });
     setPending(null);
     setLiveState(freshLiveState());
     if (!liveMotion) setMode("guided");
@@ -1357,7 +1385,15 @@ function GuestArenaSession({ canRestore, validation, liveMotion }: {
         repairSucceeded={!!repair}
         acceptedRepairText={repair?.text ?? null}
         validation={validation}
-        onRepairSucceeded={(kind, label, text, succeeded) => setRepair({ kind, label, text, succeeded })}
+        onRepairSucceeded={(kind, label, text, succeeded) => {
+          // A changed repair starts a new observation. Revisiting the same
+          // result keeps the draft and any submitted feedback intact.
+          if (!repair || repair.kind !== kind || repair.text !== text || repair.succeeded !== succeeded) {
+            setRetestAttempt({ response: "", submitted: false });
+            setRetestDemonstrated(null);
+          }
+          setRepair({ kind, label, text, succeeded });
+        }}
         onRetest={() => {
           // Freeze the retest challenge before it is shown: a late-arriving
           // generated one must never replace text the learner is answering.
@@ -1378,6 +1414,8 @@ function GuestArenaSession({ canRestore, validation, liveMotion }: {
         weaknessLabel={repair.label}
         repairText={repair.text}
         repairSucceeded={repair.succeeded}
+        attempt={retestAttempt}
+        onAttemptChange={setRetestAttempt}
         onFinish={(demonstrated) => {
           setRetestDemonstrated(demonstrated);
           finishRetest(demonstrated);
@@ -1419,6 +1457,7 @@ function GuestArenaSession({ canRestore, validation, liveMotion }: {
         setResponses([]);
         setRepair(null);
         setRetestDemonstrated(null);
+        setRetestAttempt({ response: "", submitted: false });
         setPending(null);
         setLiveState(freshLiveState());
         setStage("debate");

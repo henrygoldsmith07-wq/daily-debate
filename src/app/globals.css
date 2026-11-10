@@ -297,57 +297,73 @@
    screen. It is a working card — header strip, motion, coaching focus, and the
    start controls — not a landing-page hero, so the display type and the
    decorative blob that used to sit behind it are gone. */
-.guest-welcome {
-  position: relative;
-  padding: 1.5rem 0 0.5rem;
-}
+.guest-entry { display: grid; gap: 1.5rem; min-width: 0; }
+.guest-entry > * { min-width: 0; }
+.guest-welcome { padding: 0.5rem 0 0; }
 .guest-welcome-eyebrow {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0 0 1rem;
+  margin: 0 0 0.85rem;
   color: var(--speak);
   font-size: 0.68rem;
   font-weight: 750;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.guest-welcome-eyebrow > span {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 50%;
-  background: var(--speak);
-  box-shadow: 0 0 0 4px var(--speak-soft);
-}
 .guest-welcome h1 {
   margin: 0;
-  font-size: clamp(2.25rem, 7vw, 3.6rem);
+  font-size: clamp(2rem, 5vw, 3.3rem);
   font-weight: 750;
   line-height: 1.08;
   letter-spacing: -0.055em;
 }
 .guest-welcome h1 > span { color: var(--speak); }
-.guest-welcome-copy { max-width: 45ch; margin: 1rem 0; color: var(--ink-2); font-size: 0.95rem; line-height: 1.7; }
-.guest-welcome-facts { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; color: var(--ink-3); font-size: 0.72rem; }
+.guest-welcome-copy { max-width: 39ch; margin: 0.9rem 0; color: var(--ink-2); font-size: 0.9rem; line-height: 1.65; }
+.guest-welcome-facts { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; color: var(--ink-3); font-size: 0.75rem; }
 .guest-welcome-facts > span { display: inline-flex; align-items: center; gap: 0.4rem; }
 .guest-welcome-facts > span::before { content: "\2713"; color: var(--speak); font-weight: 700; }
 .guest-onboarding .home-motion-card {
   border-color: color-mix(in srgb, var(--speak) 22%, var(--line));
-  box-shadow: 0 8px 32px color-mix(in srgb, var(--speak) 7%, transparent);
+  border-radius: var(--radius-xl);
 }
-.guest-onboarding .home-motion-heading { background: linear-gradient(115deg, var(--speak-soft), var(--surface-2)); }
-.guest-onboarding .home-motion-body { padding: clamp(1rem, 4vw, 1.75rem); gap: 1.25rem; }
+.guest-onboarding .home-motion-heading { background: var(--surface); padding: 1rem 1.25rem; gap: 0.5rem; flex-wrap: wrap; }
+.guest-onboarding .home-motion-body { padding: 1.25rem; gap: 1rem; }
 .guest-onboarding .home-start-button { min-height: 52px; border-radius: 12px; font-weight: 700; }
-.guest-journey { padding: 1.5rem 0; }
-.guest-journey-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem; margin: 1.5rem 0 0; padding: 0; list-style: none; }
-.guest-journey-steps li { position: relative; min-width: 0; }
-.guest-journey-steps li:not(:last-child)::after { content: ""; position: absolute; top: 1rem; left: 2.75rem; right: 0; height: 1px; background: var(--line); }
-.guest-journey-number { display: grid; width: 2rem; height: 2rem; place-items: center; border: 1px solid color-mix(in srgb, var(--speak) 25%, var(--line)); border-radius: 50%; background: var(--speak-soft); color: var(--speak); font-size: 0.65rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.guest-onboarding .home-start-note { font-size: 0.75rem; line-height: 1.55; }
+.guest-practice-path { display: flex; flex-wrap: wrap; gap: 0.65rem 1rem; list-style: none; margin: 0; padding: 0; }
+.guest-practice-path li { display: flex; align-items: center; gap: 0.4rem; color: var(--ink-2); font-size: 0.75rem; }
+.guest-practice-path li > span { display: grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--surface-2); font-size: 0.65rem; font-weight: 650; }
+.guest-practice-options { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.guest-practice-options > summary { display: flex; justify-content: space-between; min-height: 44px; width: 100%; gap: 0.75rem; }
+.guest-options-action { flex-shrink: 0; color: var(--speak); }
+.guest-options-body { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.25rem 0 1rem; }
+.guest-start-reassurance { margin: 0; color: var(--ink-3); font-size: 0.75rem; text-align: center; line-height: 1.5; }
+.guest-repair-preview { padding: 1.25rem 0; }
+.guest-preview-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 0.75rem; margin-bottom: 1rem; }
+.guest-preview-heading h2 { margin: 0; font-size: 0.9rem; font-weight: 650; letter-spacing: -0.02em; }
+.guest-preview-heading > span { color: var(--ink-3); font-size: 0.75rem; }
+.guest-preview-original, .guest-preview-rewrite { padding: 0.9rem 1rem; border-left: 2px solid var(--line); }
+.guest-preview-rewrite { border-left-color: var(--speak); background: var(--speak-soft); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.guest-preview-label { margin: 0 0 0.45rem; color: var(--ink-3); font-size: 0.75rem; font-weight: 650; }
+.guest-repair-preview blockquote { margin: 0; font-size: 0.85rem; line-height: 1.65; color: var(--ink-2); }
+.guest-preview-rewrite blockquote { color: var(--ink); }
+.guest-preview-rewrite mark { color: var(--speak); background: transparent; }
+.guest-preview-cue { margin: 0.65rem 0; color: var(--speak); font-size: 0.75rem; line-height: 1.6; }
+.guest-preview-cue > span { margin-right: 0.35rem; }
+.guest-preview-note { margin: 0.75rem 0 0; max-width: 54ch; color: var(--ink-3); font-size: 0.75rem; line-height: 1.6; }
+.guest-entry-returning { max-width: 42rem; width: 100%; margin-inline: auto; }
+@media (min-width: 900px) {
+  .guest-entry:not(.guest-entry-returning) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 3rem; align-items: start; }
+  .guest-entry:not(.guest-entry-returning) > .home-motion-card { grid-column: 2; grid-row: 1 / span 2; }
+  .guest-repair-preview { grid-column: 1; padding-top: 0; }
+}
 @media (max-width: 420px) {
-  .guest-journey-steps { grid-template-columns: 1fr; gap: 1.25rem; }
-  .guest-journey-steps li { padding-left: 3rem; }
-  .guest-journey-number { position: absolute; left: 0; top: 0.25rem; }
-  .guest-journey-steps li:not(:last-child)::after { top: 2.5rem; bottom: -1rem; left: 1rem; right: auto; width: 1px; height: auto; }
+  .guest-entry { gap: 1.25rem; }
+  .guest-welcome h1 { font-size: 2rem; }
+  .guest-welcome-copy { font-size: 0.85rem; }
+  .guest-onboarding .home-motion-heading { padding: 0.85rem 1rem; }
+  .guest-onboarding .home-motion-body { padding: 1rem; gap: 0.85rem; }
 }
 .home-motion-card {
   position: relative;
