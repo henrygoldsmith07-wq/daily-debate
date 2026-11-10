@@ -266,7 +266,7 @@ function GuestHome({
               <div className="home-start-block">
                 <p className="home-start-note" id="guest-practice-privacy">
                   {isLive
-                    ? "Your answers go to a free-tier AI provider, which may log them, only to write the opponent's replies. Practice is saved only in this browser tab."
+                    ? "An AI provider receives your answers for replies and may log them: your answers go to a free-tier AI provider, which may log them. Practice is saved only in this browser tab."
                     : "Guided practice stays on this device. Nothing you write is sent to an AI provider."}
                 </p>
                 <button
