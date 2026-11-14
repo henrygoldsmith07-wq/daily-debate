@@ -23,6 +23,29 @@ export function isNeonHttpUrl(url) {
 }
 
 /**
+ * Whether a pg client can hold a transaction (BEGIN ... FOR UPDATE ...
+ * COMMIT) on this URL. Any postgres:// or postgresql:// URL can, a Neon one
+ * included: Neon's pooled endpoint is PgBouncer in transaction mode, which
+ * keeps one backend for the whole transaction. Only a non-postgres URL (the
+ * Neon HTTP/serverless https endpoint) or an explicit
+ * DATABASE_DRIVER=neon-http cannot.
+ *
+ * isNeonHttpUrl stays as it is: createExecutor uses it to pick the HTTP
+ * driver for Neon hosts, which is a different question from whether a
+ * transaction is possible.
+ */
+export function isTransactionCapableUrl(url) {
+  if (process.env.DATABASE_DRIVER === "neon-http") return false;
+  let protocol;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {
+    return false;
+  }
+  return protocol === "postgres:" || protocol === "postgresql:";
+}
+
+/**
  * Session-backed transaction over a dedicated client.
  * @param {string} url
  * @returns {(fn: (tx: (text: string, params?: unknown[]) => Promise<unknown[]>) => Promise<unknown>) => Promise<unknown>}
