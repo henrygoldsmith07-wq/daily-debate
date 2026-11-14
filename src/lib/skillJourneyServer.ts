@@ -41,7 +41,11 @@ function isoString(value: unknown): string | null {
 /** Load recent repairs and debate observations, returned in chronological order. */
 export async function buildJourneyInputsForUser(userId: string): Promise<JourneyInputs> {
   const db = await createClient();
-  const [{ data: repairRows }, { data: debates }, { data: retests }] = await Promise.all([
+  const [
+    { data: repairRows, error: repairsError },
+    { data: debates, error: debatesError },
+    { data: retests, error: retestsError },
+  ] = await Promise.all([
     db
       .from("repair_results")
       .select("id, user_id, debate_id, target_kind, source_text, rewrite_text, score, succeeded, created_at")
@@ -63,6 +67,10 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
       .limit(100),
   ]);
 
+  if (repairsError || debatesError || retestsError) {
+    throw new Error("Practice history is temporarily unavailable. Please retry.");
+  }
+
   // Latest completed assignment per repair episode = that repair's retest.
   const retestByRepair = new Map<string, RetestRow>();
   for (const row of (retests ?? []) as unknown as RetestRow[]) {
@@ -82,6 +90,25 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
     debateFormat.set(debate.id as string, debate.format as string);
   }
 
+  // An assigned retest may fall outside the recent observation window.
+  const missingDebateIds = [...new Set(
+    [...retestByRepair.values()]
+      .filter((row) => row.completed_at)
+      .map((row) => row.assigned_debate_id)
+      .filter((id) => !debateFormat.has(id)),
+  )];
+  if (missingDebateIds.length) {
+    const { data: retestDebates, error } = await db
+      .from("solo_debates")
+      .select("id, format")
+      .eq("user_id", userId)
+      .in("id", missingDebateIds);
+    if (error) throw new Error("Retest history is temporarily unavailable. Please retry.");
+    for (const debate of retestDebates ?? []) {
+      debateFormat.set(debate.id, debate.format);
+    }
+  }
+
   const repairs: RepairRecord[] = (repairRows ?? []).flatMap((row) => {
     // timestamptz comes back as Date; the public record shape is ISO strings.
     const r = row as unknown as RepairRecord & { id: string; created_at: string | Date };
@@ -92,7 +119,7 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
       ...r,
       created_at: createdAt,
       retest_debate_id: retest?.assigned_debate_id ?? null,
-      retest_outcome: retest
+      retest_outcome: retest && debateFormat.has(retest.assigned_debate_id)
         ? retestOutcomeFromAssignment(retest, debateFormat.get(retest.assigned_debate_id) ?? null)
         : null,
       retest_completed_at: retest?.completed_at ? isoString(retest.completed_at) : null,
@@ -104,12 +131,13 @@ export async function buildJourneyInputsForUser(userId: string): Promise<Journey
   const debateIds = (debates ?? []).map((d) => d.id as string);
   const turnsByDebate = new Map<string, ObservableAssessment["graph"][]>();
   if (debateIds.length) {
-    const { data: turns } = await db
+    const { data: turns, error: turnsError } = await db
       .from("solo_debate_turns")
       .select("debate_id, assessment, round_number")
       .in("debate_id", debateIds)
       .not("assessment", "is", null)
       .order("round_number", { ascending: true });
+    if (turnsError) throw new Error("Debate observations are temporarily unavailable. Please retry.");
     for (const t of (turns ?? []) as Array<{ debate_id: string; assessment: unknown }>) {
       const graph = (t.assessment as ObservableAssessment)?.graph;
       if (!graph) continue;

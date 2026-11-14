@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import GuestArena from "./GuestArena";
+import GuestArena, { GuestArenaSession } from "./GuestArena";
 import { encodeGuestArenaProgress, GUEST_ARENA_STORAGE_KEY } from "@/lib/guestLoop";
 
-// First-visit snags a new user hits on the guest page. Rendered statically
-// (node env): with no `window`, the arena restores to the guest home; a
-// stubbed sessionStorage restores a later stage the way a reload would.
+// First-visit snags a new user hits on the guest page. The hydrated session is
+// rendered statically (node env): a stubbed sessionStorage restores a later
+// stage the way a reload does. The default export keeps the server home on its
+// first render, so it must not read storage until hydration.
 
 const FLAG = "NEXT_PUBLIC_EXPERIMENTAL_SURFACES";
 
@@ -25,7 +26,7 @@ function renderAtStage(
       },
     });
   }
-  return renderToStaticMarkup(<GuestArena live={live} />);
+  return renderToStaticMarkup(<GuestArenaSession canRestore validation={null} liveMotion={live} />);
 }
 
 describe("GuestArena first visit", () => {
@@ -108,38 +109,45 @@ describe("GuestArena first visit", () => {
     const html = renderAtStage(null, LIVE);
     expect(html).toContain(LIVE.title);
     expect(html).toContain("Live AI opponent");
-    expect(html).toContain("go to a free-tier AI provider, which may log them");
-    expect(html).toContain("We store nothing you write");
+    expect(html).toContain("An AI provider receives your answers for replies and may log them");
+    expect(html).toContain("Practice is saved only in this browser tab");
     expect(html).toContain("Use a guided case instead");
     // The local-only promise is never shown next to the live opponent.
-    expect(html).not.toContain("Your guest practice stays on this device");
+    expect(html).not.toContain("stays on this device");
   });
 
   it("stays on the guided case, with its local-only promise, when live is not offered", () => {
     const html = renderAtStage(null, null);
     expect(html).toContain("Guided case");
-    expect(html).toContain("Your guest practice stays on this device");
+    expect(html).toContain("Guided practice stays on this device");
     expect(html).not.toContain('data-testid="guest-mode-switch"');
   });
 
-  it("resumes a live sprint from its stored transcript and names the opponent", () => {
+  it("resumes a live sprint only after hydration, then names the opponent", () => {
     const today = new Date().toISOString().slice(0, 10);
-    const html = renderAtStage({
-      version: 1,
+    const saved = {
+      version: 1 as const,
       motionDate: today,
-      stage: "debate",
-      side: "for",
+      stage: "debate" as const,
+      side: "for" as const,
       responses: ["Cities should ban cars because clean air protects children."],
       repair: null,
       retestDemonstrated: null,
-      mode: "live",
+      mode: "live" as const,
       live: {
         motion: LIVE,
-        persona: "lawyer",
+        persona: "lawyer" as const,
         opponents: ["Cars carry people buses cannot.", "Which study shows the health gain?"],
         retest: null,
       },
-    }, LIVE);
+    };
+    const html = renderAtStage(saved, LIVE);
+    // The server and the first client render must match: the saved transcript
+    // stays out of the initial markup, so hydration cannot mismatch.
+    const firstRender = renderToStaticMarkup(<GuestArena live={LIVE} />);
+    expect(firstRender).not.toContain("Which study shows the health gain?");
+    expect(firstRender).toContain("Start a free practice");
+    // Once hydrated, the same session mounts with the saved loop.
     expect(html).toContain(LIVE.title);
     expect(html).toContain("Which study shows the health gain?");
     expect(html).toContain("Opponent · The Lawyer");

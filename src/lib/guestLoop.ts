@@ -158,6 +158,8 @@ export interface GuestArenaProgress {
   responses: string[];
   repair: GuestArenaRepair | null;
   retestDemonstrated: boolean | null;
+  /** Optional for older snapshots. Retest drafts and feedback survive reload. */
+  retestAttempt?: { response: string; submitted: boolean };
   /**
    * "live" = today's motion against the AI opponent; "guided" = the scripted
    * sample case that never leaves the device. Absent on snapshots written
@@ -220,6 +222,15 @@ export function parseGuestArenaProgress(raw: unknown): GuestArenaProgress | null
   if (v.retestDemonstrated !== null && v.retestDemonstrated !== undefined && typeof v.retestDemonstrated !== "boolean") {
     return null;
   }
+  let retestAttempt: GuestArenaProgress["retestAttempt"];
+  if (v.retestAttempt !== undefined) {
+    if (!v.retestAttempt || typeof v.retestAttempt !== "object") return null;
+    const attempt = v.retestAttempt as Record<string, unknown>;
+    if (typeof attempt.response !== "string" || typeof attempt.submitted !== "boolean") return null;
+    const response = attempt.response.slice(0, ARENA_MAX_TEXT);
+    if (attempt.submitted && response.trim().length < 12) return null;
+    retestAttempt = { response, submitted: attempt.submitted };
+  }
   if (v.mode !== undefined && v.mode !== "live" && v.mode !== "guided") return null;
   let live: GuestLiveState | undefined;
   if (v.live !== undefined && v.live !== null) {
@@ -237,6 +248,7 @@ export function parseGuestArenaProgress(raw: unknown): GuestArenaProgress | null
     responses,
     repair,
     retestDemonstrated: (v.retestDemonstrated ?? null) as boolean | null,
+    ...(retestAttempt ? { retestAttempt } : {}),
     ...(v.mode ? { mode: v.mode as GuestArenaMode } : {}),
     ...(live ? { live } : {}),
   };
