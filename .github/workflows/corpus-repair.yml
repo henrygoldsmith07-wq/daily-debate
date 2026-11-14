@@ -1,0 +1,100 @@
+name: corpus-repair
+
+# Repairs corpus-closure drift in the production database with the
+# repository's own scripts/repair-corpus-closure.mjs (npm run repair:corpus),
+# then proves the corpus invariants hold. It exists for the same reason as
+# db-migrate.yml: production DATABASE_URL lives only as a repo secret, so the
+# script has to run inside Actions.
+#
+# First use: account erasures before migration 051 removed ratings without
+# recounting the items they were on (rating-count-drift, rated items below
+# the collection target).
+#
+# Safety properties:
+#   - workflow_dispatch ONLY: never scheduled, never on push.
+#   - Dry run by default: it reports the items it would change and writes
+#     nothing. Writing needs mode=apply AND confirm exactly "repair".
+#   - The script never edits or deletes a rating. It recounts rating_count,
+#     flips open -> rated at the target and reopens rated items below it,
+#     each under the item's row lock, idempotently.
+#   - Shares the database-maintenance concurrency group with db-migrate, so
+#     the two never run at once.
+#   - environment: production, the same reviewer gate as db-migrate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (report only) or apply (write the repairs)"
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+      confirm:
+        description: 'For apply only: type "repair" to confirm'
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-maintenance
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+
+      - name: Verify confirmation
+        if: github.event.inputs.mode == 'apply'
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "repair" ]; then
+            echo "Refusing to apply: the confirm input must be exactly 'repair'." >&2
+            exit 1
+          fi
+
+      - name: Repair corpus closure (${{ github.event.inputs.mode }})
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -o pipefail
+          if [ "${{ github.event.inputs.mode }}" = "apply" ]; then
+            node scripts/repair-corpus-closure.mjs --apply 2>&1 | tee repair-output.txt
+          else
+            node scripts/repair-corpus-closure.mjs 2>&1 | tee repair-output.txt
+          fi
+
+      - name: Corpus invariants (read-only)
+        # Expected red on a dry run that found drift; must be green after apply.
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -o pipefail
+          node scripts/check-corpus-invariants.mjs 2>&1 | tee invariants-output.txt
+
+      - name: Record the run in the summary
+        if: always()
+        run: |
+          {
+            echo "## corpus-repair (${{ github.event.inputs.mode }}) — ${{ github.run_id }}"
+            echo '### Repair'
+            echo '```'
+            cat repair-output.txt 2>/dev/null || echo "(repair output unavailable)"
+            echo '```'
+            echo '### Invariants'
+            echo '```'
+            cat invariants-output.txt 2>/dev/null || echo "(invariants output unavailable)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
