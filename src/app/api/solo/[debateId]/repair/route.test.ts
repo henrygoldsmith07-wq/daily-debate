@@ -10,6 +10,9 @@ const h = vi.hoisted(() => {
     priorRepairTexts: [] as string[],
     drillUpdateFilters: null as Map<string, unknown> | null,
     inserts: 0,
+    /** What record_repair_attempt answers: a fresh insert, or a duplicate that won the race. */
+    rpcDuplicate: null as { score: number; succeeded: boolean; signals: string[] } | null,
+    priorSuccess: false,
   };
 
   /** Chainable query stub: every builder method returns itself; terminals resolve. */
@@ -29,8 +32,14 @@ const h = vi.hoisted(() => {
 
   const userDb = {
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
+    async rpc(name: string) {
+      if (name !== "record_repair_attempt") throw new Error(`Unexpected rpc: ${name}`);
+      if (state.rpcDuplicate) return { data: { outcome: "duplicate", ...state.rpcDuplicate }, error: null };
+      state.inserts += 1;
+      return { data: { outcome: "recorded", priorSuccess: state.priorSuccess }, error: null };
+    },
     from(table: string) {
-      if (table === "solo_debates") return chain({ data: { id: "debate-1", status: "completed" }, error: null });
+      if (table === "solo_debates") return chain({ data: { id: "11111111-1111-4111-8111-111111111111", status: "completed" }, error: null });
       if (table === "solo_debate_turns") return chain({ data: [{ assessment: { graph: { nodes: [] } } }], error: null });
       if (table === "repair_results") {
         const filters = new Map<string, unknown>();
@@ -102,11 +111,11 @@ import { POST } from "./route";
 
 function post() {
   return POST(
-    new Request("http://x/api/solo/debate-1/repair", {
+    new Request("http://x/api/solo/11111111-1111-4111-8111-111111111111/repair", {
       method: "POST",
       body: JSON.stringify({ rewrite: "Pew Research found 62% support, which shows the claim holds." }),
     }),
-    { params: Promise.resolve({ debateId: "debate-1" }) },
+    { params: Promise.resolve({ debateId: "11111111-1111-4111-8111-111111111111" }) },
   );
 }
 
@@ -122,6 +131,8 @@ describe("POST /api/solo/[debateId]/repair — drill linkage", () => {
     h.state.priorRepairTexts = [];
     h.state.duplicateRow = null;
     h.state.inserts = 0;
+    h.state.rpcDuplicate = null;
+    h.state.priorSuccess = false;
     recordEvent.mockClear();
   });
   afterEach(() => vi.useRealTimers());
@@ -170,6 +181,8 @@ describe("POST /api/solo/[debateId]/repair — duplicate submissions", () => {
   beforeEach(() => {
     h.state.duplicateRow = null;
     h.state.inserts = 0;
+    h.state.rpcDuplicate = null;
+    h.state.priorSuccess = false;
     recordEvent.mockClear();
   });
 
@@ -195,13 +208,44 @@ describe("POST /api/solo/[debateId]/repair — duplicate submissions", () => {
       helpLevel: 1,
     });
   });
+  it("answers a duplicate that only the locked write caught (a race) from the stored row", async () => {
+    // The pre-check saw nothing; a concurrent identical submission landed first.
+    h.state.rpcDuplicate = { score: 75, succeeded: true, signals: ["stored signal"] };
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(h.state.inserts).toBe(0);
+    expect(recordEvent).not.toHaveBeenCalled();
+    expect(h.state.drillUpdate).toBeNull();
+    expect(await res.json()).toMatchObject({ succeeded: true, state: "repair_demonstrated", signals: ["stored signal"] });
+  });
+
+  it("closes the repair episode only when the locked write saw no earlier success", async () => {
+    await post();
+    expect(recordEvent.mock.calls.map((c) => (c as unknown[])[1])).toContain("repair_episode_closed");
+    recordEvent.mockClear();
+    h.state.priorSuccess = true;
+    await post();
+    const names = recordEvent.mock.calls.map((c) => (c as unknown[])[1]);
+    expect(names).toContain("repair_demonstrated");
+    expect(names).not.toContain("repair_episode_closed");
+  });
+
+  it("answers a malformed debate id with 404, not a retryable 503", async () => {
+    const res = await POST(
+      new Request("http://x/api/solo/not-a-uuid/repair", { method: "POST", body: JSON.stringify({ rewrite: "A rewrite long enough." }) }),
+      { params: Promise.resolve({ debateId: "not-a-uuid" }) },
+    );
+    expect(res.status).toBe(404);
+    expect(h.state.inserts).toBe(0);
+  });
+
   it("ignores a claimed help level before any failed attempt and withholds help", async () => {
     const res = await POST(
-      new Request("http://x/api/solo/debate-1/repair", {
+      new Request("http://x/api/solo/11111111-1111-4111-8111-111111111111/repair", {
         method: "POST",
         body: JSON.stringify({ rewrite: "Another rewrite with 40% data from a 2022 survey.", helpLevel: 3 }),
       }),
-      { params: Promise.resolve({ debateId: "debate-1" }) },
+      { params: Promise.resolve({ debateId: "11111111-1111-4111-8111-111111111111" }) },
     );
     const json = await res.json();
     expect(json.helpLevel).toBe(0);

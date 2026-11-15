@@ -42,7 +42,8 @@ export class BackendClient {
       | "create_friend_challenge"
       | "create_friend_challenge_v2"
       | "accept_friend_challenge"
-      | "delete_app_account",
+      | "delete_app_account"
+      | "record_repair_attempt",
     args: RpcArgs,
   ) {
     try {
@@ -269,6 +270,26 @@ export class BackendClient {
           [args.p_code, args.p_opponent, args.p_round_limit],
         );
         return { data: rows, error: null };
+      }
+      if (name === "record_repair_attempt") {
+        // One attempt per (user, debate, target) at a time (migration 053):
+        // an identical rewrite comes back as 'duplicate', and priorSuccess is
+        // read under the same lock as the insert.
+        const rows = await queryRows<{ result: Record<string, unknown> }>(
+          "SELECT record_repair_attempt($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb) AS result",
+          [
+            args.p_user,
+            args.p_debate,
+            args.p_kind,
+            args.p_source_node_id,
+            args.p_source_text,
+            args.p_rewrite,
+            args.p_score,
+            args.p_succeeded,
+            args.p_signals,
+          ],
+        );
+        return { data: rows[0]?.result ?? null, error: null };
       }
       if (name === "delete_app_account") {
         // Single-statement account erasure: atomic — a failure rolls the

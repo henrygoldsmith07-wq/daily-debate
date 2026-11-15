@@ -9,6 +9,7 @@ import { clampHelpLevel, helpLevelFromSignals, maxUnlockedLevel, tagHelpSignal, 
 import { recordProductEventForUser } from "@/lib/productEvents";
 import { REPAIR_KIND_TO_DIMENSION } from "@/lib/repairRetest";
 import { dateKeyInTimeZone, normalizeIanaTimeZone } from "@/lib/timeZone";
+import { isDebateId } from "@/lib/explore";
 
 const REPAIR_SUCCESS_THRESHOLD = 60;
 const MAX_REPAIR_REQUEST_BYTES = 8_192;
@@ -106,6 +107,10 @@ async function getRepair(request: Request, { params }: RouteContext) {
   if (limited) return limited;
 
   const { debateId } = await params;
+  // A malformed id is a missing debate, not a failed read: without this the
+  // uuid cast failed and the learner was told to retry a request that could
+  // never succeed (503).
+  if (!isDebateId(debateId)) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
   const db = await createClient();
   const {
     data: { user },
@@ -172,6 +177,7 @@ async function submitRepair(request: Request, { params }: RouteContext) {
   if (limited) return limited;
 
   const { debateId } = await params;
+  if (!isDebateId(debateId)) return NextResponse.json({ error: "Debate not found." }, { status: 404 });
   const db = await createClient();
   const {
     data: { user },
@@ -221,54 +227,52 @@ async function submitRepair(request: Request, { params }: RouteContext) {
     .maybeSingle();
 
   requireRepairRead(duplicateError);
-  if (duplicate) {
-    const signals = Array.isArray(duplicate.signals)
-      ? duplicate.signals.filter((signal): signal is string => typeof signal === "string")
+  const alreadyRecorded = (stored: { score: number; succeeded: boolean; signals: unknown }) => {
+    const signals = Array.isArray(stored.signals)
+      ? stored.signals.filter((signal): signal is string => typeof signal === "string")
       : [];
     return NextResponse.json({
       target,
-      state: duplicate.succeeded ? "repair_demonstrated" : repairStateFromScore(duplicate.score),
+      state: stored.succeeded ? "repair_demonstrated" : repairStateFromScore(stored.score),
       signals: visibleSignals(signals),
-      succeeded: duplicate.succeeded,
+      succeeded: stored.succeeded,
       helpLevel: helpLevelFromSignals(signals),
       failedAttempts: priorFailed,
       unlockedLevel: maxUnlockedLevel(priorFailed),
       help: unlockedHelp(target, priorFailed),
       feedback: "Already recorded. This is the saved feedback for this version; no new attempt or drill update was made.",
     });
-  }
-
-  const { data: priorSuccess, error: priorSuccessError } = await db
-    .from("repair_results")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("debate_id", debateId)
-    .eq("target_kind", target.kind)
-    .eq("succeeded", true)
-    .limit(1)
-    .maybeSingle();
-
-  requireRepairRead(priorSuccessError);
+  };
+  if (duplicate) return alreadyRecorded(duplicate);
 
   const helpLevel = clampHelpLevel(body?.helpLevel, priorFailed);
   const result = scoreRepair(target, rewrite);
   const succeeded = result.score >= REPAIR_SUCCESS_THRESHOLD;
 
-  const { error: insertError } = await db.from("repair_results").insert({
-    user_id: user.id,
-    debate_id: debateId,
-    target_kind: target.kind,
-    source_node_id: target.sourceNodeId ?? null,
-    source_text: target.sourceText,
-    rewrite_text: rewrite,
-    score: result.score,
-    succeeded,
-    signals: tagHelpSignal(result.signals, helpLevel),
+  // Duplicate check, "was there already a success?" and the insert run under
+  // one per-repair lock (migration 053). The pre-check above is only a fast
+  // path: an identical rewrite submitted twice at once is caught here.
+  const { data: recorded, error: insertError } = await db.rpc("record_repair_attempt", {
+    p_user: user.id,
+    p_debate: debateId,
+    p_kind: target.kind,
+    p_source_node_id: target.sourceNodeId ?? null,
+    p_source_text: target.sourceText,
+    p_rewrite: rewrite,
+    p_score: result.score,
+    p_succeeded: succeeded,
+    p_signals: JSON.stringify(tagHelpSignal(result.signals, helpLevel)),
   });
-  if (insertError) {
+  const outcome = recorded as
+    | { outcome: "recorded"; priorSuccess: boolean }
+    | { outcome: "duplicate"; score: number; succeeded: boolean; signals: unknown }
+    | null;
+  if (insertError || !outcome) {
     console.error("Failed to persist repair result:", insertError);
     return NextResponse.json({ error: "Failed to save the repair." }, { status: 500 });
   }
+  if (outcome.outcome === "duplicate") return alreadyRecorded(outcome);
+  const priorSuccess = outcome.priorSuccess;
 
   // Link the repair into the coaching system: if today's drill assignment
   // targets the same dimension, the latest submitted rewrite becomes the
