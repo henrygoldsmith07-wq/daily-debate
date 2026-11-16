@@ -392,7 +392,7 @@ export default async function ProgressPage() {
       {/* ── Recently improved: 1–3 real changes, no metric wall ──────────── */}
       {recentlyImproved.length > 0 && (
         <section className="surface-card p-5" aria-labelledby="recent-improved" data-testid="recently-improved">
-          <p className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">Recently improved</p>
+          <p id="recent-improved" className="text-xs uppercase tracking-[0.14em] text-[var(--accent)]">Recently improved</p>
           <ul className="mt-2 flex flex-col gap-2">
             {recentlyImproved.map((item) => (
               <li key={item.label} className="text-sm leading-6 text-ink2">

@@ -370,7 +370,10 @@ export function finalizeEce(bins: Array<{ total: number; correct: number; confid
   let ece = 0;
   for (const b of bins) {
     if (!b.total) continue;
-    ece += (b.total / total) * Math.abs(b.correct / b.total - (b.confidenceSum ?? b.correct / b.total) / b.total);
+    // `??` binds looser than `/`: parenthesise the fallback so a bin without
+    // confidenceSum uses its correct COUNT as the confidence proxy, not an
+    // accuracy that is then divided by the bin size a second time.
+    ece += (b.total / total) * Math.abs(b.correct / b.total - (b.confidenceSum ?? b.correct) / b.total);
   }
   return Math.round(ece * 1000) / 1000;
 }
