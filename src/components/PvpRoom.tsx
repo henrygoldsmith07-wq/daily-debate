@@ -178,12 +178,15 @@ export default function PvpRoom({
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               myTurn ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "bg-surface-2 text-ink3"
             }`}
-            role="status"
             data-testid="turn-clock"
           >
-            {myTurn ? "Your turn" : "Opponent's turn"}
+            {/* Only the turn label is a live region (it changes once per turn).
+                The clock ticks every second; role="timer" has aria-live="off",
+                so it never re-announces the whole message each second. */}
+            <span role="status">{myTurn ? "Your turn" : "Opponent's turn"}</span>
             {msLeft !== null && (
               <span
+                role="timer"
                 className={`ml-2 tabular ${msLeft <= PVP_TURN_WARNING_SECONDS * 1000 ? "font-semibold text-[var(--bad)]" : ""}`}
                 aria-label={`${formatClock(msLeft)} left on the turn clock`}
               >

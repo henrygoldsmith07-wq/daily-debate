@@ -37,6 +37,15 @@ describe("UI detail guards", () => {
     expect(s).toContain('className="btn btn-secondary mt-3"');
   });
 
+  it("does not make the ticking PvP clock a live region", () => {
+    const s = source("src/components/PvpRoom.tsx");
+    const clock = s.slice(s.indexOf('data-testid="turn-clock"') - 400, s.indexOf('data-testid="turn-clock"') + 800);
+    expect(clock).toContain('<span role="status">{myTurn ? "Your turn" : "Opponent\'s turn"}</span>');
+    expect(clock).toContain("role=\"timer\"");
+    // The outer clock container must not itself be a live region.
+    expect(clock).not.toMatch(/role="status"\s*\n\s*data-testid="turn-clock"/);
+  });
+
   it("offers a skip link in both the signed-in and guest shells", () => {
     const s = source("src/components/AppShell.tsx");
     const skipLinks = s.match(/<a href="#main" className="skip-link">/g) ?? [];
