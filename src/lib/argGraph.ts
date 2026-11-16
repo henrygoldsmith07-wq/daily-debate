@@ -224,6 +224,7 @@ export function validateGraph(graph: ArgGraph): string[] {
     if (!ids.has(c.b)) errors.push(`Contradiction b=${c.b} not in nodes`);
   }
   for (const f of graph.fallacies) if (!ids.has(f.nodeId)) errors.push(`Fallacy ${f.nodeId} not in nodes`);
+  for (const c of graph.concessions) if (!ids.has(c.nodeId)) errors.push(`Concession ${c.nodeId} not in nodes`);
   // Groundedness warnings: cited/strong evidence without citations is a quality error.
   for (const n of graph.nodes) {
     if (n.kind === "evidence" && (n.evidenceStrength === "cited" || n.evidenceStrength === "strong")) {

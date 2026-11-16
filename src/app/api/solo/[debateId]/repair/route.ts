@@ -96,6 +96,24 @@ async function failedAttemptsFor(
   return count ?? 0;
 }
 
+/** The stored verdict is replayed verbatim; a retry never re-scores or rewrites it. */
+function repairReplayResponse(target: RepairTarget, row: { score: number; succeeded: boolean; signals: unknown }, priorFailed: number) {
+  const signals = Array.isArray(row.signals)
+    ? row.signals.filter((signal): signal is string => typeof signal === "string")
+    : [];
+  return NextResponse.json({
+    target,
+    state: row.succeeded ? "repair_demonstrated" : repairStateFromScore(row.score),
+    signals: visibleSignals(signals),
+    succeeded: row.succeeded,
+    helpLevel: helpLevelFromSignals(signals),
+    failedAttempts: priorFailed,
+    unlockedLevel: maxUnlockedLevel(priorFailed),
+    help: unlockedHelp(target, priorFailed),
+    feedback: "Already recorded. This is the saved feedback for this version; no new attempt or drill update was made.",
+  });
+}
+
 /** GET: the one repair target for this debate (server-picked, consequential). */
 export async function GET(request: Request, context: RouteContext) {
   return withRepairReadRecovery(() => getRepair(request, context));
@@ -221,22 +239,7 @@ async function submitRepair(request: Request, { params }: RouteContext) {
     .maybeSingle();
 
   requireRepairRead(duplicateError);
-  if (duplicate) {
-    const signals = Array.isArray(duplicate.signals)
-      ? duplicate.signals.filter((signal): signal is string => typeof signal === "string")
-      : [];
-    return NextResponse.json({
-      target,
-      state: duplicate.succeeded ? "repair_demonstrated" : repairStateFromScore(duplicate.score),
-      signals: visibleSignals(signals),
-      succeeded: duplicate.succeeded,
-      helpLevel: helpLevelFromSignals(signals),
-      failedAttempts: priorFailed,
-      unlockedLevel: maxUnlockedLevel(priorFailed),
-      help: unlockedHelp(target, priorFailed),
-      feedback: "Already recorded. This is the saved feedback for this version; no new attempt or drill update was made.",
-    });
-  }
+  if (duplicate) return repairReplayResponse(target, duplicate, priorFailed);
 
   const { data: priorSuccess, error: priorSuccessError } = await db
     .from("repair_results")
@@ -254,20 +257,44 @@ async function submitRepair(request: Request, { params }: RouteContext) {
   const result = scoreRepair(target, rewrite);
   const succeeded = result.score >= REPAIR_SUCCESS_THRESHOLD;
 
-  const { error: insertError } = await db.from("repair_results").insert({
-    user_id: user.id,
-    debate_id: debateId,
-    target_kind: target.kind,
-    source_node_id: target.sourceNodeId ?? null,
-    source_text: target.sourceText,
-    rewrite_text: rewrite,
-    score: result.score,
-    succeeded,
-    signals: tagHelpSignal(result.signals, helpLevel),
-  });
+  // The dedup SELECT above is a fast path for retries, not the integrity
+  // boundary: two requests can both pass it before either commits. The unique
+  // fingerprint index (migration 053) is the boundary. With ON CONFLICT DO
+  // NOTHING the loser gets no row back, replays the winner's stored verdict,
+  // and emits no duplicate attempt/demonstration events.
+  const { data: inserted, error: insertError } = await db
+    .from("repair_results")
+    .insertIgnore({
+      user_id: user.id,
+      debate_id: debateId,
+      target_kind: target.kind,
+      source_node_id: target.sourceNodeId ?? null,
+      source_text: target.sourceText,
+      rewrite_text: rewrite,
+      score: result.score,
+      succeeded,
+      signals: tagHelpSignal(result.signals, helpLevel),
+    }, { onConflict: "user_id,debate_id,target_kind,rewrite_fingerprint" })
+    .select("id, score, succeeded, signals")
+    .maybeSingle();
   if (insertError) {
     console.error("Failed to persist repair result:", insertError);
     return NextResponse.json({ error: "Failed to save the repair." }, { status: 500 });
+  }
+  if (!inserted) {
+    const { data: winner, error: winnerError } = await db
+      .from("repair_results")
+      .select("score, succeeded, signals")
+      .eq("user_id", user.id)
+      .eq("debate_id", debateId)
+      .eq("target_kind", target.kind)
+      .eq("rewrite_text", rewrite)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    requireRepairRead(winnerError);
+    if (!winner) return NextResponse.json({ error: "Repair was recorded concurrently; please retry." }, { status: 409 });
+    return repairReplayResponse(target, winner, await failedAttemptsFor(db, user.id, debateId, target.kind));
   }
 
   // Link the repair into the coaching system: if today's drill assignment

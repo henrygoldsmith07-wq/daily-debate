@@ -19,6 +19,13 @@ import {
   type FirstFocusView,
 } from "@/lib/guestFocusCopy";
 
+/** Secondary formats explain themselves inline, not in a hover-only title (WCAG 1.4.13). */
+const FORMAT_DESCRIPTIONS: Record<"flash" | "cross-examination" | "socratic", string> = {
+  flash: "One sharp ~60-second exchange",
+  "cross-examination": "The AI probes with questions and presses your answers",
+  socratic: "The AI only asks questions — you build the whole case",
+};
+
 export interface EvidenceChecksView {
   supportsClaim?: boolean;
   relevant?: boolean;
@@ -323,18 +330,14 @@ export default function TopicCard({
                   disabled={starting !== null}
                   className="home-format-option btn btn-secondary disabled:opacity-40"
                   data-testid={`start-${format}`}
-                  title={
-                    format === "flash"
-                      ? "One sharp ~60-second exchange"
-                      : format === "cross-examination"
-                        ? "The AI probes with questions and presses your answers"
-                        : "The AI only asks questions — you build the whole case"
-                  }
                 >
                   {starting === format ? "Asking today's opponent…" : (
                     <>
                       <span className="home-format-name">{formatLabelFor(format)}</span>
                       <span className="home-format-meta">{formatEstimateLabel(format)}</span>
+                      <span className="mt-0.5 block text-xs font-normal leading-4 opacity-80" data-testid={`format-desc-${format}`}>
+                        {FORMAT_DESCRIPTIONS[format]}
+                      </span>
                     </>
                   )}
                 </button>

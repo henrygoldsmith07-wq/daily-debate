@@ -371,8 +371,12 @@ export async function classifyArgumentBatchDetailed(
       const usageEscalated = result.response.usage?.escalated;
       const escalated = typeof usageEscalated === "number" && usageEscalated > 0;
       const rows = result.response.results as unknown[];
+      // Capture the base ONCE: reading `classifications.length` inside the loop
+      // double-counts each push (0,2,4...) and disagrees with the fallback
+      // branch below, which builds the whole batch before a single push.
+      const baseIndex = classifications.length;
       rows.forEach((row, index) => {
-        classifications.push(classificationFromRaw(batch[index], classifications.length, (row ?? {}) as RawClassifierResult, result.model, escalated, result.tier));
+        classifications.push(classificationFromRaw(batch[index], baseIndex + index, (row ?? {}) as RawClassifierResult, result.model, escalated, result.tier));
       });
       recordAiCall({
         at: new Date().toISOString(),

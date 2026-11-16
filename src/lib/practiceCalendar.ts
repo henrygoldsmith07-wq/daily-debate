@@ -21,7 +21,9 @@ export interface CalendarDay {
 function keyToTime(key: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
   const t = Date.parse(`${key}T00:00:00Z`);
-  return Number.isNaN(t) ? null : t;
+  // Date.parse silently rolls non-existent days (2026-02-30 -> 2026-03-02).
+  if (Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== key) return null;
+  return t;
 }
 
 /**

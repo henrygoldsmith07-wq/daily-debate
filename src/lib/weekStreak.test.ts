@@ -25,6 +25,9 @@ describe("weekDays", () => {
 
   it("returns nothing for a malformed day", () => {
     expect(weekDays("not-a-date", [])).toEqual([]);
+    // Date.parse rolls 30 February into March; a non-existent day is still malformed.
+    expect(weekDays("2026-02-30", [])).toEqual([]);
+    expect(weekDays("2026-04-31", [])).toEqual([]);
   });
 });
 
@@ -38,6 +41,8 @@ describe("guest practice days", () => {
   it("degrades corrupt storage to an empty week", () => {
     expect(parseGuestPracticeDays("{oops")).toEqual([]);
     expect(parseGuestPracticeDays(JSON.stringify(["2026-10-28", 4, "nope"]))).toEqual(["2026-10-28"]);
+    expect(parseGuestPracticeDays(JSON.stringify(["2026-02-30"]))).toEqual([]);
+    expect(addGuestPracticeDay(null, "2026-02-30")).toBe("[]");
   });
 });
 

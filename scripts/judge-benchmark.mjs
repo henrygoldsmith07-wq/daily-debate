@@ -481,8 +481,6 @@ async function main() {
     process.stdout.write(JSON.stringify({ skipped: true, error: "no judge configured" }) + "\n");
     process.exit(1);
   }
-  log(`[judge-benchmark] models=${judges.map((j) => j.id).join(", ")} limit=${LIMIT} concurrency=${CONCURRENCY} experiment=${EXPERIMENT} paceMs=${effectivePaceMs}${AUTO_PACE ? " (auto)" : ""} publish=${NO_PUBLISH ? "off" : "on"}`);
-
   // SELF-PACING. The four weekly failures before 2026-10-21 were all UNPACED
   // runs: the free tiers answered a 429 storm, the 429s landed in the
   // reliability denominator, and pacing was scored as judge quality. #199
@@ -541,6 +539,11 @@ async function main() {
     setRequestGateMs(effectivePaceMs);
     log(`[judge-benchmark] auto-pace: ${paceDerivationNote}`);
   }
+
+  // Logged here, after auto-pace derivation: `effectivePaceMs` is declared
+  // below the self-pacing block, so logging it earlier throws a TDZ
+  // ReferenceError and kills the whole benchmark run before any judge call.
+  log(`[judge-benchmark] models=${judges.map((j) => j.id).join(", ")} limit=${LIMIT} concurrency=${CONCURRENCY} experiment=${EXPERIMENT} paceMs=${effectivePaceMs}${AUTO_PACE ? " (auto)" : ""} publish=${NO_PUBLISH ? "off" : "on"}`);
 
   const results = [];
   for (const judge of judges) {

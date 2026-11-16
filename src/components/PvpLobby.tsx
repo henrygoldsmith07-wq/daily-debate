@@ -144,7 +144,7 @@ export default function PvpLobby() {
           </button>
         </>
       )}
-      {error && <p className="text-sm text-[var(--bad)]">{error}</p>}
+      {error && <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>}
 
       {/* Friend challenges are parked behind the experimental-surfaces flag
           (default off) until the daily loop has real weekly users; the
@@ -181,7 +181,7 @@ export default function PvpLobby() {
             {creatingInvite ? "Creating…" : "Create a friend challenge"}
           </button>
         )}
-        {inviteError && <p className="mt-2 text-sm text-[var(--bad)]">{inviteError}</p>}
+        {inviteError && <p className="mt-2 text-sm text-[var(--bad)]" role="alert">{inviteError}</p>}
       </div>
       )}
     </div>

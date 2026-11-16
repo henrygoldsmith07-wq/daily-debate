@@ -51,6 +51,13 @@ const h = vi.hoisted(() => {
           state.inserts += 1;
           return { error: null };
         };
+        // The route uses the atomic write-once builder (insertIgnore + select
+        // + maybeSingle). A successful claim returns the inserted row; a
+        // conflict would return no row and the route re-reads the winner.
+        builder.insertIgnore = () => {
+          state.inserts += 1;
+          return chain({ data: { id: "new", score: 75, succeeded: true, signals: [] }, error: null });
+        };
         return builder;
       }
       throw new Error(`Unexpected user-db table: ${table}`);

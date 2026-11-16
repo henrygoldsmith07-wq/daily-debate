@@ -132,13 +132,23 @@ export interface RebuttalComparison {
   reason: string;
 }
 
-/** Compare a rebuttal/counterexample with earlier opposing text only. */
+/**
+ * Compare a rebuttal/counterexample with earlier opposing text only.
+ *
+ * `isTargetable` lets a caller that builds graph edges ignore earlier
+ * arguments with no node (a question, for instance): a higher lexical overlap
+ * with such an argument must not steal the rebuttal from a real claim and
+ * leave that claim unanswered. The scorer, which has no graph, keeps the
+ * default behaviour.
+ */
 export function compareRebuttalAgainstEarlierArgument(
   argument: SubmittedArgument,
   earlier: SubmittedArgument[],
+  isTargetable: (id: string) => boolean = () => true,
 ): RebuttalComparison {
   const current = substantiveTokens(argument.text);
-  const candidates = earlier.filter((item) => item.owner !== argument.owner && item.round < argument.round);
+  const candidates = earlier.filter((item) =>
+    item.owner !== argument.owner && item.round < argument.round && isTargetable(item.id));
   if (!current.size || !candidates.length) {
     return {
       targetArgumentId: null,
@@ -186,10 +196,11 @@ export function specialisedArgumentChecks(
   argument: SubmittedArgument,
   roles: ReadonlyArray<ArgumentRole>,
   earlier: SubmittedArgument[],
+  isTargetable?: (id: string) => boolean,
 ): SpecialisedArgumentChecks {
   const evidence = roles.includes("evidence") ? inspectSubmittedEvidence(argument.text) : null;
   const rebuttal = roles.includes("rebuttal") || roles.includes("counterexample")
-    ? compareRebuttalAgainstEarlierArgument(argument, earlier)
+    ? compareRebuttalAgainstEarlierArgument(argument, earlier, isTargetable)
     : null;
   return { evidence, rebuttal, question: roles.includes("question") };
 }
@@ -235,7 +246,7 @@ export function buildDeterministicArgumentGraph(args: ClassifiedArgument[]): Arg
 
   for (const item of args) {
     const roles = item.classification.labels;
-    const checks = specialisedArgumentChecks(item, roles, previous);
+    const checks = specialisedArgumentChecks(item, roles, previous, (id) => argumentNodeIds.has(id));
     const hasSubstantive = roles.some((role) => ["claim", "reasoning", "counterexample", "concession", "qualification"].includes(role));
     const ownPriorClaim = [...graph.nodes].reverse().find(
       (node) => node.owner === item.owner && (node.kind === "claim" || node.kind === "counterclaim") && node.round < item.round,

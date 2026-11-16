@@ -170,6 +170,34 @@ describe("structural specialist checks", () => {
     expect(comparison.addressed).toBe(true);
   });
 
+  it("does not let a non-substantive question steal a rebuttal from a real claim", () => {
+    const item = (id: string, owner: "a" | "b", round: number, text: string, labels: ClassifiedArgument["classification"]["labels"]): ClassifiedArgument => ({
+      id,
+      owner,
+      round,
+      text,
+      classification: {
+        index: round,
+        text,
+        labels,
+        scores: Object.fromEntries(labels.map((label) => [label, 0.9])),
+        primaryRole: labels[0],
+        confidence: 0.9,
+        status: "high_confidence",
+        source: "classifier.dev",
+      },
+    });
+    const graph = buildDeterministicArgumentGraph([
+      item("b1", "b", 1, "The policy creates a reliability risk for the grid.", ["claim"]),
+      // A question has no claim node, yet has more overlapping vocabulary.
+      item("b2", "b", 1, "But the reliability risk for the grid is overstated, however.", ["question"]),
+      item("a2", "a", 2, "However, that reliability risk for the grid is overstated.", ["rebuttal"]),
+    ]);
+    const rebuttal = graph.nodes.find((node) => node.kind === "rebuttal");
+    expect(rebuttal?.targets).toEqual(["b1-claim"]);
+    expect(graph.edges.some((edge) => edge.relation === "rebuts" && edge.to === "b1-claim")).toBe(true);
+  });
+
   it("builds evidence and rebuttal structure conservatively from mixed labels", () => {
     const item = (id: string, owner: "a" | "b", round: number, text: string, labels: ClassifiedArgument["classification"]["labels"]): ClassifiedArgument => ({
       id,

@@ -20,7 +20,10 @@ const LABELS = ["M", "T", "W", "T", "F", "S", "S"] as const;
 function keyToTime(key: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
   const time = Date.parse(`${key}T00:00:00Z`);
-  return Number.isNaN(time) ? null : time;
+  // Date.parse silently rolls non-existent days (2026-02-30 -> 2026-03-02).
+  // Round-trip so a malformed key is rejected, never turned into a real day.
+  if (Number.isNaN(time) || new Date(time).toISOString().slice(0, 10) !== key) return null;
+  return time;
 }
 
 function timeToKey(time: number): string {

@@ -36,7 +36,9 @@ function ScoreColumn({
       {EVAL_DIMENSIONS.map((dim) => (
         <label key={dim} className="flex items-center justify-between gap-2 text-xs">
           <span className="text-ink3">{DIMENSION_LABELS[dim] ?? dim}</span>
-          <span className="flex gap-1" role="radiogroup" aria-label={`${title} ${DIMENSION_LABELS[dim] ?? dim}`}>
+          {/* Toggle buttons with aria-pressed are a group, not a radiogroup:
+              a radiogroup must own role="radio" children and arrow-key support. */}
+          <span className="flex gap-1" role="group" aria-label={`${title} ${DIMENSION_LABELS[dim] ?? dim}`}>
             {[1, 2, 3, 4, 5].map((v) => (
               <button
                 key={v}
@@ -183,7 +185,7 @@ export default function RateForm() {
           </div>
 
           <div className="flex flex-col gap-3 border-t border-[var(--rule)] pt-4">
-            <div role="radiogroup" aria-label="Overall winner" className="flex gap-2">
+            <div role="group" aria-label="Overall winner" className="flex gap-2">
               {(["a", "tie", "b"] as const).map((w) => (
                 <button
                   key={w}

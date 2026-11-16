@@ -21,6 +21,13 @@ describe("retestLadder", () => {
   it("ignores inconclusive outcomes", () => {
     expect(ladderState(["passed", "inconclusive", "passed"]).level).toBe("tougher");
   });
+  it("does not offer another level on the exact pass that reaches the top", () => {
+    const s = ladderState(["passed", "passed", "passed", "passed"]);
+    expect(s.level).toBe("hardest");
+    expect(s.offerLevel).toBeNull();
+    expect(s.status).toBe("steady");
+    expect(ladderCopy(s)).toBeNull();
+  });
   it("caps at the top level with no further offer", () => {
     const s = ladderState(["passed", "passed", "passed", "passed", "passed", "passed"]);
     expect(s.level).toBe("hardest");

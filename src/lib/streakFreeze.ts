@@ -14,7 +14,10 @@ const DAY_MS = 86_400_000;
 function dayNumber(key: string | null | undefined): number | null {
   if (!key || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
   const time = Date.parse(`${key}T00:00:00Z`);
-  return Number.isNaN(time) ? null : Math.round(time / DAY_MS);
+  // Date.parse rolls non-existent days forward; an unparseable-looking day key
+  // must be rejected, never interpreted as a different calendar day.
+  if (Number.isNaN(time) || new Date(time).toISOString().slice(0, 10) !== key) return null;
+  return Math.round(time / DAY_MS);
 }
 
 function dayKey(day: number): string {
