@@ -404,7 +404,7 @@ export function DebateResultCard({
               );
             })()}
             {view.fresh && (
-              <button type="button" onClick={copyResult} className="btn btn-ghost px-3 py-1.5 text-xs">
+              <button type="button" onClick={copyResult} aria-label="Copy summary" className="btn btn-ghost px-3 py-1.5 text-xs">
                 <span aria-hidden="true">{copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}</span>
                 {/* The button's label changes with no focus move, so the
                     confirmation is invisible to a screen reader unless it is

@@ -17,7 +17,7 @@ export default function ReminderOptInPanel({ initialOptedIn }: { initialOptedIn:
       <p className="mt-1 text-xs text-ink3">
         Off unless you turn it on. One nudge per step at most once a day, never between 21:00 and 08:00. We do not claim reminders improve results.
       </p>
-      <button type="button" className="btn-secondary mt-3" onClick={toggle} aria-pressed={optedIn} data-testid="reminder-toggle">
+      <button type="button" className="btn btn-secondary mt-3" onClick={toggle} aria-pressed={optedIn} data-testid="reminder-toggle">
         {optedIn ? "Turn reminders off" : "Remind me when a retest is due"}
       </button>
     </section>

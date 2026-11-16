@@ -4,6 +4,24 @@
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
+/**
+ * A push payload is untrusted. String checks are not enough: the URL parser
+ * normalises "\" to "/" for special schemes, so "/\evil.com" resolves to
+ * https://evil.com/. Parse against our own origin and keep only same-origin
+ * local paths. Used when the notification is created AND when it is clicked
+ * (defence in depth: stored notification data can be tampered with).
+ */
+function safePushUrl(raw) {
+  if (typeof raw !== "string" || !raw) return "/";
+  try {
+    const resolved = new URL(raw, self.location.origin);
+    if (resolved.origin !== self.location.origin) return "/";
+    return resolved.pathname + resolved.search + resolved.hash;
+  } catch {
+    return "/";
+  }
+}
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -12,10 +30,7 @@ self.addEventListener("push", (event) => {
     data = {};
   }
   const title = typeof data.title === "string" ? data.title : "Daily Debate";
-  // `//evil.com` also starts with "/" but is a protocol-relative external URL:
-  // a forged payload must never navigate the app to another origin.
-  const url =
-    typeof data.url === "string" && data.url.startsWith("/") && !data.url.startsWith("//") ? data.url : "/";
+  const url = safePushUrl(data.url);
   // Badge the installed app icon until today is practised (Today clears it).
   const badge =
     self.navigator && typeof self.navigator.setAppBadge === "function"
@@ -36,7 +51,8 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const { url = "/", id = null } = event.notification.data || {};
+  const { id = null } = event.notification.data || {};
+  const url = safePushUrl(event.notification.data?.url);
   event.waitUntil(
     (async () => {
       if (id) {

@@ -688,11 +688,11 @@ function GuestResult({
             actions={<span className="pill">Guest preview</span>}
           />
 
-          <section className="surface-card result-headline p-5 sm:p-6" aria-labelledby="guest-headline" data-testid="guest-headline">
+          <section className="surface-card result-headline p-5 sm:p-6" aria-labelledby="guest-headline-caption" data-testid="guest-headline">
             <p id="guest-headline" className="result-headline-number">
               {movesFound}<span>/{observations.length}</span>
             </p>
-            <p className="result-headline-caption">debate moves showed up in your writing</p>
+            <p id="guest-headline-caption" className="result-headline-caption">debate moves showed up in your writing</p>
             <ul className="result-headline-moves" aria-label="Moves observed">
               {observations.map(([label, count]) => (
                 <li key={label} className={`result-headline-move${count > 0 ? " is-found" : ""}`}>

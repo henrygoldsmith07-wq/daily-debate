@@ -688,13 +688,14 @@ test("a young PR is never flagged — checks legitimately have not started yet",
   assert.equal(d, null);
 });
 
-test("an in-flight check run is slow CI, not silent CI — not flagged", () => {
+test("a long-stalled in-flight check is wedged CI and is flagged", () => {
   const d = assessPrChecks(
     [pr(233, "2026-10-24T08:00:00Z")],
-    { 233: [] }, // completed checks
+    { 233: ["verify (in_progress)"] }, // never reached a terminal state
     { nowIso: "2026-10-24T17:00:00Z" },
   );
-  assert.equal(d, null);
+  assert.ok(d, "an in_progress check on a 9h-old PR must be reported");
+  assert.deepEqual(d.blocked[0].missing, ["verify (in_progress)"]);
 });
 
 test("a per-PR unreadable check source is alertable, never read as fine", () => {

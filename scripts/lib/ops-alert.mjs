@@ -57,9 +57,11 @@ export function latestFailedScheduledRun(runs) {
  * Judgement rules, deliberately conservative:
  *   - only OPEN pull requests count;
  *   - a PR older than `staleHours` whose required checks are not all
- *     "completed" counts (queued or in-progress runs do NOT — a slow CI
- *     is not a silent CI; `completed` with a failure conclusion is normal
- *     red CI, visible to everyone, and does not count);
+ *     "completed" counts. The caller passes BOTH never-started checks and
+ *     checks still queued/in_progress/action_required: an in-flight run that
+ *     never completes is a wedged or undriven CI and blocks the only path to
+ *     production just as a silent trigger does. `completed` with a failure
+ *     conclusion is normal red CI, visible to everyone, and does not count.
  *   - `null` means the source was unreadable, which the caller treats as an
  *     alertable unknown — an unreadable source must not read as "all fine".
  *

@@ -37,6 +37,14 @@ test("valid registration passes; warnings only", () => {
   assert.deepEqual(v.errors, []);
 });
 
+test("deriveAdoptionRule uses the canonical direction when target.direction is omitted", () => {
+  const up = deriveAdoptionRule({ ...VALID, target: { metric: "fixture agreement", minImprovement: 0.08 } });
+  assert.match(up, /moves up by/);
+  assert.doesNotMatch(up, /moves down by/);
+  const down = deriveAdoptionRule({ ...VALID, target: { metric: "ECE", minImprovement: 0.01 } });
+  assert.match(down, /moves down by/);
+});
+
 test("structured-field violations are refused", () => {
   const cases = [
     ["runsPerArm < 2", { ...VALID, runsPerArm: 1 }, /runsPerArm/],
