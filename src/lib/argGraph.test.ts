@@ -46,6 +46,12 @@ describe("argGraph", () => {
     expect(errors.some((e) => e.includes("nope"))).toBe(true);
   });
 
+  it("validateGraph catches a concession that points at a missing node", () => {
+    const g = sample();
+    g.concessions.push({ nodeId: "ghost", by: "a", note: "conceded the cost point" });
+    expect(validateGraph(g)).toContain("Concession ghost not in nodes");
+  });
+
   it("tracking: dropped, unsupported, fallacies shape", () => {
     const g = sample();
     expect(g.dropped).toHaveLength(1);

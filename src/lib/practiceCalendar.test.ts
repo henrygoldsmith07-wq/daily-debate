@@ -38,5 +38,6 @@ describe("practiceCalendar", () => {
 
   it("returns nothing for a malformed day", () => {
     expect(practiceCalendar([], "UTC", "nope")).toEqual([]);
+    expect(practiceCalendar([], "UTC", "2026-02-30")).toEqual([]);
   });
 });

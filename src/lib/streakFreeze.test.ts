@@ -18,6 +18,7 @@ describe("freezeAvailableFor", () => {
     expect(freezeAvailableFor("2026-10-27", "2026-10-20")).toBe(true);
     expect(freezeAvailableFor("2026-10-27", "2026-10-21")).toBe(false);
     expect(freezeAvailableFor("not-a-day", null)).toBe(false);
+    expect(freezeAvailableFor("2026-02-30", null)).toBe(false);
   });
 });
 
@@ -37,6 +38,8 @@ describe("streakStatus", () => {
     expect(status(0, TODAY)).toEqual({ state: "none", streak: 0 });
     expect(status(3, null)).toEqual({ state: "none", streak: 0 });
     expect(status(3, "2026-10-29")).toEqual({ state: "none", streak: 0 });
+    expect(streakStatus({ currentStreak: 5, lastActivityDate: "2026-10-27", freezeUsedOn: null, today: "2026-02-30" }))
+      .toEqual({ state: "none", streak: 0 });
   });
 
   it("reports a freeze used inside the visible streak", () => {

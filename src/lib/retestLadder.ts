@@ -60,7 +60,9 @@ export function ladderState(outcomes: readonly LadderOutcome[]): LadderState {
     return { level: "standard", offerLevel: null, consecutivePasses: streak, observed, status: "insufficient_evidence" };
   }
   const atTop = level >= LADDER_LEVELS.length - 1;
-  const justStepped = observed > 0 && streak === 0 && !steppedBack && level > 0 && outcomes.at(-1) === "passed";
+  // Reaching the final level is a step up, but there is nothing left to offer:
+  // without !atTop the copy tells a learner already on "hardest" to try it next.
+  const justStepped = observed > 0 && streak === 0 && !steppedBack && level > 0 && !atTop && outcomes.at(-1) === "passed";
   return {
     level: LADDER_LEVELS[level],
     offerLevel: justStepped && !atTop ? LADDER_LEVELS[level + 1] : null,

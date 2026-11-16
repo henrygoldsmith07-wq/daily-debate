@@ -51,6 +51,15 @@ describe("summariseReminderOutcomes", () => {
   it("gates small samples", () => {
     expect(summariseReminderOutcomes([sent(1), sent(2)]).status).toBe("insufficient_evidence");
   });
+  it("counts acted reminders regardless of event arrival order", () => {
+    const acted = (h: number) => ({ type: "reminder_acted" as const, actedAt: new Date(Date.UTC(2026, 9, 1, h)).toISOString() });
+    const events = [
+      sent(3), sent(8), sent(13), sent(18), sent(23),
+      acted(24), acted(19), acted(14), acted(9), acted(4),
+    ];
+    expect(summariseReminderOutcomes(events)).toMatchObject({ status: "ok", sent: 5, acted: 5 });
+    expect(summariseReminderOutcomes([...events].reverse())).toMatchObject({ status: "ok", sent: 5, acted: 5 });
+  });
   it("counts each action once, inside the window", () => {
     const evs = [1, 2, 3, 4, 5].map(sent);
     evs.push({ type: "reminder_acted" as never, actedAt: new Date(Date.UTC(2026, 9, 1, 10)).toISOString() } as never);

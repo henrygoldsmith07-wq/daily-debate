@@ -100,29 +100,36 @@ export async function POST(request: Request) {
         .filter((t) => t.user_message)
         .map((t) => ({ round: t.round_number, user: t.user_message as string, opponent: t.ai_message }));
       const strata = deriveStrataFromRounds(rounds) ?? {};
-      const { error } = await service.from("corpus_items").insert({
-        transcript,
-        topic: topic?.category ?? null,
-        source_type: "solo",
-        source_id: debate.id,
-        contributor_id: debate.user_id,
-        // Stances let the system-comparison step re-judge the real motion.
-        side_mapping: {
-          a: "user",
-          b: "ai",
-          a_stance: debate.side,
-          b_stance: oppositeStance(debate.side as "for" | "against"),
-        },
-        length_bucket: lengthBucketFor(transcript),
-        subject_category: topic?.category ?? null,
-        ability_band: abilityBandFor(profile?.level),
-        topic_id: debate.topic_id,
-        topic_title: topic?.title ?? "",
-        topic_prompt: topic?.prompt ?? "",
-        ...strata,
-      });
+      // The importedKeys snapshot above is a fast path, not a lock. The unique
+      // (source_type, source_id) index (migration 053) decides concurrent
+      // double-imports: only the request that actually inserts a row counts it.
+      const { data: inserted, error } = await service
+        .from("corpus_items")
+        .insertIgnore({
+          transcript,
+          topic: topic?.category ?? null,
+          source_type: "solo",
+          source_id: debate.id,
+          contributor_id: debate.user_id,
+          // Stances let the system-comparison step re-judge the real motion.
+          side_mapping: {
+            a: "user",
+            b: "ai",
+            a_stance: debate.side,
+            b_stance: oppositeStance(debate.side as "for" | "against"),
+          },
+          length_bucket: lengthBucketFor(transcript),
+          subject_category: topic?.category ?? null,
+          ability_band: abilityBandFor(profile?.level),
+          topic_id: debate.topic_id,
+          topic_title: topic?.title ?? "",
+          topic_prompt: topic?.prompt ?? "",
+          ...strata,
+        }, { onConflict: "source_type,source_id" })
+        .select("id")
+        .maybeSingle();
       if (error) errors.push(`solo ${debate.id}: ${error.message}`);
-      else imported += 1;
+      else if (inserted) imported += 1; // a concurrent import won: do not double-count
     } catch (e) {
       errors.push(`solo ${debate.id}: ${String(e)}`);
     }
@@ -154,27 +161,31 @@ export async function POST(request: Request) {
       const rounds = [...byRound.entries()].map(([round, r]) => ({ round, ...r }));
       const strata = deriveStrataFromRounds(rounds) ?? {};
       // Contributor of record is player A; both are excluded from rating it.
-      const { error } = await service.from("corpus_items").insert({
-        transcript,
-        topic: topic?.category ?? null,
-        source_type: "pvp",
-        source_id: match.id,
-        contributor_id: match.player_a,
-        side_mapping: {
-          contributors: [match.player_a, match.player_b],
-          a_stance: match.player_a_side,
-          b_stance: oppositeStance(match.player_a_side as "for" | "against"),
-        },
-        length_bucket: lengthBucketFor(transcript),
-        subject_category: topic?.category ?? null,
-        ability_band: abilityBandFor(profileA?.level),
-        topic_id: match.topic_id,
-        topic_title: topic?.title ?? "",
-        topic_prompt: topic?.prompt ?? "",
-        ...strata,
-      });
+      const { data: inserted, error } = await service
+        .from("corpus_items")
+        .insertIgnore({
+          transcript,
+          topic: topic?.category ?? null,
+          source_type: "pvp",
+          source_id: match.id,
+          contributor_id: match.player_a,
+          side_mapping: {
+            contributors: [match.player_a, match.player_b],
+            a_stance: match.player_a_side,
+            b_stance: oppositeStance(match.player_a_side as "for" | "against"),
+          },
+          length_bucket: lengthBucketFor(transcript),
+          subject_category: topic?.category ?? null,
+          ability_band: abilityBandFor(profileA?.level),
+          topic_id: match.topic_id,
+          topic_title: topic?.title ?? "",
+          topic_prompt: topic?.prompt ?? "",
+          ...strata,
+        }, { onConflict: "source_type,source_id" })
+        .select("id")
+        .maybeSingle();
       if (error) errors.push(`pvp ${match.id}: ${error.message}`);
-      else imported += 1;
+      else if (inserted) imported += 1;
     } catch (e) {
       errors.push(`pvp ${match.id}: ${String(e)}`);
     }

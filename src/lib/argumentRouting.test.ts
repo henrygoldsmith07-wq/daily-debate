@@ -173,6 +173,24 @@ describe("classifier.dev API contract (verified against the live OpenAPI spec)",
     expect(detail.classifications[0].model).toBe("fast-1");
   });
 
+  it("assigns contiguous batch indices on the successful classifier path", async () => {
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { inputs: string[] };
+      return new Response(JSON.stringify({
+        tier: "fast",
+        model: "fast-1",
+        results: body.inputs.map(() => ({ label: "claim", labels: ["claim"], confidence: 0.9, scores: { claim: 0.9 } })),
+        usage: { classifications: body.inputs.length, escalated: 0, escalation_failed: 0, ms: 42 },
+      }), { status: 200 });
+    };
+    const detail = await classifyArgumentBatchDetailed(["a", "b", "c"], {
+      endpoint: "https://classifier.test/v1/classify",
+      fetchImpl,
+    });
+    // Same contract as the fallback branch: one index per input, no gaps.
+    expect(detail.classifications.map((c) => c.index)).toEqual([0, 1, 2]);
+  });
+
   it("captures per-result model attribution and smart-tier escalation", async () => {
     const fetchImpl: typeof fetch = async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { inputs: string[]; tier: string };

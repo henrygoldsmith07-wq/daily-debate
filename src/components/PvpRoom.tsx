@@ -238,7 +238,7 @@ export default function PvpRoom({
         })}
       </div>
 
-      {error && <p className="text-sm text-[var(--bad)]">{error}</p>}
+      {error && <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>}
 
       {reconnecting && match.status === "active" && (
         <p className="text-center text-xs text-ink3" role="status">

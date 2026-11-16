@@ -58,6 +58,19 @@ describe("TopicCard Challenge me reveal", () => {
     expect(html).not.toContain("challenge-side-preview");
   });
 
+  it("describes each secondary format as text, not a hover-only title", () => {
+    const html = render();
+    expect(html).not.toContain("title=\"The AI only asks questions");
+    expect(html).not.toContain("title=\"One sharp ~60-second exchange");
+    expect(html).not.toContain("title=\"The AI probes with questions");
+    expect(html).toContain("data-testid=\"format-desc-flash\"");
+    expect(html).toContain("One sharp ~60-second exchange");
+    expect(html).toContain("data-testid=\"format-desc-cross-examination\"");
+    expect(html).toContain("The AI probes with questions and presses your answers");
+    expect(html).toContain("data-testid=\"format-desc-socratic\"");
+    expect(html).toContain("The AI only asks questions");
+  });
+
   it("shows no reveal once a debate is already active", () => {
     const html = render({
       activeDebateId: "debate-1",

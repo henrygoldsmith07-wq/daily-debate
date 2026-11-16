@@ -103,10 +103,16 @@ export type ReminderActedSummary =
   | { status: "ok"; sent: number; acted: number; actedRate: number; label: "unvalidated" };
 
 function countActed(events: readonly ReminderOutcomeEvent[]): { sent: number; acted: number } {
-  const sent = events.filter((e) => e.type === "reminder_sent" && Number.isFinite(Date.parse(e.sentAt ?? "")));
+  // The greedy match below only works in chronological order. Event arrays
+  // arrive in query/insert order, not time order: a late "acted" first can
+  // consume the one an earlier "sent" needed and silently undercount.
+  const sent = events
+    .filter((e) => e.type === "reminder_sent" && Number.isFinite(Date.parse(e.sentAt ?? "")))
+    .sort((a, b) => Date.parse(a.sentAt as string) - Date.parse(b.sentAt as string));
   const acted = events
     .filter((e) => e.type === "reminder_acted" && Number.isFinite(Date.parse(e.actedAt ?? "")))
-    .map((e) => Date.parse(e.actedAt as string));
+    .map((e) => Date.parse(e.actedAt as string))
+    .sort((a, b) => a - b);
   const used = new Set<number>();
   let n = 0;
   for (const s of sent) {
