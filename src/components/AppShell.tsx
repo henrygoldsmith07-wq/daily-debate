@@ -90,6 +90,9 @@ export default async function AppShell({
   if (!user) {
     return (
       <div className="app-shell app-shell-guest">
+        <a href="#main" className="skip-link">
+          Skip to content
+        </a>
         <div className="app-main">
           <header className="app-topbar app-topbar-guest">
             <Brand compact />

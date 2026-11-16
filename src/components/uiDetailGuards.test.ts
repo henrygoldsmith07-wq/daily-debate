@@ -37,6 +37,12 @@ describe("UI detail guards", () => {
     expect(s).toContain('className="btn btn-secondary mt-3"');
   });
 
+  it("offers a skip link in both the signed-in and guest shells", () => {
+    const s = source("src/components/AppShell.tsx");
+    const skipLinks = s.match(/<a href="#main" className="skip-link">/g) ?? [];
+    expect(skipLinks).toHaveLength(2);
+  });
+
   it("resolves the Recently improved section label reference", () => {
     const s = source("src/app/progress/page.tsx");
     expect(s).toContain('aria-labelledby="recent-improved"');
