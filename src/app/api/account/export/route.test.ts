@@ -69,6 +69,20 @@ describe("GET /api/account/export", () => {
     expect(res.headers.get("Content-Disposition")).toMatch(/^attachment; filename="daily-debate-export-\d{4}-\d{2}-\d{2}\.json"$/);
   });
 
+  it("does not disclose the reporter or their note to a report subject", async () => {
+    await GET();
+    const sql = h.state.calls[0].sql;
+    // The subject branch must be a bounded projection, not to_jsonb(r).
+    expect(sql).toContain("r.target_user_id = $1 and r.filed_by <> $1");
+    expect(sql).toContain("'reason', r.reason");
+    const start = sql.indexOf("r.target_user_id = $1 and r.filed_by <> $1");
+    const end = sql.indexOf("'matchAppeals'", start);
+    const subjectBranch = sql.slice(start, end);
+    expect(subjectBranch).not.toContain("to_jsonb");
+    expect(subjectBranch).not.toMatch(/\bnote\b/);
+    expect(subjectBranch).not.toContain("filed_by,");
+  });
+
   it("never selects password hashes or session tokens", () => {
     return GET().then(() => {
       const sql = h.state.calls[0].sql;

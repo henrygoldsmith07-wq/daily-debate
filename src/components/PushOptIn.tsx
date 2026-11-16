@@ -127,7 +127,7 @@ export default function PushOptIn({ publicKey }: { publicKey: string }) {
         </button>
       )}
       {state === "error" ? (
-        <p className="mt-2 text-xs text-[var(--review)]" role="status">
+        <p className="mt-2 text-xs text-[var(--review)]" role="alert">
           That didn&apos;t work. Try again in a moment.
         </p>
       ) : null}

@@ -40,8 +40,25 @@ select jsonb_build_object(
                       from corpus_ratings cr where cr.rater_id = $1),
   'corpusContributions', (select coalesce(jsonb_agg(to_jsonb(ci) order by ci.created_at), '[]'::jsonb)
                             from corpus_items ci where ci.contributor_id = $1),
-  'reports', (select coalesce(jsonb_agg(to_jsonb(r) order by r.created_at), '[]'::jsonb)
-                from reports r where r.filed_by = $1 or r.target_user_id = $1),
+  -- A reporter gets their own rows in full (the note is their data). A report
+  -- SUBJECT gets only that a report exists and why: to_jsonb would disclose the
+  -- reporter's identity and the private allegation text.
+  'reports', (select coalesce(jsonb_agg(payload order by created_at), '[]'::jsonb)
+                from (
+                  select r.created_at, to_jsonb(r) as payload
+                    from reports r where r.filed_by = $1
+                  union all
+                  select r.created_at,
+                         jsonb_build_object(
+                           'id', r.id,
+                           'reason', r.reason,
+                           'matchId', r.match_id,
+                           'targetUserId', r.target_user_id,
+                           'createdAt', r.created_at
+                         ) as payload
+                    from reports r
+                   where r.target_user_id = $1 and r.filed_by <> $1
+                ) as rp),
   'matchAppeals', (select coalesce(jsonb_agg(to_jsonb(ma) order by ma.created_at), '[]'::jsonb)
                      from match_appeals ma where ma.filed_by = $1),
   'categoryExposure', (select coalesce(jsonb_agg(to_jsonb(uce) order by uce.first_seen_at), '[]'::jsonb)

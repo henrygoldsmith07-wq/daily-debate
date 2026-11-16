@@ -12,7 +12,10 @@ self.addEventListener("push", (event) => {
     data = {};
   }
   const title = typeof data.title === "string" ? data.title : "Daily Debate";
-  const url = typeof data.url === "string" && data.url.startsWith("/") ? data.url : "/";
+  // `//evil.com` also starts with "/" but is a protocol-relative external URL:
+  // a forged payload must never navigate the app to another origin.
+  const url =
+    typeof data.url === "string" && data.url.startsWith("/") && !data.url.startsWith("//") ? data.url : "/";
   // Badge the installed app icon until today is practised (Today clears it).
   const badge =
     self.navigator && typeof self.navigator.setAppBadge === "function"

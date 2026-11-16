@@ -313,7 +313,7 @@ export default function CoachToday({ showProfile = true }: { showProfile?: boole
         <section className="surface-card p-5">
           <h2 className="text-sm font-semibold">Drill outcomes</h2>
           {outcomesError ? (
-            <p className="mt-1 text-xs text-ink3" role="status">
+            <p className="mt-1 text-xs text-ink3" role="alert">
               {outcomesError}
             </p>
           ) : (

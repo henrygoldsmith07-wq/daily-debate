@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/backend/server";
 import { getRequestAuthContext } from "@/lib/requestAuth";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { raterLabelsInOrder } from "@/lib/corpusRaterAnonymity";
 
 // Admin-only CSV export of the human-rating corpus: ratings and items,
-// bounded and anonymised exactly like the rater view (no contributor ids).
+// bounded and anonymised exactly like the rater view (no contributor ids and
+// no rater account ids -- raters are Rater 1..N in submission order).
 // Output is for analysis; it is not a modification path — ratings stay
 // append-once and corrections stay on the admin correction route.
 
@@ -47,14 +49,18 @@ export async function GET(request: Request) {
       .limit(LIMITS.items),
   ]);
 
+  // Same blind labels the item view uses. The SELECT keeps rater_id only to
+  // build the stable mapping; the raw account id never reaches the CSV.
+  const orderedRatings = (ratings ?? []) as Array<Record<string, unknown>>;
+  const raterLabels = raterLabelsInOrder(orderedRatings.map((r) => String(r.rater_id)));
   const lines: string[] = [];
   lines.push("# corpus_ratings (append-once; corrections live on the admin correction route)");
-  lines.push(csvRow(["corpus_id", "rater_id", "winner", "confidence", "scores_a", "scores_b", "presented_first", "created_at"]));
-  for (const r of (ratings ?? []) as Array<Record<string, unknown>>) {
+  lines.push(csvRow(["corpus_id", "rater", "winner", "confidence", "scores_a", "scores_b", "presented_first", "created_at"]));
+  for (const r of orderedRatings) {
     lines.push(
       csvRow([
         r.corpus_id,
-        r.rater_id,
+        raterLabels.get(String(r.rater_id)),
         r.winner,
         r.confidence,
         JSON.stringify(r.scores_a ?? {}),

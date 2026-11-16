@@ -393,12 +393,18 @@ export default function CorpusAdmin() {
                     <span className="tabular text-ink3">
                       {id.slice(0, 8)}… · raters split: {split}
                     </span>
-                    <button type="button" onClick={() => openReview(id)} className="btn btn-ghost px-2 py-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => openReview(id)}
+                      aria-expanded={expandedId === id}
+                      aria-controls={`review-panel-${id}`}
+                      className="btn btn-ghost px-2 py-1 text-xs"
+                    >
                       {expandedId === id ? "Hide" : "Review"}
                     </button>
                   </div>
                   {expandedId === id && (
-                    <div className="flex flex-col gap-3 border-t border-[var(--rule)] pt-3">
+                    <div id={`review-panel-${id}`} className="flex flex-col gap-3 border-t border-[var(--rule)] pt-3">
                       {!review ? (
                         <p className="text-xs text-ink3">Loading transcript…</p>
                       ) : (
@@ -423,6 +429,7 @@ export default function CorpusAdmin() {
                                 type="button"
                                 onClick={() => adjudicate(id, w)}
                                 disabled={busy}
+                                aria-label={`Override winner: ${w === "a" ? "Side A" : w === "b" ? "Side B" : "Too close to call"}`}
                                 className="btn btn-ghost px-2 py-1 text-xs disabled:opacity-40"
                               >
                                 {w}
