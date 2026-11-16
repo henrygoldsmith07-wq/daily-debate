@@ -30,7 +30,7 @@ export default function SkillProfileBars({ profile }: { profile: ArgumentSkillPr
         </p>
       )}
       {profile.dimensions.map((d) => (
-        <div key={d.key} className="flex items-center justify-between gap-3 border-b border-[var(--rule)] py-1.5 text-xs last:border-0" aria-label={`${d.label}: ${qualitativeRead(d.score, d.lowConfidence, range)}`}>
+        <div key={d.key} role="group" className="flex items-center justify-between gap-3 border-b border-[var(--rule)] py-1.5 text-xs last:border-0" aria-label={`${d.label}: ${qualitativeRead(d.score, d.lowConfidence, range)}`}>
           <span className={`w-28 shrink-0 ${d.lowConfidence ? "opacity-60" : "font-medium"}`}>{d.label}</span>
           {/* No data yet is a neutral empty state, not a caution: only an early
               read built on some evidence gets the review colour. Seven orange

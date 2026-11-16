@@ -97,6 +97,11 @@ describe("assessJudgeValidation", () => {
     expect(r.evidence).toBeNull();
     expect(r.surfaces["pvp-verdict"].status).toBe("unknown");
     expect(allowsCompetitiveClaims(r.surfaces["pvp-verdict"])).toBe(false);
+    // A readable-but-empty artifact is partial, NOT unreadable.
+    expect(r.surfaces["pvp-verdict"].source).toBe("partial");
+    expect(r.surfaces["pvp-verdict"].reason).toContain("no results");
+    expect(r.surfaces["pvp-verdict"].reason).not.toContain("could not be read");
+    expect(r.surfaces["solo-training"].reason).not.toContain("could not be read");
   });
 
   it("a stale benchmark cannot certify anything, even when it once passed", () => {

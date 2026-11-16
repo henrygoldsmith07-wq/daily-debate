@@ -166,7 +166,9 @@ function trainingSurface(
       surface,
       status: "unknown",
       claim: `No validated claim is available for ${subject}.`,
-      reason: "The judge benchmark artifact could not be read, so this surface has no measured evidence either way.",
+      reason: source === "partial"
+        ? "The judge benchmark artifact has no results, so this surface has no measured evidence either way."
+        : "The judge benchmark artifact could not be read, so this surface has no measured evidence either way.",
       evidence: null,
       runAt,
       stale,
@@ -222,11 +224,13 @@ export function assessJudgeValidation(input: JudgeValidationInput): JudgeValidat
         surface: "pvp-verdict",
         status: "unknown",
         claim: "No competitive verdict can be published — judge validation state is unknown.",
-        reason: "The judge benchmark artifact could not be read.",
+        reason: artifact
+          ? "The judge benchmark artifact has no results; nothing can certify a winner."
+          : "The judge benchmark artifact could not be read.",
         evidence: null,
         runAt,
         stale,
-        source: "unavailable",
+        source,
       }
     : competitiveOk
       ? {
