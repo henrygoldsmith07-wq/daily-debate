@@ -50,7 +50,7 @@ afterAll(async () => {
   await pool?.end();
 });
 
-d("delete_app_account (migration 037)", () => {
+d("delete_app_account_v2 (migrations 037, 051)", () => {
   it("erases one account transactionally without corrupting two-party or third-party rows", async () => {
     const victim = await createUser(emails.victim);
     const other = await createUser(emails.other);
@@ -160,18 +160,24 @@ d("delete_app_account (migration 037)", () => {
     await pool.query(`INSERT INTO rate_limits (key, count, reset_at) VALUES ($1, 1, now())`, [victimRateKey]);
 
     // --- Act: one call, one transaction -----------------------------------
-    const result = await pool.query<{ delete_app_account: Record<string, unknown> }>(
-      "SELECT delete_app_account($1) AS delete_app_account",
+    // v2 (migration 051) is what the app calls; it also recounts the items
+    // that lost one of the victim's ratings.
+    const result = await pool.query<{ result: Record<string, unknown> }>(
+      "SELECT delete_app_account_v2($1, 3) AS result",
       [victim],
     );
-    const summary = result.rows[0].delete_app_account;
+    const summary = result.rows[0].result;
     expect(summary).toMatchObject({
       userDeleted: true,
       matchesDeleted: 1,
       invitesDeleted: 1,
       corpusRatingsDeleted: 1,
       corpusItemsDeleted: 1,
+      corpusItemsRecounted: 1,
     });
+    // The other learner's item keeps the rater's rating and now counts it.
+    const otherCount = await pool.query<{ rating_count: number }>("SELECT rating_count FROM corpus_items WHERE id = $1", [otherItemId]);
+    expect(otherCount.rows[0].rating_count).toBe(1);
 
     // --- Victim: everything attributable is gone --------------------------
     const gone = await pool.query<{ n: number }>(

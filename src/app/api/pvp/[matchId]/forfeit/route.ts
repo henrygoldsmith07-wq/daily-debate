@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/backend/server";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { TURN_ABANDON_MINUTES, type PvpVerdict } from "@/lib/types";
+import { type PvpVerdict } from "@/lib/types";
+import { clockLengthLabel, formatClock, turnExpired, turnMsLeft } from "@/lib/pvpTurnClock";
 
 // Abandoned-match handling: when the opponent has held the turn for longer
 // than the abandon window, the waiting player may claim a forfeit. The match
@@ -41,11 +42,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   const turnStarted = match.turn_started_at ? new Date(match.turn_started_at).getTime() : null;
   if (!turnStarted) return NextResponse.json({ error: "Turn timing unavailable for this match." }, { status: 409 });
 
-  const elapsed = Date.now() - turnStarted;
-  if (elapsed <= TURN_ABANDON_MINUTES * 60_000) {
-    const waitMinutes = Math.ceil((TURN_ABANDON_MINUTES * 60_000 - elapsed) / 60_000);
+  // The same clock the turn route enforces: claimable only once the
+  // opponent's turn is over by the server's reckoning (deadline + grace).
+  if (!turnExpired(match.turn_started_at, Date.now())) {
+    const left = turnMsLeft(match.turn_started_at, Date.now()) ?? 0;
     return NextResponse.json(
-      { error: `Opponent still has ${waitMinutes} min to move.` },
+      { error: `Your opponent's turn clock still has ${formatClock(left)} on it.` },
       { status: 409 },
     );
   }
@@ -55,7 +57,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     winner: winnerId === match.player_a ? "a" : "b",
     playerAScore: 0,
     playerBScore: 0,
-    rationale: `Won by forfeit: the opponent did not respond within ${TURN_ABANDON_MINUTES} minutes.`,
+    rationale: `Won by forfeit: the opponent's turn clock (${clockLengthLabel()}) ran out.`,
     isTie: false,
     tieReason: undefined,
     scoreStatus: "insufficient_evidence",

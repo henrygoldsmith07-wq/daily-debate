@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ArgGraph } from "@/lib/argGraph";
 import type { RepairTarget } from "@/lib/argumentRepair";
-import { pickRepairTarget, scoreRepair, type RepairScore, type RepairState } from "@/lib/argumentRepair";
+import { pickRepairTarget, repairSourceOwner, scoreRepair, type RepairScore, type RepairState } from "@/lib/argumentRepair";
 import { WEAKNESS_CONSEQUENCE, repairSuccessTransition } from "@/lib/retest";
 import ValidationStatusLine from "./ValidationStatusLine";
 import type { SurfaceValidation } from "@/lib/judgeValidation";
+import { HELP_LEVEL_LABELS, type HelpContent, type HelpLevel } from "@/lib/repairHints";
 import { trackEvent } from "@/lib/trackClientEvent";
 
 interface RepairFeedback {
@@ -43,7 +44,59 @@ export default function ArgumentRepair({
   const [result, setResult] = useState<RepairScore | null>(null);
   const [persisted, setPersisted] = useState<RepairFeedback | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [help, setHelp] = useState<HelpContent[]>([]);
+  const [revealed, setRevealed] = useState<HelpLevel>(0);
   const [error, setError] = useState<string | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(!!debateId && !!target);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyRequest, setHistoryRequest] = useState(0);
+  const draftEdited = useRef(false);
+  const targetKind = target?.kind;
+  const sourceText = target?.sourceText;
+
+  useEffect(() => {
+    if (!debateId || !targetKind) return;
+    let active = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    async function restoreRepair() {
+      try {
+        const res = await fetch(`/api/solo/${debateId}/repair`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Repair history could not be loaded.");
+        if (data.target?.kind !== targetKind || data.target?.sourceText !== sourceText) {
+          throw new Error("The repair target has changed. Reload the result before continuing.");
+        }
+        if (!active) return;
+        if (Array.isArray(data.help)) setHelp(data.help);
+        // A retry must not replace a draft written after the first read failed.
+        // Reading history never submits an attempt or marks a fresh success.
+        if (data.latestAttempt && !draftEdited.current) {
+          setDraft(data.latestAttempt.rewrite);
+          setPersisted(data.latestAttempt);
+          setRevealed(data.latestAttempt.helpLevel);
+        }
+        setHistoryError(null);
+      } catch (err) {
+        if (!active) return;
+        setHistoryError(err instanceof Error && err.name !== "AbortError"
+          ? err.message
+          : "Repair history could not be loaded. You can retry or write a new version.");
+      } finally {
+        clearTimeout(timeout);
+        if (active) setLoadingHistory(false);
+      }
+    }
+    void restoreRepair();
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [debateId, targetKind, sourceText, historyRequest]);
 
   if (!target) {
     // The repair exercise is the payoff of the result screen: vanishing
@@ -72,28 +125,36 @@ export default function ArgumentRepair({
     );
   }
 
+  const sourceOwner = repairSourceOwner(target, graph);
+
   async function checkRepair() {
-    if (submitting) return;
+    if (submitting || loadingHistory) return;
+    draftEdited.current = true;
     setPersisted(null);
-    const local = scoreRepair(target!, draft);
-    setResult(local);
-    if (!debateId) return;
+    // With a debate id the server verdict is authoritative; showing the local
+    // score first could flash "Repair demonstrated" and then contradict it.
+    if (!debateId) {
+      setResult(scoreRepair(target!, draft));
+      return;
+    }
+    setResult(null);
     setSubmitting(true);
     setError(null);
     try {
       const res = await fetch(`/api/solo/${debateId}/repair`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rewrite: draft }),
+        body: JSON.stringify({ rewrite: draft, helpLevel: revealed }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to record the repair.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to record the repair. Your draft is still here — try again.");
       setPersisted({
         state: data.state,
         signals: data.signals,
         succeeded: data.succeeded,
         feedback: data.feedback,
       });
+      if (Array.isArray(data.help)) setHelp(data.help);
       onCompleted?.(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to record the repair.");
@@ -113,10 +174,14 @@ export default function ArgumentRepair({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="repair-overline">One-minute repair</p>
-          <h2 id="repair-title" className="mt-1 text-xl font-semibold tracking-tight">Repair the weak link</h2>
+          <p className="repair-overline">{target.practiceOnly ? "One-minute practice" : "One-minute repair"}</p>
+          <h2 id="repair-title" className="mt-1 text-xl font-semibold tracking-tight">
+            {target.practiceOnly ? "Practise one reasoning move" : "Repair the weak link"}
+          </h2>
           <p className="mt-1 max-w-xl text-sm leading-6 text-ink3">
-            Rewrite this one move from your debate and get an explainable, skill-specific check. Your debate score never changes.
+            {sourceOwner === "opponent"
+              ? "Answer this one opposing move from your debate and get an explainable, skill-specific check. Your debate score never changes."
+              : "Rewrite this one move of yours and get an explainable, skill-specific check. Your debate score never changes."}
           </p>
         </div>
         <span className="pill border-[var(--speak)]/30 bg-[var(--speak-soft)] text-[var(--speak)]">{target.label}</span>
@@ -125,16 +190,23 @@ export default function ArgumentRepair({
       <ValidationStatusLine validation={validation} testId="repair-validation-state" />
 
       <div className="repair-target" data-testid="repair-source">
-        <p className="repair-target-label">From your debate{typeof target.sourceRound === "number" ? ` · round ${target.sourceRound}` : ""}</p>
+        <p className="repair-target-label">From your debate · {sourceOwner === "opponent" ? "opponent's move" : "your move"}{typeof target.sourceRound === "number" ? ` · round ${target.sourceRound}` : ""}</p>
         <p className="mt-1 text-sm leading-6 text-ink2">“{target.sourceText}”</p>
       </div>
 
-      <div>
-        <p className="text-xs uppercase tracking-wide text-ink3">Why it weakened the argument</p>
-        <p className="mt-1 text-sm leading-6 text-ink2" data-testid="repair-consequence">
-          {WEAKNESS_CONSEQUENCE[target.kind] ?? "This move left an opening a careful opponent would use."}
+      {target.practiceOnly ? (
+        <p className="text-sm leading-6 text-ink3">
+          No clear weakness was flagged in this debate. This is optional practice,
+          not evidence that the quoted move was weak.
         </p>
-      </div>
+      ) : (
+        <div>
+          <p className="text-xs uppercase tracking-wide text-ink3">Why it weakened the argument</p>
+          <p className="mt-1 text-sm leading-6 text-ink2" data-testid="repair-consequence">
+            {WEAKNESS_CONSEQUENCE[target.kind] ?? "This move left an opening a careful opponent would use."}
+          </p>
+        </div>
+      )}
 
       <div>
         <p className="text-sm font-semibold text-ink">{target.title}</p>
@@ -144,12 +216,13 @@ export default function ArgumentRepair({
       <textarea
         value={draft}
         onChange={(event) => {
+          draftEdited.current = true;
           setDraft(event.target.value);
           if (result) setResult(null);
           if (persisted) setPersisted(null);
         }}
         rows={4}
-        disabled={submitting}
+        disabled={submitting || loadingHistory}
         maxLength={2000}
         placeholder="Write your improved move here…"
         aria-label="Improved argument move"
@@ -162,14 +235,58 @@ export default function ArgumentRepair({
         <button
           type="button"
           onClick={checkRepair}
-          disabled={draft.trim().length < 10 || submitting}
+          disabled={draft.trim().length < 10 || submitting || loadingHistory}
           className="btn btn-primary px-4 py-2 text-sm disabled:opacity-40"
           data-testid="submit-repair"
         >
           {submitting ? "Recording…" : persisted ? "Check this version" : "Submit repair"} <span aria-hidden="true">→</span>
         </button>
       </div>
+      {loadingHistory && <p className="text-sm text-ink3" role="status">Loading saved repair and help…</p>}
+      {historyError && (
+        <div className="flex flex-wrap items-center gap-3" role="alert">
+          <p className="text-sm text-[var(--bad)]">{historyError}</p>
+          <button
+            type="button"
+            disabled={loadingHistory || submitting}
+            onClick={() => {
+              setLoadingHistory(true);
+              setHistoryError(null);
+              setHistoryRequest((request) => request + 1);
+            }}
+            className="btn btn-ghost px-3 py-2 text-sm"
+          >
+            Retry loading saved repair
+          </button>
+        </div>
+      )}
       {error && <p className="text-sm text-[var(--bad)]" role="alert">{error}</p>}
+
+      {help.length > 0 && !persisted?.succeeded && (
+        <div className="repair-help" data-testid="repair-help">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink3">Help unlocked after your attempt</p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {help.map((h) => (
+              <button
+                key={h.level}
+                type="button"
+                onClick={() => setRevealed((r) => (Math.max(r, h.level) as HelpLevel))}
+                className="btn px-3 py-1 text-xs"
+                data-testid={`reveal-help-${h.level}`}
+                aria-expanded={revealed >= h.level}
+              >
+                {revealed >= h.level ? HELP_LEVEL_LABELS[h.level] : `Show ${HELP_LEVEL_LABELS[h.level].toLowerCase()}`}
+              </button>
+            ))}
+          </div>
+          {help.filter((h) => revealed >= h.level).map((h) => (
+            <p key={h.level} className="mt-2 text-sm leading-6 text-ink2" data-testid={`help-text-${h.level}`}>
+              <span className="font-semibold">{h.label}:</span> {h.text}
+            </p>
+          ))}
+          <p className="mt-2 text-xs text-ink3">Using help is recorded with your attempt and the retest still measures you without it. Help level is practice context, not a score.</p>
+        </div>
+      )}
 
       {shown && (
         <div className="repair-result" role="status" aria-live="polite" data-testid="repair-feedback">
@@ -195,7 +312,7 @@ export default function ArgumentRepair({
             {shown.succeeded ? "What worked" : "What to add"}
           </p>
           <ul className="mt-1 list-inside list-disc text-xs leading-5 text-ink3">
-            {shown.signals.map((signal) => <li key={signal}>{signal}</li>)}
+            {shown.signals.filter((x) => !x.startsWith("help_level:")).map((signal) => <li key={signal}>{signal}</li>)}
           </ul>
           <p className="mt-2 text-xs text-ink3">This is formative practice feedback based on observable structure, not a revised debate score or a validated ability measure. The real test is whether you can use the same move later without the repair prompt.</p>
         </div>

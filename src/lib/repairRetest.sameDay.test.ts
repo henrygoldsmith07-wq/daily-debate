@@ -40,7 +40,8 @@ describe("same-day retest rules", () => {
       attemptedAt: `${TODAY}T09:00:00.000Z`,
       topicId: "topic-a",
     };
-    expect(selectEligiblePendingRetest([], [repairedToday], "topic-b")?.repairResultId).toBe("r-today");
-    expect(selectEligiblePendingRetest([], [repairedToday], "topic-a")).toBeNull();
+    const nowMs = Date.parse(`${TODAY}T12:00:00.000Z`);
+    expect(selectEligiblePendingRetest([], [repairedToday], "topic-b", nowMs)?.repairResultId).toBe("r-today");
+    expect(selectEligiblePendingRetest([], [repairedToday], "topic-a", nowMs)).toBeNull();
   });
 });

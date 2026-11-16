@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createClient } from "@/lib/backend/server";
 import { checkRateLimit, checkRateLimitKey } from "@/lib/rateLimit";
-import { debateTurn } from "@/lib/openrouter";
+import { debateTurn, debateTurnStream, type ServedBy } from "@/lib/openrouter";
+import { recordStreamLatency, type AiCallTelemetry } from "@/lib/aiTelemetry";
+import { encodeSseEvent } from "@/lib/sse";
 import { isSpendCapError, retryAfterSecondsToReset } from "@/lib/spendCap";
 import { assessTurn } from "@/lib/observableAssessment";
 import { isSuspiciousLength, moderateContent, repeatScore } from "@/lib/moderation";
@@ -63,7 +65,162 @@ function stagedResponsePayload(staged: Partial<StagedSubmission> | undefined) {
   };
 }
 
-export async function POST(request: Request, { params }: { params: Promise<{ debateId: string }> }) {
+type RouteContext = { params: Promise<{ debateId: string }> };
+
+/**
+ * Streaming hooks for one turn. Present only when the client asked for
+ * `text/event-stream`; every validation, claim, persistence and error path is
+ * identical either way — streaming only adds what the learner sees while the
+ * opponent reply is generated.
+ */
+interface TurnStreamHooks {
+  /** The submission is durably staged and opponent generation is starting. */
+  onGenerationStart: () => void;
+  onDelta: (text: string) => void;
+  onReset: () => void;
+  onServedBy: (servedBy: ServedBy) => void;
+}
+
+export async function POST(request: Request, context: RouteContext) {
+  const accept = request.headers.get("accept") ?? "";
+  if (!accept.includes("text/event-stream")) return handleTurn(request, context, null);
+  return streamTurn(request, context);
+}
+
+/**
+ * Event-stream variant of the turn route.
+ *
+ * Everything that can fail BEFORE the response is staged (auth, rate limits,
+ * validation, stale turns, claim conflicts) and every turn that needs no
+ * generation (the final round, a lost-response replay) still answers as plain
+ * JSON with its normal status — the stream only opens once the claim holds
+ * and the opponent is being generated. The stream then carries:
+ *
+ *   event: start   — the response is saved; generation has begun
+ *   event: delta   — { text } the next piece of the opponent reply
+ *   event: reset   — discard shown text (a provider failed mid-reply and the
+ *                    chain is trying the next one)
+ *   event: result  — { status, body } exactly what the JSON route would have
+ *                    answered, sent after the turn is persisted (or after the
+ *                    normal retryable "response saved" failure)
+ *
+ * A client that disconnects does not cancel generation: the turn still
+ * persists, and the client's retry replays the committed round.
+ */
+async function streamTurn(request: Request, context: RouteContext): Promise<Response> {
+  const startedAt = Date.now();
+  const encoder = new TextEncoder();
+  let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  let closed = false;
+  const backlog: string[] = [];
+  let firstTokenAt: number | null = null;
+  let servedBy: ServedBy | null = null;
+
+  const send = (event: string, data: unknown) => sendFrame(encodeSseEvent(event, data));
+  const sendFrame = (frame: string) => {
+    if (closed) return;
+    if (!controller) {
+      backlog.push(frame);
+      return;
+    }
+    try {
+      controller.enqueue(encoder.encode(frame));
+    } catch {
+      closed = true; // client went away; generation and persistence continue
+    }
+  };
+
+  let markStarted!: () => void;
+  const started = new Promise<"stream">((resolve) => {
+    markStarted = () => resolve("stream");
+  });
+
+  const core = handleTurn(request, context, {
+    onGenerationStart: () => {
+      send("start", {});
+      markStarted();
+    },
+    onDelta: (text) => {
+      if (!text) return;
+      firstTokenAt ??= Date.now();
+      send("delta", { text });
+    },
+    onReset: () => send("reset", {}),
+    onServedBy: (value) => {
+      servedBy = value;
+    },
+  });
+
+  const first = await Promise.race([core.then((response) => ({ response })), started]);
+  if (first !== "stream") return first.response;
+
+  // Keep the invocation alive until the turn is persisted even if the learner
+  // navigates away and the platform sees the response stream cancelled.
+  try {
+    after(async () => {
+      await core.catch(() => undefined);
+    });
+  } catch {
+    // Outside a Next.js request scope (unit tests): nothing to extend.
+  }
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+      for (const frame of backlog.splice(0)) c.enqueue(encoder.encode(frame));
+      // Comment frames keep idle proxies and the client's stall timer from
+      // treating a slow first token (provider failover) as a dead stream.
+      const keepAlive = setInterval(() => sendFrame(": keep-alive\n\n"), 10_000);
+      void (async () => {
+        let status = 500;
+        let body: unknown = { error: "Your response is saved, but the round could not advance. Retry to continue from the saved response.", submissionSaved: true };
+        try {
+          const response = await core;
+          status = response.status;
+          body = await response.json();
+        } catch (error) {
+          console.error("Streamed solo turn failed:", error);
+        }
+        clearInterval(keepAlive);
+        send("result", { status, body });
+        const served = servedBy as ServedBy | null;
+        recordStreamLatency({
+          firstTokenMs: firstTokenAt === null ? null : firstTokenAt - startedAt,
+          totalMs: Date.now() - startedAt,
+          outcome: status >= 200 && status < 300 ? "ok" : "error",
+          ...(served && served.provider !== "e2e-mock"
+            ? { provider: served.provider as AiCallTelemetry["provider"], model: served.model }
+            : served
+              ? { model: served.model }
+              : {}),
+        });
+        if (!closed) {
+          closed = true;
+          try {
+            c.close();
+          } catch {
+            // already closed by the client
+          }
+        }
+      })();
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+async function handleTurn(request: Request, { params }: RouteContext, stream: TurnStreamHooks | null) {
   // Secondary network-abuse ceiling. Authenticated users get their own tighter
   // bucket below so people sharing school/home/work NATs do not throttle each other.
   const ipLimited = await checkRateLimit(request, { name: "solo-turn-ip", limit: 120, windowMs: 60_000, failClosed: true });
@@ -348,6 +505,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
   let nextAiMessage: string | null = null;
 
   if (!isFinalRound) {
+    // The response is durably staged: a streaming client can now be told so,
+    // and shown the opponent reply as it is generated.
+    stream?.onGenerationStart();
     const history = turns.slice(0, -1).flatMap((turn) => [
       { role: "ai" as const, text: turn.ai_message },
       ...(turn.user_message ? [{ role: "user" as const, text: turn.user_message }] : []),
@@ -373,8 +533,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
     }
 
     try {
-      // Validated inside the provider chain: invalid output fails over.
-      const result = await debateTurn({
+      const turnParams = {
         topicTitle: topic.title,
         topicPrompt: topic.prompt,
         userSide: debate.side as "for" | "against",
@@ -382,7 +541,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ deb
         latestUserMessage: effectiveMessage,
         argumentRoute,
         directive,
-      });
+      };
+      // Validated inside the provider chain: invalid output fails over. The
+      // streamed variant resolves with the same validated object, so what is
+      // persisted below does not depend on whether the learner watched it
+      // being written.
+      let result: Awaited<ReturnType<typeof debateTurn>>;
+      if (stream) {
+        const streamed = await debateTurnStream(turnParams, { onDelta: stream.onDelta, onReset: stream.onReset });
+        stream.onServedBy(streamed.servedBy);
+        result = streamed.result;
+      } else {
+        result = await debateTurn(turnParams);
+      }
       feedback = result.feedback;
       nextAiMessage = result.aiMessage;
     } catch (error) {

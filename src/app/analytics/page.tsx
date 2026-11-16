@@ -2,11 +2,29 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { loadFunnelData } from "@/lib/productFunnelServer";
-import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, FUNNEL_MIN_SAMPLE } from "@/lib/productFunnel";
+import { buildFunnelReport, buildRepairOutcomeFunnel, buildWeeklyLoop, summarizeFeedbackMissed, FUNNEL_MIN_SAMPLE } from "@/lib/productFunnel";
 import { buildRepairEffectiveness } from "@/lib/repairEffectiveness";
+import { statsByHelpLevel, HELP_STAT_MIN_ATTEMPTS } from "@/lib/repairHints";
 import { loadAiOpsData } from "@/lib/aiOpsServer";
+import { loadAggregateLoopChain, loadRecheckFunnelInputs, loadReminderOutcomeInputs } from "@/lib/loopChainServer";
+import { summariseRecapViews } from "@/lib/weeklyRecap";
+import { loadRecapViewRows, loadReminderOutcomeEvents } from "@/lib/reminderPrefsServer";
+import { summariseSentActedPerUser } from "@/lib/reminderDelivery";
+import { REMINDER_MIN_SAMPLE, reminderOutcome } from "@/lib/retestReminder";
+import { RECHECK_MIN_SAMPLE, recheckFunnel } from "@/lib/spacedRecheck";
+import { loadDurableGainSummary } from "@/lib/spacedRecheckServer";
+import { summarizeRecurrenceByKind, RECURRENCE_MIN_REPAIRS } from "@/lib/recurrenceAlert";
+import { CHAIN_RATE_MIN_DECIDED, summarizeChainByKind } from "@/lib/loopChain";
+import { loadPhraseReuseSummary } from "@/lib/phraseReuseServer";
+import { MIN_REUSE_SAMPLE } from "@/lib/repairPhraseReuse";
+import { loadSecondOpinionSummary } from "@/lib/secondOpinionServer";
+import { SECOND_OPINION_MIN_SAMPLE } from "@/lib/repairSecondOpinion";
+import { loadSteeringSummary } from "@/lib/steeringServer";
 import { assessLatencyBudgets } from "@/lib/latencyBudget";
 import { getRequestAuthContext } from "@/lib/requestAuth";
+import { loadGuestSprintWeeks } from "@/lib/guestSprintCounterServer";
+import { loadPushWeeks } from "@/lib/webPushServer";
+import { loadStreakFreezeWeeks } from "@/lib/streakFreezeServer";
 
 export const dynamic = "force-dynamic";
 
@@ -65,11 +83,30 @@ export default async function AnalyticsPage() {
   const { events, repairs, retests, debateWeaknesses, completeness } = funnelData;
   const funnel = buildFunnelReport(events, {});
   const weeklyLoop = buildWeeklyLoop(events, funnel.generatedAt);
+  const feedbackMissed = summarizeFeedbackMissed(events);
   const effectiveness = buildRepairEffectiveness(repairs, debateWeaknesses, { retests });
   const trainingLoop = buildRepairOutcomeFunnel(repairs, debateWeaknesses, events, { retests });
 
+  const helpStats = statsByHelpLevel(repairs.map((r) => ({ helpLevel: (r.help_level ?? 0) as 0 | 1 | 2 | 3, demonstrated: r.succeeded })));
+
   const aiOpsData = await loadAiOpsData();
   const aiOps = aiOpsData.status === "unavailable" ? null : aiOpsData.report;
+  const steering = await loadSteeringSummary();
+  const guestSprints = await loadGuestSprintWeeks();
+  const chainAgg = await loadAggregateLoopChain();
+  const recheckInputs = await loadRecheckFunnelInputs();
+  const reminderInputs = await loadReminderOutcomeInputs();
+  const reminder = reminderInputs ? reminderOutcome(reminderInputs, new Date()) : null;
+  const sentActedRows = await loadReminderOutcomeEvents();
+  const sentActed = sentActedRows ? summariseSentActedPerUser(sentActedRows) : null;
+  const pushWeeks = await loadPushWeeks();
+  const freezeWeeks = await loadStreakFreezeWeeks();
+  const recapRows = await loadRecapViewRows();
+  const recapViews = recapRows ? summariseRecapViews(recapRows) : null;
+  const recheck = recheckInputs ? recheckFunnel(recheckInputs, new Date()) : null;
+  const durable = await loadDurableGainSummary();
+  const reuse = await loadPhraseReuseSummary();
+  const secondOpinion = await loadSecondOpinionSummary();
 
   return (
     <AppShell width="narrow">
@@ -78,6 +115,166 @@ export default async function AnalyticsPage() {
         title="Product funnel"
         description={`User-level rates over the last ${funnel.windowDays} days — ${funnel.eventsAnalysed} events from ${funnel.usersAnalysed} users. Rates are shown only at ≥5-user samples; below that they say "not yet measurable" rather than reporting noise.`}
       />
+
+      {chainAgg && chainAgg.entries.length > 0 && (
+        <section className="surface-card p-5" aria-labelledby="chain-agg-heading" data-testid="chain-agg">
+          <h2 id="chain-agg-heading" className="text-sm font-semibold">Repair to retest chain by skill</h2>
+          <p className="mt-1 text-xs text-ink3">Observational and unvalidated. A rate shows only after {CHAIN_RATE_MIN_DECIDED} measurable retests for that skill; recurrence is not measured.{chainAgg.capped ? " Newest 500 repairs only." : ""}</p>
+          <ul className="mt-3 space-y-1">
+            {summarizeChainByKind(chainAgg.entries).map((k) => (
+              <li key={k.kind} className="text-sm" data-testid="chain-agg-row" data-status={k.status}>
+                <span className="font-medium capitalize">{k.kind}</span>
+                <span className="text-ink3">{` · ${k.repairs} repairs · ${k.pending} pending · `}{k.demonstratedShare === null ? `insufficient_evidence (${k.decided}/${CHAIN_RATE_MIN_DECIDED} measurable)` : `${Math.round(k.demonstratedShare * 100)}% showed the skill (${k.demonstrated}/${k.decided})`}</span>
+              </li>
+            ))}
+          </ul>
+          <h3 className="mt-4 text-xs font-semibold">Repeat repairs by skill (proxy for &ldquo;came back&rdquo;, unvalidated)</h3>
+          <ul className="mt-1 space-y-1" data-testid="recurrence-agg">
+            {summarizeRecurrenceByKind(chainAgg.entries).map((k) => (
+              <li key={k.kind} className="text-sm" data-testid="recurrence-agg-row">
+                <span className="font-medium capitalize">{k.kind}</span>
+                <span className="text-ink3">{` · ${k.repairs} landed repairs · `}{k.share === null ? `insufficient_evidence (${k.repairs}/${RECURRENCE_MIN_REPAIRS})` : `${Math.round(k.share * 100)}% repaired again (${k.repeated}/${k.repairs})`}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <section className="surface-card p-5" aria-labelledby="push-weeks-heading" data-testid="push-weeks">
+        <h2 id="push-weeks-heading" className="text-sm font-semibold">Push reminders: sent vs opened</h2>
+        <p className="mt-1 text-xs text-ink3">
+          From push_deliveries. Opened = the notification was clicked. Unvalidated: an open does not show a reminder
+          caused a debate.
+        </p>
+        {pushWeeks === null ? (
+          <p className="mt-2 text-xs text-ink3">Push deliveries could not be read — an availability failure, not zero.</p>
+        ) : pushWeeks.length === 0 ? (
+          <p className="mt-2 text-xs text-ink3">No push reminders sent yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-xs tabular">
+            {pushWeeks.map((w) => (
+              <li key={w.weekStart}>
+                {w.weekStart}: {w.sent} sent · {w.opened} opened
+                {w.sent >= FUNNEL_MIN_SAMPLE ? ` (${pct(w.opened / w.sent)})` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section className="surface-card p-5" aria-labelledby="freeze-weeks-heading" data-testid="streak-freeze-weeks">
+        <h2 id="freeze-weeks-heading" className="text-sm font-semibold">Streak freezes: streaks kept over a missed day</h2>
+        <p className="mt-1 text-xs text-ink3">
+          From streak_freeze_uses, by the week of the missed day. Meant to move returning users; unvalidated: a kept
+          streak does not show the learner would not have come back anyway.
+        </p>
+        {freezeWeeks === null ? (
+          <p className="mt-2 text-xs text-ink3">Streak freezes could not be read — an availability failure, not zero.</p>
+        ) : freezeWeeks.length === 0 ? (
+          <p className="mt-2 text-xs text-ink3">No streak freezes used yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-xs tabular">
+            {freezeWeeks.map((w) => (
+              <li key={w.weekStart}>
+                {w.weekStart}: {w.used} kept · {w.learners} learners
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {recapViews && (
+        <section className="surface-card p-5" aria-labelledby="recap-views-heading" data-testid="recap-views" data-evidence={recapViews.status === "ok" ? "unvalidated" : "insufficient_evidence"}>
+          <h2 id="recap-views-heading" className="text-sm font-semibold">Weekly recap: who looked</h2>
+          <p className="mt-1 text-xs text-ink3">
+            {recapViews.status === "ok"
+              ? `${recapViews.viewers} learners opened the recap (${recapViews.views} views). Unvalidated; opening it does not show it helped.`
+              : `insufficient_evidence (${recapViews.viewers}/${recapViews.needed} viewers before a count is shown).`}
+          </p>
+        </section>
+      )}
+      {sentActed && (
+        <section className="surface-card p-5" aria-labelledby="reminder-sent-heading" data-testid="reminder-sent-acted" data-evidence={sentActed.status === "ok" ? "unvalidated" : "insufficient_evidence"}>
+          <h2 id="reminder-sent-heading" className="text-sm font-semibold">In-app reminders: sent vs acted</h2>
+          <p className="mt-1 text-xs text-ink3">
+            {sentActed.status === "ok"
+              ? `${sentActed.acted}/${sentActed.sent} reminders followed within 48h (${Math.round(sentActed.actedRate * 100)}%). Unvalidated; cannot show a reminder caused the retest.`
+              : `insufficient_evidence (${sentActed.sent}/${sentActed.needed} reminders sent before a rate is shown).`}
+          </p>
+        </section>
+      )}
+      {reminder && reminder.overdue > 0 && (
+        <section className="surface-card p-5" aria-labelledby="reminder-heading" data-testid="reminder-outcome" data-evidence={reminder.label}>
+          <h2 id="reminder-heading" className="text-sm font-semibold">Overdue retest reminders</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {reminder.overdue} retests went 2+ days overdue.{" "}
+            {reminder.actedShare === null ? `insufficient_evidence (${reminder.overdue}/${REMINDER_MIN_SAMPLE} needed before a rate is shown)` : `${Math.round(reminder.actedShare * 100)}% completed within a day (${reminder.actedAfterOverdue}/${reminder.overdue})`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Descriptive only; cannot show a reminder caused the retest. Unvalidated.</p>
+        </section>
+      )}
+      {recheck && recheck.eligible > 0 && (
+        <section className="surface-card p-5" aria-labelledby="recheck-heading" data-testid="recheck-funnel" data-evidence={recheck.evidence}>
+          <h2 id="recheck-heading" className="text-sm font-semibold">7-day re-check funnel</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {recheck.eligible} observed retests: {recheck.waiting} waiting, {recheck.due} due, {recheck.expired} expired.{" "}
+            {recheck.expiredShare === null ? `insufficient_evidence (${recheck.eligible}/${RECHECK_MIN_SAMPLE} needed before a rate is shown)` : `${Math.round(recheck.expiredShare * 100)}% expired unused`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Counts only; durability is not claimed. Unvalidated.</p>
+        </section>
+      )}
+      {durable && durable.durable + durable.notDurable + durable.inconclusive > 0 && (
+        <section className="surface-card p-5" aria-labelledby="durable-heading" data-testid="durable-gain" data-evidence={durable.evidence}>
+          <h2 id="durable-heading" className="text-sm font-semibold">7-day re-check outcomes</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {durable.durable} skill still showed, {durable.notDurable} weakness back.{" "}
+            {durable.durableShare === null
+              ? `insufficient_evidence (${durable.durable + durable.notDurable}/${RECHECK_MIN_SAMPLE} conclusive re-checks needed before a share is shown)`
+              : `${Math.round(durable.durableShare * 100)}% of conclusive re-checks still showed the skill`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">
+            One re-check per repair, same detector as the first retest; full debates only. Unvalidated, not evidence of lasting learning.
+          </p>
+        </section>
+      )}
+      {reuse && reuse.total > 0 && (
+        <section className="surface-card p-5" aria-labelledby="reuse-heading" data-testid="phrase-reuse" data-evidence={reuse.label}>
+          <h2 id="reuse-heading" className="text-sm font-semibold">Repair phrases reused in retests</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {reuse.rate === null
+              ? `insufficient_evidence (${reuse.total}/${MIN_REUSE_SAMPLE} retests needed before a rate is shown)`
+              : `${Math.round(reuse.rate * 100)}% of retests reused a phrase from the repair (${reuse.reusedCount}/${reuse.total})`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Word overlap only. Unvalidated, not evidence the repair worked.</p>
+        </section>
+      )}
+      {secondOpinion && secondOpinion.total > 0 && (
+        <section className="surface-card p-5" aria-labelledby="second-opinion-heading" data-testid="second-opinion-stats" data-evidence="unvalidated">
+          <h2 id="second-opinion-heading" className="text-sm font-semibold">Second opinions after failed retests</h2>
+          <p className="mt-1 text-sm text-ink2">
+            {secondOpinion.insufficient
+              ? `insufficient_evidence (${secondOpinion.total}/${SECOND_OPINION_MIN_SAMPLE} failed retests needed before a breakdown is shown)`
+              : `${secondOpinion.restated} repeated the original line, ${secondOpinion.notReused} did not reuse the repair, ${secondOpinion.reusedButMissed} reused it but the skill was still not observed (of ${secondOpinion.total})`}
+          </p>
+          <p className="mt-1 text-xs text-ink3">Descriptive word-overlap categories. Unvalidated, not evidence a suggestion works.</p>
+        </section>
+      )}
+      {steering && (
+        <section className="surface-card p-5" aria-labelledby="steering-heading" data-testid="steering-stats">
+          <h2 id="steering-heading" className="text-sm font-semibold">Coach focus steering</h2>
+          <p className="mt-1 text-xs text-ink2">
+            Last {steering.windowDays} days, {steering.total} debates with a focus: {steering.reRepair} kept the same skill after a failed retest, {steering.movedOn} moved on from a repaired skill, {steering.unsteered} plain lowest-skill picks
+            {steering.steeredShare !== null && ` (${Math.round(steering.steeredShare * 100)}% steered)`}.
+          </p>
+          <p className="mt-1 text-xs text-ink3">{steering.note}{steering.truncated ? " Read capped at the newest 2000 debates." : ""}</p>
+        </section>
+      )}
+
+      <section className="surface-card p-5" aria-labelledby="feedback-missed-heading" data-testid="feedback-missed-summary">
+        <h2 id="feedback-missed-heading" className="text-sm font-semibold">&ldquo;This feedback missed&rdquo; flags</h2>
+        <p className="mt-1 text-sm text-ink2">
+          {feedbackMissed.flaggedDebates} flagged across {feedbackMissed.flaggedUsers} learners, {feedbackMissed.completedDebates} completed debates
+          {feedbackMissed.flagRate !== null ? ` (${Math.round(feedbackMissed.flagRate * 100)}% flagged)` : ""}.
+        </p>
+        <p className="mt-1 text-xs text-ink3">{feedbackMissed.note}</p>
+      </section>
 
       <section className="surface-card p-5" aria-labelledby="funnel-heading">
         <h2 id="funnel-heading" className="text-sm font-semibold">Training funnel</h2>
@@ -192,6 +389,42 @@ export default async function AnalyticsPage() {
         </p>
       </section>
 
+      <section className="surface-card p-5" aria-labelledby="guest-sprints-heading">
+        <h2 id="guest-sprints-heading" className="text-sm font-semibold">Live guest sprints</h2>
+        <p className="mt-1 text-xs text-ink3">
+          Signed-out debates against the live AI opponent, from the anonymous day-level counter (guest_sprint_daily: two
+          integers per day, no identifiers). Guests are not in product_events, so these are not in the table above.
+        </p>
+        {guestSprints === null ? (
+          <p className="mt-3 text-xs text-ink3">Guest sprint counts could not be read — an availability failure, not zero.</p>
+        ) : guestSprints.length === 0 ? (
+          <p className="mt-3 text-xs text-ink3">No live guest sprints recorded yet.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="text-ink3">
+                  <th className="py-1 pr-3 font-medium">Week</th>
+                  <th className="py-1 pr-3 font-semibold">Started</th>
+                  <th className="py-1 pr-3 font-semibold">Completed</th>
+                  <th className="py-1 font-semibold">Completion</th>
+                </tr>
+              </thead>
+              <tbody className="tabular">
+                {guestSprints.map((w) => (
+                  <tr key={w.weekStart} className="border-t border-[var(--rule)]">
+                    <td className="py-1.5 pr-3 font-medium">{w.weekStart}</td>
+                    <td className="py-1.5 pr-3">{w.started}</td>
+                    <td className="py-1.5 pr-3">{w.completed}</td>
+                    <td className="py-1.5">{w.started < FUNNEL_MIN_SAMPLE ? "—" : pct(Math.min(1, w.completed / w.started))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <section className="surface-card p-5" aria-labelledby="cohorts-heading">
         <h2 id="cohorts-heading" className="text-sm font-semibold">Weekly cohorts (first activity)</h2>
         <div className="mt-3 overflow-x-auto">
@@ -221,6 +454,18 @@ export default async function AnalyticsPage() {
         <p className="mt-2 text-xs text-ink3">
           Dashes mean the cohort still has users inside that window — they are pending, not churned.
         </p>
+      </section>
+
+      <section className="surface-card p-5" aria-labelledby="help-heading" data-testid="help-level-stats">
+        <h2 id="help-heading" className="text-sm font-semibold">Repair success by help level</h2>
+        <p className="mt-1 text-xs text-ink3">
+          Saved repair attempts grouped by the hint the learner had unlocked. Unvalidated, and not causal: learners who need more help are not comparable to those who need none. Rates appear at {HELP_STAT_MIN_ATTEMPTS}+ attempts per level.
+        </p>
+        <div className="mt-2">
+          {helpStats.map((s) => (
+            <RateRow key={s.level} label={s.label} numerator={s.demonstrated} denominator={s.attempts} rate={s.rate} note={s.rate === null ? `insufficient evidence (${s.attempts} attempts)` : "unvalidated"} />
+          ))}
+        </div>
       </section>
 
       {aiOps && (
@@ -322,6 +567,29 @@ export default async function AnalyticsPage() {
                 </li>
               ))}
             </ul>
+            {aiOps && (
+              <div className="mt-3 border-t border-[var(--rule)] pt-3 text-xs" data-testid="stream-latency">
+                <p className="font-medium">Streamed opponent replies (server-side, from Send reaching the server)</p>
+                <p className="mt-1 text-ink2">
+                  First reply text:{" "}
+                  {aiOps.streaming.firstToken.p50Ms !== null
+                    ? `p50 ${aiOps.streaming.firstToken.p50Ms}ms · p95 ${aiOps.streaming.firstToken.p95Ms}ms (${aiOps.streaming.firstToken.samples} turns)`
+                    : aiOps.streaming.firstToken.note}
+                </p>
+                <p className="text-ink2">
+                  Full reply saved:{" "}
+                  {aiOps.streaming.total.p50Ms !== null
+                    ? `p50 ${aiOps.streaming.total.p50Ms}ms · p95 ${aiOps.streaming.total.p95Ms}ms (${aiOps.streaming.total.samples} turns)`
+                    : aiOps.streaming.total.note}
+                  {aiOps.streaming.failed > 0 &&
+                    ` · ${aiOps.streaming.failed} streamed turn${aiOps.streaming.failed === 1 ? "" : "s"} ended in a saved-response retry`}
+                </p>
+                <p className="text-ink3">
+                  Excludes network time to the browser and turns that fell back to the non-streaming path. Not a
+                  measure of learning or engagement.
+                </p>
+              </div>
+            )}
           </section>
         );
       })()}

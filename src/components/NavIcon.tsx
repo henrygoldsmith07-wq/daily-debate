@@ -13,11 +13,23 @@ const PATHS: Record<NavIconName, React.ReactNode> = {
       <path d="M9 15.5l2 2 4-4" />
     </>
   ),
+  motions: (
+    <>
+      <rect x="4" y="7" width="16" height="13" rx="2" />
+      <path d="M7 4h10M9 12h6M9 16h4" />
+    </>
+  ),
   pvp: (
     <>
       <path d="M3 7a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H7l-4 3z" />
       <path d="M21 12a2 2 0 0 0-2-2h-2.5" />
       <path d="M21 12v3a2 2 0 0 1-2 2h-3l-3 3v-3a2 2 0 0 1 0-.2" />
+    </>
+  ),
+  explore: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M15.5 8.5l-2 5-5 2 2-5z" />
     </>
   ),
   progress: (

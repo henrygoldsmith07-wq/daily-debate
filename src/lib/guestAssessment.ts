@@ -70,8 +70,8 @@ const REASONING =
 // signed-in drill rubric had to be fixed for: with a single shared content word
 // from the opponent's message, "However, my policy is better" scored as
 // engaging the opposing point. The marker is now the shared one definition
-// (`NAMES_OPPOSING_MOVE_RE`), so a guest and an account are told they engaged a
-// move on the same evidence.
+// (`NAMES_OPPOSING_MOVE_RE`). Guests additionally require lexical grounding
+// in the supplied opponent text, since markers alone establish no relevance.
 const NAMES_OPPOSING_MOVE = NAMES_OPPOSING_MOVE_RE;
 const IMPACT =
   /\b(on balance|outweighs?|matters more|more important|less important|greater impact|bigger impact|trade-?off|compared with|compared to|whereas|overall)\b/i;
@@ -113,10 +113,10 @@ export function inspectGuestResponse(response: string, opponent: string): GuestR
     sentenceCount,
     hasClaim: substantive && CLAIM.test(response),
     hasReasoning: wordCount >= 10 && REASONING.test(response),
-    // Engagement requires either a reference to the opposing move itself, or
-    // heavy lexical overlap with what the opponent actually wrote (3+ content
-    // words). A single shared word plus "however" is neither.
-    addressesOpponent: substantive && (NAMES_OPPOSING_MOVE.test(response) || overlap >= 3),
+    // A reference marker can name an entirely different objection. Require
+    // content shared with this challenge too. Still a lexical cue, not proof
+    // of a valid rebuttal; paraphrases can be missed.
+    addressesOpponent: substantive && ((NAMES_OPPOSING_MOVE.test(response) && overlap >= 2) || overlap >= 3),
     comparesImpacts: wordCount >= 12 && IMPACT.test(response) && REASONING.test(response),
     namesEvidence: wordCount >= 8 && NAMED_EVIDENCE.test(response),
   };
@@ -124,7 +124,7 @@ export function inspectGuestResponse(response: string, opponent: string): GuestR
 
 function bestStrength(signals: GuestResponseSignals, roundIndex: number): string {
   if (signals.comparesImpacts) return "You compared the trade-offs rather than listing points separately.";
-  if (roundIndex >= 1 && signals.addressesOpponent) return "You directly engaged with the opposing point instead of talking past it.";
+  if (roundIndex >= 1 && signals.addressesOpponent) return "Your response includes wording from the opposing point. Check that it answers the actual concern.";
   if (signals.namesEvidence) return "You named a source or dataset, which makes the support checkable.";
   if (signals.hasReasoning) return "You connected your claim to a reason instead of leaving it as an assertion.";
   if (signals.hasClaim) return "Your position is clear enough for the reader to know what you are arguing.";
@@ -337,8 +337,8 @@ export function assessGuestRetest(
   if (demonstrated) {
     return {
       demonstrated: true,
-      headline: `Observed in a live debate: ${label}`,
-      detail: `You carried the ${label} move into a fresh debate after repairing it. That is ONE observed instance - it shows the move appeared under debate conditions, not that the skill is mastered.`,
+      headline: `Text cue detected in this retest: ${label}`,
+      detail: `This response contains the text cues checked for ${label}. That is one local observation, not proof of a sound answer, transfer, retention or mastery.`,
       evidence: "retest_in_debate",
     };
   }

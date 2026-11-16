@@ -4,6 +4,13 @@ export const CLIENT_PRODUCT_EVENT_NAMES = [
   "progress_viewed",
   "pvp_started",
   "repair_started",
+  "weakness_feedback_missed",
+  "loop_streak_viewed",
+  "weekly_recap_viewed",
+  "reminder_opted_in",
+  "reminder_opted_out",
+  "reminder_acted",
+  "result_shared",
 ] as const;
 
 export type ClientProductEventName = (typeof CLIENT_PRODUCT_EVENT_NAMES)[number];

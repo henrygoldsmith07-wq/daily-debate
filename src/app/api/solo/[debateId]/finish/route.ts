@@ -15,6 +15,8 @@ import { type CoachingRecord, type PersistedSoloResult } from "@/lib/types";
 import { loadSoloFinalizationContext } from "@/lib/solo/finalizationContext";
 import { repairKindToDimension } from "@/lib/repairRetest";
 import { retestAssignmentFor, retestOutcomeFor, RETEST_OUTCOME_DETAIL, RETEST_OUTCOME_LABELS, retestComparisonFor, type RetestOutcome } from "@/lib/retest";
+import { reusedRepairPhrases } from "@/lib/repairPhraseReuse";
+import { secondOpinionFor } from "@/lib/repairSecondOpinion";
 import { retestAssignmentStillOpen } from "@/lib/repairRetestServer";
 import { countWeaknessesForSide, debateOpportunities } from "@/lib/repairEffectiveness";
 import { isRepairKind, type RepairKind } from "@/lib/argumentRepair";
@@ -245,14 +247,17 @@ async function finishSoloDebate(
   }
   const { topic, priorAssessments, priorDebateKinds } = finalizationContext;
 
-  const transcript = answered
-    .map((turn) => `AI: ${turn.ai_message}\nUser: ${turn.user_message}`)
-    .join("\n\n");
+  // Typed rows, not a raw "AI:/User:" string: a learner's text could otherwise
+  // forge transcript lines and steer the generated feedback.
+  const summaryTurns = answered.flatMap((turn) => [
+    { speaker: "AI (opposing)", round: turn.round_number, message: turn.ai_message ?? "" },
+    { speaker: "User", round: turn.round_number, message: turn.user_message ?? "" },
+  ]);
 
   let summary;
   let summarySource: "ai" | "fallback" = "ai";
   try {
-    summary = await summarizeSoloDebate({ topicTitle: topic.title, transcript });
+    summary = await summarizeSoloDebate({ topicTitle: topic.title, turns: summaryTurns });
   } catch (error) {
     console.error("Failed to summarize debate:", error);
     summarySource = "fallback";
@@ -421,6 +426,34 @@ async function finishSoloDebate(
       outcome: assignmentStillOpen ? outcome : null,
     };
   }
+  // M9 spaced re-check: same canonical detector and the same sprint rule as
+  // the first retest (a sprint records no verdict, so the re-check stays open
+  // for a later full debate). The verdict lives on coaching.recheck, which is
+  // also how the re-check is linked to this debate — no migration.
+  if (coaching.recheck && !coaching.repairRetest) {
+    const recheckKind = coaching.recheck.targetKind as string;
+    const graph = finalAssessment?.graph ?? null;
+    const recheckOutcome: RetestOutcome | null =
+      graph && isRepairKind(recheckKind) && repairKindToDimension(recheckKind)
+        ? retestOutcomeFor(
+            { target_kind: recheckKind },
+            {
+              debateId,
+              userId: user.id,
+              completedAt,
+              kinds: countWeaknessesForSide(graph, "a"),
+              opps: debateOpportunities(graph, "a"),
+            },
+            graph,
+            "a",
+            { format: format === "sprint" ? "sprint" : "full" },
+          )
+        : null;
+    coachingUpdate = {
+      ...coachingUpdate,
+      recheck: { ...coaching.recheck, outcome: format === "sprint" ? null : recheckOutcome },
+    };
+  }
   // The retest verdict travels with the coaching record so the result card
   // can REVEAL it — the skill under test is named for the first time after the
   // debate it was measured in (retestDisclosure.ts).
@@ -447,7 +480,31 @@ async function finishSoloDebate(
         .maybeSingle();
       coachingUpdate = {
         ...coachingUpdate,
-        retestOutcome: { ...coachingUpdate.retestOutcome, comparison: retestComparisonFor(repairRow) },
+        retestOutcome: {
+          ...coachingUpdate.retestOutcome,
+          secondOpinion: (() => {
+            const base = retestComparisonFor(repairRow);
+            if (!base) return null;
+            const so = secondOpinionFor({
+              outcome: String(coachingUpdate.retestOutcome?.outcome ?? ""),
+              before: base.before,
+              after: base.after,
+              retestTurns: answered.map((turn) => String(turn.user_message)),
+              skillLabel: String(coachingUpdate.retestOutcome?.skillLabel ?? "this skill"),
+            });
+            return so ? { label: so.label, suggestion: so.suggestion, repairReused: so.repairReused, restatesOriginal: so.restatesOriginal } : null;
+          })(),
+          comparison: (() => {
+            const base = retestComparisonFor(repairRow);
+            if (!base) return base;
+            // Descriptive lexical overlap only (M14); shown as unvalidated.
+            const reused = reusedRepairPhrases(
+              repairRow?.rewrite_text ?? "",
+              answered.map((turn) => String(turn.user_message)),
+            );
+            return reused.length ? { ...base, reusedPhrases: reused } : base;
+          })(),
+        },
       };
     } catch (err) {
       console.error("Retest comparison lookup failed:", err);
@@ -517,5 +574,15 @@ async function finishSoloDebate(
     );
   }
 
-  return NextResponse.json(durableDebate.result_payload as PersistedSoloResult);
+  // The streak as finalization left it, for the result's streak milestone and
+  // share line. Not persisted: a replay is not the moment the streak grew.
+  let streak: number | undefined;
+  try {
+    const { data: streakRow } = await db.from("profiles").select("current_streak").eq("id", user.id).single();
+    if (typeof streakRow?.current_streak === "number") streak = streakRow.current_streak;
+  } catch {
+    // Best effort: the result stands without it.
+  }
+
+  return NextResponse.json({ ...(durableDebate.result_payload as PersistedSoloResult), ...(streak !== undefined ? { streak } : {}) });
 }

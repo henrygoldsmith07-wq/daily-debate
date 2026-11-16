@@ -25,6 +25,8 @@ export interface DebateSummaryPayload {
   snapshot?: ResultSnapshot;
   trainingSummary?: TrainingSummary;
   summarySource?: "ai" | "fallback";
+  /** The learner's streak right after this finish (not persisted; fresh results only). */
+  streak?: number;
 }
 
 /** The server-rebuilt result a replayed (already completed) debate arrives with. */
@@ -63,11 +65,14 @@ export interface ReplayView {
 
 export interface DebateRoomProps {
   debate: SoloDebate;
-  topic: { title: string; prompt: string };
+  /** topic_date is set for stored motions; the share card numbers the debate by it. */
+  topic: { title: string; prompt: string; topic_date?: string | null };
   initialTurns: SoloDebateTurn[];
   completedResult?: CompletedResultView | null;
   /** Judge-output validation for the training surface (scores shown here). */
   soloValidation?: SurfaceValidation | null;
   /** Judge-output validation for the repair surface (repair targets below). */
   repairValidation?: SurfaceValidation | null;
+  /** M15: a previously repaired weakness kind showed up again in this debate. */
+  recurrenceAlert?: import("@/lib/recurrenceAlert").RecurrenceAlert | null;
 }

@@ -140,8 +140,8 @@ describe("retest disclosure policy", () => {
     // to hold there too — and it must be the whole PENDING queue, not the
     // topic-eligible one.
     const startDebate = readSource("lib", "solo", "startDebate.ts");
-    expect(startDebate).toMatch(/pickFocusDimension\([\s\S]{0,220}skillsUnderTest\(context\.pendingRetests\)/);
-    expect(startDebate).not.toMatch(/pickFocusDimension\([\s\S]{0,220}pendingRetest\?\.dimension/);
+    expect(startDebate).toMatch(/pickFocus(?:Dimension)?\([\s\S]{0,220}skillsUnderTest\(context\.pendingRetests\)/);
+    expect(startDebate).not.toMatch(/pickFocus(?:Dimension)?\([\s\S]{0,220}pendingRetest\?\.dimension/);
   });
 
   it("the Argument DNA page excludes the skill under test too", () => {

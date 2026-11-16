@@ -17,6 +17,7 @@ vi.mock("@/lib/coachingContextServer", () => ({
     selectedRetest: null,
     drillOutcomes: {},
     reRepairDimensions: [],
+    repairedDimensions: [],
   }),
 }));
 vi.mock("@/lib/openrouter", () => ({

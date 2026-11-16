@@ -1301,3 +1301,43 @@ export function buildRepairOutcomeFunnel(
     note: "Observational only — users who complete repairs differ from those who don't. Failed-only repair episodes remain attempt/conversion history and never enter effectiveness denominators. Successful episodes are anchored at their first successful rewrite, and the primary retest is the explicit durable repair_retests assignment. Later opportunity-bearing debates are follow-up exposure only. Recurrence density and fixed-window measures remain opportunity-adjusted, and never-recurred repairs are censored rather than assumed clean.",
   };
 }
+
+export interface FeedbackMissedSummary {
+  /** Completed debates in the window that surfaced a weakness card. */
+  completedDebates: number;
+  /** Distinct debates a learner flagged "this feedback missed". */
+  flaggedDebates: number;
+  flaggedUsers: number;
+  /** flaggedDebates / completedDebates; null below the sample gate. */
+  flagRate: number | null;
+  note: string;
+}
+
+/**
+ * Learner "this feedback missed" flags. Self-reported and unvalidated: a flag
+ * is a calibration signal, not a measured judge error rate.
+ */
+export function summarizeFeedbackMissed(rows: FunnelEventRow[], minSample = FUNNEL_MIN_SAMPLE): FeedbackMissedSummary {
+  const completed = new Set<string>();
+  const flagged = new Set<string>();
+  const users = new Set<string>();
+  for (const r of rows) {
+    if (r.name === "debate_completed" && r.debate_id) completed.add(r.debate_id);
+    if (r.name === "weakness_feedback_missed") {
+      flagged.add(r.debate_id ?? `${r.user_id}:${r.created_at}`);
+      users.add(r.user_id);
+    }
+  }
+  const completedDebates = completed.size;
+  const flagRate = completedDebates >= minSample ? +(flagged.size / completedDebates).toFixed(3) : null;
+  return {
+    completedDebates,
+    flaggedDebates: flagged.size,
+    flaggedUsers: users.size,
+    flagRate,
+    note:
+      flagRate === null
+        ? `Not yet measurable: fewer than ${minSample} completed debates with ids. Flags are self-reported and unvalidated.`
+        : "Self-reported by learners and unvalidated: a calibration signal, not a judge error rate.",
+  };
+}

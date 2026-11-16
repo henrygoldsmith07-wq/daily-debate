@@ -49,6 +49,7 @@ export default async function ArgumentDnaPage() {
       context.drillOutcomes,
       skillsUnderTest(context.pendingRetests),
       context.reRepairDimensions,
+      context.repairedDimensions,
     );
     focus = goal?.dimension ? (DIMENSION_LABELS[goal.dimension] ?? goal.dimension) : null;
   } catch {

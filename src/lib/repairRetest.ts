@@ -357,3 +357,27 @@ export function failedRetestDimensions(
     .filter(([d, v]) => !reRepairedAfter(d, v.at))
     .map(([d]) => d);
 }
+
+/**
+ * Skills whose most recent observable retest verdict is "demonstrated" within
+ * the steering window. One passing retest is a single unvalidated reading: it
+ * only lets the coach move on to the next weakest skill, never a score.
+ */
+export function repairedRetestDimensions(
+  verdicts: CompletedRetestVerdict[],
+  opts: { nowMs?: number } = {},
+): CoachDimension[] {
+  const nowMs = opts.nowMs ?? Date.now();
+  const latest = new Map<CoachDimension, { at: number; demonstrated: boolean }>();
+  for (const v of verdicts) {
+    if (v.observable !== true || v.demonstrated === null) continue;
+    const dimension = repairKindToDimension(v.targetKind);
+    const at = Date.parse(v.completedAt);
+    if (!dimension || Number.isNaN(at)) continue;
+    const current = latest.get(dimension);
+    if (!current || at > current.at) latest.set(dimension, { at, demonstrated: v.demonstrated });
+  }
+  return [...latest.entries()]
+    .filter(([, v]) => v.demonstrated && nowMs - v.at <= FAILED_RETEST_STEER_DAYS * 86_400_000)
+    .map(([d]) => d);
+}

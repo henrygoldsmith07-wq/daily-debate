@@ -4,11 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isKnownSource } from "@/lib/citationVerifier";
-import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import { formatEstimateLabel, formatLabelFor, SPRINT_ESTIMATE_MINUTES, SPRINT_ROUNDS, type DebateFormat } from "@/lib/sprint";
 import { OPPONENT_DIFFICULTY_LIST, OPPONENT_PERSONA_LIST, type OpponentDifficulty, type OpponentPersonaId } from "@/lib/opponentPersona";
-import type { DailyTopic, DebateSide } from "@/lib/types";
+import type { DailyTopic } from "@/lib/types";
 import { NEUTRAL_GOAL_LINE } from "@/lib/retestDisclosure";
+import { dailyAccentStyle } from "@/lib/dailyAccent";
+import SidePicker, { type SideChoice } from "./SidePicker";
+import PositionPills from "./PositionPills";
 import { challengePreviewHeadline, type ChallengePreview } from "@/lib/challengeMe";
 import {
   GUEST_FOCUS_LABEL,
@@ -37,7 +39,6 @@ export interface EvidenceCardView {
   checks?: EvidenceChecksView;
 }
 
-type SideChoice = DebateSide | "challenge";
 
 /** Legacy rows may hold `{}` in the jsonb sources column — normalise to an array. */
 function safeSources(topic: DailyTopic): DailyTopic["sources"] {
@@ -49,6 +50,7 @@ export default function TopicCard({
   activeDebateId,
   evidenceCards = [],
   goalLine = NEUTRAL_GOAL_LINE,
+  whyLine = null,
   lastLine,
   focusLabel = "Today's focus",
   isFirstVisit = false,
@@ -61,6 +63,7 @@ export default function TopicCard({
   evidenceCards?: EvidenceCardView[];
   /** Today's coaching goal headline (shown before the debate). */
   goalLine?: string;
+  whyLine?: string | null;
   /** Evidence from the previous debate, when the goal is based on one. */
   lastLine?: string | null;
   focusLabel?: string;
@@ -122,14 +125,8 @@ export default function TopicCard({
     }
   }
 
-  const sideMeta: Record<SideChoice, { label: string; sub: string }> = {
-    for: { label: "For", sub: "Make the case" },
-    against: { label: "Against", sub: "Push back" },
-    challenge: { label: "Challenge me", sub: "Pick for me" },
-  };
-
   return (
-    <section className="home-motion-card surface-card" aria-labelledby="today-motion">
+    <section className="home-motion-card has-daily-accent surface-card" style={dailyAccentStyle(topic.topic_date)} aria-labelledby="today-motion">
       <div className="home-motion-heading">
         <div>
           <p className="home-motion-kicker">Today&apos;s motion</p>
@@ -150,6 +147,8 @@ export default function TopicCard({
             </p>
           )}
         </div>
+
+        <PositionPills compact />
 
         {firstFocus && !activeDebateId ? (
           <div className="home-coaching-focus" data-testid="first-focus" data-focus={focusChoice}>
@@ -195,6 +194,7 @@ export default function TopicCard({
                 ? "Pick a side, argue three short rounds, then repair the one weakness the coach flags."
                 : goalLine}
             </strong>
+            {isFirstVisit || !whyLine ? null : <span className="home-coaching-lastline" data-testid="focus-why">{whyLine}</span>}
             {isFirstVisit ? null : (lastLine && <span className="home-coaching-lastline">{lastLine}</span>)}
           </div>
         )}
@@ -206,20 +206,7 @@ export default function TopicCard({
         ) : (
           <div className="home-start-block">
             <div className="home-side-label">Your side</div>
-            <div className="home-side-picker" role="group" aria-label="Choose side">
-              {(["challenge", "for", "against"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setSide(option)}
-                  aria-pressed={side === option}
-                  className={`home-side-option ${side === option ? "selected" : ""}`}
-                >
-                  <span className="home-side-option-label">{sideMeta[option].label}</span>
-                  <span>{sideMeta[option].sub}</span>
-                </button>
-              ))}
-            </div>
+            <SidePicker side={side} onChange={setSide} ariaLabel="Choose side" />
             {side === "challenge" ? (
               challengePreview ? (
                 <p
@@ -441,11 +428,9 @@ export default function TopicCard({
           </div>
         </details>
 
-        {experimentalSurfacesEnabled() && (
-          <Link href="/pvp" className="home-motion-foot-link">
-            Challenge another player →
-          </Link>
-        )}
+        <Link href="/pvp" className="home-motion-foot-link">
+          Debate someone who disagrees →
+        </Link>
       </div>
     </section>
   );

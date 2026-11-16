@@ -38,6 +38,8 @@ export interface RepairRow {
   score: number;
   succeeded: boolean;
   created_at: string;
+  /** Hint-ladder level used for this attempt (0 = no help); absent on legacy rows. */
+  help_level?: number;
 }
 
 /**

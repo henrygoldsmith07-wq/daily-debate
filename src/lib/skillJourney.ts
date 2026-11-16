@@ -139,7 +139,15 @@ export function buildSkillJourney(
   void opts;
   const byDimension = new Map<CoachDimension, SkillJourneyEntry>();
 
-  const sorted = [...repairs].sort((a, b) => compareIsoAsc(a.created_at, b.created_at));
+  // A retry cannot erase success or move its transfer-observation clock.
+  const episodes = new Map<string, RepairRecord>();
+  for (const repair of [...repairs].sort((a, b) => compareIsoAsc(a.created_at, b.created_at))) {
+    if (!Number.isFinite(Date.parse(repair.created_at))) continue;
+    const key = `${repair.user_id}\0${repair.debate_id}\0${repair.target_kind}`;
+    const current = episodes.get(key);
+    if (!current?.succeeded) episodes.set(key, repair);
+  }
+  const sorted = [...episodes.values()].sort((a, b) => compareIsoAsc(a.created_at, b.created_at));
   for (const repair of sorted) {
     const dimension = REPAIR_KIND_TO_DIMENSION[repair.target_kind];
     if (!dimension) continue;
@@ -211,7 +219,12 @@ export function buildRecentlyImproved(journey: SkillJourneyEntry[]): RecentlyImp
         line: `${entry.retest.label.toLowerCase()} — then met ${entry.evidence.opportunitiesMet} of ${entry.evidence.opportunitiesObserved} chances since.`,
         kind: "observed",
       });
-    } else if (entry.repair?.succeeded && entry.evidence.eligibleDebates > 0 && entry.evidence.opportunitiesMet >= entry.evidence.opportunitiesObserved) {
+    } else if (
+      entry.repair?.succeeded &&
+      entry.evidence.sufficient &&
+      entry.retest?.outcome !== "skill-not-observed" &&
+      entry.evidence.opportunitiesMet >= entry.evidence.opportunitiesObserved
+    ) {
       items.push({
         label: entry.label,
         line: `Repair completed, and the behaviour held across ${entry.evidence.eligibleDebates} ${entry.evidence.eligibleDebates === 1 ? "debate" : "debates"} since.`,

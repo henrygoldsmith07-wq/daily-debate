@@ -21,10 +21,14 @@ import { isDebateModeId, type DebateModeId } from "@/lib/debateModes";
 import { minRoundsFor, resolveDebateFormat } from "@/lib/sprint";
 import { DebateLivePanel } from "./debate/DebateLivePanel";
 import { DebateResultCard } from "./debate/DebateResultCard";
+import DownloadTranscript from "./debate/DownloadTranscript";
+import { toIsoOrNull } from "@/lib/isoTimestamp";
 import { useDebateError, useDebateSession } from "./debate/useDebateSession";
 import { useDebateSpeech } from "./debate/useDebateSpeech";
 import { useResponseWindow } from "./debate/useResponseWindow";
 import type { DebateRoomProps, ReplayView } from "./debate/types";
+import ClaimsPanel from "./ClaimsPanel";
+import PublishToggle from "./PublishToggle";
 
 export default function DebateRoom({
   debate,
@@ -32,6 +36,7 @@ export default function DebateRoom({
   initialTurns,
   completedResult,
   soloValidation = null,
+  recurrenceAlert = null,
   repairValidation = null,
 }: DebateRoomProps) {
   const initialPending = initialTurns[initialTurns.length - 1];
@@ -134,10 +139,12 @@ export default function DebateRoom({
 
   if (view) {
     return (
+      <div className="flex flex-col gap-5">
       <DebateResultCard
         view={view}
         format={format}
         debateId={debate.id}
+        side={debate.side === "against" ? "against" : "for"}
         repairRetest={repairRetest}
         retestOutcome={debate.coaching?.retestOutcome ?? null}
         completedRepaired={!!completedResult?.repaired}
@@ -146,7 +153,24 @@ export default function DebateRoom({
         onRepairSucceeded={() => setRepairSucceeded(true)}
         soloValidation={soloValidation}
         repairValidation={repairValidation}
+        recurrenceAlert={recurrenceAlert}
+        rematch={{ topicId: debate.topic_id, persona: debate.persona, difficulty: debate.difficulty }}
+        topicDate={toIsoOrNull(topic.topic_date)?.slice(0, 10) ?? null}
       />
+      <ClaimsPanel
+        sources={session.turns.flatMap((turn) => [
+          { speaker: "Opponent", side: aiSide, round: turn.round_number, text: turn.ai_message },
+          { speaker: "You", side: debate.side, round: turn.round_number, text: turn.user_message },
+        ])}
+      />
+      <PublishToggle kind="solo" id={debate.id} initialPublished={Boolean(debate.published_at)} />
+      <DownloadTranscript
+        topicTitle={topic.title}
+        side={debate.side === "against" ? "against" : "for"}
+        day={(toIsoOrNull(debate.completed_at) ?? toIsoOrNull(debate.created_at) ?? "").slice(0, 10)}
+        turns={session.turns.map((turn) => ({ round: turn.round_number, opponent: turn.ai_message, learner: turn.user_message }))}
+      />
+      </div>
     );
   }
 

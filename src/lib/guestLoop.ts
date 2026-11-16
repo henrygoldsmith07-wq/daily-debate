@@ -7,6 +7,8 @@
 // profiles.guest_context after signup). Never free text beyond bounded fields,
 // never a trust boundary: the server re-validates everything.
 
+import { parseGuestLiveState, type GuestLiveState } from "./guestLive";
+
 export interface GuestLoopSummary {
   motion: string;
   weaknessKind: string;
@@ -21,6 +23,8 @@ export interface GuestLoopSummary {
    */
   repairSucceeded: boolean;
   retestOutcome: "observed" | "not-observed" | "not-run";
+  /** The guest's own repair attempt (bounded), carried so signup keeps the work. Optional: older payloads lack it. */
+  repairText?: string;
   completedAt: string;
 }
 
@@ -52,6 +56,7 @@ export function parseGuestLoopSummary(raw: unknown): GuestLoopSummary | null {
   if (typeof v.repairState !== "string" || !REPAIR_STATES.has(v.repairState)) return null;
   if (typeof v.retestOutcome !== "string" || !RETEST_OUTCOMES.has(v.retestOutcome)) return null;
 
+  const repairText = boundedString(v.repairText, 800).trim();
   return {
     motion: boundedString(v.motion, 200),
     weaknessKind: v.weaknessKind,
@@ -59,6 +64,7 @@ export function parseGuestLoopSummary(raw: unknown): GuestLoopSummary | null {
     repairState: v.repairState,
     repairSucceeded: v.repairSucceeded === true,
     retestOutcome: v.retestOutcome as GuestLoopSummary["retestOutcome"],
+    ...(repairText ? { repairText } : {}),
     completedAt: boundedString(v.completedAt, 40) || new Date().toISOString(),
   };
 }
@@ -152,11 +158,24 @@ export interface GuestArenaProgress {
   responses: string[];
   repair: GuestArenaRepair | null;
   retestDemonstrated: boolean | null;
+  /** Optional for older snapshots. Retest drafts and feedback survive reload. */
+  retestAttempt?: { response: string; submitted: boolean };
+  /**
+   * "live" = today's motion against the AI opponent; "guided" = the scripted
+   * sample case that never leaves the device. Absent on snapshots written
+   * before live guest sprints existed, which were all guided.
+   */
+  mode?: GuestArenaMode;
+  /** The live sprint's motion and opponent turns, so a reload resumes it. */
+  live?: GuestLiveState;
 }
+
+export type GuestArenaMode = "live" | "guided";
 
 export const GUEST_ARENA_STORAGE_KEY = "daily-debate-guest-arena";
 
-const ARENA_WIRE_CAP = 20_000;
+// Three 4,000-char responses, a repair and a live transcript fit comfortably.
+const ARENA_WIRE_CAP = 40_000;
 const ARENA_MAX_RESPONSES = 8;
 const ARENA_MAX_TEXT = 4000;
 
@@ -203,6 +222,24 @@ export function parseGuestArenaProgress(raw: unknown): GuestArenaProgress | null
   if (v.retestDemonstrated !== null && v.retestDemonstrated !== undefined && typeof v.retestDemonstrated !== "boolean") {
     return null;
   }
+  let retestAttempt: GuestArenaProgress["retestAttempt"];
+  if (v.retestAttempt !== undefined) {
+    if (!v.retestAttempt || typeof v.retestAttempt !== "object") return null;
+    const attempt = v.retestAttempt as Record<string, unknown>;
+    if (typeof attempt.response !== "string" || typeof attempt.submitted !== "boolean") return null;
+    const response = attempt.response.slice(0, ARENA_MAX_TEXT);
+    if (attempt.submitted && response.trim().length < 12) return null;
+    retestAttempt = { response, submitted: attempt.submitted };
+  }
+  if (v.mode !== undefined && v.mode !== "live" && v.mode !== "guided") return null;
+  let live: GuestLiveState | undefined;
+  if (v.live !== undefined && v.live !== null) {
+    const parsed = parseGuestLiveState(v.live);
+    if (!parsed) return null;
+    live = parsed;
+  }
+  // A live sprint past the home screen cannot resume without its transcript.
+  if (v.mode === "live" && v.stage !== "home" && !live) return null;
   return {
     version: 1,
     motionDate: v.motionDate,
@@ -211,5 +248,23 @@ export function parseGuestArenaProgress(raw: unknown): GuestArenaProgress | null
     responses,
     repair,
     retestDemonstrated: (v.retestDemonstrated ?? null) as boolean | null,
+    ...(retestAttempt ? { retestAttempt } : {}),
+    ...(v.mode ? { mode: v.mode as GuestArenaMode } : {}),
+    ...(live ? { live } : {}),
+  };
+}
+
+/** What the first signed-in Today shows about carried guest work (unvalidated, never scored). */
+export interface GuestCarryoverNotes {
+  repairText: string | null;
+  retestNotRun: boolean;
+}
+
+export function guestCarryoverNotes(
+  ctx: Pick<GuestLoopSummary, "retestOutcome" | "repairText"> | null | undefined,
+): GuestCarryoverNotes {
+  return {
+    repairText: ctx?.repairText?.trim() || null,
+    retestNotRun: ctx?.retestOutcome === "not-run",
   };
 }

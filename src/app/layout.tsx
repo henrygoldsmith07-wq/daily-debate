@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SPRINT_ESTIMATE_MINUTES } from "@/lib/sprint";
 import "./globals.css";
+import "./today.css";
 import { THEME_BOOTSTRAP, THEME_COLOR } from "@/lib/themeBootstrap";
 
 const geistSans = Geist({
@@ -36,7 +37,9 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    // The pre-paint scripts intentionally change only this element's theme
+    // and accessibility attributes. Descendant hydration stays checked.
+    <html lang="en" className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
       <head>
         {/* Apply stored reader preferences before first paint. Without this, a
             reader who asked for larger text or high contrast sees one flash of

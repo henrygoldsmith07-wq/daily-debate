@@ -43,6 +43,40 @@ day. Re-read them after two weeks of real data instead of defending them.
 **What counts as progress:** the weekly row goes up. **What does not:** new
 features, new surfaces, or claims.
 
+**Competitor-copy changes (Oct 2026), each tied to one scorecard number:**
+
+- live guest sprint on today's motion → debate starts + completion (read
+  guest sprints on `/analytics`);
+- spoiler-free share card (copied from Wordle) → new users (read
+  `result_shared` on `/analytics`);
+- Web Push streak-saver (copied from Duolingo) → D1 return (read push sent
+  vs opened on `/analytics`);
+- streak freeze (copied from Duolingo, Nov 2026) → returning users (read
+  streak freezes on `/analytics`). Shipped before the baseline week was
+  recorded, so its effect cannot be separated from the three above until
+  there are weeks with and without it.
+- ten small copies (Nov 2026), shipped together, each one line on an
+  existing surface: next-motion countdown and "N people debated today"
+  (Wordle / NYT Games); streak-at-risk evening line, welcome back, perfect
+  week, result streak milestones, streak line in the share text and app
+  icon badge (Duolingo); best streak and debates played (Wordle stats);
+  today's motion and a Start button in the streak push (NYT Games /
+  Duolingo). Shipped as one batch against the one-change-a-week rule, so
+  they can only be read together: watch D1 return and returning users,
+  and cut the batch back if neither moves.
+- rematch on a fresh result ("Argue the other side", "Rematch, harder";
+  copied from direct AI-debate competitors) → debate starts;
+- "Install the app" via the browser's install prompt (copied from
+  ArguFight / MindDuel shipping as phone apps) → D1 return;
+- practice calendar on History (DebateMaster AI) → returning users;
+  transcript download (Practice Debate) and anonymous publishing on
+  Explore (Kialo Edu) → published debates;
+- voice input on by default (Debatable) and past motions (Kialo Edu /
+  Practice Debate) → debate starts; prep cards (DebateOwl) → completion
+  rate. These three relax roadmap rules by the owner's choice (Nov 2026):
+  voice leaves the experimental flag, past motions is a new surface, and
+  prep un-parks "research/prep mode".
+
 ## Active backlog (serves the loop only)
 
 - **Retest timing.** The repair → deliberate-retest hand-off exists; make the
@@ -105,7 +139,7 @@ pages) are additionally hidden from navigation behind
 ### Also parked
 
 - **Speech:** real STT beyond the browser Web Speech API; speech debates.
-  (Voice input exists behind the experimental-surfaces flag, Chrome-family.)
+  (Browser voice input is on by default since Nov 2026, Chrome-family.)
 - **Sharing:** public shareable debate replay.
 - **Citation & evidence depth:** live citation fetching (the offline
   allowlist, quote verification, claim-to-source matching, and source-date

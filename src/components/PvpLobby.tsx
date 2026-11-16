@@ -7,6 +7,8 @@ import { PVP_ROUNDS } from "@/lib/types";
 import { trackEvent } from "@/lib/trackClientEvent";
 import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
 import { copyText } from "@/lib/clipboardCopy";
+import type { MotionPosition } from "@/lib/positionTally";
+import PositionPills from "./PositionPills";
 
 export default function PvpLobby() {
   const router = useRouter();
@@ -17,6 +19,7 @@ export default function PvpLobby() {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [creatingInvite, setCreatingInvite] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [position, setPosition] = useState<MotionPosition | null>(null);
 
   // Acknowledge the copy (or say it failed) instead of a silent button that
   // might or might not have worked. On an insecure origin navigator.clipboard
@@ -59,7 +62,10 @@ export default function PvpLobby() {
     try {
       const res = await fetch("/api/pvp/queue", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to join queue.");
+      if (!res.ok) {
+        if (data.needsPosition) setPosition(null);
+        throw new Error(data.error || "Failed to join queue.");
+      }
       if (data.match) {
         router.push(`/pvp/${data.match.id}`);
         return;
@@ -128,20 +134,26 @@ export default function PvpLobby() {
       )}
       {searching ? (
         <>
-          <p className="text-sm text-ink3">Looking for an opponent on today&apos;s topic…</p>
+          <p className="text-sm text-ink3">Looking for someone who {position === "for" ? "disagrees" : "agrees"} with the motion…</p>
           <button type="button" onClick={cancelSearch} className="btn btn-ghost px-4 py-2 text-sm">
             Cancel
           </button>
         </>
       ) : (
         <>
+          <PositionPills onChange={setPosition} />
           <p className="text-sm text-ink3">
-            You&apos;ll be randomly assigned a side and take turns arguing. After {PVP_ROUNDS} rounds each, an AI judge
-            reads both cases and reports how it scored the debate. The judge has not cleared validation gates yet, so
-            treat the outcome as practice feedback rather than a result.
+            You argue the side you hold, against someone who holds the other. After {PVP_ROUNDS} rounds each, an AI
+            judge reads both cases and reports how it scored the debate. The judge has not cleared validation gates yet,
+            so treat the outcome as practice feedback rather than a result.
           </p>
-          <button type="button" onClick={findOpponent} className="btn btn-primary px-6 py-2.5 text-sm">
-            Find an opponent
+          <button
+            type="button"
+            onClick={findOpponent}
+            disabled={!position}
+            className="btn btn-primary px-6 py-2.5 text-sm"
+          >
+            {position ? "Find someone who disagrees" : "Say where you stand first"}
           </button>
         </>
       )}

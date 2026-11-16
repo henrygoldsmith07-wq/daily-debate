@@ -9,6 +9,9 @@ import { buildResultSnapshot } from "@/lib/resultSnapshot";
 import { measurementHonestyFor, resolveDebateFormat } from "@/lib/sprint";
 import type { CoachingRecord, PersistedSoloResult, SoloDebate, SoloDebateTurn } from "@/lib/types";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
+import { loadLoopChain } from "@/lib/loopChainServer";
+import { detectRecurrence, type RecurrenceAlert } from "@/lib/recurrenceAlert";
+import type { ChainKind } from "@/lib/loopChain";
 import { performanceScoreForTurns } from "@/lib/gamification";
 
 export default async function DebatePage({ params }: { params: Promise<{ debateId: string }> }) {
@@ -124,6 +127,14 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
   // never read as validated ability measures while the evidence says otherwise.
   const validation = loadJudgeValidation();
 
+  // M15: did a weakness this learner already repaired come back in this debate?
+  let recurrenceAlert: RecurrenceAlert | null = null;
+  const weaknessKind = completedResult?.snapshot?.weakness?.kind ?? null;
+  if (weaknessKind && debate.created_at) {
+    const chain = await loadLoopChain(user.id).catch(() => []);
+    recurrenceAlert = detectRecurrence(chain, weaknessKind as ChainKind, String(debate.created_at));
+  }
+
   return (
     <AppShell width="narrow">
       <DebateRoom
@@ -133,6 +144,7 @@ export default async function DebatePage({ params }: { params: Promise<{ debateI
         completedResult={completedResult}
         soloValidation={validation.surfaces["solo-training"]}
         repairValidation={validation.surfaces.repair}
+        recurrenceAlert={recurrenceAlert}
       />
     </AppShell>
   );

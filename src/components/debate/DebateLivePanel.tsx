@@ -6,10 +6,11 @@
 // and `timing`, so this file is about what the user sees and what they can do
 // next - never about when something is persisted.
 
+import LadderLevelNote from "./LadderLevelNote";
 import { useEffect, useRef, useState } from "react";
 import MessageComposer from "../MessageComposer";
 import RoundProgress from "../RoundProgress";
-import ThinkingIndicator from "../ThinkingIndicator";
+import StreamingOpponentReply from "./StreamingOpponentReply";
 import { type SoloDebate } from "@/lib/types";
 import type { DebateModeId } from "@/lib/debateModes";
 import { roundCapFor } from "@/lib/sprint";
@@ -48,7 +49,20 @@ export function DebateLivePanel({
   canFinishWithSaved,
   error,
 }: DebateLivePanelProps) {
-  const { turns, pending, roundCount, status, sending, finishing, submitTurn, finishDebate, liveHints } = session;
+  const {
+    turns,
+    pending,
+    roundCount,
+    status,
+    sending,
+    finishing,
+    preview,
+    submitTurn,
+    finishDebate,
+    liveHints,
+    pendingUserMessage,
+    streamingReply,
+  } = session;
   const { debateMode, modeStartedAt, modeWindowStarting, waitingForModeWindow, chooseMode } = timing;
   const [showAdvancedModes, setShowAdvancedModes] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -71,7 +85,7 @@ export function DebateLivePanel({
     if (scrollRef.current && pinnedToBottom.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [turns, sending]);
+  }, [turns, sending, streamingReply, pendingUserMessage]);
   return (
     <div className="flex flex-1 flex-col gap-4">
       <div>
@@ -95,6 +109,8 @@ export function DebateLivePanel({
           {sideReason}
         </p>
       )}
+      <LadderLevelNote level={debate.coaching?.ladderLevel ?? null} />
+
       <div className="flex items-center justify-between">
         <p className="tabular text-sm text-ink3" data-testid="round-status">
           Round {roundCount} {roundCount < minRounds && `· ${minRounds - roundCount + 1} to go`}
@@ -129,7 +145,13 @@ export function DebateLivePanel({
             )}
           </div>
         ))}
-        {sending && <ThinkingIndicator />}
+        {sending && pendingUserMessage && (
+          <div className="ml-auto flex max-w-[85%] flex-col items-end gap-1" data-testid="pending-user-message">
+            <div className="rounded-2xl rounded-tr-sm bg-surface/10 px-3 py-2 text-sm">{pendingUserMessage}</div>
+            <p className="text-xs text-ink3">Saved</p>
+          </div>
+        )}
+        {sending && <StreamingOpponentReply text={streamingReply} />}
       </div>
 
       {error && (
@@ -229,6 +251,15 @@ export function DebateLivePanel({
         <p className="text-center text-sm text-ink3">
           Round limit reached ({roundCapFor(debate.format)}). Finish the debate to get scored.
         </p>
+      )}
+
+      {finishing && preview?.weakness && (
+        <section className="card p-4 text-sm" role="status" data-testid="finish-preview">
+          <p className="text-xs text-ink3">Preview while your full result finishes (unvalidated label, may be refined)</p>
+          <p className="mt-1 font-medium">{preview.weakness.headline}</p>
+          <p className="mt-1 text-ink3">{preview.weakness.whyItMatters}</p>
+          {preview.weakness.repairLabel && <p className="mt-1 text-ink3">Repair to practise next: {preview.weakness.repairLabel}</p>}
+        </section>
       )}
 
       {(canFinish || canFinishWithSaved) && status === "active" && (

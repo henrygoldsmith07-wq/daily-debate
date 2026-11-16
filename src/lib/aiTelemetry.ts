@@ -203,6 +203,50 @@ export function recordAiCall(entry: AiCallTelemetry): void {
   mirrorToDatabase(safe);
 }
 
+/**
+ * Streamed opponent-turn latency, as the learner experiences it: from the turn
+ * request reaching the server to (a) the first reply text being sent and (b)
+ * the persisted result being sent. Recorded as two measurement rows in the
+ * existing ai_call_log (no migration): they carry no tokens, cost 0 so the
+ * spend meter never charges them, and aiOps separates these operations from
+ * model-call volume/error totals (STREAM_MEASUREMENT_OPERATIONS).
+ */
+export const STREAM_FIRST_TOKEN_OPERATION = "debate_turn_stream_first_token";
+export const STREAM_TOTAL_OPERATION = "debate_turn_stream_total";
+
+export function recordStreamLatency(entry: {
+  /** ms from request start to the first reply text; null when none was sent. */
+  firstTokenMs: number | null;
+  /** ms from request start to the final result event. */
+  totalMs: number;
+  /** ok = the turn was persisted; error = the learner got a retryable failure. */
+  outcome: AiCallOutcome;
+  /** Transport/model that produced the persisted reply, when one did. */
+  provider?: AiCallTelemetry["provider"];
+  model?: string;
+}): void {
+  const at = new Date().toISOString();
+  const base = {
+    at,
+    // ai_call_log.provider is constrained to real transports; a failed stream
+    // has none, so it is attributed to the chain's last resort label.
+    provider: entry.provider ?? ("openrouter" as const),
+    model: entry.model ?? "unknown",
+    costUsd: 0,
+    eventType: "model_call" as const,
+  };
+  if (entry.firstTokenMs !== null) {
+    recordAiCall({ ...base, operation: STREAM_FIRST_TOKEN_OPERATION, latencyMs: Math.max(0, Math.round(entry.firstTokenMs)), outcome: "ok" });
+  }
+  recordAiCall({
+    ...base,
+    operation: STREAM_TOTAL_OPERATION,
+    latencyMs: Math.max(0, Math.round(entry.totalMs)),
+    outcome: entry.outcome,
+    ...(entry.outcome === "error" ? { errorCategory: "unknown" as AiErrorCategory, error: "stream turn did not persist" } : {}),
+  });
+}
+
 export function recentAiCalls(limit = 50): AiCallTelemetry[] {
   return buffer.slice(-limit).reverse();
 }

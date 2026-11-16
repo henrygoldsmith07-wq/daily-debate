@@ -209,3 +209,13 @@ describe("assessGoalOutcome", () => {
     expect(outcome.demonstrated).toBeNull();
   });
 });
+
+describe("whyFocusLine", () => {
+  it("explains only steered focuses", async () => {
+    const { whyFocusLine } = await import("./coachingGoal");
+    expect(whyFocusLine("lowest", "lowest profile dimension (40/100)")).toBeNull();
+    expect(whyFocusLine("none", "x")).toBeNull();
+    expect(whyFocusLine("moved_on", "your evidence repair showed up")).toBe("Why this focus: Your evidence repair showed up.");
+    expect(whyFocusLine("re_repair", "try it again")).toContain("Why this focus: Try");
+  });
+});

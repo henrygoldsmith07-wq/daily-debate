@@ -2,16 +2,42 @@ import Link from "next/link";
 import { createClient } from "@/lib/backend/server";
 import { getTodayTopic } from "@/lib/dailyTopic";
 import AppShell from "@/components/AppShell";
+import { guestCarryoverNotes } from "@/lib/guestLoop";
 import PageHeader from "@/components/PageHeader";
 import GuestArena from "@/components/GuestArena";
+import { guestLiveAvailable } from "@/lib/guestLiveServer";
 import PageViewEvent from "@/components/PageViewEvent";
 import TopicCard, { type EvidenceCardView } from "@/components/TopicCard";
 import { loadChallengeAssignment } from "@/lib/solo/challengeSide";
 import type { ChallengePreview } from "@/lib/challengeMe";
 import SkillProfileBars from "@/components/SkillProfileBars";
+import SkillRadar from "@/components/SkillRadar";
+import WeekStreak from "@/components/WeekStreak";
+import { weekDays } from "@/lib/weekStreak";
+import { streakFreezeNote, streakPractisedDays } from "@/lib/streakFreeze";
+import { motionDebatersLine, msUntilNextMotion, todayStreakLine, weekStatsLine } from "@/lib/todayStreakLine";
+import { countFinishedDebates, countMotionDebaters } from "@/lib/todayCountsServer";
+import { localHour } from "@/lib/reminderDelivery";
+import NextMotionCountdown from "@/components/NextMotionCountdown";
+import AppBadgeClear from "@/components/AppBadgeClear";
+import InstallAppButton from "@/components/InstallAppButton";
+import PrepCards from "@/components/PrepCards";
 import { computeSkillProfile, MIN_PROFILE_DEBATES } from "@/lib/skillProfile";
 import { buildCoachingGoal, pickFocusDimension, type CoachingSnapshot } from "@/lib/coachingGoal";
 import { NEUTRAL_GOAL_LINE, skillsUnderTest } from "@/lib/retestDisclosure";
+import RetestStartButton from "@/components/RetestStartButton";
+import { closedRechecks, nextDueRecheck, recheckCopy, recheckStatus, selectRecheckForStart } from "@/lib/spacedRecheck";
+import WeeklyRecapCard from "@/components/WeeklyRecapCard";
+import { loadWeeklyLoop } from "@/lib/weeklyLoopServer";
+import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
+import { reminderCopy, reminderState, type ReminderInput } from "@/lib/retestReminder";
+import { deliverInAppReminder } from "@/lib/reminderDispatchServer";
+import ReminderBanner from "@/components/ReminderBanner";
+import PushOptIn from "@/components/PushOptIn";
+import { pushAvailable, pushConfig } from "@/lib/webPushServer";
+import { continueKicker, isRetestHero } from "@/lib/retestHero";
+import { loadLoopChain } from "@/lib/loopChainServer";
+import { nudgeCopy, pickWeaknessNudge } from "@/lib/weaknessNudge";
 import { lapsedRetestNotice } from "@/lib/lapsedRetestNotice";
 import { buildJourneyInputsForUser } from "@/lib/skillJourneyServer";
 import { SKILL_DIMENSIONS, SKILL_ORDER } from "@/lib/skillTaxonomy";
@@ -57,7 +83,16 @@ export default async function DashboardPage() {
   const user = await getCurrentUser();
 
   if (!user) {
-    return <GuestArena validation={guestValidation} />;
+    // Signed-out visitors debate today's shared motion against the live AI
+    // opponent when the server can bound anonymous calls; otherwise the
+    // guided case, which never leaves the device.
+    const liveMotion = guestLiveAvailable() ? await getTodayTopic().catch(() => null) : null;
+    return (
+      <GuestArena
+        validation={guestValidation}
+        live={liveMotion ? { title: liveMotion.title, prompt: liveMotion.prompt, category: liveMotion.category } : null}
+      />
+    );
   }
 
   // getTodayTopic never throws — it falls back to a curated motion when
@@ -68,6 +103,9 @@ export default async function DashboardPage() {
   // overlap the topic + coaching-context round-trips instead of trailing them.
   const journeyInputsPromise = buildJourneyInputsForUser(user.id);
   journeyInputsPromise.catch(() => undefined); // awaited (and surfaced) below
+  // M9 re-check inputs, read in parallel with the rest of Today; best-effort.
+  const recheckInputsPromise = loadRecheckInputs(db, user.id).catch(() => null);
+  const weeklyLoopPromise = loadWeeklyLoop(user.id).catch(() => null);
   const sharedTopic = await getTodayTopic();
 
   const coachingContext = await loadCoachingContext(user.id, { currentTopicId: sharedTopic.id });
@@ -91,6 +129,7 @@ export default async function DashboardPage() {
     coachingContext.drillOutcomes,
     skillsUnderTest(coachingContext.pendingRetests),
     coachingContext.reRepairDimensions,
+    coachingContext.repairedDimensions,
   );
   // A brand-new account has no focus of its own; its first debate is coached
   // on the guest-seeded focus, so steer the motion by that same skill. Read
@@ -124,7 +163,16 @@ export default async function DashboardPage() {
   });
   const topic = motion.topic;
 
-  const [{ data: activeDebate }, { data: profile }, { data: evidenceRows }, previousDebateBundle, openDrillRow, challengePreview] =
+  const [
+    { data: activeDebate },
+    { data: profile },
+    { data: evidenceRows },
+    previousDebateBundle,
+    openDrillRow,
+    challengePreview,
+    debatesFinished,
+    motionDebaters,
+  ] =
     await Promise.all([
       db
         .from("solo_debates")
@@ -211,6 +259,11 @@ export default async function DashboardPage() {
           rule: assignment.rule,
         }))
         .catch(() => null),
+      // Wordle's stats line: debates finished, beside the best streak.
+      countFinishedDebates(user.id),
+      // NYT Games' "N people played today": only for the shared motion, which
+      // everyone gets; a personalised motion is not a shared day.
+      topic.id === sharedTopic.id ? countMotionDebaters(sharedTopic.id) : Promise.resolve(null),
     ]);
   // Unpack the previous-debate bundle fired inside the parallel block above.
   const previousDebate = previousDebateBundle.previousDebate;
@@ -267,6 +320,7 @@ export default async function DashboardPage() {
         repaired: guestContext.repairState === "repair_demonstrated",
         observed: guestContext.retestOutcome === "observed",
         seedsFocus: !!guestFocus,
+        ...guestCarryoverNotes(guestContext),
       }
     : null;
 
@@ -299,6 +353,7 @@ export default async function DashboardPage() {
     // retest is meant to measure (retestDisclosure.ts).
     skillsUnderTest(coachingContext.pendingRetests),
     coachingContext.reRepairDimensions,
+    coachingContext.repairedDimensions,
   );
 
   // The drill row was loaded in the parallel block above (loop latency: no
@@ -324,10 +379,45 @@ export default async function DashboardPage() {
           signals: drillSignalsFromAttempt(openDrillRow.dimension, openDrillRow.attemptText),
         }
       : null;
+  const journeyInputs = await journeyInputsPromise;
+  // Spaced re-check (M9): a stored skill-observed retest schedules a 7-day
+  // durability check. Linked through solo_debates.coaching (no migration);
+  // a closed re-check never reappears. Best-effort: never blocks Today.
+  const recheckNow = new Date();
+  const recheckInputs = await recheckInputsPromise;
+  const weeklyLoopToday = await weeklyLoopPromise;
+  const recheckClosed = recheckInputs ? closedRechecks(recheckInputs.debates) : new Map();
+  const recheckRows = (recheckInputs?.repairs ?? []).map((r) => ({
+    retest_outcome: r.retest_outcome,
+    retest_completed_at: r.retest_completed_at,
+    recheck_debate_id: recheckClosed.get(r.id)?.debateId ?? null,
+  }));
+  // Does TODAY's motion carry it? Only when the motion is fresh for that repair.
+  const recheckToday =
+    recheckInputs && !activeDebate ? selectRecheckForStart(recheckInputs.repairs, recheckInputs.debates, topic.id, recheckNow) : null;
+  const recheckDue = nextDueRecheck(recheckRows, recheckNow);
+  const dueAt = recheckDue?.retest_completed_at ? new Date(Date.parse(recheckDue.retest_completed_at) + 7 * 86_400_000).toISOString() : null;
+  const dueState = dueAt ? reminderState([{ kind: "recheck", availableAt: dueAt }], recheckNow) : null;
+  const overdueLine = dueState?.tone === "overdue" ? reminderCopy(dueState) : null;
+  const recheckLine = overdueLine
+    ? overdueLine
+    : recheckToday
+    ? "Your 7-day re-check runs in today's full debate: does the repaired skill still show up? (unvalidated)"
+    : recheckDue
+      ? "Your 7-day re-check is due. It runs on the next fresh motion, in a full debate (unvalidated)."
+      : recheckCopy(
+          recheckRows
+            .map((r) => recheckStatus(r, recheckNow))
+            .filter((st) => st.state === "waiting")
+            .sort((a, b) => (a.daysUntilDue ?? 0) - (b.daysUntilDue ?? 0))[0] ?? {
+            state: "not-scheduled",
+            dueAt: null,
+            daysUntilDue: null,
+          },
+        );
   // Canonical learner model — the same intelligence that drives Progress, so
   // Today leads with what to practise and why rather than a wall of cards.
   // Built from the same stored debates/repairs; a repair is practice, not mastery.
-  const journeyInputs = await journeyInputsPromise;
   const learnerModel = buildLearnerModel({
     points: ledger?.points ?? [],
     repairs: journeyInputs.repairs.map((r) => ({
@@ -390,6 +480,13 @@ export default async function DashboardPage() {
     debateAvailable: !activeDebate,
   });
 
+  // M13: only when nothing else is waiting, lead with the open weakness.
+  const weaknessNudge =
+    !priority || priority.kind === "debate"
+      ? await loadLoopChain(user.id).then(pickWeaknessNudge).catch(() => null)
+      : null;
+  const nudge = weaknessNudge ? nudgeCopy(weaknessNudge) : null;
+
   const today = new Intl.DateTimeFormat("en-GB", {
     weekday: "long",
     day: "numeric",
@@ -397,7 +494,39 @@ export default async function DashboardPage() {
     timeZone: profile?.timezone ?? "UTC",
   }).format(new Date());
 
-  const headerPills = homeHeaderPills(profile);
+  const headerPills = homeHeaderPills(profile ? { ...profile, current_streak: profile.streak.streak } : null);
+  const todayKey = dateKeyInTimeZone(profile?.timezone ?? "UTC");
+  const reminderItems: ReminderInput[] = [
+    ...coachingContext.pendingRetests.map((r) => ({ kind: "retest" as const, availableAt: r.attemptedAt })),
+    ...(dueAt ? [{ kind: "recheck" as const, availableAt: dueAt }] : []),
+  ];
+  const reminderMsg = await deliverInAppReminder(user.id, reminderItems, recheckNow);
+  const pushPublicKey = pushAvailable() ? pushConfig()?.publicKey ?? null : null;
+  const streak = profile?.streak ?? null;
+  const week =
+    profile && streak
+      ? weekDays(
+          todayKey,
+          streakPractisedDays(streak, profile.last_activity_date),
+          streak.state === "none" || !streak.frozenDay ? [] : [streak.frozenDay],
+        )
+      : [];
+  // One streak line at most: the freeze note, else the evening at-risk or the
+  // welcome-back line (Duolingo).
+  const streakNote = streak
+    ? streakFreezeNote(streak, todayKey) ??
+      todayStreakLine({
+        status: streak,
+        longestStreak: profile?.longest_streak ?? 0,
+        hasPractised: !!profile?.last_activity_date,
+        localHour: localHour(new Date(), profile?.timezone ?? "UTC"),
+      })?.text ??
+      null
+    : null;
+  const debatersLine = motionDebatersLine(motionDebaters);
+  const weekStats = profile && debatesFinished !== null ? weekStatsLine(profile.longest_streak ?? 0, debatesFinished) : null;
+  // Today's motion is done: end the day on when the next one arrives (Wordle).
+  const finishedTodaysMotion = !activeDebate && previousDebate?.topic_id === topic.id;
 
   return (
     <AppShell>
@@ -416,6 +545,8 @@ export default async function DashboardPage() {
           )
         }
       />
+
+      {reminderMsg && <ReminderBanner message={reminderMsg} />}
 
       {/* ── Carried over from guest practice: why this account started non-empty ── */}
       {guestCarryover && (
@@ -445,6 +576,21 @@ export default async function DashboardPage() {
               ? " It is pre-selected as your first debate’s focus below — change it there if you’d rather work on something else."
               : " Your first debate here starts without a set focus; the coach will flag one weakness from your own arguments."}
           </p>
+          {guestCarryover.repairText && (
+            <blockquote
+              className="mt-2 border-l-2 border-[var(--rule)] pl-3 text-sm leading-6 text-ink2"
+              data-testid="guest-carryover-repair"
+            >
+              <span className="block text-xs uppercase tracking-[0.14em] text-ink3">Your guest repair, in your words</span>
+              {guestCarryover.repairText}
+            </blockquote>
+          )}
+          {guestCarryover.retestNotRun && (
+            <p className="mt-2 text-sm leading-6 text-ink2" data-testid="guest-carryover-retest-pending">
+              You signed up before taking the guest retest, so no retest reading exists yet. Your
+              first debate here is the next chance to use this move under pressure.
+            </p>
+          )}
           <p className="mt-2 rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-4 text-ink3">
             A guest rep is one local practice run, not measured evidence — it is not counted in your
             skill scores, and it is not a deliberate retest or an improvement. At most it suggests what
@@ -456,6 +602,11 @@ export default async function DashboardPage() {
       {/* ── Today's motion and the Start button lead: it is the one thing this
           screen is for. The training target and the loop explain it, so they
           follow (they used to push Start ~1,450px down a phone screen). ── */}
+      <WeekStreak days={week} note={streakNote ?? undefined} stats={weekStats ?? undefined} />
+      {finishedTodaysMotion && <NextMotionCountdown initialMs={msUntilNextMotion(new Date())} />}
+      {streak?.state === "practised_today" && <AppBadgeClear />}
+      {weeklyLoopToday && <WeeklyRecapCard loop={weeklyLoopToday} />}
+
       <TopicCard
         topic={topic}
         activeDebateId={activeDebate?.id ?? null}
@@ -466,12 +617,24 @@ export default async function DashboardPage() {
         // already, and the fallback below is deliberately skill-agnostic.
         goalLine={goal?.goalLine ?? (pendingRetest ? NEUTRAL_GOAL_LINE : "Use evidence for major claims.")}
         lastLine={goal?.lastLine ?? null}
+        whyLine={goal?.whyLine ?? null}
         focusLabel="Today's focus"
         motionReason={motion.reasonLine}
         isFirstVisit={!previousDebate}
         challengePreview={challengePreview}
         firstFocus={firstFocus}
       />
+      {debatersLine && (
+        <p className="next-motion" data-testid="motion-debaters">
+          {debatersLine}
+        </p>
+      )}
+      {!finishedTodaysMotion && <PrepCards topicId={topic.id} />}
+      <p className="next-motion">
+        <Link href="/motions" className="underline underline-offset-2" data-testid="past-motions-link">
+          Or debate one of the last 30 motions
+        </Link>
+      </p>
       {lapsedSkillKey && (
         <p
           className="rounded-lg border border-[var(--rule)] bg-surface-2 px-3 py-2 text-xs leading-5 text-ink3"
@@ -526,18 +689,29 @@ export default async function DashboardPage() {
         </section>
       )}
 
+      {recheckLine && (
+        <div className="flex flex-col gap-2" data-testid="recheck-note">
+          <p className="text-xs text-ink3" role="status">
+            {recheckLine}
+          </p>
+          {recheckToday && (
+            <RetestStartButton topicId={topic.id} label="Start the full debate" format="full" testId="recheck-start" />
+          )}
+        </div>
+      )}
+
       {/* ── The loop: where you are in practice → diagnose → repair → retest → demonstrate ── */}
       <LoopThread thread={loopThread} />
 
       {/* ── Continue training: the single highest-priority unfinished action ── */}
       {priority && priority.kind !== "debate" && (
         <section
-          className="surface-card flex flex-col gap-3 p-4"
+          className={`surface-card flex flex-col gap-3 p-4${isRetestHero(priority.kind) ? " border-[var(--accent)]" : ""}`}
           aria-labelledby="continue-training-heading"
           data-testid="continue-training"
         >
           <div className="min-w-0">
-            <p className="home-secondary-kicker">Continue training</p>
+            <p className="home-secondary-kicker">{continueKicker(priority.kind)}</p>
             <h2 id="continue-training-heading" className="mt-1 text-base font-semibold">
               {priority.title}
             </h2>
@@ -562,6 +736,8 @@ export default async function DashboardPage() {
                 {priority.action} on Progress →
               </Link>
             </>
+          ) : priority.kind === "retest" ? (
+            <RetestStartButton topicId={topic.id} label={priority.action} />
           ) : (
             <Link
               href={priority.href}
@@ -571,6 +747,22 @@ export default async function DashboardPage() {
               {priority.action} →
             </Link>
           )}
+        </section>
+      )}
+
+      {nudge && weaknessNudge && (
+        <section className="surface-card flex flex-col gap-3 p-4" data-testid="weakness-nudge" data-evidence={weaknessNudge.evidence} aria-labelledby="weakness-nudge-heading">
+          <div className="min-w-0">
+            <p className="home-secondary-kicker">Your weakest spot</p>
+            <h2 id="weakness-nudge-heading" className="mt-1 text-base font-semibold">{nudge.title}</h2>
+            <p className="mt-1 text-sm leading-6 text-ink3">{nudge.detail}</p>
+          </div>
+          <Link href="/progress#daily-drill" className="btn btn-primary shrink-0 self-start px-4 py-2 text-center text-sm" data-testid="weakness-nudge-drill">
+            Drill it →
+          </Link>
+          <Link href="/history#weakness-library" className="text-sm underline" data-testid="weakness-nudge-evidence">
+            See the evidence for {weaknessNudge.kind}
+          </Link>
         </section>
       )}
 
@@ -624,6 +816,7 @@ export default async function DashboardPage() {
             </div>
             {skillProfile ? (
               <div className="mt-1 overflow-hidden">
+                <SkillRadar profile={skillProfile} />
                 <SkillProfileBars profile={skillProfile} />
               </div>
             ) : (
@@ -669,6 +862,12 @@ export default async function DashboardPage() {
           </article>
         </div>
       </section>
+      {/* Push reminders: asked only after the first completed debate, once
+          the learner has seen the loop (Duolingo's streak-saver, with its
+          rule: protect the channel). */}
+      {pushPublicKey && (coachingContext.ledger?.debates ?? 0) >= 1 ? <PushOptIn publicKey={pushPublicKey} /> : null}
+      {/* Same timing as the push ask: once the learner has finished a debate. */}
+      {(coachingContext.ledger?.debates ?? 0) >= 1 ? <InstallAppButton /> : null}
     </AppShell>
   );
 }

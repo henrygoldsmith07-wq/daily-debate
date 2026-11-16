@@ -8,6 +8,7 @@ export type ProfileRow = {
   current_streak: number;
   longest_streak: number;
   last_activity_date: string | null;
+  streak_freeze_used_on: string | null;
   timezone: string;
   timezone_initialized_at: string | null;
   /** Guest practice loop summary carried through signup (migration 035). */
@@ -84,7 +85,7 @@ export type SoloDebateTurnRow = {
   created_at: string;
 };
 
-export type PvpQueueRow = { id: string; user_id: string; topic_id: string; joined_at: string };
+export type PvpQueueRow = { id: string; user_id: string; topic_id: string; joined_at: string; side: string | null };
 
 export type PvpMatchRow = {
   id: string;

@@ -13,17 +13,28 @@ import { useState, type RefObject } from "react";
 import type { SoloDebate } from "@/lib/types";
 import Link from "next/link";
 import ArgumentRepair, { FixThisNowButton } from "../ArgumentRepair";
+import { repairSourceOwner } from "@/lib/argumentRepair";
 import { ArgGraphInline, TrackingGrid } from "../ArgGraphView";
 import ValidationStatusLine from "../ValidationStatusLine";
 import type { DebateSummaryPayload, ReplayView } from "./types";
 import type { SurfaceValidation } from "@/lib/judgeValidation";
 import { trackEvent } from "@/lib/trackClientEvent";
 import { formatLabelFor, type DebateFormat } from "@/lib/sprint";
+import type { RecurrenceAlert } from "@/lib/recurrenceAlert";
+import { recurrenceAlertNote } from "@/lib/recurrenceAlert";
+import { closeCallNote } from "@/lib/resultSnapshot";
+import ShareResultButton from "../ShareResultButton";
+import { dailyNumber, sharePath, shareText, soloRoundMarks, type ShareCardInput } from "@/lib/shareCard";
+import { streakMilestone } from "@/lib/streakMilestone";
+import RematchActions from "./RematchActions";
+import type { OpponentDifficulty, OpponentPersonaId } from "@/lib/opponentPersona";
 
 export interface DebateResultCardProps {
   view: ReplayView;
   format: DebateFormat;
   debateId: string;
+  /** The learner's side, for the shared result card. */
+  side?: "for" | "against";
   /** The deliberate retest assignment this debate is serving, if any. */
   repairRetest: NonNullable<SoloDebate["coaching"]>["repairRetest"] | null;
   /**
@@ -42,12 +53,18 @@ export interface DebateResultCardProps {
   soloValidation?: SurfaceValidation | null;
   /** Judge-output validation for the repair exercise mounted below. */
   repairValidation?: SurfaceValidation | null;
+  recurrenceAlert?: RecurrenceAlert | null;
+  /** The motion's date (YYYY-MM-DD); a past motion is shared under its own day's number. */
+  topicDate?: string | null;
+  /** Same-motion rematch on a fresh result (RematchActions). */
+  rematch?: { topicId: string; persona: OpponentPersonaId; difficulty: OpponentDifficulty } | null;
 }
 
 export function DebateResultCard({
   view,
   format,
   debateId,
+  side,
   repairRetest,
   retestOutcome,
   completedRepaired,
@@ -56,8 +73,12 @@ export function DebateResultCard({
   onRepairSucceeded,
   soloValidation = null,
   repairValidation = null,
+  recurrenceAlert = null,
+  rematch = null,
+  topicDate = null,
 }: DebateResultCardProps) {
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  const [feedbackMissed, setFeedbackMissed] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
   // Copy the plain-text summary for learners who want to revisit it elsewhere.
@@ -121,6 +142,21 @@ export function DebateResultCard({
             {view.fresh ? "Finished just now" : "Past debate"}
           </p>
 
+          {/* Duolingo's streak celebration, only on the finish that reached it. */}
+          {(() => {
+            const milestone = view.fresh ? streakMilestone(freshResult?.streak) : null;
+            return milestone ? (
+              <div
+                className="rounded-lg border border-[var(--speak)]/40 bg-surface-2 px-3 py-2 text-sm"
+                role="status"
+                data-testid="streak-milestone"
+              >
+                <span className="font-semibold">{milestone.title}</span>
+                <span className="text-ink3"> · {milestone.detail}</span>
+              </div>
+            ) : null;
+          })()}
+
           {/* Today's focus outcome — the goal the learner was actually given.
               It is NOT the retest verdict: since the disclosure policy, the
               visible goal is a different skill from the one under silent test. */}
@@ -168,7 +204,21 @@ export function DebateResultCard({
                         <dt className="font-semibold text-ink3">Your repair</dt>
                         <dd className="italic">&ldquo;{retestOutcome.comparison.after}&rdquo;</dd>
                       </div>
+                      {retestOutcome.comparison.reusedPhrases?.length ? (
+                        <div data-testid="repair-phrase-reuse">
+                          <dt className="font-semibold text-ink3">Repair wording you used again (unvalidated)</dt>
+                          <dd className="italic">
+                            {retestOutcome.comparison.reusedPhrases.map((p) => `\u201c${p}\u201d`).join(", ")}
+                          </dd>
+                        </div>
+                      ) : null}
                     </dl>
+                  )}
+                  {retestOutcome.secondOpinion && (
+                    <p className="mt-2 text-xs" data-testid="repair-second-opinion">
+                      <span className="font-semibold text-ink3">Another angle (unvalidated): </span>
+                      {retestOutcome.secondOpinion.suggestion}
+                    </p>
                   )}
                 </>
               ) : (
@@ -192,9 +242,51 @@ export function DebateResultCard({
           {/* One main weakness + why it matters (+ repeated-weakness signal) */}
           {weakness && (
             <div className="rounded-lg border border-[var(--speak)]/30 bg-[var(--speak-soft)] p-4" data-testid="main-weakness">
-              <p className="text-xs uppercase tracking-wide text-[var(--speak)]">Main weakness</p>
+              <p className="text-xs uppercase tracking-wide text-[var(--speak)]">
+                {weakness.repair?.practiceOnly ? "This debate's read" : "Main weakness"}
+              </p>
               <p className="mt-1 text-base font-semibold">{weakness.headline}</p>
               <p className="mt-1 text-sm leading-6 text-ink2">{weakness.whyItMatters}</p>
+              {/* The evidence for the diagnosis stays visible even after the repair panel collapses. */}
+              {weakness.repair?.sourceText && !weakness.repair.practiceOnly && (
+                <figure className="mt-2 border-l-2 border-[var(--speak)]/40 pl-3" data-testid="weakness-evidence">
+                  <figcaption className="text-xs text-ink3">
+                    {repairSourceOwner(weakness.repair, view.argGraph) === "opponent" ? "The opposing move" : "Seen in your argument"}
+                    {typeof weakness.repair.sourceRound === "number" ? ` · round ${weakness.repair.sourceRound}` : ""}
+                  </figcaption>
+                  <blockquote className="mt-0.5 text-sm leading-6 text-ink2">
+                    “{weakness.repair.sourceText.length > 280 ? `${weakness.repair.sourceText.slice(0, 277).trimEnd()}…` : weakness.repair.sourceText}”
+                  </blockquote>
+                </figure>
+              )}
+              {closeCallNote(weakness) && (
+                <p className="mt-2 text-xs leading-5 text-ink3" data-testid="weakness-close-call">{closeCallNote(weakness)}</p>
+              )}
+              {snapshot?.uncertainty && snapshot.uncertainty.length > 0 && (
+                <p className="mt-1 text-xs leading-5 text-ink3" data-testid="weakness-uncertainty">Read with care: {snapshot.uncertainty[0]}</p>
+              )}
+              <div className="mt-3">
+                {feedbackMissed ? (
+                  <p className="text-xs text-ink3" data-testid="weakness-feedback-thanks">Thanks, noted. This helps check how often the feedback misses.</p>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-xs text-ink3 underline underline-offset-2"
+                    data-testid="weakness-feedback-missed"
+                    onClick={() => {
+                      setFeedbackMissed(true);
+                      trackEvent("weakness_feedback_missed", { format, debateId });
+                    }}
+                  >
+                    This feedback missed
+                  </button>
+                )}
+              </div>
+              {recurrenceAlert && (
+                <p className="mt-2 text-xs leading-5 text-ink3" data-testid="weakness-came-back">
+                  {recurrenceAlertNote(recurrenceAlert)}
+                </p>
+              )}
               {snapshot?.recurrence?.label && (
                 <p className="mt-2 text-xs font-medium text-[var(--speak)]" data-testid="weakness-recurrence">
                   ↻ {snapshot.recurrence.label}
@@ -291,6 +383,26 @@ export function DebateResultCard({
             >
               {showFullAnalysis ? "Hide full analysis" : "View full analysis"}
             </button>
+            {view.fresh && side && (() => {
+              // Wordle-style share: today's number, side, one square per
+              // opponent move answered or dropped, repair state. No text
+              // from the debate, no score.
+              const card: ShareCardInput = {
+                dayNumber: dailyNumber(topicDate && /^\d{4}-\d{2}-\d{2}/.test(topicDate) ? topicDate : new Date().toISOString()),
+                side,
+                marks: soloRoundMarks(view.argGraph),
+                repaired: view.repaired,
+                streak: freshResult?.streak,
+              };
+              return (
+                <ShareResultButton
+                  title="Daily Debate"
+                  text={shareText(card)}
+                  path={sharePath(card)}
+                  onShared={() => trackEvent("result_shared", { format, side, debateId })}
+                />
+              );
+            })()}
             {view.fresh && (
               <button type="button" onClick={copyResult} className="btn btn-ghost px-3 py-1.5 text-xs">
                 <span aria-hidden="true">{copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy summary"}</span>
@@ -301,6 +413,15 @@ export function DebateResultCard({
                   {copyState === "copied" ? "Summary copied to clipboard" : copyState === "failed" ? "Copy failed" : ""}
                 </span>
               </button>
+            )}
+            {view.fresh && side && rematch && (
+              <RematchActions
+                topicId={rematch.topicId}
+                side={side}
+                format={format}
+                persona={rematch.persona}
+                difficulty={rematch.difficulty}
+              />
             )}
             {!view.fresh && (
               <Link href="/history" className="btn btn-ghost px-3 py-1.5 text-xs">
@@ -376,6 +497,7 @@ export function DebateResultCard({
         {view.argGraph && weakness && !completedRepaired && (
           <div ref={repairRef}>
             <ArgumentRepair
+              key={debateId}
               graph={view.argGraph}
               debateId={debateId}
               presetTarget={weakness.repair}

@@ -6,7 +6,8 @@ import { isSuspiciousLength, repeatScore } from "@/lib/moderation";
 import { stampVerdict } from "@/lib/evaluationEnvelope";
 import { renderTranscriptFromRows } from "@/lib/untrustedContent";
 import { ensureSpendWithinCap, isSpendCapError, retryAfterSecondsToReset } from "@/lib/spendCap";
-import { TURN_ABANDON_MINUTES, type InputMode, type PvpVerdict } from "@/lib/types";
+import { type InputMode, type PvpVerdict } from "@/lib/types";
+import { clockLengthLabel, turnExpired } from "@/lib/pvpTurnClock";
 
 async function awardPoints(userId: string, points: number) {
   const service = createServiceClient();
@@ -108,13 +109,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     return NextResponse.json({ error: "Not your turn." }, { status: 409 });
   }
 
-  // Late submission: turns expire. The waiting opponent may claim a forfeit
-  // once the window lapses, so a stale submission must not count.
-  const turnStarted = match.turn_started_at ? new Date(match.turn_started_at).getTime() : null;
-  const abandonMs = TURN_ABANDON_MINUTES * 60_000;
-  if (turnStarted && Date.now() - turnStarted > abandonMs) {
+  // The turn clock (pvpTurnClock.ts) is the server's: a submission after the
+  // deadline plus grace does not count, and the waiting opponent may then
+  // claim the match. No client-supplied deadline is trusted.
+  if (turnExpired(match.turn_started_at, Date.now())) {
     return NextResponse.json(
-      { error: `Turn expired (${TURN_ABANDON_MINUTES} min limit). Your opponent may claim the match.` },
+      { error: `Your turn clock ran out (${clockLengthLabel()}). Your opponent may claim the match.`, turnExpired: true },
       { status: 409 },
     );
   }
@@ -133,13 +133,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   if (myLastTurn && repeatScore([myLastTurn.message, message]) === 1) {
     return NextResponse.json({ error: "That response repeats your previous turn — make a new argument." }, { status: 400 });
   }
-  // Late submission: round mismatch already checked; timer expiry is best-effort (client sends startedAt optional)
-  if (typeof body?.turnDeadline === "string") {
-    const deadline = new Date(body.turnDeadline).getTime();
-    if (!isNaN(deadline) && Date.now() > deadline) {
-      return NextResponse.json({ error: "Turn deadline exceeded (late submission)." }, { status: 400 });
-    }
-  }  const isPlayerA = user.id === match.player_a;
+  const isPlayerA = user.id === match.player_a;
   const roundJustCompleted = !isPlayerA;
   const nextRound = roundJustCompleted ? match.current_round + 1 : match.current_round;
   const nextTurnPlayer = isPlayerA ? match.player_b : match.player_a;

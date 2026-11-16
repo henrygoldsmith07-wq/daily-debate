@@ -1,0 +1,48 @@
+name: push-dispatch
+
+# Hourly push-reminder sender. The app decides everything (webPush.ts): at
+# most one push per learner per day, only between 17:00 and 21:00 in the
+# learner's own timezone, only when a streak is about to lapse or a repair is
+# still waiting to be tested. This workflow only knocks on the door.
+#
+# Like ops-alert, it holds NO database secret: the deployed app does the work.
+#   vars.PROD_HEALTH_URL       base URL of the production deployment (shared
+#                              with ops-alert)
+#   secrets.PUSH_DISPATCH_SECRET  the same value as the app's
+#                              PUSH_DISPATCH_SECRET (>= 32 characters)
+# Either missing: the run says so and exits green (push is optional).
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Send due push reminders
+        env:
+          BASE_URL: ${{ vars.PROD_HEALTH_URL }}
+          PUSH_DISPATCH_SECRET: ${{ secrets.PUSH_DISPATCH_SECRET }}
+        run: |
+          if [ -z "$BASE_URL" ] || [ -z "$PUSH_DISPATCH_SECRET" ]; then
+            echo "::notice::push dispatch not configured (PROD_HEALTH_URL variable or PUSH_DISPATCH_SECRET secret missing); skipping."
+            exit 0
+          fi
+          status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $PUSH_DISPATCH_SECRET" \
+            "${BASE_URL%/}/api/push/dispatch")
+          cat response.json; echo
+          if [ "$status" != "200" ]; then
+            echo "::error::push dispatch answered HTTP $status"
+            exit 1
+          fi

@@ -9,7 +9,7 @@ import type {
   SoloDebate,
   SoloDebateTurn,
 } from "@/lib/types";
-import type { RepairKind } from "@/lib/argumentRepair";
+import { isRepairKind, type RepairKind } from "@/lib/argumentRepair";
 import { skillsUnderTest } from "@/lib/retestDisclosure";
 import type { DebateFormat } from "@/lib/sprint";
 import {
@@ -21,12 +21,19 @@ import {
 } from "@/lib/opponentPersona";
 import type { ChallengeRule } from "@/lib/challengeMe";
 import { loadChallengeAssignment } from "@/lib/solo/challengeSide";
-import { pickFocusDimension } from "@/lib/coachingGoal";
+import { pickFocus, pickFocusDimension } from "@/lib/coachingGoal";
+import type { FocusSteering } from "@/lib/adaptiveCoach";
 import { loadCoachingContext } from "@/lib/coachingContextServer";
 import { FALLBACK_IN_MEMORY_TOPIC_ID } from "@/lib/dailyTopic";
 import { parseGuestLoopSummary } from "@/lib/guestLoop";
 import { guestSeededFocus, resolveFirstFocus, type FirstFocusSource } from "@/lib/guestFocus";
 import type { CoachDimension } from "@/lib/adaptiveCoach";
+import { repairKindToDimension } from "@/lib/repairRetest";
+import { ladderLevelForRetest, ladderToDifficulty, type LadderLevel } from "@/lib/retestLadder";
+import { stageToLadderOutcome } from "@/lib/weaknessLibrary";
+import { loadLoopChain } from "@/lib/loopChainServer";
+import { selectRecheckForStart } from "@/lib/spacedRecheck";
+import { loadRecheckInputs } from "@/lib/spacedRecheckServer";
 
 export type SoloStartSideChoice = DebateSide | "challenge";
 
@@ -127,6 +134,8 @@ export async function startSoloDebate(params: {
   format: DebateFormat;
   persona: OpponentPersonaId;
   difficulty: OpponentDifficulty;
+  /** True when the learner picked the difficulty; the retest ladder never overrides it. */
+  difficultyExplicit?: boolean;
   /**
    * The learner's change to the guest-seeded first focus (a coach dimension,
    * or "none"). Ignored unless the account has a guest seed and no evidence
@@ -134,7 +143,8 @@ export async function startSoloDebate(params: {
    */
   firstFocus?: unknown;
 }): Promise<SoloStartServiceResult> {
-  const { db, userId, topicId, sideChoice, format, persona, difficulty, firstFocus } = params;
+  const { db, userId, topicId, sideChoice, format, persona, firstFocus } = params;
+  let difficulty = params.difficulty;
 
   // The in-memory topic fallback was never persisted, so no debate can be
   // anchored to it. Answer 503 (retryable) instead of 404: the store may
@@ -245,6 +255,7 @@ export async function startSoloDebate(params: {
     }
 
     let coachingDimension: string | null = null;
+    let focusSteering: FocusSteering | null = null;
     const degradationReasons: CoachingContextDegradationReason[] = [];
     let repairRetest:
       | { repairResultId: string; repairDebateId: string; targetKind: RepairKind; attemptedAt: string }
@@ -265,12 +276,15 @@ export async function startSoloDebate(params: {
       // the very topic the learner repaired: the debate then cannot carry that
       // test, but coaching its skill would still prompt the behaviour a later
       // debate is meant to measure.
-      coachingDimension = pickFocusDimension(
+      const pickedFocus = pickFocus(
         context.ledger.points,
         context.drillOutcomes,
         skillsUnderTest(context.pendingRetests),
         context.reRepairDimensions,
+        context.repairedDimensions,
       );
+      coachingDimension = pickedFocus?.dimension ?? null;
+      focusSteering = pickedFocus?.steering ?? null;
 
       if (pendingRetest) {
         const anchor = context.repairAnchors.find(
@@ -287,7 +301,8 @@ export async function startSoloDebate(params: {
           if (!degradationReasons.includes("repair-retest-unavailable")) {
             degradationReasons.push("repair-retest-unavailable");
           }
-          coachingDimension = pickFocusDimension(context.ledger.points, context.drillOutcomes, [], context.reRepairDimensions);
+          coachingDimension = pickFocusDimension(context.ledger.points, context.drillOutcomes, [], context.reRepairDimensions, context.repairedDimensions);
+          focusSteering = null;
         }
       }
     }
@@ -304,13 +319,69 @@ export async function startSoloDebate(params: {
       const resolved = resolveFirstFocus({ seeded, requested: firstFocus, excluded });
       coachingDimension = resolved.dimension;
       focusSource = resolved.source;
+      focusSteering = null;
+    }
+
+    // M9 spaced re-check: a first retest always takes priority. Otherwise a
+    // repair whose retest showed the skill 7-14 days ago is re-checked on
+    // today's motion when that motion is fresh (never the repaired or retest
+    // topic). Linked through the coaching jsonb, so no migration is needed.
+    // Best-effort: a read failure never blocks the debate.
+    let recheck: CoachingRecord["recheck"] = null;
+    if (context.ledger && !repairRetest) {
+      try {
+        const inputs = await loadRecheckInputs(db, userId);
+        const picked = selectRecheckForStart(inputs.repairs, inputs.debates, topicId, new Date());
+        if (picked && isRepairKind(picked.targetKind)) {
+          recheck = { repairResultId: picked.repairResultId, targetKind: picked.targetKind, outcome: null };
+          // Same disclosure rule as a retest: do not coach the skill being measured.
+          const measured = repairKindToDimension(picked.targetKind);
+          if (measured && coachingDimension === measured) {
+            const repick = pickFocus(
+              context.ledger.points,
+              context.drillOutcomes,
+              [...skillsUnderTest(context.pendingRetests), measured],
+              context.reRepairDimensions,
+              context.repairedDimensions,
+            );
+            coachingDimension = repick?.dimension ?? null;
+            focusSteering = repick?.steering ?? null;
+          }
+        }
+      } catch (error) {
+        console.error("Spaced re-check unavailable at start:", error);
+      }
+    }
+
+    // M12: a retest on a skill with earned ladder level runs at that level
+    // unless the learner chose a difficulty. Best-effort, stored in coaching jsonb.
+    let ladderLevel: LadderLevel | null = null;
+    if (repairRetest && !params.difficultyExplicit) {
+      try {
+        const chain = await loadLoopChain(userId);
+        const outcomes = chain
+          .filter((e) => e.targetKind === repairRetest!.targetKind)
+          .sort((a, b) => Date.parse(a.repairedAt) - Date.parse(b.repairedAt))
+          .map((e) => stageToLadderOutcome(e.stage))
+          .filter((o): o is NonNullable<typeof o> => o !== null);
+        const level = ladderLevelForRetest(outcomes);
+        if (level !== "standard") {
+          ladderLevel = level;
+          difficulty = ladderToDifficulty(level);
+        }
+      } catch (error) {
+        console.error("Retest ladder unavailable at start:", error);
+      }
     }
 
     const coaching: CoachingRecord = {
       dimension: coachingDimension,
       ...(focusSource ? { focusSource } : {}),
+      ...(focusSteering === "re_repair" || focusSteering === "moved_on" ? { steering: focusSteering } : {}),
       sideReason,
       repairRetest,
+      ...(recheck ? { recheck } : {}),
+      ...(ladderLevel ? { ladderLevel } : {}),
       degradationReasons: degradationReasons.length ? degradationReasons : null,
     };
 

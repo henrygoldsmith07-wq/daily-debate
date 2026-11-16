@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useSpeechRecognition } from "./useSpeechRecognition";
 import { resolveMode } from "@/lib/debateModes";
-import { experimentalSurfacesEnabled } from "@/lib/featureFlags";
+import { voiceInputEnabled } from "@/lib/featureFlags";
 import type { InputMode } from "@/lib/types";
 import type { TurnTiming } from "@/lib/speechAnalysis";
 import { clearDraft, loadDraft, saveDraft } from "@/lib/composerDraft";
@@ -184,9 +184,10 @@ export default function MessageComposer({
       />
       <div className="flex items-center justify-between gap-2">
         <div className="flex flex-col gap-1">
-          {/* Voice input is parked behind the experimental-surfaces flag
-              (default off); the speech pipeline and its tests stay in place. */}
-          {experimentalSurfacesEnabled() && supported && (
+          {/* Voice input, on by default where the browser can transcribe
+              (Debatable-style voice practice). Browsers without speech
+              recognition see nothing rather than a feature they cannot use. */}
+          {voiceInputEnabled() && supported && (
             <button
               type="button"
               onClick={toggleListening}
@@ -198,8 +199,10 @@ export default function MessageComposer({
               {listening ? `● Listening… ${elapsedSecs}s` : <span className="inline-flex items-center gap-1.5"><UiIcon name="mic" />Speak instead</span>}
             </button>
           )}
-          {experimentalSurfacesEnabled() && !supported && (
-            <span className="text-xs text-ink2">Voice: Chrome/Edge only — type or paste on Safari/Firefox.</span>
+          {listening && (
+            <span className="text-xs text-ink3" data-testid="voice-processor-note">
+              Your browser&apos;s speech service turns this into text (in Chrome, that is Google).
+            </span>
           )}
           {speechError ? <span className="text-xs text-[var(--bad)]" role="alert">{speechError}</span> : null}
           {listening && interim ? <span className="text-xs italic text-ink3" aria-live="polite">{interim}</span> : null}

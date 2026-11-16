@@ -39,6 +39,28 @@ export function mockDebateTurn(): DebateTurnResult {
   };
 }
 
+/**
+ * The scripted turn, streamed word-by-word like a real provider would, so the
+ * E2E suite exercises the streaming route and the incremental UI rather than
+ * only the non-streaming fallback. Small fixed delay; E2E_MOCK_STREAM_DELAY_MS
+ * overrides it (0 disables the pause).
+ */
+export async function streamMockDebateTurn(onDelta: (text: string) => void): Promise<DebateTurnResult> {
+  const turn = mockDebateTurn();
+  const configured = Number(process.env.E2E_MOCK_STREAM_DELAY_MS);
+  const delayMs = Number.isFinite(configured) && configured >= 0 ? configured : 15;
+  const pieces = turn.aiMessage.match(/\S+\s*/g) ?? [turn.aiMessage];
+  for (const piece of pieces) {
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      onDelta(piece);
+    } catch {
+      // display is best-effort
+    }
+  }
+  return turn;
+}
+
 export function mockDebateSummary(): DebateSummary {
   return {
     overallFeedback:
@@ -100,6 +122,21 @@ export function mockPvpJudge(): { rationale: string; argGraph: ArgGraph } {
         unsupportedClaimIds: ["cb1", "cb2"],
       },
       impactComparison: null,
+    },
+  };
+}
+
+export function mockMotionPrep(): import("./motionPrep").MotionPrep {
+  return {
+    for: {
+      strongest: "The measurable benefit is large and arrives quickly for the people most affected.",
+      ifTheySay: "The costs fall on people who never agreed to them.",
+      reply: "Then target the transition support at them; that answers the cost without giving up the benefit.",
+    },
+    against: {
+      strongest: "The change shifts real costs onto people with the least room to absorb them.",
+      ifTheySay: "The benefit is too large to give up over transition costs.",
+      reply: "A benefit that depends on unfunded costs is a transfer, not a gain; show who pays first.",
     },
   };
 }

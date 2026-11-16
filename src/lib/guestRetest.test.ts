@@ -12,7 +12,7 @@ describe("assessGuestRetest", () => {
     expect(outcome.headline).toBe("Not retested yet");
   });
 
-  it("reports an observed move when the retest carries the repaired skill", () => {
+  it("reports a detected text cue without claiming a live observation", () => {
     const outcome = assessGuestRetest(
       "claim",
       true,
@@ -21,7 +21,7 @@ describe("assessGuestRetest", () => {
     );
     expect(outcome.demonstrated).toBe(true);
     expect(outcome.evidence).toBe("retest_in_debate");
-    expect(outcome.headline).toContain("Observed in a live debate");
+    expect(outcome.headline).toContain("Text cue detected in this retest");
   });
 
   it("states the sample size rather than implying mastery", () => {
@@ -31,7 +31,8 @@ describe("assessGuestRetest", () => {
       "Schools should require a phone-free hour because attention is finite and notifications compete with it.",
       OPPONENT,
     );
-    expect(outcome.detail).toContain("ONE observed instance");
+    expect(outcome.detail).toContain("one local observation");
+    expect(outcome.detail).toContain("not proof of a sound answer, transfer, retention or mastery");
     expect(outcome.detail.toLowerCase()).not.toContain("mastered your");
   });
 

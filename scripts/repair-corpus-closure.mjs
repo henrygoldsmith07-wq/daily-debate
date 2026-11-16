@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { isNeonHttpUrl } from "./lib/sql-executor.mjs";
+import { isTransactionCapableUrl } from "./lib/sql-executor.mjs";
 import { findCandidates, repairItemWithLock } from "./lib/corpus-repair.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -29,7 +29,7 @@ if (!databaseUrl) {
   process.stderr.write("DATABASE_URL is required.\n");
   process.exit(2);
 }
-if (isNeonHttpUrl(databaseUrl)) {
+if (!isTransactionCapableUrl(databaseUrl)) {
   process.stderr.write(
     "repair-corpus-closure requires a transaction-capable postgres:// (TCP, pooled is fine) DATABASE_URL;\n" +
     "the Neon HTTP endpoint cannot hold a row lock across statements and is refused by design.\n",

@@ -75,7 +75,7 @@ The debate's stored performance read never changes; cumulative XP remains a sepa
 
 Signed-out users get the same product philosophy in a deliberately lighter form:
 
-1. three short responses to a fixed sample motion;
+1. three short responses — by default to **today's shared motion against the live AI opponent** (streamed, persona picker, no account), or to a **guided case** (a scripted sample motion that never leaves the device) when the learner prefers it or the live opponent is unavailable;
 2. deterministic local checks of observable wording only: explicit claim, reasoning link, engagement with the opponent, impact comparison, and named evidence;
 3. one concrete strength and one highest-priority missing move;
 4. **Fix this now** with a rewrite of that move;
@@ -83,7 +83,7 @@ Signed-out users get the same product philosophy in a deliberately lighter form:
 
 Guest analysis lives in `src/lib/guestAssessment.ts`. It does **not** assign a numeric debate/ability score, infer hidden reasoning quality, or claim validation. Trigger words alone are insufficient: a one-word “however” is not rebuttal, “matters more” is not impact comparison, and naming a source without explaining its relevance does not complete an evidence repair.
 
-The guest result labels these checks as local observations, not measurement of debating ability. Responses stay client-side in this flow; they are not written to the authenticated product-event pipeline.
+The guest result labels these checks as local observations, not measurement of debating ability. Responses are never stored server-side and never written to the authenticated product-event pipeline. In live mode the transcript is sent through `POST /api/guest/turn` only so the provider can write the opponent's next move; the route resolves the motion itself, returns only the opponent's text, and falls back to the guided case on any failure (no database, no provider, per-IP or global daily limit, spend cap, provider outage). The reply to the third answer becomes the retest's fresh challenge. The only server-side record is an anonymous day-level count of guest sprints started and completed (`guest_sprint_daily`).
 
 ## "Challenge me"
 

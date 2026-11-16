@@ -73,6 +73,8 @@ test.describe("daily sprint repair loop", () => {
 
     // 5. Simplified result: one main weakness, not a wall of analytics.
     await expect(page.getByTestId("result-card")).toBeVisible({ timeout: 30_000 });
+    // A fresh result offers the spoiler-free share card.
+    await expect(page.getByTestId("result-card").getByRole("button", { name: /share result/i })).toBeVisible();
     await expect(page.getByTestId("main-weakness")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("fix-this-now")).toBeVisible();
 
@@ -103,6 +105,12 @@ test.describe("daily sprint repair loop", () => {
     await page.goto("/");
     await expect(page.getByTestId("start-sprint")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("Retest after repair", { exact: true })).toHaveCount(0);
+    // After the first completed debate, Today offers push reminders (the
+    // e2e server has test VAPID keys). Nothing is asked until a click.
+    // Playwright's headless shell always reports notifications as denied,
+    // so the card shows its "blocked" state there; a real browser shows the
+    // "Turn on reminders" button (data-state="off").
+    await expect(page.getByTestId("push-optin")).toHaveAttribute("data-state", /^(off|blocked)$/);
 
     await page.goto(debateUrl);
     await expect(page.getByText(/Replay/i).first()).toBeVisible({ timeout: 15_000 });
@@ -163,7 +171,16 @@ test.describe("daily sprint repair loop", () => {
       const composer = page.getByLabel("Your debate response");
       await expect(composer).toBeVisible({ timeout: 30_000 });
       await composer.fill(`Round ${round + 1}: Brookings finds tutoring outperforms per dollar, therefore targeted programmes win.`);
+      // The first opponent reply is streamed (the mock streams word by word),
+      // so the turn response is an event stream rather than buffered JSON.
+      const streamed =
+        round === 0
+          ? page.waitForResponse(
+              (r) => r.request().method() === "POST" && /\/api\/solo\/[^/]+\/turn$/.test(new URL(r.url()).pathname),
+            )
+          : null;
       await page.getByRole("button", { name: /^send$/i }).click();
+      if (streamed) expect((await streamed).headers()["content-type"]).toContain("text/event-stream");
       await page.waitForTimeout(1200);
     }
 

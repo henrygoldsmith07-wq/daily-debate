@@ -3,6 +3,7 @@ import "server-only";
 import { AuthApi, type CookieStore, type ResetTokenSender } from "./auth";
 import { tableQuery, type TableName } from "./query";
 import { queryRows } from "./sql";
+import { RATING_COLLECTION_TARGET } from "@/lib/corpus";
 
 type RpcArgs = Record<string, string | number | boolean | null>;
 
@@ -37,6 +38,7 @@ export class BackendClient {
       | "claim_pvp_opponent_and_create_match"
       | "enqueue_pvp_if_unmatched"
       | "join_pvp_queue_and_match"
+      | "join_pvp_queue_by_position"
       | "create_friend_challenge"
       | "create_friend_challenge_v2"
       | "accept_friend_challenge"
@@ -224,6 +226,13 @@ export class BackendClient {
         );
         return { data: rows, error: null };
       }
+      if (name === "join_pvp_queue_by_position") {
+        const rows = await queryRows<Record<string, unknown>>(
+          "SELECT * FROM join_pvp_queue_by_position($1, $2, $3, $4)",
+          [args.p_joiner, args.p_topic_id, args.p_side, args.p_round_limit],
+        );
+        return { data: rows, error: null };
+      }
       if (name === "join_pvp_queue_and_match") {
         const rows = await queryRows<Record<string, unknown>>(
           "SELECT * FROM join_pvp_queue_and_match($1, $2, $3)",
@@ -262,13 +271,15 @@ export class BackendClient {
         return { data: rows, error: null };
       }
       if (name === "delete_app_account") {
-        // Single-statement account erasure (migration 037): atomic — a failure
-        // rolls the whole function back, so "error" never means partial state.
-        const rows = await queryRows<{ delete_app_account: Record<string, unknown> }>(
-          "SELECT delete_app_account($1) AS delete_app_account",
-          [args.p_user_id],
+        // Single-statement account erasure: atomic — a failure rolls the
+        // whole function back, so "error" never means partial state. v2
+        // (migration 051) also recounts and, below the collection target,
+        // reopens the corpus items that lost one of this learner's ratings.
+        const rows = await queryRows<{ result: Record<string, unknown> }>(
+          "SELECT delete_app_account_v2($1, $2) AS result",
+          [args.p_user_id, RATING_COLLECTION_TARGET],
         );
-        return { data: rows[0]?.delete_app_account ?? null, error: null };
+        return { data: rows[0]?.result ?? null, error: null };
       }
       const rows = await queryRows<{ value: number }>(
         "SELECT increment_total_points($1, $2, $3) AS value",

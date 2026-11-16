@@ -119,3 +119,43 @@ describe("summariseAiOps", () => {
     expect(classify?.byCategory).toEqual({ timeout: 1 });
   });
 });
+
+describe("summariseAiOps streaming latency", () => {
+  const NOW_ISO = "2026-10-27T12:00:00.000Z";
+  const m = (operation: string, latencyMs: number, ok = true) => ({
+    operation,
+    provider: "groq",
+    model: "g",
+    latencyMs,
+    ok,
+    totalTokens: null,
+    errorCategory: ok ? null : "unknown",
+    createdAt: "2026-10-27T11:00:00.000Z",
+  });
+
+  it("keeps stream measurement rows out of model-call totals and the per-operation table", () => {
+    const report = summariseAiOps(
+      [m("debate_turn", 4000), m("debate_turn_stream_first_token", 900), m("debate_turn_stream_total", 4100)],
+      { now: NOW_ISO },
+    );
+    expect(report.totalCalls).toBe(1);
+    expect(report.byOperation.map((o) => o.operation)).toEqual(["debate_turn"]);
+    expect(report.streaming.firstToken.samples).toBe(1);
+  });
+
+  it("withholds p50/p95 below the sample floor", () => {
+    const report = summariseAiOps([m("debate_turn_stream_first_token", 900)], { now: NOW_ISO });
+    expect(report.streaming.firstToken.p50Ms).toBeNull();
+    expect(report.streaming.firstToken.p95Ms).toBeNull();
+    expect(report.streaming.firstToken.note).toMatch(/not yet measurable — 1 sample \(need 5\)/);
+  });
+
+  it("reports nearest-rank p50/p95 at the floor and counts failed streams separately", () => {
+    const firsts = [500, 700, 900, 1100, 3000].map((v) => m("debate_turn_stream_first_token", v));
+    const totals = [3000, 3500, 4000, 4500, 9000].map((v) => m("debate_turn_stream_total", v));
+    const report = summariseAiOps([...firsts, ...totals, m("debate_turn_stream_total", 45000, false)], { now: NOW_ISO });
+    expect(report.streaming.firstToken).toMatchObject({ samples: 5, p50Ms: 900, p95Ms: 3000, note: null });
+    expect(report.streaming.total).toMatchObject({ samples: 5, p50Ms: 4000, p95Ms: 9000 });
+    expect(report.streaming.failed).toBe(1);
+  });
+});
