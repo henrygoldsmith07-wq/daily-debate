@@ -47,7 +47,7 @@ function insightToneClass(tone: InsightTone): string {
 
 function Direction({ direction }: { direction: ArgumentDnaInsight["direction"] }) {
   return (
-    <span className="dna-direction" aria-label={direction === "up" ? "trending up" : direction === "down" ? "needs attention" : "holding steady"}>
+    <span role="img" className="dna-direction" aria-label={direction === "up" ? "trending up" : direction === "down" ? "needs attention" : "holding steady"}>
       {direction === "up" ? "↗" : direction === "down" ? "↘" : "→"}
     </span>
   );
@@ -155,7 +155,7 @@ function GraphPreview({ snapshot, label }: { snapshot: DnaDebateSnapshot | null;
         </div>
         <span className="dna-graph-score" title="Length-normalised debate score">{formatScore(snapshot.score)}<small>/100</small></span>
       </div>
-      <div className="dna-graph-flow" aria-label={`${label} argument graph`}>
+      <div role="group" className="dna-graph-flow" aria-label={`${label} argument graph`}>
         {KIND_META.map((kind, index) => (
           <div key={kind.key} className="dna-graph-step">
             <div className={`dna-node-dot ${kind.color}`} aria-hidden="true">{snapshot.graphStats[kind.stat]}</div>
@@ -296,7 +296,7 @@ export default function ArgumentDnaView({ model, focus }: { model: ArgumentDnaMo
         </div>
         <div className="dna-panel dna-timeline-panel">
           <TimelineChart periods={periods} selectedPeriodKey={selectedPeriodKey} />
-          <div className="dna-period-rail" aria-label="Debate periods">
+          <div role="group" className="dna-period-rail" aria-label="Debate periods">
             {periods.map((period) => <button key={period.key} type="button" className={selected?.id === period.lastSnapshotId ? "active" : ""} onClick={() => setSelectedSnapshotId(period.lastSnapshotId)} aria-pressed={selected?.id === period.lastSnapshotId}><span>{formatMonth(period.key)}</span><small>{periodCountLabel(period)}</small></button>)}
           </div>
         </div>

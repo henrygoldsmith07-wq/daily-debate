@@ -8,7 +8,7 @@
 // unreachable. This is that surface: a disclosure panel so it never competes
 // with the product's primary actions.
 
-import { useId, useState } from "react";
+import { useId, useState, type KeyboardEvent } from "react";
 import { READER_PREFERENCE_OPTIONS, useReaderPreferences } from "@/lib/readerPreferences";
 import { THEME_OPTIONS, useThemePreference } from "@/lib/themePreference";
 
@@ -17,6 +17,26 @@ export default function ReaderPreferences() {
   const panelId = useId();
   const { isEnabled, toggle } = useReaderPreferences();
   const { theme, setTheme } = useThemePreference();
+
+  function onThemeKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    // WAI-ARIA radio keyboard interaction: arrows move between the options and
+    // Home/End jump to the first/last. Only the checked radio is tabbable, so
+    // focus must follow the newly selected radio, otherwise it would land on a
+    // button that is no longer in the tab order while announcing as unchecked.
+    const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    let nextIndex: number;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = THEME_OPTIONS.length - 1;
+    else if (delta !== 0) {
+      const currentIndex = THEME_OPTIONS.findIndex((option) => option.key === theme);
+      nextIndex = (currentIndex + delta + THEME_OPTIONS.length) % THEME_OPTIONS.length;
+    } else return;
+
+    event.preventDefault();
+    const next = THEME_OPTIONS[nextIndex].key;
+    setTheme(next);
+    document.getElementById(`${panelId}-theme-${next}`)?.focus();
+  }
 
   return (
     <div className="border-t border-[var(--rule)] pt-3">
@@ -55,8 +75,11 @@ export default function ReaderPreferences() {
                     key={option.key}
                     type="button"
                     role="radio"
+                    id={`${panelId}-theme-${option.key}`}
                     aria-checked={selected}
+                    tabIndex={selected ? 0 : -1}
                     onClick={() => setTheme(option.key)}
+                    onKeyDown={onThemeKeyDown}
                     className={`min-h-9 rounded-md px-2 text-xs font-medium transition-colors ${selected ? "bg-surface text-ink shadow-sm" : "text-ink3 hover:text-ink2"}`}
                   >
                     {option.label}

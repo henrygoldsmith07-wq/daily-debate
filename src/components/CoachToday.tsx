@@ -48,7 +48,7 @@ function ProfileRead({ label, score, min, max }: { label: string; score: number 
   return (
     <div className="flex items-center justify-between gap-3 border-b border-[var(--rule)] py-1.5 text-xs last:border-0">
       <span className="w-24 shrink-0 text-ink3">{label}</span>
-      <span className="text-right text-ink2" aria-label={`${label}: ${read}`}>{read}</span>
+      <span className="text-right text-ink2"><span className="sr-only">{label}: </span>{read}</span>
     </div>
   );
 }

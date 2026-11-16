@@ -55,6 +55,15 @@ describe("metric maths with custom predictors", () => {
     expect(report.perLabel.every((m) => m.fp === 0 && m.fn === 0)).toBe(true);
   });
 
+  it("label order does not affect exact-match accuracy", () => {
+    // FallacyPredictor is injectable and classifyFallacies returns score-sorted
+    // hits, so a predictor may emit the same labels in any order. Exact matching
+    // compares label sets, not sequences (the multi-label case is reversed here).
+    const reversed: (t: string) => string[] = (t) => [...CASES.find((c) => c.text === t)!.expected].reverse();
+    const report = evaluateFallacyDetection(CASES, reversed);
+    expect(report.accuracy).toBe(1);
+  });
+
   it("a silent predictor gets recall 0 and F1 0", () => {
     const report = evaluateFallacyDetection(CASES, () => []);
     expect(report.accuracy).toBeCloseTo(3 / 14, 5); // only clean cases match
