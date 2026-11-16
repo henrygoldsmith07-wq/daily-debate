@@ -56,7 +56,13 @@ export function normalizeNumerics<T extends Record<string, unknown>>(row: T): T 
 }
 
 export function isNeonHttpUrl(url: string): boolean {
-  if (/neon\.(tech|build|new|local)|neon\.databases?\./i.test(url)) return true;
+  // Match the host only, and require "neon" to be a whole host label (start of
+  // host or after a dot): a bare substring match also fires for look-alike
+  // hosts such as "notneon.tech", silently routing a non-Neon database through
+  // the HTTP transport.
+  const host = /^[a-z][a-z0-9+.-]*:\/\/(?:[^/?#@]*@)?([^/?#]+)/i.exec(url)?.[1] ?? "";
+  if (/(?:^|\.)neon\.(?:tech|build|new|local)(?:[:/]|$)/i.test(host)) return true;
+  if (/(?:^|\.)neon\.databases?\./i.test(host)) return true;
   return process.env.DATABASE_DRIVER === "neon-http";
 }
 

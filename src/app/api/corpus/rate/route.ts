@@ -30,12 +30,15 @@ export async function GET(request: Request) {
 
   const service = createServiceClient();
 
-  // Items this user already rated or contributed are excluded.
+  // Items this user already rated or contributed are excluded. Contributor
+  // metadata rides on the candidate read itself — this used to be a THIRD
+  // round-trip re-fetching (id, contributor_id, side_mapping) for the same
+  // candidate ids just chosen here.
   const [{ data: myRatings }, { data: candidates }] = await Promise.all([
     service.from("corpus_ratings").select("corpus_id").eq("rater_id", user.id),
     service
       .from("corpus_items")
-      .select("id, transcript, topic, rating_count")
+      .select("id, transcript, topic, rating_count, contributor_id, side_mapping")
       .eq("status", "open")
       .order("rating_count", { ascending: true })
       .order("created_at", { ascending: true })
@@ -50,12 +53,8 @@ export async function GET(request: Request) {
   // own transcript and may rate it, injecting self-judgement into the human
   // ground truth the judge gates read. (service role can read it; we never
   // return it.)
-  const { data: meta } = await service
-    .from("corpus_items")
-    .select("id, contributor_id, side_mapping")
-    .in("id", (candidates ?? []).length ? (candidates ?? []).map((c) => c.id) : ["00000000-0000-0000-0000-000000000000"]);
   const excludedContributor = new Set(
-    (meta ?? []).filter((m) => isCorpusContributor(m, user.id)).map((m) => m.id),
+    (candidates ?? []).filter((c) => isCorpusContributor(c, user.id)).map((c) => c.id),
   );
 
   const next = (candidates ?? []).find((c) => !ratedIds.has(c.id) && !excludedContributor.has(c.id));

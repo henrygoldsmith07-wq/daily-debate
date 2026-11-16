@@ -29,5 +29,9 @@ export function resolveTheme(preference: ThemePreference, prefersDark: boolean):
 /**
  * Runs inline in <head> before first paint. Keep it dependency-free; it must
  * agree with `resolveTheme` above (themePreference.test.ts checks it).
+ *
+ * Also points the status-bar meta at the resolved canvas colour: the server
+ * can only emit the default (dark), so without this a light reader's browser
+ * UI keeps the dark canvas colour until they toggle the theme by hand.
  */
-export const THEME_BOOTSTRAP = `(function(){try{var p=localStorage.getItem("${THEME_STORAGE_KEY}");var d=p==="light"?false:p==="system"?window.matchMedia("${DARK_QUERY}").matches:true;var h=document.documentElement;h.classList.toggle("dark",d);h.dataset.theme=d?"dark":"light";h.style.colorScheme=d?"dark":"light";}catch(e){}})();`;
+export const THEME_BOOTSTRAP = `(function(){try{var p=localStorage.getItem("${THEME_STORAGE_KEY}");var d=p==="light"?false:p==="system"?window.matchMedia("${DARK_QUERY}").matches:true;var h=document.documentElement;h.classList.toggle("dark",d);h.dataset.theme=d?"dark":"light";h.style.colorScheme=d?"dark":"light";var m=document.querySelector&&document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",d?"${THEME_COLOR.dark}":"${THEME_COLOR.light}");}catch(e){}})();`;

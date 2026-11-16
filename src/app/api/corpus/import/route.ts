@@ -50,6 +50,37 @@ function deriveStrataFromRounds(rounds: Array<{ round: number; user: string; opp
   };
 }
 
+/**
+ * Batched contributor-level lookup. Semantics match the previous per-debate
+ * `.single()` reads exactly: a missing profile yields `null` (abilityBandFor
+ * maps null to the default band), and only a genuine query failure throws —
+ * which the import loop already reports as a per-debate error.
+ */
+async function lookupContributorLevels(
+  service: ReturnType<typeof createServiceClient>,
+  ids: string[],
+): Promise<Map<string, { level: number }>> {
+  const unique = [...new Set(ids)];
+  if (!unique.length) return new Map();
+  const { data, error } = await service.from("profiles").select("id, level").in("id", unique);
+  if (error) throw new Error(error.message);
+  return new Map((data ?? []).map((row) => [row.id, { level: row.level }]));
+}
+
+/** Batched topic lookup with the same missing-row semantics as `.single()`. */
+async function lookupTopics(
+  service: ReturnType<typeof createServiceClient>,
+  ids: string[],
+): Promise<Map<string, { category: string | null; title: string; prompt: string }>> {
+  const unique = [...new Set(ids)];
+  if (!unique.length) return new Map();
+  const { data, error } = await service.from("daily_topics").select("id, category, title, prompt").in("id", unique);
+  if (error) throw new Error(error.message);
+  return new Map(
+    (data ?? []).map((row) => [row.id, { category: row.category, title: row.title, prompt: row.prompt }]),
+  );
+}
+
 export async function POST(request: Request) {
   const limited = await checkRateLimit(request, { name: "corpus-import", limit: 6, windowMs: 60 * 60_000 });
   if (limited) return limited;
@@ -78,6 +109,18 @@ export async function POST(request: Request) {
   const { data: alreadyImported } = await service.from("corpus_items").select("source_type, source_id");
   const importedKeys = new Set((alreadyImported ?? []).map((r) => `${r.source_type}:${r.source_id}`));
 
+  // Contributor levels and topics are looked up per debate; without batching
+  // they add two extra queries per debate (up to ~800 round trips for a
+  // 400-debate import, all sequential inside the import loop). One `in` query
+  // per table per source type keeps the loop to its one genuinely per-debate
+  // read — the turns.
+  const [soloLevels, soloTopics, pvpLevels, pvpTopics] = await Promise.all([
+    lookupContributorLevels(service, (soloDebates ?? []).map((d) => d.user_id)),
+    lookupTopics(service, (soloDebates ?? []).map((d) => d.topic_id)),
+    lookupContributorLevels(service, (pvpMatches ?? []).map((m) => m.player_a)),
+    lookupTopics(service, (pvpMatches ?? []).map((m) => m.topic_id)),
+  ]);
+
   let imported = 0;
   const errors: string[] = [];
 
@@ -86,8 +129,8 @@ export async function POST(request: Request) {
     try {
       const [{ data: turns }, { data: profile }, { data: topic }] = await Promise.all([
         service.from("solo_debate_turns").select("round_number, ai_message, user_message").eq("debate_id", debate.id).order("round_number"),
-        service.from("profiles").select("level").eq("id", debate.user_id).single(),
-        service.from("daily_topics").select("category, title, prompt").eq("id", debate.topic_id).single(),
+        Promise.resolve({ data: soloLevels.get(debate.user_id) ?? null, error: null }),
+        Promise.resolve({ data: soloTopics.get(debate.topic_id) ?? null, error: null }),
       ]);
       const lines: Array<{ side: "a" | "b"; round: number; text: string }> = [];
       for (const t of turns ?? []) {
@@ -133,8 +176,8 @@ export async function POST(request: Request) {
     try {
       const [{ data: turns }, { data: profileA }, { data: topic }] = await Promise.all([
         service.from("pvp_turns").select("round_number, player_id, message").eq("match_id", match.id).order("round_number").order("created_at"),
-        service.from("profiles").select("level").eq("id", match.player_a).single(),
-        service.from("daily_topics").select("category, title, prompt").eq("id", match.topic_id).single(),
+        Promise.resolve({ data: pvpLevels.get(match.player_a) ?? null, error: null }),
+        Promise.resolve({ data: pvpTopics.get(match.topic_id) ?? null, error: null }),
       ]);
       const lines: Array<{ side: "a" | "b"; round: number; text: string }> = [];
       for (const t of turns ?? []) {
