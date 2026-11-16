@@ -104,7 +104,7 @@ export function evaluateFallacyDetection(cases: FallacyCase[], predict: FallacyP
   for (let i = 0; i < cases.length; i++) {
     const expected = cases[i].expected;
     const predicted = predictions[i];
-    if (predicted.join(",") === [...expected].sort().join(",")) exactMatches++;
+    if ([...predicted].sort().join(",") === [...expected].sort().join(",")) exactMatches++;
     if (expected.length === 0) {
       cleanCases++;
       if (predicted.length > 0) cleanFalsePositives++;

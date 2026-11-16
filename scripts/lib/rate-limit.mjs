@@ -102,7 +102,7 @@ export function classifyRateLimit(detail, opts = {}) {
     const limit = Number(explicit[1]);
     const count = Number(explicit[2]);
     const unit = explicit[3];
-    window = unit.startsWith("s") && unit !== "second" && unit !== "sec" ? "second" : unit.startsWith("mi") ? "minute" : unit.startsWith("h") ? "hour" : "day";
+    window = unit.startsWith("s") ? "second" : unit.startsWith("mi") ? "minute" : unit.startsWith("h") ? "hour" : "day";
     windowEvidence = `provider stated ${limit} request(s) every ${count} ${unit}(s)`;
   }
   if (!window && /per hour/.test(text)) { window = "hour"; windowEvidence = "provider named an hourly limit"; }

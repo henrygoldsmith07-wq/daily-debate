@@ -24,6 +24,9 @@ const UNOROUTER_PER_MINUTE =
 const OPENROUTER_PER_DAY =
   '429: {"error":{"message":"Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free models requests per day."}}';
 
+/** A per-SECOND tier, using the same "allows ... every ..." prose shape as unorouter. */
+const PER_SECOND = "The free tier allows 10 request(s) every 1 second per account";
+
 test("cerebras's message is recognised as a PER HOUR limit, not a per-minute one", () => {
   const c = classifyRateLimit(CEREBRAS_PER_HOUR);
   assert.equal(c.window, "hour");
@@ -53,6 +56,17 @@ test("unorouter's message is recognised as a PER MINUTE limit and yields its sta
   // 60000/5 = 12000ms at the ceiling; with headroom it must be slower.
   assert.ok(c.recommendedPaceMs > 12_000, `pace ${c.recommendedPaceMs}ms must leave headroom under 5/minute`);
   assert.equal(c.recommendedPaceMs, Math.ceil((60_000 / 5) * RATE_LIMIT_HEADROOM));
+});
+
+test("a per-second tier in the 'allows ... every ... second' shape is classified as SECONDS, not days", () => {
+  // The unit regex captures "second" exactly; a negated-unit guard used to
+  // fall through to "day", which nulled the pace and claimed pacing could not
+  // help - the opposite of the truth for a ceiling you CAN pace under.
+  const c = classifyRateLimit(PER_SECOND);
+  assert.equal(c.window, "second");
+  assert.equal(c.limit, 10);
+  assert.equal(c.recommendedPaceMs, 125);
+  assert.equal(c.pacingHelps, true);
 });
 
 test("openrouter's message is recognised as a PER DAY limit, which no pace can satisfy", () => {

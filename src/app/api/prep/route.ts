@@ -13,7 +13,11 @@ export async function GET(request: Request) {
   } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in to see prep." }, { status: 401 });
 
-  const limit = await checkRateLimitKey(user.id, { name: "motion-prep", limit: 20, windowMs: 60 * 60_000 });
+  // This route can trigger a paid model call. When the shared limiter is
+  // unavailable, deny rather than fall back to a per-instance bucket: on a
+  // multi-instance deploy that would multiply the 20/hour cap by the number of
+  // live instances. Every other paid route sets failClosed for this reason.
+  const limit = await checkRateLimitKey(user.id, { name: "motion-prep", limit: 20, windowMs: 60 * 60_000, failClosed: true });
   if (!limit.ok) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
 
   const topicId = new URL(request.url).searchParams.get("topicId");

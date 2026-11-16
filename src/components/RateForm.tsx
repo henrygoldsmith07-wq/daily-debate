@@ -167,9 +167,9 @@ export default function RateForm() {
       </div>
 
       {loading ? (
-        <p className="text-center text-sm text-ink3">Loading…</p>
+        <p className="text-center text-sm text-ink3" role="status">Loading…</p>
       ) : !item ? (
-        <div className="surface-card p-8 text-center">
+        <div className="surface-card p-8 text-center" role="status">
           <p className="text-sm text-ink3">{emptyNote}</p>
         </div>
       ) : (

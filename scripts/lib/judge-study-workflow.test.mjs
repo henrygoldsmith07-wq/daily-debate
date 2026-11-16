@@ -49,6 +49,54 @@ function stepBody(name) {
   return body.join("\n");
 }
 
+/** The env: block of the step named `name`, as a map of variable name to line. */
+function stepEnv(name) {
+  const lines = WORKFLOW.split("\n");
+  const start = lines.findIndex((l) => l.includes(`- name: ${name}`));
+  assert.ok(start >= 0, `workflow must have a step named "${name}"`);
+  const envAt = lines.findIndex((l, i) => i > start && /^\s*env:\s*$/.test(l));
+  assert.ok(envAt > start, `step "${name}" must have an env: block`);
+  const indent = (lines[envAt].match(/^\s*/) ?? [""])[0].length + 2;
+  const env = {};
+  for (let i = envAt + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
+    const lineIndent = (line.match(/^\s*/) ?? [""])[0].length;
+    if (lineIndent < indent) break;
+    const m = line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*):/);
+    if (m) env[m[1]] = line.trim();
+  }
+  return env;
+}
+
+test("every fail-fast provider key is also passed to, and probed by, the probe step", () => {
+  const gateName = "Fail fast when no judge secrets are configured";
+  const probeName = "Probe every configured provider (availability, not judge quality)";
+  // The gate names its keys in both the env block and the -z checks. Collect
+  // both so a key mentioned in only one of them is still held to this rule.
+  const gateKeys = new Set();
+  for (const key of Object.keys(stepEnv(gateName))) {
+    if (/_API_KEY$/.test(key)) gateKeys.add(key);
+  }
+  for (const m of stepBody(gateName).matchAll(/\b([A-Z][A-Z0-9_]*_API_KEY)\b/g)) gateKeys.add(m[1]);
+  assert.ok(gateKeys.size > 0, "the fail-fast gate must reference at least one provider key");
+
+  const probeEnv = stepEnv(probeName);
+  const probeBody = stepBody(probeName);
+  const loop = probeBody.match(/for\s+\w+\s+in\s+([^;]+);\s*do/);
+  assert.ok(loop, `the probe step must have a provider loop:\n${probeBody}`);
+  const loopProviders = new Set(loop[1].trim().split(/\s+/));
+
+  for (const key of gateKeys) {
+    assert.ok(key in probeEnv, `${key} is checked by the fail-fast gate but missing from the probe step's env`);
+    const provider = key.replace(/_API_KEY$/, "").toLowerCase();
+    assert.ok(
+      loopProviders.has(provider),
+      `${key} (provider "${provider}") is checked by the fail-fast gate but missing from the probe loop (${[...loopProviders].join(", ")})`,
+    );
+  }
+});
+
 test("the persistence step builds on the branch tip, so a second dispatch is a fast-forward", () => {
   const body = stepBody("Persist study state on the runs branch");
   // The branch must be created FROM the remote tip when one exists. A bare

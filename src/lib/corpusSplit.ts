@@ -73,7 +73,7 @@ function stratumOf(item: SplitInput): string {
  *
  * Algorithm:
  *   1. Group items by familyKey → families never span splits.
- *   2. Compute each family's stratum from its majority member attributes.
+ *   2. Compute each family's stratum from its first member's attributes.
  *   3. Within each stratum, sort families by stable hash.
  *   4. Assign whole families round-robin across splits proportional to ratios,
  *      tracking per-stratum counts to prevent distribution drift.

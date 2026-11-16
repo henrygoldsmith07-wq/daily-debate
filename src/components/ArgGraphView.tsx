@@ -242,15 +242,18 @@ export function ArgGraphInline({
                       className="shrink-0 text-xs tabular text-ink3"
                       title={`${evidenceClassLabel(n.evidenceStrength).short}: ${evidenceClassLabel(n.evidenceStrength).description}`}
                     >
+                      <span className="sr-only">{`${evidenceClassLabel(n.evidenceStrength).short}: ${evidenceClassLabel(n.evidenceStrength).description}`}</span>
                       [{evidenceClassLabel(n.evidenceStrength).short}]
                     </span>
                   ) : null}
                   {n.kind === "evidence" && n.citations?.length ? (
                     <span className="shrink-0 text-xs tabular text-ink3" title={n.citations.map((c) => `${c.sourceName}${c.homepage ? ` — ${c.homepage}` : ""}${c.excerpt ? `: ${c.excerpt}` : ""}`).join(" | ")}>
+                      <span className="sr-only">{n.citations.map((c) => `${c.sourceName}${c.homepage ? ` — ${c.homepage}` : ""}${c.excerpt ? `: ${c.excerpt}` : ""}`).join(" | ")}</span>
                       ↳ {n.citations.map((c) => c.sourceName).join(", ")}
                     </span>
                   ) : n.kind === "evidence" && n.evidenceStrength && !["anecdotal", "general"].includes(n.evidenceStrength) ? (
                     <span className="shrink-0 text-xs text-[var(--review)]" title="Cited/strong evidence should carry a citation — the judge omitted one.">
+                      <span className="sr-only">Cited/strong evidence should carry a citation — the judge omitted one.</span>
                       ⚠ no citation
                     </span>
                   ) : null}

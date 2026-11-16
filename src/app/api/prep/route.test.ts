@@ -3,13 +3,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   user: { id: "u1" } as { id: string } | null,
   limited: false,
+  rateLimitOptions: [] as Array<Record<string, unknown>>,
   prep: vi.fn(),
 }));
 
 vi.mock("@/lib/backend/server", () => ({
   createClient: async () => ({ auth: { getUser: async () => ({ data: { user: h.user } }) } }),
 }));
-vi.mock("@/lib/rateLimit", () => ({ checkRateLimitKey: async () => ({ ok: !h.limited }) }));
+vi.mock("@/lib/rateLimit", () => ({
+  checkRateLimitKey: async (_key: string, options: Record<string, unknown>) => {
+    h.rateLimitOptions.push(options);
+    return { ok: !h.limited };
+  },
+}));
 vi.mock("@/lib/motionPrepServer", () => ({ getMotionPrep: h.prep }));
 
 import { GET } from "./route";
@@ -21,7 +27,14 @@ describe("GET /api/prep", () => {
   beforeEach(() => {
     h.user = { id: "u1" };
     h.limited = false;
+    h.rateLimitOptions = [];
     h.prep.mockReset();
+  });
+
+  it("fails closed when the shared limiter is unavailable (paid call route)", async () => {
+    await call();
+    expect(h.rateLimitOptions).toHaveLength(1);
+    expect(h.rateLimitOptions[0]).toMatchObject({ name: "motion-prep", failClosed: true });
   });
 
   it("serves prep for a signed-in learner", async () => {
