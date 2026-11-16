@@ -53,6 +53,14 @@ describe("corpus at scale — reliability", () => {
     expect(auditCorpusLabels([{ ...HUMAN_CORPUS[0], provenance: "synthetic", isSynthetic: true }]).canClaimHumanValidity).toBe(false);
   });
 
+  it("ratersPerItem reports the real min, not a zero-seeded floor", () => {
+    const stats = corpusStats(syntheticCorpus({ n: 10, seed: 2, agreement: "high" }));
+    expect(stats.ratersPerItem.min).toBe(3);
+    expect(stats.ratersPerItem.max).toBe(3);
+    expect(stats.ratersPerItem.mean).toBe(3);
+    expect(corpusStats([]).ratersPerItem.min).toBe(0);
+  });
+
   it("synthetic corpus generates thousands with expected shape", () => {
     const syn = syntheticCorpus({ n: 1000, seed: 1, agreement: "medium" });
     expect(syn.length).toBe(1000);

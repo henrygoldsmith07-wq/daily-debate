@@ -467,7 +467,13 @@ export function corpusStats(corpus: LabeledDebate[]): CorpusStats {
   }
   return {
     n,
-    ratersPerItem: { mean, min: Math.min(...counts, 0), max: Math.max(...counts, 0) },
+    // Seed the empty fallback OUTSIDE the variadic calls: Math.min(...counts, 0)
+    // would clamp every real minimum to zero.
+    ratersPerItem: {
+      mean,
+      min: counts.length ? Math.min(...counts) : 0,
+      max: counts.length ? Math.max(...counts) : 0,
+    },
     labelDist,
     fleissKappa: fleissKappa(matrix),
     krippendorffAlpha: krippendorffAlpha(corpus),

@@ -105,7 +105,7 @@ export default async function AppShell({
               </Link>
             </nav>
           </header>
-          <main id="main" className={contentClass}>
+          <main tabIndex={-1} id="main" className={contentClass}>
             {children}
           </main>
         </div>
@@ -159,7 +159,7 @@ export default async function AppShell({
           )}
         </header>
 
-        <main id="main" className={contentClass}>
+        <main tabIndex={-1} id="main" className={contentClass}>
           {children}
         </main>
 

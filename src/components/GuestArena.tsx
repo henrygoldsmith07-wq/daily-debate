@@ -177,7 +177,7 @@ function GuestHome({
           </Link>
         </header>
 
-        <main id="main" className={`app-content guest-onboarding ${hasPractised ? "max-w-2xl" : "max-w-5xl"}`}>
+        <main tabIndex={-1} id="main" className={`app-content guest-onboarding ${hasPractised ? "max-w-2xl" : "max-w-5xl"}`}>
           <div className={`guest-entry${hasPractised ? " guest-entry-returning" : ""}`}>
           {!hasPractised ? (
             <section className="guest-welcome" aria-labelledby="guest-welcome-title">
@@ -433,7 +433,7 @@ function GuestDebate({
             <span className="pill">Guest rep</span>
           </div>
         </header>
-        <main id="main" className="app-content max-w-5xl lg:grid lg:grid-cols-[1fr_280px] lg:items-start lg:gap-6">
+        <main tabIndex={-1} id="main" className="app-content max-w-5xl lg:grid lg:grid-cols-[1fr_280px] lg:items-start lg:gap-6">
           <section className="min-w-0">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -680,7 +680,7 @@ function GuestResult({
             Sign in
           </Link>
         </header>
-        <main id="main" className="app-content max-w-2xl">
+        <main tabIndex={-1} id="main" className="app-content max-w-2xl">
           <PageHeader
             eyebrow="Rep complete"
             title="Your practice result"
@@ -897,7 +897,7 @@ function GuestRetest({
             <span className="pill">Retest</span>
           </div>
         </header>
-        <main id="main" className="app-content max-w-2xl">
+        <main tabIndex={-1} id="main" className="app-content max-w-2xl">
           <PageHeader
             eyebrow="Deliberate retest"
             title="Now argue it again"
@@ -1024,7 +1024,7 @@ function GuestDone({
             <span className="pill">Rep complete</span>
           </div>
         </header>
-        <main id="main" className="app-content max-w-2xl">
+        <main tabIndex={-1} id="main" className="app-content max-w-2xl">
           <PageHeader
             eyebrow="Practice complete"
             title="One rep, fully closed"

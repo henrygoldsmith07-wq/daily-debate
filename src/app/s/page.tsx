@@ -33,7 +33,7 @@ export default async function SharedResultPage({ searchParams }: { searchParams:
   const topic = isDatabaseConfigured() ? await getTodayTopic().catch(() => null) : null;
 
   return (
-    <main id="main" className="app-content mx-auto max-w-xl px-4 py-10">
+    <main tabIndex={-1} id="main" className="app-content mx-auto max-w-xl px-4 py-10">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink3">Shared result</p>
       <h1 className="page-title mt-2">{card?.dayNumber ? `Daily Debate #${card.dayNumber}` : "Daily Debate"}</h1>
       {card ? (

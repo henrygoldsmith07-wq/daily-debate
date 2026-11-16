@@ -53,8 +53,12 @@ jobs:
       - run: npm ci
 
       - name: Verify confirmation
+        # Never interpolate an untrusted dispatch input into shell text: GitHub
+        # substitutes it before bash parses the script. Pass it via the env.
+        env:
+          CONFIRM: ${{ github.event.inputs.confirm }}
         run: |
-          if [ "${{ github.event.inputs.confirm }}" != "migrate" ]; then
+          if [ "$CONFIRM" != "migrate" ]; then
             echo "Refusing to run: the confirm input must be exactly 'migrate'." >&2
             exit 1
           fi
