@@ -48,7 +48,12 @@ describe("UI detail guards", () => {
   });
 
   it("gives admin table headers a column scope", () => {
-    for (const f of ["src/app/analytics/page.tsx", "src/app/benchmark/page.tsx", "src/app/leaderboard/page.tsx"]) {
+    for (const f of [
+      "src/app/analytics/page.tsx",
+      "src/app/benchmark/page.tsx",
+      "src/app/leaderboard/page.tsx",
+      "src/components/CorpusAdmin.tsx",
+    ]) {
       expect(source(f)).not.toMatch(/<th(?=[\s>])(?![^>]*\bscope=)[^>]*>/);
     }
   });
@@ -62,10 +67,13 @@ describe("UI detail guards", () => {
     expect(clock).not.toMatch(/role="status"\s*\n\s*data-testid="turn-clock"/);
   });
 
-  it("offers a skip link in both the signed-in and guest shells", () => {
+  it("offers a skip link in both shells, with focusable targets", () => {
     const s = source("src/components/AppShell.tsx");
     const skipLinks = s.match(/<a href="#main" className="skip-link">/g) ?? [];
     expect(skipLinks).toHaveLength(2);
+    // Fragment navigation only moves keyboard focus when the target is focusable.
+    expect(s).toContain('<main tabIndex={-1} id="main"');
+    expect(source("src/components/GuestArena.tsx")).not.toMatch(/<main id="main"/);
   });
 
   it("resolves the Recently improved section label reference", () => {

@@ -52,7 +52,7 @@ export default async function PrivacyPage() {
 
   return (
     <div className="flex flex-1 flex-col bg-[var(--background)]">
-      <main id="main" className="mx-auto w-full max-w-2xl px-6 py-12">
+      <main tabIndex={-1} id="main" className="mx-auto w-full max-w-2xl px-6 py-12">
         <h1 className="text-2xl font-semibold tracking-tight">Privacy</h1>
         <p className="mt-2 text-sm text-ink3">
           Last updated 2026-10-31. This is a UK-GDPR-oriented notice for a small self-hosted service operated from

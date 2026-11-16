@@ -332,8 +332,8 @@ export default function CorpusAdmin() {
           <table className="w-full text-left text-xs">
             <thead className="text-ink3">
               <tr>
-                <th className="pb-1 font-medium">dimension:side</th>
-                <th className="pb-1">ICC</th>
+                <th scope="col" className="pb-1 font-medium">dimension:side</th>
+                <th scope="col" className="pb-1">ICC</th>
               </tr>
             </thead>
             <tbody className="tabular">

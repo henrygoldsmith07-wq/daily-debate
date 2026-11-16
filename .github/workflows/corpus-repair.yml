@@ -59,8 +59,10 @@ jobs:
 
       - name: Verify confirmation
         if: github.event.inputs.mode == 'apply'
+        env:
+          CONFIRM: ${{ github.event.inputs.confirm }}
         run: |
-          if [ "${{ github.event.inputs.confirm }}" != "repair" ]; then
+          if [ "$CONFIRM" != "repair" ]; then
             echo "Refusing to apply: the confirm input must be exactly 'repair'." >&2
             exit 1
           fi
@@ -68,9 +70,10 @@ jobs:
       - name: Repair corpus closure (${{ github.event.inputs.mode }})
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MODE: ${{ github.event.inputs.mode }}
         run: |
           set -o pipefail
-          if [ "${{ github.event.inputs.mode }}" = "apply" ]; then
+          if [ "$MODE" = "apply" ]; then
             node scripts/repair-corpus-closure.mjs --apply 2>&1 | tee repair-output.txt
           else
             node scripts/repair-corpus-closure.mjs 2>&1 | tee repair-output.txt
@@ -86,9 +89,11 @@ jobs:
 
       - name: Record the run in the summary
         if: always()
+        env:
+          MODE: ${{ github.event.inputs.mode }}
         run: |
           {
-            echo "## corpus-repair (${{ github.event.inputs.mode }}) — ${{ github.run_id }}"
+            echo "## corpus-repair ($MODE) — ${{ github.run_id }}"
             echo '### Repair'
             echo '```'
             cat repair-output.txt 2>/dev/null || echo "(repair output unavailable)"
