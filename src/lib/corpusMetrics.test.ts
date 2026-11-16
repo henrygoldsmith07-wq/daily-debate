@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCorpusMetrics } from "./corpusMetrics";
+import { computeCorpusMetrics, finalizeEce } from "./corpusMetrics";
 import type { MetricItem, MetricRating } from "./corpusMetrics";
 
 function rating(corpusId: string, raterId: string, winner: string): MetricRating {
@@ -10,6 +10,13 @@ function rating(corpusId: string, raterId: string, winner: string): MetricRating
 function item(id: string, sv?: Record<string, unknown>): MetricItem {
   return { id, side_mapping: sv ? { system_verdict: sv } : {} };
 }
+
+describe("finalizeEce", () => {
+  it("uses the correct count as the confidence proxy when confidenceSum is absent", () => {
+    expect(finalizeEce([{ total: 10, correct: 8 }])).toBe(0);
+    expect(finalizeEce([{ total: 10, correct: 8, confidenceSum: 7 }])).toBe(0.1);
+  });
+});
 
 describe("computeCorpusMetrics with sample gates", () => {
   it("returns insufficient state for tiny samples", () => {

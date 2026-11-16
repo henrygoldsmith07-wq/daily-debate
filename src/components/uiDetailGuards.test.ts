@@ -37,6 +37,12 @@ describe("UI detail guards", () => {
     expect(s).toContain('className="btn btn-secondary mt-3"');
   });
 
+  it("resolves the Recently improved section label reference", () => {
+    const s = source("src/app/progress/page.tsx");
+    expect(s).toContain('aria-labelledby="recent-improved"');
+    expect(s).toContain('id="recent-improved" className="text-xs uppercase');
+  });
+
   it("labels the guest result region with its caption, not the numeric score", () => {
     const s = source("src/components/GuestArena.tsx");
     expect(s).toContain('aria-labelledby="guest-headline-caption"');
