@@ -184,7 +184,7 @@ function GuestHome({
               <p className="guest-welcome-eyebrow">A little practice. A clearer point.</p>
               <h1 id="guest-welcome-title">Make your case.<br /><span>Then make it stronger.</span></h1>
               <p className="guest-welcome-copy">Try a short debate, find one gap in your reasoning, and rewrite it with a clear next move.</p>
-              <div className="guest-welcome-facts" aria-label="Practice details">
+              <div role="group" className="guest-welcome-facts" aria-label="Practice details">
                 <span>About {SPRINT_ESTIMATE_MINUTES} minutes</span>
                 <span>No account needed</span>
                 <span>Guest mode</span>
@@ -442,7 +442,7 @@ function GuestDebate({
               </div>
               <span className="pill">{side === "for" ? "You: make the case" : "You: push back"}</span>
             </div>
-            <div className="mt-6 flex items-center gap-2" aria-label={`Round ${round + 1} of ${rounds.length}`}>
+            <div role="img" className="mt-6 flex items-center gap-2" aria-label={`Round ${round + 1} of ${rounds.length}`}>
               {rounds.map((item, index) => (
                 <div
                   key={item.label}

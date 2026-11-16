@@ -220,6 +220,7 @@ export default function ArgumentDnaView({ model, focus }: { model: ArgumentDnaMo
         actions={
           <>
             <div
+              role="group"
               className="dna-score-chip"
               aria-label={`${model.analysedDebates} debates with structured argument graphs`}
             >

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -119,5 +119,27 @@ describe("accessibility detail guards", () => {
     // The existing toggle-group semantics must stay intact.
     expect(s).toContain('role="group" aria-label={`${title} ${DIMENSION_LABELS[dim] ?? dim}`}');
     expect(s).toContain('role="group" aria-label="Overall winner"');
+  });
+
+  it("never puts an ignored aria-label on a generic div or span", () => {
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const full = path.join(dir, name);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (full.endsWith(".tsx") && !full.endsWith(".test.tsx")) files.push(full);
+      }
+    };
+    walk(path.join(process.cwd(), "src"));
+    const bad: string[] = [];
+    for (const file of files) {
+      const s = readFileSync(file, "utf8");
+      for (const match of s.matchAll(/<(?:div|span)\b[^>]*>/g)) {
+        if (match[0].includes("aria-label=") && !/\brole=/.test(match[0])) {
+          bad.push(`${path.relative(process.cwd(), file)}: ${match[0].slice(0, 90)}`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
   });
 });

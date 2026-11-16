@@ -469,7 +469,7 @@ export default async function ProgressPage() {
                   <span className="text-sm font-medium">{skill.label}</span>
                   <span className="text-xs text-ink3">{skill.trendLabel}</span>
                 </div>
-                <span className={`tabular text-sm ${tone}`} title={skill.trendLabel} aria-label={`${skill.label}: ${skill.trendLabel}`}>
+                <span role="img" className={`tabular text-sm ${tone}`} title={skill.trendLabel} aria-label={`${skill.label}: ${skill.trendLabel}`}>
                   {glyph}
                 </span>
               </div>
@@ -650,6 +650,7 @@ export default async function ProgressPage() {
                     <span className="text-xs font-medium text-[var(--accent)]">{LOOP_STAGE_LABEL[status.stage]}</span>
                   </div>
                   <div
+                    role="img"
                     className="mt-3 grid grid-cols-4 gap-1"
                     aria-label={`${status.label} learning loop: ${LOOP_STAGE_LABEL[status.stage]}`}
                   >
