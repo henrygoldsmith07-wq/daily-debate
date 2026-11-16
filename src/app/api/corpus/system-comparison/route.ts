@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       judged: 0,
       note: "No resolved human-ground-truth items are awaiting a system verdict. Import, rate, or adjudicate more debates first.",
-    });
+    }, { headers: { "Cache-Control": "no-store" } });
   }
 
   const { liveEnsembleJudge, verdictFromEnsemble } = await import("@/lib/ensembleJudge");
@@ -171,5 +171,5 @@ export async function POST(request: Request) {
     skippedClaims,
     errors: errors.slice(0, 5),
     note: "Agreement rate is over canonical human ground truth: strict independent-rater consensus or explicit non-stale adjudication. Unresolved disagreements remain calibration evidence and are excluded.",
-  });
+  }, { headers: { "Cache-Control": "no-store" } });
 }

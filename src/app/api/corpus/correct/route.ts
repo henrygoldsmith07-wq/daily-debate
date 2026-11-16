@@ -59,5 +59,5 @@ export async function POST(request: Request) {
     ok: true,
     corrections: result.corrections,
     note: "Original values are preserved in the correction audit trail. Any prior adjudication is marked stale and requires review again.",
-  });
+  }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -37,6 +37,22 @@ describe("UI detail guards", () => {
     expect(s).toContain('className="btn btn-secondary mt-3"');
   });
 
+  it("wires the More modes disclosure and marks the timed countdown as a timer", () => {
+    const panel = source("src/components/debate/DebateLivePanel.tsx");
+    expect(panel).toContain('aria-controls="advanced-debate-modes"');
+    expect(panel).toContain('id="advanced-debate-modes"');
+    expect(panel).toContain("</div>");
+    const composer = source("src/components/MessageComposer.tsx");
+    expect(composer).toContain('role="timer"');
+    expect(composer).not.toMatch(/role="(status|alert)"[^>]*>[^<]*⏱/);
+  });
+
+  it("gives admin table headers a column scope", () => {
+    for (const f of ["src/app/analytics/page.tsx", "src/app/benchmark/page.tsx", "src/app/leaderboard/page.tsx"]) {
+      expect(source(f)).not.toMatch(/<th(?=[\s>])(?![^>]*\bscope=)[^>]*>/);
+    }
+  });
+
   it("does not make the ticking PvP clock a live region", () => {
     const s = source("src/components/PvpRoom.tsx");
     const clock = s.slice(s.indexOf('data-testid="turn-clock"') - 400, s.indexOf('data-testid="turn-clock"') + 800);

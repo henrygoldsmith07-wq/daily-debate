@@ -157,7 +157,7 @@ export default function MessageComposer({
         {isTimed && resumeSavedSubmission ? (
           <span className="text-xs font-medium text-[var(--success)]">✓ response saved</span>
         ) : isTimed ? (
-          <span className={`tabular text-xs font-medium ${timeUrgent ? "text-[var(--bad)]" : "text-ink3"}`}>
+          <span role="timer" className={`tabular text-xs font-medium ${timeUrgent ? "text-[var(--bad)]" : "text-ink3"}`}>
             ⏱ {timeRemaining}s remaining
           </span>
         ) : null}

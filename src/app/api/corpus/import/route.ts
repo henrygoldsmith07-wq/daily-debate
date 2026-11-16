@@ -227,5 +227,5 @@ export async function POST(request: Request) {
 
   if (imported > 0) invalidatePublicCorpusMetrics();
 
-  return NextResponse.json({ imported, errors: errors.slice(0, 20) });
+  return NextResponse.json({ imported, errors: errors.slice(0, 20) }, { headers: { "Cache-Control": "no-store" } });
 }

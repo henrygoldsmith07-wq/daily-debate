@@ -76,5 +76,5 @@ export async function POST(request: Request) {
   }
   invalidatePublicCorpusMetrics();
 
-  return NextResponse.json({ ok: true, corpusId, consensusWinner, basis });
+  return NextResponse.json({ ok: true, corpusId, consensusWinner, basis }, { headers: { "Cache-Control": "no-store" } });
 }
