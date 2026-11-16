@@ -32,7 +32,7 @@ export async function GET(request: Request) {
         errorCategory: funnelData.errorCategory,
         completeness: funnelData.completeness,
       },
-      { status: 503 },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }
   const { events, repairs, retests, debateWeaknesses, completeness } = funnelData;
@@ -47,5 +47,5 @@ export async function GET(request: Request) {
     repairEffectiveness,
     trainingLoop,
     completeness,
-  });
+  }, { headers: { "Cache-Control": "no-store" } });
 }

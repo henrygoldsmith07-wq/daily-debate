@@ -169,5 +169,5 @@ export async function GET(request: Request) {
       cellsNeedingCoverage: progress.cellsNeedingCoverage,
     },
     note: "System-vs-human accuracy uses only completed items with canonical human ground truth: strict consensus or non-stale adjudication.",
-  });
+  }, { headers: { "Cache-Control": "no-store" } });
 }

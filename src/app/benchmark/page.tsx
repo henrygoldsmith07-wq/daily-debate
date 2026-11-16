@@ -90,7 +90,7 @@ export default function BenchmarkPage() {
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-ink3">
-              <tr><th className="pb-2 font-medium">Probe</th><th className="pb-2">Flips</th><th className="pb-2">p</th><th className="pb-2">OK</th></tr>
+              <tr><th scope="col" className="pb-2 font-medium">Probe</th><th scope="col" className="pb-2">Flips</th><th scope="col" className="pb-2">p</th><th scope="col" className="pb-2">OK</th></tr>
             </thead>
             <tbody className="tabular">
               {probes.map((r) => (
@@ -158,7 +158,7 @@ export default function BenchmarkPage() {
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-ink3">
-              <tr><th className="pb-2 font-medium">Label</th><th className="pb-2">P</th><th className="pb-2">R</th><th className="pb-2">F1</th><th className="pb-2">TP/FP/FN</th></tr>
+              <tr><th scope="col" className="pb-2 font-medium">Label</th><th scope="col" className="pb-2">P</th><th scope="col" className="pb-2">R</th><th scope="col" className="pb-2">F1</th><th scope="col" className="pb-2">TP/FP/FN</th></tr>
             </thead>
             <tbody className="tabular">
               {fallacyReport.perLabel.map((m) => (

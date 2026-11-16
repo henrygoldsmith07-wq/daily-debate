@@ -355,14 +355,14 @@ export default async function AnalyticsPage() {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="text-ink3">
-                <th className="py-1 pr-3 font-medium">Week</th>
-                <th className="py-1 pr-3 font-semibold">Active</th>
-                <th className="py-1 pr-3 font-semibold">Debating</th>
-                <th className="py-1 pr-3 font-semibold">Starts</th>
-                <th className="py-1 pr-3 font-semibold">Completed</th>
-                <th className="py-1 pr-3 font-semibold">Completion</th>
-                <th className="py-1 pr-3 font-semibold">Repairs</th>
-                <th className="py-1 font-semibold">Returning</th>
+                <th scope="col" className="py-1 pr-3 font-medium">Week</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Active</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Debating</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Starts</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Completed</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Completion</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Repairs</th>
+                <th scope="col" className="py-1 font-semibold">Returning</th>
               </tr>
             </thead>
             <tbody className="tabular">
@@ -404,10 +404,10 @@ export default async function AnalyticsPage() {
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="text-ink3">
-                  <th className="py-1 pr-3 font-medium">Week</th>
-                  <th className="py-1 pr-3 font-semibold">Started</th>
-                  <th className="py-1 pr-3 font-semibold">Completed</th>
-                  <th className="py-1 font-semibold">Completion</th>
+                  <th scope="col" className="py-1 pr-3 font-medium">Week</th>
+                  <th scope="col" className="py-1 pr-3 font-semibold">Started</th>
+                  <th scope="col" className="py-1 pr-3 font-semibold">Completed</th>
+                  <th scope="col" className="py-1 font-semibold">Completion</th>
                 </tr>
               </thead>
               <tbody className="tabular">
@@ -431,11 +431,11 @@ export default async function AnalyticsPage() {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="text-ink3">
-                <th className="py-1 pr-3 font-medium">Week</th>
-                <th className="py-1 pr-3 font-semibold">Users</th>
-                <th className="py-1 pr-3 font-semibold">D1</th>
-                <th className="py-1 pr-3 font-semibold">D7</th>
-                <th className="py-1 font-semibold">D30</th>
+                <th scope="col" className="py-1 pr-3 font-medium">Week</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Users</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">D1</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">D7</th>
+                <th scope="col" className="py-1 font-semibold">D30</th>
               </tr>
             </thead>
             <tbody className="tabular">
@@ -606,14 +606,14 @@ export default async function AnalyticsPage() {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="text-ink3">
-                <th className="py-1 pr-3 font-medium">Weakness kind</th>
-                <th className="py-1 pr-3 font-semibold">Repairs</th>
-                <th className="py-1 pr-3 font-semibold">Measurable</th>
-                <th className="py-1 pr-3 font-semibold">Improved</th>
-                <th className="py-1 pr-3 font-semibold">Unchanged</th>
-                <th className="py-1 pr-3 font-semibold">Worse</th>
-                <th className="py-1 pr-3 font-semibold">Improved rate</th>
-                <th className="py-1 font-semibold">Retest recurred</th>
+                <th scope="col" className="py-1 pr-3 font-medium">Weakness kind</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Repairs</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Measurable</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Improved</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Unchanged</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Worse</th>
+                <th scope="col" className="py-1 pr-3 font-semibold">Improved rate</th>
+                <th scope="col" className="py-1 font-semibold">Retest recurred</th>
               </tr>
             </thead>
             <tbody className="tabular">

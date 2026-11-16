@@ -200,12 +200,13 @@ export function DebateLivePanel({
               disabled={opponentSpeaking || modeWindowStarting || submissionSaved}
               onClick={() => setShowAdvancedModes((visible) => !visible)}
               aria-expanded={showAdvancedModes}
+              aria-controls="advanced-debate-modes"
               className="btn btn-ghost px-3 py-1.5 text-xs disabled:opacity-40"
             >
               {showAdvancedModes ? "Fewer modes" : "More modes"}
             </button>
             {showAdvancedModes && (
-              <>
+              <div id="advanced-debate-modes" className="flex flex-wrap items-center gap-2">
                 {[
                   { id: "rapid-rebuttal", label: "Rapid (60s)", icon: "bolt" as const },
                   { id: "prepared-speech", label: "Prepared (5min)", icon: "clipboard" as const },
@@ -221,7 +222,7 @@ export function DebateLivePanel({
                     <span className="inline-flex items-center gap-1.5"><UiIcon name={m.icon} />{m.label}</span>
                   </button>
                 ))}
-              </>
+              </div>
             )}
           </div>
           <MessageComposer
