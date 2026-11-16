@@ -40,7 +40,7 @@ export default async function SharedResultPage({ searchParams }: { searchParams:
         <section className="surface-card mt-5 p-5" aria-label="Their result">
           <p className="text-sm text-ink2">Argued {card.side === "for" ? "For" : "Against"}</p>
           {card.marks.length ? (
-            <p className="mt-3 text-3xl tracking-[0.2em]" aria-label="One square per round">
+            <p role="img" className="mt-3 text-3xl tracking-[0.2em]" aria-label="One square per round">
               {squares(card.marks)}
             </p>
           ) : null}

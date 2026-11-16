@@ -208,6 +208,10 @@ async function loadDebateWeaknesses(
   // repair-only upper bound would silently drop the debate that defines the
   // product's transfer measurement.
   const repairTimes = repairs.map((r) => Date.parse(r.created_at)).filter(Number.isFinite);
+  // An all-invalid repair set leaves repairTimes empty: Math.min(...[]) is
+  // Infinity and toISOString() would throw a RangeError, 500-ing the admin
+  // report instead of degrading to an explicit empty availability state.
+  if (!repairTimes.length) return empty;
   const retestTimes = retests
     .flatMap((r) => [r.assigned_at, r.completed_at].filter((v): v is string => typeof v === "string"))
     .map(Date.parse)

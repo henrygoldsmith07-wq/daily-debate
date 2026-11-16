@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  mode: "ok" as "ok" | "throw" | "event-error" | "repair-error" | "retest-error" | "invalid-repair-kind",
+  mode: "ok" as "ok" | "throw" | "event-error" | "repair-error" | "retest-error" | "invalid-repair-kind" | "bad-date",
 }));
 
 vi.mock("@/lib/backend/server", () => ({
@@ -32,6 +32,20 @@ vi.mock("@/lib/backend/server", () => ({
                   score: 80,
                   succeeded: true,
                   created_at: "2026-09-26T18:00:00Z",
+                }],
+                error: null,
+              });
+            }
+            if (table === "repair_results" && h.mode === "bad-date") {
+              return Promise.resolve({
+                data: [{
+                  id: "repair-1",
+                  user_id: "u1",
+                  debate_id: "d1",
+                  target_kind: "rebuttal",
+                  score: 80,
+                  succeeded: true,
+                  created_at: "not-a-timestamp",
                 }],
                 error: null,
               });
@@ -88,6 +102,14 @@ describe("loadFunnelData availability semantics", () => {
     expect(result.events).toEqual([]);
     expect(result.repairs).toEqual([]);
     expect(result.retests).toEqual([]);
+  });
+
+  it("degrades safely when every repair timestamp is unparseable", async () => {
+    h.mode = "bad-date";
+    await expect(loadFunnelData()).resolves.toMatchObject({
+      status: "ok",
+      debateWeaknesses: [],
+    });
   });
 
   it("quarantines invalid persisted repair kinds instead of casting them into analytics", async () => {
