@@ -62,7 +62,11 @@ export default function AuthForm({
     // WAI-ARIA tab keyboard interaction: arrows move between the two tabs.
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
     event.preventDefault();
-    selectMode(mode === "sign-in" ? "sign-up" : "sign-in");
+    const next = mode === "sign-in" ? "sign-up" : "sign-in";
+    selectMode(next);
+    // WAI-ARIA tabs: focus must follow the newly selected tab, otherwise the
+    // focused tab announces as unselected while its panel is now displayed.
+    document.getElementById(next === "sign-in" ? "auth-tab-signin" : "auth-tab-signup")?.focus();
   }
 
   return (

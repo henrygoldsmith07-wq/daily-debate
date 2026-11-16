@@ -32,6 +32,7 @@
   body { background:var(--ls-bg); color:var(--ls-ink); font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; line-height:1.6; -webkit-font-smoothing:antialiased; }
   .wrap { max-width:1020px; margin:0 auto; padding:0 22px; }
   a:focus-visible, button:focus-visible { outline:2px solid var(--ls-ink); outline-offset:3px; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
   .skip { position:absolute; left:-9999px; }
   .skip:focus { position:fixed; left:12px; top:12px; z-index:100; padding:10px 14px; background:var(--ls-ink); color:var(--ls-bg); border-radius:10px; text-decoration:none; font-weight:700; font-size:14px; }
   header { padding:18px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
@@ -76,7 +77,7 @@
   "@type": "SoftwareApplication",
   "name": "Daily Debate",
   "url": "https://daily-debate-site-henrygoldsmith07-9188s-projects.vercel.app/",
-  "description": "Daily Debate — solo vs AI or PvP on a daily topic, judged on a structured argument graph.",
+  "description": "A four-minute daily debate against an AI opponent: one weakness, fixed on the spot, then proven in a later debate.",
   "image": "https://daily-debate-site-henrygoldsmith07-9188s-projects.vercel.app/icon-512.png",
   "applicationCategory": "EducationalApplication",
   "operatingSystem": "Web",
@@ -101,7 +102,7 @@
       <a class="cta" href="https://daily-debate-brown.vercel.app/">Open Daily Debate</a>
     </nav>
   </header>
-  <section class="hero" id="main">
+  <section class="hero" id="main" tabindex="-1">
     <img src="./icon-192.png" alt="" aria-hidden="true">
     <p style="margin:14px 0 0;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ls-ink3);font-weight:700">Le Studio family · Daily Debate</p>
     <h1>Argue today's motion.<br>Fix one thing. Prove it.</h1>
@@ -115,7 +116,8 @@
     <div class="stat"><b>1</b><span>weakness to fix</span></div>
     <div class="stat"><b>Free</b><span>no card</span></div>
   </section>
-  <section class="grid" id="features" style="margin-top:8px">
+  <section class="grid" id="features" aria-labelledby="features-heading" style="margin-top:8px">
+    <h2 class="sr-only" id="features-heading">How it works</h2>
     <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a4 4 0 0 1 4 4v2H8V7a4 4 0 0 1 4-4Z"/><path d="M5 11h14v7a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-7Z"/></svg>One motion a day</h3><p>Everyone gets the same motion, with named sources to research yourself. Pick a side or let it pick for you.</p></div>
     <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>An opponent that argues back</h3><p>Three rounds against an AI opponent with a style of its own — the Skeptic, the Lawyer, the Philosopher and more.</p></div>
     <div class="card"><h3><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>One weakness, not a report card</h3><p>The result leads with one thing you did well and the one move to fix, not a wall of analytics.</p></div>
@@ -133,7 +135,7 @@
     <h2>FAQ</h2>
     <details><summary>Do I need an account?</summary><p>No. You can debate today's motion as a guest. An account keeps your history, your weaknesses and your retests between days.</p></details>
     <details><summary>Is the judging accurate?</summary><p>Not proven yet. The judge is benchmarked weekly against published gates and does not pass them, so results are labelled as practice feedback, never as a measurement of your ability.</p></details>
-    <details><summary>Can I debate other people?</summary><p>Yes, with an account. Player vs Player pairs you with someone who took the other side of today's motion, and Explore shows finished debates people chose to publish so others can vote on who argued better (not who is right).</p></details>
+    <details><summary>What does an account give me?</summary><p>The same daily loop as a guest, plus kept progress: your history, the weakness you are working on and its later retest stay between days. Account features that are still experimental are not advertised here.</p></details>
   </section>
   <footer><a href="https://le-studio-site-henrygoldsmith07-9188s-projects.vercel.app/">Le Studio family</a> · Daily Debate · <a href="https://daily-debate-brown.vercel.app/">Open app</a> · <a href="https://github.com/henrygoldsmith07-wq/daily-debate">Source</a></footer>
 </div>

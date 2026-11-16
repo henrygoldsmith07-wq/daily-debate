@@ -62,10 +62,11 @@ const REQUIRED_TABLES: TableName[] = [
 
 const CI_WORKFLOWS = ["daily-debate.yml", "judge-benchmark.yml", "topic-generation.yml"];
 
-async function fetchWorkflowRuns(token: string): Promise<WorkflowStatusInput[] | null> {
+export async function fetchWorkflowRuns(token: string): Promise<WorkflowStatusInput[] | null> {
   try {
-    const runs: WorkflowStatusInput[] = [];
-    for (const workflow of CI_WORKFLOWS) {
+    // Independent calls: run them together. A cold /api/health memo miss used
+    // to pay three sequential 8s timeouts on a public endpoint.
+    const results = await Promise.all(CI_WORKFLOWS.map(async (workflow) => {
       const res = await fetch(
         `https://api.github.com/repos/${REPO}/actions/workflows/${workflow}/runs?per_page=1&branch=main`,
         {
@@ -79,13 +80,14 @@ async function fetchWorkflowRuns(token: string): Promise<WorkflowStatusInput[] |
       };
       const run = data.workflow_runs?.[0];
       if (!run) return null;
-      runs.push({
+      return {
         name: run.name ?? workflow,
         status: (run.status as WorkflowStatusInput["status"]) ?? null,
         conclusion: run.conclusion ?? null,
-      });
-    }
-    return runs;
+      } satisfies WorkflowStatusInput;
+    }));
+    if (results.some((r) => r === null)) return null;
+    return results as WorkflowStatusInput[];
   } catch {
     return null;
   }
@@ -137,40 +139,47 @@ async function fetchTopicGenerationRuns(token?: string): Promise<TopicScheduledR
  * Token optional; failures degrade to an empty map (inference then remains
  * as the FINAL fallback, never the other way round).
  */
-async function fetchArtifactWitnesses(
+export async function fetchArtifactWitnesses(
   token: string | undefined,
   runs: TopicScheduledRun[],
 ): Promise<Map<number, TopicArtifactWitness>> {
   const out = new Map<number, TopicArtifactWitness>();
   if (!token) return out;
   const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}` };
-  for (const run of runs) {
-    if (run.id === undefined || out.size >= 4) continue; // bounded: recent runs only
+  // Pre-bound to the first four eligible runs, then read them in parallel.
+  // The two fetches for one run stay sequential (the zip URL comes from the
+  // list response), but different runs have no dependency on each other.
+  const eligible = runs
+    .filter((r): r is TopicScheduledRun & { id: number } => typeof r.id === "number")
+    .slice(0, 4);
+  const witnessed = await Promise.all(eligible.map(async (run) => {
     try {
       const listRes = await fetch(`https://api.github.com/repos/${REPO}/actions/runs/${run.id}/artifacts`, {
         headers,
         signal: AbortSignal.timeout(8000),
       });
-      if (!listRes.ok) continue;
+      if (!listRes.ok) return null;
       const list = (await listRes.json()) as {
         artifacts?: Array<{ id: number; name: string; expired?: boolean; archive_url: string }>;
       };
       const artifact = (list.artifacts ?? []).find(
         (a) => a.name === `topic-run-evidence-${run.id}` && !a.expired,
       );
-      if (!artifact) continue;
+      if (!artifact) return null;
       const zipRes = await fetch(artifact.archive_url, { headers, signal: AbortSignal.timeout(10_000) });
-      if (!zipRes.ok) continue;
+      if (!zipRes.ok) return null;
       const bytes = Buffer.from(await zipRes.arrayBuffer());
       const jsonBytes = findZipEntry(bytes, "topic-run-evidence.json");
-      if (!jsonBytes) continue;
+      if (!jsonBytes) return null;
       const parsed = JSON.parse(jsonBytes.toString("utf8")) as Record<string, unknown>;
       const witness = parseArtifactWitness(parsed);
-      if (witness) out.set(run.id, witness);
+      return witness ? ([run.id, witness] as const) : null;
     } catch {
       // artifact unavailable for this run — inference stays as final fallback
+      return null;
     }
-  }
+  }));
+  for (const entry of witnessed) if (entry) out.set(entry[0], entry[1]);
   return out;
 }
 
@@ -219,14 +228,18 @@ export async function loadOpsHealth(nowIso?: string): Promise<OpsHealthReport> {
     const latencyMs = Date.now() - started;
     if (migrations.error) throw new Error(migrations.error.message ?? "migration ledger unreadable");
     const applied = ((migrations.data ?? []) as Array<{ name: string }>).map((r) => r.name);
-    const missingTables: string[] = [];
-    for (const table of REQUIRED_TABLES) {
-      // Column-agnostic existence probe: tables like topic_run_log have a
-      // composite PK (run_id, run_attempt) and no `id` column, so selecting
-      // `id` misreports a migrated database as schema-incomplete.
-      const probed = await service.from(table).select("*", { count: "exact", head: true });
-      if (probed.error) missingTables.push(table);
-    }
+    // One information_schema read instead of eight sequential table probes.
+    // The old burst was the suspected cause of the transient Neon transport
+    // failure that the topic-read retry below was added to mask.
+    const { queryRows } = await import("./backend/sql");
+    const present = await queryRows<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name IN (${REQUIRED_TABLES.map((_, i) => `$${i + 1}`).join(", ")})`,
+      [...REQUIRED_TABLES],
+    );
+    const presentNames = new Set(present.map((r) => r.table_name));
+    const missingTables = REQUIRED_TABLES.filter((table) => !presentNames.has(table));
     database = assessDatabaseHealth({
       reachable: true,
       latencyMs,

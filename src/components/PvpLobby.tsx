@@ -104,7 +104,14 @@ export default function PvpLobby() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create the challenge.");
-      setInvite({ code: data.invite.code, url: data.url, expiresAt: data.invite.expires_at });
+      // Store exactly what a friend needs: the API returns a root-relative
+      // path, but the text shown and the link copied must be the same absolute
+      // URL. Resolved here (a client handler, so window exists), not in render.
+      setInvite({
+        code: data.invite.code,
+        url: new URL(data.url, window.location.origin).href,
+        expiresAt: data.invite.expires_at,
+      });
     } catch (err) {
       setInviteError(err instanceof Error ? err.message : "Failed to create the challenge.");
     } finally {
@@ -162,7 +169,7 @@ export default function PvpLobby() {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => navigator.clipboard.writeText(window.location.origin + invite.url).catch(() => {})}
+                onClick={() => navigator.clipboard.writeText(invite.url).catch(() => {})}
                 className="btn btn-ghost px-3 py-1 text-xs"
               >
                 Copy link

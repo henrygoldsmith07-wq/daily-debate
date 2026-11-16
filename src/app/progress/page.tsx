@@ -379,12 +379,12 @@ export default async function ProgressPage() {
       </section>
 
       {coachingContext.status === "partial" && (
-        <p className="text-xs text-ink3" role="status">
+        <p className="text-xs text-ink3" role="alert">
           Some coaching context is temporarily unavailable; saved progress remains intact and no missing signal is being treated as zero.
         </p>
       )}
       {drillRowsError && (
-        <p className="text-xs text-ink3" role="status">
+        <p className="text-xs text-ink3" role="alert">
           Drill history is temporarily unavailable; learning-loop cards are hidden rather than treating missing assignments as zero practice.
         </p>
       )}

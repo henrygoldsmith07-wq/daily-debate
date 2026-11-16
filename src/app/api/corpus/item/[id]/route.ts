@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/backend/server";
 import { getRequestAuthContext } from "@/lib/requestAuth";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { raterLabelsInOrder } from "@/lib/corpusRaterAnonymity";
 
 // Admin-only review of one corpus item for adjudication: full transcript plus
 // its ratings. Rater identities are anonymised to Rater 1..N so the moderator
@@ -34,9 +35,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     .order("created_at", { ascending: true });
 
   // Blind even to the moderator: raters become Rater 1..N in submission order.
-  const raterLabels = new Map<string, string>();
+  const raterLabels = raterLabelsInOrder((ratings ?? []).map((r) => r.rater_id));
   const anonymised = (ratings ?? []).map((r) => {
-    if (!raterLabels.has(r.rater_id)) raterLabels.set(r.rater_id, `Rater ${raterLabels.size + 1}`);
     return {
       rater: raterLabels.get(r.rater_id),
       winner: r.winner,

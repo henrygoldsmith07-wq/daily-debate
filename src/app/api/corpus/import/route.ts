@@ -78,17 +78,54 @@ export async function POST(request: Request) {
   const { data: alreadyImported } = await service.from("corpus_items").select("source_type, source_id");
   const importedKeys = new Set((alreadyImported ?? []).map((r) => `${r.source_type}:${r.source_id}`));
 
+  const pendingSolo = (soloDebates ?? []).filter((d) => !importedKeys.has(`solo:${d.id}`));
+  const pendingPvp = (pvpMatches ?? []).filter((m) => !importedKeys.has(`pvp:${m.id}`));
+  const topicIds = [...new Set([...pendingSolo, ...pendingPvp].map((x) => x.topic_id).filter((x): x is string => !!x))];
+  const profileIds = [...new Set([...pendingSolo.map((d) => d.user_id), ...pendingPvp.map((m) => m.player_a)])];
+
+  // Batch the three relations once. The old per-row Promise.all issued up to
+  // ~1,600 round-trips for a full 200+200 import. The write stays per-row and
+  // conflict-tolerant: that is the concurrency boundary (migration 053).
+  const [soloTurnRows, pvpTurnRows, profileRows, topicRows] = await Promise.all([
+    pendingSolo.length
+      ? service.from("solo_debate_turns").select("debate_id, round_number, ai_message, user_message").in("debate_id", pendingSolo.map((d) => d.id)).order("debate_id").order("round_number")
+      : Promise.resolve({ data: [] }),
+    pendingPvp.length
+      ? service.from("pvp_turns").select("match_id, round_number, player_id, message").in("match_id", pendingPvp.map((m) => m.id)).order("match_id").order("round_number").order("created_at")
+      : Promise.resolve({ data: [] }),
+    profileIds.length
+      ? service.from("profiles").select("id, level").in("id", profileIds)
+      : Promise.resolve({ data: [] }),
+    topicIds.length
+      ? service.from("daily_topics").select("id, category, title, prompt").in("id", topicIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  type SoloTurn = { round_number: number; ai_message: string; user_message: string | null };
+  type PvpTurn = { round_number: number; player_id: string; message: string };
+  const soloTurns = new Map<string, SoloTurn[]>();
+  for (const t of (soloTurnRows.data ?? []) as Array<SoloTurn & { debate_id: string }>) {
+    const rows = soloTurns.get(t.debate_id) ?? [];
+    rows.push(t);
+    soloTurns.set(t.debate_id, rows);
+  }
+  const pvpTurns = new Map<string, PvpTurn[]>();
+  for (const t of (pvpTurnRows.data ?? []) as Array<PvpTurn & { match_id: string }>) {
+    const rows = pvpTurns.get(t.match_id) ?? [];
+    rows.push(t);
+    pvpTurns.set(t.match_id, rows);
+  }
+  const profiles = new Map((profileRows.data ?? []).map((p) => [p.id, p]));
+  const topics = new Map((topicRows.data ?? []).map((t) => [t.id, t]));
+
   let imported = 0;
   const errors: string[] = [];
 
-  for (const debate of soloDebates ?? []) {
-    if (importedKeys.has(`solo:${debate.id}`)) continue;
+  for (const debate of pendingSolo) {
     try {
-      const [{ data: turns }, { data: profile }, { data: topic }] = await Promise.all([
-        service.from("solo_debate_turns").select("round_number, ai_message, user_message").eq("debate_id", debate.id).order("round_number"),
-        service.from("profiles").select("level").eq("id", debate.user_id).single(),
-        service.from("daily_topics").select("category, title, prompt").eq("id", debate.topic_id).single(),
-      ]);
+      const turns = soloTurns.get(debate.id) ?? [];
+      const profile = profiles.get(debate.user_id);
+      const topic = topics.get(debate.topic_id);
       const lines: Array<{ side: "a" | "b"; round: number; text: string }> = [];
       for (const t of turns ?? []) {
         if (t.user_message) lines.push({ side: "a", round: t.round_number, text: t.user_message });
@@ -135,14 +172,11 @@ export async function POST(request: Request) {
     }
   }
 
-  for (const match of pvpMatches ?? []) {
-    if (importedKeys.has(`pvp:${match.id}`)) continue;
+  for (const match of pendingPvp) {
     try {
-      const [{ data: turns }, { data: profileA }, { data: topic }] = await Promise.all([
-        service.from("pvp_turns").select("round_number, player_id, message").eq("match_id", match.id).order("round_number").order("created_at"),
-        service.from("profiles").select("level").eq("id", match.player_a).single(),
-        service.from("daily_topics").select("category, title, prompt").eq("id", match.topic_id).single(),
-      ]);
+      const turns = pvpTurns.get(match.id) ?? [];
+      const profileA = profiles.get(match.player_a);
+      const topic = topics.get(match.topic_id);
       const lines: Array<{ side: "a" | "b"; round: number; text: string }> = [];
       for (const t of turns ?? []) {
         lines.push({ side: t.player_id === match.player_a ? "a" : "b", round: t.round_number, text: t.message });
