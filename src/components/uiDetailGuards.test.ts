@@ -26,4 +26,20 @@ describe("UI detail guards", () => {
     expect(s).not.toContain("window.location.origin + invite.url");
     expect(s).toContain("clipboard.writeText(invite.url)");
   });
+
+  it("keeps an accessible name on the copy-summary button", () => {
+    const s = source("src/components/debate/DebateResultCard.tsx");
+    expect(s).toContain('aria-label="Copy summary"');
+  });
+
+  it("gives the reminder toggle the base btn class", () => {
+    const s = source("src/components/ReminderOptInPanel.tsx");
+    expect(s).toContain('className="btn btn-secondary mt-3"');
+  });
+
+  it("labels the guest result region with its caption, not the numeric score", () => {
+    const s = source("src/components/GuestArena.tsx");
+    expect(s).toContain('aria-labelledby="guest-headline-caption"');
+    expect(s).toContain('id="guest-headline-caption" className="result-headline-caption"');
+  });
 });

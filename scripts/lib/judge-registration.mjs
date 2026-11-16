@@ -26,7 +26,11 @@ export function canonicalHash(reg) {
 }
 
 export function deriveAdoptionRule(reg) {
-  const dir = reg.target?.direction;
+  // The engine decides from METRIC_DIRECTION[metric] (judge-stats). Use the
+  // same source here: direction is optional on a valid registration, and a
+  // hand-written/derived prose that says "down" while the sealed verdict goes
+  // "up" is exactly the drift this module exists to prevent.
+  const dir = METRIC_DIRECTION[reg.target?.metric] ?? reg.target?.direction;
   return (
     `supported iff usable runs >= ${reg.runsPerArm}/arm at reliability >= ${reg.minimumUsableReliability} ` +
     `AND target "${reg.target?.metric}" moves ${dir === "up" ? "up" : "down"} by >= ${reg.target?.minImprovement} ` +
