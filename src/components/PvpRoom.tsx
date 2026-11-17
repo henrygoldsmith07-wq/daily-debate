@@ -166,7 +166,9 @@ export default function PvpRoom({
   return (
     <div className="flex flex-1 flex-col gap-4">
       <div>
-        <p className="text-xs uppercase tracking-wide text-ink3">{topic.title}</p>
+        {/* The document's only heading: AppShell provides none, so this was
+            previously a <p> and left the match screen with no h1. */}
+        <h1 className="text-xs uppercase tracking-wide text-ink3">{topic.title}</h1>
         <p className="text-sm text-ink3">{topic.prompt}</p>
       </div>
       <div className="flex items-center justify-between gap-3">

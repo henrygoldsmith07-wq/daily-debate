@@ -17,7 +17,7 @@ export default function ForgotPasswordForm() {
   if (submitted && !state.error) {
     return (
       <div role="status" className="surface-raised flex w-full max-w-sm flex-col gap-4 p-6 text-center">
-        <h2 className="font-semibold">Check your inbox</h2>
+        <h1 className="font-semibold">Check your inbox</h1>
         <p className="text-sm text-ink3">
           If an account exists for that email, check for a reset message. The link is valid for 30 minutes. If nothing
           arrives after a few minutes, try again in case email delivery is temporarily unavailable.
@@ -29,7 +29,7 @@ export default function ForgotPasswordForm() {
   return (
     <div className="surface-raised flex w-full max-w-sm flex-col gap-6 p-6">
       <div className="flex flex-col gap-1 text-center">
-        <h2 className="font-semibold">Reset your password</h2>
+        <h1 className="font-semibold">Reset your password</h1>
         <p className="text-sm text-ink3">Enter your account email and we will send a reset link.</p>
       </div>
 

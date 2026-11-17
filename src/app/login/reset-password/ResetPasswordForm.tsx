@@ -20,7 +20,7 @@ export default function ResetPasswordForm() {
   if (done && !state.error) {
     return (
       <div role="status" className="surface-raised flex w-full max-w-sm flex-col gap-4 p-6 text-center">
-        <h2 className="font-semibold">Password updated</h2>
+        <h1 className="font-semibold">Password updated</h1>
         <p className="text-sm text-ink3">
           Your password has been changed. For your security, all previous sign-ins were ended — please sign in with
           your new password.
@@ -32,7 +32,7 @@ export default function ResetPasswordForm() {
   return (
     <div className="surface-raised flex w-full max-w-sm flex-col gap-6 p-6">
       <div className="flex flex-col gap-1 text-center">
-        <h2 className="font-semibold">Choose a new password</h2>
+        <h1 className="font-semibold">Choose a new password</h1>
         <p className="text-sm text-ink3">Enter a new password for your account.</p>
       </div>
 
