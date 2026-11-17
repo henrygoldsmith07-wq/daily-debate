@@ -16,7 +16,7 @@ test.describe("live guest sprint", () => {
   test("opens on today's motion, streams the opponent, and finishes in the usual result", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("guest-mode-pill")).toHaveText(/live ai opponent/i);
-    await expect(page.getByText(/go to a free-tier AI provider, which may log them/i)).toBeVisible();
+    await expect(page.getByText(/An AI provider receives your answers for replies and may log them/i)).toBeVisible();
 
     await page.getByRole("button", { name: /start a free practice/i }).click();
     const opponent = page.getByTestId("guest-opponent");
