@@ -38,7 +38,8 @@ export default function PvpRoom({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
-  const [nowTs, setNowTs] = useState<number | null>(null);  const scrollRef = useRef<HTMLDivElement>(null);
+  const [nowTs, setNowTs] = useState<number | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
 
   useEffect(() => {

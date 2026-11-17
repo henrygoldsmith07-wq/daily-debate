@@ -24,7 +24,7 @@ export default function SkillProfileBars({ profile }: { profile: ArgumentSkillPr
 
   return (
     <div className="flex flex-col gap-1">
-          {lowData && (
+      {lowData && (
         <p className={`text-xs mb-2 ${profile.debatesAnalysed > 0 ? "text-[var(--review)]" : "text-ink3"}`}>
           Only {profile.debatesAnalysed} debate{profile.debatesAnalysed === 1 ? "" : "s"} so far — treat this as an early profile, not an ability rating.
         </p>

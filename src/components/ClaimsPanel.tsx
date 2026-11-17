@@ -57,12 +57,12 @@ export default function ClaimsPanel({ sources }: { sources: ClaimSource[] }) {
         </div>
         {speakers.map((speaker) => (
           <section key={speaker} className="claims-speaker" aria-label={`Claims by ${speaker}`}>
-            <h3 className="claims-speaker-name">
+            <h2 className="claims-speaker-name">
               {speaker}
               {shown.find((claim) => claim.speaker === speaker)?.side ? (
                 <span className="claims-speaker-side"> · {shown.find((claim) => claim.speaker === speaker)?.side}</span>
               ) : null}
-            </h3>
+            </h2>
             <ol className="claims-list">
               {shown
                 .filter((claim) => claim.speaker === speaker)
