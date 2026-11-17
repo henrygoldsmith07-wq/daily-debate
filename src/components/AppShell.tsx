@@ -45,7 +45,7 @@ function LevelChip({
     return (
       <span className="pill tabular" title={title}>
         L{level} · <UiIcon name="flame" className="h-3 w-3" /><span className="sr-only">streak</span>{streak}
-        <span className="sr-only">, {title}</span>
+        <span className="sr-only">, {pointsIntoLevel(points)} of {POINTS_PER_LEVEL} toward level {level}</span>
       </span>
     );
   }

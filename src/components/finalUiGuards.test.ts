@@ -14,7 +14,9 @@ describe("final UI detail guards", () => {
   });
 
   it("exposes the compact level progress and DNA score explanation as text", () => {
-    expect(source("src/components/AppShell.tsx")).toContain('<span className="sr-only">, {title}</span>');
+    expect(source("src/components/AppShell.tsx")).toContain(
+      '<span className="sr-only">, {pointsIntoLevel(points)} of {POINTS_PER_LEVEL} toward level {level}</span>',
+    );
     expect(source("src/components/ArgumentDnaView.tsx")).toContain(
       '<span className="sr-only">Length-normalised debate score: </span>',
     );
