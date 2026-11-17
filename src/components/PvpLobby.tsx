@@ -18,6 +18,7 @@ export default function PvpLobby() {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [creatingInvite, setCreatingInvite] = useState(false);
   const [position, setPosition] = useState<MotionPosition | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -127,12 +128,12 @@ export default function PvpLobby() {
         </Link>
       )}
       {searching ? (
-        <>
+        <div role="status" className="flex flex-col items-center gap-4">
           <p className="text-sm text-ink3">Looking for someone who {position === "for" ? "disagrees" : "agrees"} with the motion…</p>
           <button type="button" onClick={cancelSearch} className="btn btn-ghost px-4 py-2 text-sm">
             Cancel
           </button>
-        </>
+        </div>
       ) : (
         <>
           <PositionPills onChange={setPosition} />
@@ -169,11 +170,21 @@ export default function PvpLobby() {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => navigator.clipboard.writeText(invite.url).catch(() => {})}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(invite.url);
+                    setCopyState("copied");
+                  } catch {
+                    setCopyState("failed");
+                  }
+                }}
                 className="btn btn-ghost px-3 py-1 text-xs"
               >
                 Copy link
               </button>
+              <span role="status" className="text-xs text-ink3">
+                {copyState === "copied" ? "Link copied" : copyState === "failed" ? "Copy failed — select the link above" : ""}
+              </span>
               <span className="text-xs text-ink3">Expires {new Date(invite.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
             </div>
           </div>

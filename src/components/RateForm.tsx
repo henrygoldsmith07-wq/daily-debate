@@ -33,8 +33,10 @@ function ScoreColumn({
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs font-semibold uppercase tracking-wide text-ink3">{title}</p>
+      {/* A label wrapping buttons would name the first button with the whole
+          row; the group below already carries the accessible label. */}
       {EVAL_DIMENSIONS.map((dim) => (
-        <label key={dim} className="flex items-center justify-between gap-2 text-xs">
+        <div key={dim} className="flex items-center justify-between gap-2 text-xs">
           <span className="text-ink3">{DIMENSION_LABELS[dim] ?? dim}</span>
           {/* Toggle buttons with aria-pressed are a group, not a radiogroup:
               a radiogroup must own role="radio" children and arrow-key support. */}
@@ -55,7 +57,7 @@ function ScoreColumn({
               </button>
             ))}
           </span>
-        </label>
+        </div>
       ))}
     </div>
   );

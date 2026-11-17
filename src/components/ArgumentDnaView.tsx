@@ -153,7 +153,7 @@ function GraphPreview({ snapshot, label }: { snapshot: DnaDebateSnapshot | null;
           <span className="dna-overline">{label}</span>
           <strong>{formatDate(snapshot.completedAt)}</strong>
         </div>
-        <span className="dna-graph-score" title="Length-normalised debate score">{formatScore(snapshot.score)}<small>/100</small></span>
+        <span className="dna-graph-score" title="Length-normalised debate score"><span className="sr-only">Length-normalised debate score: </span>{formatScore(snapshot.score)}<small>/100</small></span>
       </div>
       <div role="group" className="dna-graph-flow" aria-label={`${label} argument graph`}>
         {KIND_META.map((kind, index) => (
