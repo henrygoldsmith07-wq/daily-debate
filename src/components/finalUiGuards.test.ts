@@ -51,6 +51,18 @@ describe("final UI detail guards", () => {
     );
   });
 
+  it("keeps the guest privacy disclosure free of duplicated clauses", () => {
+    const s = source("src/components/GuestArena.tsx");
+    expect(s).not.toContain("may log them: your answers go to");
+    expect(s).toContain("An AI provider receives your answers for replies and may log them. Practice is saved only in this browser tab.");
+  });
+
+  it("moves focus to the deletion confirmation field", () => {
+    const s = source("src/components/AccountDataControls.tsx");
+    expect(s).toContain("confirmRef.current?.focus()");
+    expect(s).toContain("ref={confirmRef}");
+  });
+
   it("announces feedback confirmation and keeps focus on matchmaking start", () => {
     expect(source("src/components/debate/DebateResultCard.tsx")).toContain(
       '<p role="status" className="text-xs text-ink3" data-testid="weakness-feedback-thanks">',
