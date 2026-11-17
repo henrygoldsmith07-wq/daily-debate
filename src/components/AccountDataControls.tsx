@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 /**
@@ -16,6 +16,14 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
   const [showDelete, setShowDelete] = useState(false);
   const [confirm, setConfirm] = useState("");
   const [password, setPassword] = useState("");
+  const confirmRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    // The "Continue to deletion" button unmounts when the confirmation form
+    // appears; move focus to its first field so keyboard users are not dumped
+    // at the top of the document on this irreversible step.
+    if (showDelete) confirmRef.current?.focus();
+  }, [showDelete]);
 
   if (!signedIn) {
     return (
@@ -111,6 +119,7 @@ export default function AccountDataControls({ signedIn, email }: { signedIn: boo
             <label className="block text-xs text-ink3">
               Type <span className="font-mono font-semibold text-ink2">DELETE</span> to confirm
               <input
+                ref={confirmRef}
                 type="text"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
