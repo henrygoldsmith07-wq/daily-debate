@@ -29,6 +29,17 @@ function event(users: string[], name: string, at: string, extra?: Partial<Funnel
   return users.map((u) => row(u, name, at, extra));
 }
 
+describe("Date-valued timestamps (node-postgres TCP transport)", () => {
+  it("treats a Date created_at identically to its ISO string", () => {
+    const iso = "2026-06-08T09:00:00Z";
+    const asString = [row("u", "daily_viewed", iso)];
+    const asDate = [row("u", "daily_viewed", iso, { created_at: new Date(iso) as unknown as string })];
+    expect(buildWeeklyCohorts(asDate, NOW, 2)).toEqual(buildWeeklyCohorts(asString, NOW, 2));
+    expect(() => buildWeeklyLoop(asDate, NOW, 2)).not.toThrow();
+    expect(() => buildFunnelReport(asDate, { now: NOW, minSample: 1 })).not.toThrow();
+  });
+});
+
 describe("buildFunnelReport", () => {
   it("computes the today→start rate over distinct users", () => {
     const rows = [
