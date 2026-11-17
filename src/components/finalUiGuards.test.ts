@@ -30,6 +30,16 @@ describe("final UI detail guards", () => {
     expect(s).toContain("MARK_LEGEND.find((item) => item.mark === mark)?.label");
   });
 
+  it("announces password-reset success panels", () => {
+    for (const f of [
+      "src/app/login/forgot-password/ForgotPasswordForm.tsx",
+      "src/app/login/reset-password/ResetPasswordForm.tsx",
+    ]) {
+      const s = source(f);
+      expect(s).toMatch(/role="status" className="surface-raised flex w-full max-w-sm flex-col gap-4 p-6 text-center"/);
+    }
+  });
+
   it("announces copy outcome and search/vote state changes", () => {
     const lobby = source("src/components/PvpLobby.tsx");
     expect(lobby).toContain('setCopyState("copied")');
