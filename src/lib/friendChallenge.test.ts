@@ -25,6 +25,11 @@ describe("describeChallengeState", () => {
     expect(state.turnNote).toBe("Ada has made their opening argument. Accept to respond — you have until 17 Oct.");
   });
 
+  it("expires an OPEN invite exactly at its expiry instant, matching the DB", () => {
+    expect(effectiveInviteStatus("open", NOW.toISOString(), NOW)).toBe("expired");
+    expect(describeChallengeState("open", NOW.toISOString(), null, "viewer", "Ada", NOW).status).toBe("expired");
+  });
+
   it("expires an OPEN invite past its window", () => {
     const state = describeChallengeState("open", PAST, null, "viewer", "Ada", NOW);
     expect(state.status).toBe("expired");
