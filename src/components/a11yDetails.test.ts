@@ -134,7 +134,7 @@ describe("accessibility detail guards", () => {
     const bad: string[] = [];
     for (const file of files) {
       const s = readFileSync(file, "utf8");
-      for (const match of s.matchAll(/<(?:div|span)\b[^>]*>/g)) {
+      for (const match of s.matchAll(/<(?:div|span|p)\b[^>]*>/g)) {
         if (match[0].includes("aria-label=") && !/\brole=/.test(match[0])) {
           bad.push(`${path.relative(process.cwd(), file)}: ${match[0].slice(0, 90)}`);
         }
