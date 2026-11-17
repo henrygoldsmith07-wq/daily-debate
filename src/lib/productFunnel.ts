@@ -180,8 +180,12 @@ export function completenessNote(meta: DataCompleteness): string | null {
   return bits.length ? bits.join(" ") : null;
 }
 
-function dayOf(iso: string): string {
-  return iso.slice(0, 10);
+function dayOf(iso: string | Date): string {
+  // timestamptz is a string over Neon's HTTP driver but a JS Date over the
+  // plain postgresql:// (node-postgres) transport. Both are supported DB URLs;
+  // handle each so the analytics surfaces cannot throw on a Date-valued row.
+  if (iso instanceof Date) return Number.isNaN(iso.getTime()) ? "" : iso.toISOString().slice(0, 10);
+  return typeof iso === "string" ? iso.slice(0, 10) : "";
 }
 
 function addDays(day: string, days: number): string {
