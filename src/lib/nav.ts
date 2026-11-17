@@ -22,6 +22,7 @@ export type NavIconName =
   | "explore"
   | "progress"
   | "dna"
+  | "compass"
   | "history"
   | "leaderboard"
   | "rate"
@@ -90,6 +91,12 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "Argument DNA",
         description: "How your reasoning habits change over time",
         icon: "dna",
+      },
+      {
+        href: "/political-identifier",
+        label: "Political identifier",
+        description: "Where you've stood across daily motions",
+        icon: "compass",
       },
       {
         href: "/history",
