@@ -203,9 +203,12 @@ export default function RateForm() {
               ))}
             </div>
 
-            <label className="flex items-center justify-between gap-3 text-xs">
-              <span className="text-ink3">Confidence in this verdict</span>
+            <div className="flex items-center justify-between gap-3 text-xs">
+              {/* Keep the live numeric value outside the label: inside it, the
+                  input's accessible name would change on every arrow press. */}
+              <label htmlFor="confidence-range" className="text-ink3">Confidence in this verdict</label>
               <input
+                id="confidence-range"
                 type="range"
                 min={0}
                 max={1}
@@ -216,7 +219,7 @@ export default function RateForm() {
                 aria-valuetext={confidence.toFixed(2)}
               />
               <span className="tabular w-10 text-right text-ink3">{confidence.toFixed(2)}</span>
-            </label>
+            </div>
 
             <textarea
               value={rationale}

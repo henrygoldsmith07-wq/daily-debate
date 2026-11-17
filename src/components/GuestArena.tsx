@@ -520,6 +520,8 @@ function GuestDebate({
                 />
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                   <span id="guest-response-count" className="text-xs text-ink3">{response.trim().length}/12 minimum characters</span>
+                  {/* Announce only the threshold crossing, not every keystroke. */}
+                  <span className="sr-only" role="status">{response.trim().length >= 12 ? "Ready to submit." : ""}</span>
                   <button type="button" onClick={submit} disabled={!opponentReady || response.trim().length < 12} className="btn btn-primary px-4 py-2 text-sm">
                     Send response <span aria-hidden="true">→</span>
                   </button>
