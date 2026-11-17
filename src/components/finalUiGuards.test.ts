@@ -51,6 +51,20 @@ describe("final UI detail guards", () => {
     );
   });
 
+  it("gives the PvP room and password-reset screens a document heading", () => {
+    expect(source("src/components/PvpRoom.tsx")).toContain(
+      '<h1 className="text-xs uppercase tracking-wide text-ink3">{topic.title}</h1>',
+    );
+    for (const f of [
+      "src/app/login/forgot-password/ForgotPasswordForm.tsx",
+      "src/app/login/reset-password/ResetPasswordForm.tsx",
+    ]) {
+      const s = source(f);
+      expect(s).not.toMatch(/<h2 className="font-semibold">/);
+      expect(s).toContain('<h1 className="font-semibold">');
+    }
+  });
+
   it("announces password-reset success panels", () => {
     for (const f of [
       "src/app/login/forgot-password/ForgotPasswordForm.tsx",
