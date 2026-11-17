@@ -367,7 +367,6 @@ export default function CorpusAdmin() {
               className="w-16 rounded border border-[var(--rule)] bg-transparent px-2 py-1 text-sm tabular"
               inputMode="numeric"
               autoComplete="off"
-              aria-label="Items to judge"
             />
           </label>
           <button type="button" onClick={runComparison} disabled={busy} className="btn btn-primary px-4 py-1.5 text-xs disabled:opacity-40">

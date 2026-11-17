@@ -1,4 +1,4 @@
-// 93 curated fallback debate motions. Used when the AI pre-generation
+// 92 curated fallback debate motions. Used when the AI pre-generation
 // pipeline fails entirely — the dashboard always has a topic to show.
 // Ordered roughly by category rotation so consecutive fallbacks differ.
 // Each is hand-written, balanced (both sides defensible), and grounded in
