@@ -90,8 +90,8 @@ export function streakFreezeNote(status: StreakStatus, today: string): string | 
   if (status.state === "freeze_holding") {
     return `A streak freeze is covering yesterday. Debate today to keep your ${status.streak}-day streak.`;
   }
-  const yesterday = dayNumber(today);
-  if (status.state === "practised_today" && yesterday !== null && status.frozenDay === dayKey(yesterday - 1)) {
+  const todayDay = dayNumber(today);
+  if (status.state === "practised_today" && todayDay !== null && status.frozenDay === dayKey(todayDay - 1)) {
     return "A streak freeze covered yesterday, so your streak carried on.";
   }
   return null;

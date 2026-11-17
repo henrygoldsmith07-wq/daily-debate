@@ -153,8 +153,5 @@ export function motionReasonLine(choice: MotionChoice, ctx: MotionContext): stri
   if (choice.isDaily) {
     return "Everyone debates this motion today — then your own loop picks what you train on it.";
   }
-  if (ctx.retestAvoid && choice.motion.id !== ctx.retestAvoid.topicId) {
-    return choice.reason;
-  }
   return choice.reason;
 }
