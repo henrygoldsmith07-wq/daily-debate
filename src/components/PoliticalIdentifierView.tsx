@@ -60,10 +60,14 @@ export default function PoliticalIdentifierView({ model }: { model: PoliticalIde
                 <li key={category.key} className="pid-row">
                   <span className="pid-row-label">{category.label}</span>
                   <span className="pid-row-side">
+                    <span className="sr-only">For: </span>
+                    <span className="pid-mobile-label" aria-hidden="true">For</span>
                     <Marks n={category.forCount} tone="for" />
                     <span className="pid-count">{category.forCount}</span>
                   </span>
                   <span className="pid-row-side">
+                    <span className="sr-only">Against: </span>
+                    <span className="pid-mobile-label" aria-hidden="true">Against</span>
                     <Marks n={category.againstCount} tone="against" />
                     <span className="pid-count">{category.againstCount}</span>
                   </span>

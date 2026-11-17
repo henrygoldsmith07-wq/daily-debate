@@ -56,9 +56,11 @@ function leanFor(forShare: number): StanceLean {
 }
 
 function baseVerdict(lean: StanceLean): string {
-  if (lean === "for") return "You argued for change more often than against it.";
-  if (lean === "against") return "You argued against change more often than for it.";
-  return "You argued both ways about evenly — no clear tilt in the positions you've taken.";
+  // "For" means for a motion's proposition, not for change — many motions are
+  // preservational. Keep the product's neutral side vocabulary here.
+  if (lean === "for") return "You argued For more often than Against.";
+  if (lean === "against") return "You argued Against more often than For.";
+  return "You argued For and Against about evenly — no clear tilt in the positions you've taken.";
 }
 
 /** Local guard for untrusted input (DB rows, JSON). Mirrors isMotionPosition. */
@@ -123,11 +125,13 @@ export function buildPoliticalIdentifier(rows: readonly StanceRecord[]): Politic
     })
     .sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
 
-  // The dominant category is simply the one with the most positions. When
-  // totals tie, the key sort above makes the choice deterministic.
+  // Name the busiest topic as a VOLUME fact only. The old "Most clearly on X"
+  // implied the lean was strongest there, but the busiest category can be the
+  // one argued the other way. Require at least two positions so a single
+  // stray stance never earns a "most active" call-out.
   const dominant = categories[0];
-  const verdict = dominant
-    ? `${baseVerdict(lean)} Most clearly on ${dominant.label.toLowerCase()}.`
+  const verdict = dominant && dominant.total >= 2
+    ? `${baseVerdict(lean)} Your most active topic was ${dominant.label.toLowerCase()}.`
     : baseVerdict(lean);
 
   return {

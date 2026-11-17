@@ -526,6 +526,7 @@
 .pid-row { padding: 0.85rem 0; border-bottom: 1px solid var(--line); }
 .pid-row-label { font-size: 0.95rem; font-weight: 550; }
 .pid-row-side { display: flex; align-items: center; gap: 0.55rem; }
+.pid-mobile-label { display: none; color: var(--ink-3); font-size: 0.75rem; }
 .pid-marks { display: inline-flex; align-items: center; gap: 3px; }
 .pid-mark { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--line); }
 .pid-mark-for { background: var(--success); }
@@ -548,6 +549,8 @@
   .pid-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.4rem 1rem; }
   .pid-row-label { grid-column: 1 / -1; }
   .pid-row-side { justify-content: flex-start; }
+  /* The column header is gone, so each row carries its own visible labels. */
+  .pid-mobile-label { display: inline; }
 }
 @media (prefers-reduced-motion: reduce) {
   .pid-verdict-line { animation: none; }
