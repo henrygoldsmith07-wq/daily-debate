@@ -30,6 +30,27 @@ describe("final UI detail guards", () => {
     expect(s).toContain("MARK_LEGEND.find((item) => item.mark === mark)?.label");
   });
 
+  it("does not make per-keystroke character counters live regions", () => {
+    for (const [file, id] of [
+      ["src/components/GuestArena.tsx", "guest-repair-count"],
+      ["src/components/GuestArena.tsx", "guest-retest-count"],
+      ["src/components/ArgumentRepair.tsx", "repair-draft-count"],
+    ]) {
+      const s = source(file);
+      const at = s.indexOf(`id="${id}"`);
+      expect(at).toBeGreaterThan(-1);
+      const tag = s.slice(s.lastIndexOf("<", at), s.indexOf(">", at) + 1);
+      expect(tag).not.toContain("aria-live");
+    }
+    // Threshold readiness is still announced through a separate two-state region.
+    expect(source("src/components/GuestArena.tsx")).toContain(
+      '<span className="sr-only" role="status">{repair.trim().length >= 12 ? "Ready to submit." : ""}</span>',
+    );
+    expect(source("src/components/ArgumentRepair.tsx")).toContain(
+      '<span className="sr-only" role="status">{draft.trim().length >= 10 ? "Ready to submit." : ""}</span>',
+    );
+  });
+
   it("announces password-reset success panels", () => {
     for (const f of [
       "src/app/login/forgot-password/ForgotPasswordForm.tsx",

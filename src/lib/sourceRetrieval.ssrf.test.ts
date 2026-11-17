@@ -41,6 +41,11 @@ describe("isPrivateAddress", () => {
     ["fec0::1", false], // site-local (deprecated) — not blocked by numeric test
     ["::ffff:127.0.0.1", true], // IPv4-mapped loopback
     ["::ffff:169.254.169.254", true], // IPv4-mapped metadata
+    ["::127.0.0.1", true], // IPv4-compatible loopback
+    ["::7f00:1", true], // same, URL-canonicalised form
+    ["::10.0.0.1", true], // IPv4-compatible private
+    ["::169.254.169.254", true], // IPv4-compatible metadata
+    ["::a9fe:a9fe", true], // same, canonicalised metadata form
     ["2001:db8::1", false],
   ])("%s → %s", (address, expected) => {
     expect(isPrivateAddress(address)).toBe(expected);

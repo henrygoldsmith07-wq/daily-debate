@@ -122,7 +122,18 @@ export function isPrivateAddress(address: string): boolean {
   const a = address.toLowerCase().replace(/^\[|\]$/g, "");
 
   const mapped = a.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
-  const v4 = mapped ? mapped[1] : isDottedQuad(a) ? a : null;
+  // IPv4-compatible IPv6 (::a.b.c.d, canonicalised by URL to ::xxxx:xxxx)
+  // denotes the same IPv4 address and must pass the v4 range checks below.
+  const compatDotted = a.match(/^::(\d{1,3}(?:\.\d{1,3}){3})$/);
+  const compatHex = a.match(/^::([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  let compatV4: string | null = null;
+  if (compatDotted) {
+    compatV4 = compatDotted[1];
+  } else if (compatHex) {
+    const n = (parseInt(compatHex[1], 16) << 16) | parseInt(compatHex[2], 16);
+    compatV4 = `${n >>> 24}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`;
+  }
+  const v4 = mapped ? mapped[1] : isDottedQuad(a) ? a : compatV4;
   if (v4) {
     const parts = v4.split(".").map(Number);
     if (parts.some((p) => Number.isNaN(p) || p > 255)) return true; // malformed → hostile
