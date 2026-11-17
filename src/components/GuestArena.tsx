@@ -772,9 +772,11 @@ function GuestResult({
                   maxLength={4000}
                   className="field mt-2 resize-none text-sm leading-6"
                 />
-                <p id="guest-repair-count" aria-live="polite" className="mt-1 text-xs text-ink3">
+                <p id="guest-repair-count" className="mt-1 text-xs text-ink3">
                   {repair.trim().length >= 12 ? "Ready to submit." : `${repair.trim().length}/12 minimum characters`}
                 </p>
+                {/* Only announce the threshold crossing, not every keystroke. */}
+                <span className="sr-only" role="status">{repair.trim().length >= 12 ? "Ready to submit." : ""}</span>
                 <button
                   type="button"
                   onClick={submitRepair}
@@ -932,9 +934,10 @@ function GuestRetest({
                   maxLength={4000}
                   className="field mt-2 resize-none text-sm leading-6"
                 />
-                <p id="guest-retest-count" aria-live="polite" className="mt-1 text-xs text-ink3">
+                <p id="guest-retest-count" className="mt-1 text-xs text-ink3">
                   {response.trim().length >= 12 ? "Ready to submit." : `${response.trim().length}/12 minimum characters`}
                 </p>
+                <span className="sr-only" role="status">{response.trim().length >= 12 ? "Ready to submit." : ""}</span>
                 <button
                   type="button"
                   onClick={() => onAttemptChange({ response, submitted: true })}

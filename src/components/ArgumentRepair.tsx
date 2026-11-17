@@ -231,7 +231,9 @@ export default function ArgumentRepair({
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span id="repair-draft-count" aria-live="polite" className="text-xs text-ink3">{draft.trim().length < 10 ? `${draft.trim().length}/10 minimum characters` : `${draft.trim().length} characters`} · practice only, score unchanged</span>
+        <span id="repair-draft-count" className="text-xs text-ink3">{draft.trim().length < 10 ? `${draft.trim().length}/10 minimum characters` : `${draft.trim().length} characters`} · practice only, score unchanged</span>
+        {/* Announce only the threshold crossing, not every keystroke. */}
+        <span className="sr-only" role="status">{draft.trim().length >= 10 ? "Ready to submit." : ""}</span>
         <button
           type="button"
           onClick={checkRepair}
