@@ -31,6 +31,18 @@ describe("nav configuration", () => {
     expect(history?.description.toLowerCase()).not.toContain("every debate");
   });
 
+  it("exposes the political identifier in the progress section", () => {
+    const item = NAV_ITEMS.find((candidate) => candidate.href === "/political-identifier");
+    expect(item).toBeDefined();
+    expect(item?.label.length).toBeGreaterThan(0);
+    expect(item?.description.length).toBeGreaterThan(0);
+    expect(item?.primary).not.toBe(true);
+    const section = NAV_SECTIONS.find((candidate) =>
+      candidate.items.some((entry) => entry.href === "/political-identifier"),
+    );
+    expect(section?.id).toBe("progress");
+  });
+
   it("gives every item a label and a description for the More sheet", () => {
     for (const item of NAV_ITEMS) {
       expect(item.label.length).toBeGreaterThan(0);

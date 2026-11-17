@@ -46,6 +46,12 @@ const PATHS: Record<NavIconName, React.ReactNode> = {
       <path d="M8.5 7h7M8 16h8" />
     </>
   ),
+  compass: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 15.5L12 7l3.5 8.5L12 13.5z" />
+    </>
+  ),
   history: (
     <>
       <path d="M3.5 9A9 9 0 1 1 3 12" />
