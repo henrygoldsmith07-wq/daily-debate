@@ -115,6 +115,7 @@ export const MARK_LEGEND: readonly { mark: RoundMark; label: string }[] = [
   { mark: "answered", label: "answered the opponent's move" },
   { mark: "partial", label: "made a reasoned point without answering it" },
   { mark: "dropped", label: "left the opponent's move unanswered" },
+  { mark: "none", label: "nothing to answer" },
 ];
 
 /** Relative URL of the share landing page for a card. */

@@ -62,7 +62,7 @@ export default function ExploreVote({
     <div className="explore-vote" data-testid="explore-vote">
       <p className="explore-vote-question">Who argued better?</p>
       {votes ? (
-        <div className="explore-vote-result">
+        <div className="explore-vote-result" role="status">
           <div className="explore-vote-bar" aria-hidden="true">
             <span style={{ width: `${forShare}%` }} />
           </div>

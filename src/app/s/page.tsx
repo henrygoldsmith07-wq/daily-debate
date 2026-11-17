@@ -40,7 +40,12 @@ export default async function SharedResultPage({ searchParams }: { searchParams:
         <section className="surface-card mt-5 p-5" aria-label="Their result">
           <p className="text-sm text-ink2">Argued {card.side === "for" ? "For" : "Against"}</p>
           {card.marks.length ? (
-            <p role="img" className="mt-3 text-3xl tracking-[0.2em]" aria-label="One square per round">
+            <p
+              role="img"
+              className="mt-3 text-3xl tracking-[0.2em]"
+              aria-label={`One square per round: ${card.marks.map((mark, i) =>
+                `round ${i + 1} ${MARK_LEGEND.find((item) => item.mark === mark)?.label ?? mark}`).join("; ")}`}
+            >
               {squares(card.marks)}
             </p>
           ) : null}
