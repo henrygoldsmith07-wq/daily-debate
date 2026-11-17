@@ -51,6 +51,15 @@ describe("final UI detail guards", () => {
     );
   });
 
+  it("announces feedback confirmation and keeps focus on matchmaking start", () => {
+    expect(source("src/components/debate/DebateResultCard.tsx")).toContain(
+      '<p role="status" className="text-xs text-ink3" data-testid="weakness-feedback-thanks">',
+    );
+    const lobby = source("src/components/PvpLobby.tsx");
+    expect(lobby).toContain("searchStatusRef.current?.focus()");
+    expect(lobby).toContain('ref={searchStatusRef} tabIndex={-1} role="status"');
+  });
+
   it("gives the PvP room and password-reset screens a document heading", () => {
     expect(source("src/components/PvpRoom.tsx")).toContain(
       '<h1 className="text-xs uppercase tracking-wide text-ink3">{topic.title}</h1>',
@@ -81,7 +90,7 @@ describe("final UI detail guards", () => {
     expect(lobby).toContain('setCopyState("failed")');
     expect(lobby).toContain("Link copied");
     expect(lobby).toContain('<span role="status" className="text-xs text-ink3">');
-    expect(lobby).toContain('<div role="status" className="flex flex-col items-center gap-4">');
+    expect(lobby).toContain('ref={searchStatusRef} tabIndex={-1} role="status" className="flex flex-col items-center gap-4">');
     expect(source("src/components/ExploreVote.tsx")).toContain('<div className="explore-vote-result" role="status">');
   });
 });

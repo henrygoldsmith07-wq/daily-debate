@@ -267,7 +267,7 @@ export function DebateResultCard({
               )}
               <div className="mt-3">
                 {feedbackMissed ? (
-                  <p className="text-xs text-ink3" data-testid="weakness-feedback-thanks">Thanks, noted. This helps check how often the feedback misses.</p>
+                  <p role="status" className="text-xs text-ink3" data-testid="weakness-feedback-thanks">Thanks, noted. This helps check how often the feedback misses.</p>
                 ) : (
                   <button
                     type="button"
