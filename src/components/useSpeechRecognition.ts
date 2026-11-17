@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 // Minimal ambient shape for the (non-standard, Chrome-only) Web Speech API
 // Safari/Firefox: no SpeechRecognition — composer shows dictation + paste + keyboard path instead. —
@@ -99,6 +99,11 @@ export function useSpeechRecognition(opts?: { lang?: string; onEnd?: () => void 
     recognitionRef.current?.stop();
     setListening(false);
   }, []);
+
+  // A live mic must never outlive the component. The debate composer is keyed
+  // by round, so a successful send unmounts it mid-dictation; without this
+  // cleanup the browser keeps capturing audio with no on-screen indicator.
+  useEffect(() => () => { recognitionRef.current?.stop(); }, []);
 
   return { supported, listening, transcript, interim, error, start, stop, resetTranscript: () => { setTranscript(""); setInterim(""); setError(null); } };
 }

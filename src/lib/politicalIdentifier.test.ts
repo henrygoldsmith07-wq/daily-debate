@@ -103,28 +103,52 @@ describe("buildPoliticalIdentifier — verdict copy", () => {
     {
       lean: "for",
       rows: split(6, 2),
-      verdict: "You argued for change more often than against it. Most clearly on economics.",
+      verdict: "You argued For more often than Against. Your most active topic was economics.",
     },
     {
       lean: "against",
       rows: split(2, 6),
-      verdict: "You argued against change more often than for it. Most clearly on economics.",
+      verdict: "You argued Against more often than For. Your most active topic was economics.",
     },
     {
       lean: "mixed",
       rows: split(4, 4),
-      verdict: "You argued both ways about evenly — no clear tilt in the positions you've taken. Most clearly on economics.",
+      verdict: "You argued For and Against about evenly — no clear tilt in the positions you've taken. Your most active topic was economics.",
     },
   ] as const)("describes the $lean lean as a pattern of choices", ({ rows, verdict }) => {
     const model = buildPoliticalIdentifier(rows);
     expect(model.verdict).toBe(verdict);
-    // Never a belief, personality, or validated-science claim.
-    expect(model.verdict!.toLowerCase()).not.toMatch(/you believe|your beliefs are|you are (a|an) |personality|validated/);
+    // Never a belief, personality, or validated-science claim, and never an
+    // inference that "For" means support for change.
+    expect(model.verdict!.toLowerCase()).not.toMatch(/you believe|your beliefs are|you are (a|an) |personality|validated|for change|against change/);
   });
 
   it("names the 'other' bucket honestly when no real category was given", () => {
     const model = buildPoliticalIdentifier(split(6, 2, null));
-    expect(model.verdict).toBe("You argued for change more often than against it. Most clearly on other.");
+    expect(model.verdict).toBe("You argued For more often than Against. Your most active topic was other.");
+  });
+
+  it("does not imply the lean is clearest in the busiest topic", () => {
+    // Economics is the busiest category but leans Against, while overall lean
+    // is For. "Most clearly on economics" would misdescribe the record.
+    const rows: StanceRecord[] = [
+      ...many("against", 6, "Economics"),
+      ...many("for", 2, "Economics"),
+      ...many("for", 8, "Health"),
+    ];
+    const model = buildPoliticalIdentifier(rows);
+    expect(model.lean).toBe("for");
+    expect(model.categories[0].label).toBe("Economics");
+    expect(model.verdict).not.toContain("Most clearly on economics");
+    expect(model.verdict).toContain("Your most active topic was economics.");
+  });
+
+  it("does not call a topic 'most active' from a single stray position", () => {
+    const rows: StanceRecord[] = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"]
+      .map((category) => ({ category, position: "for" as const }));
+    const model = buildPoliticalIdentifier(rows);
+    expect(model.verdict).toBe("You argued For more often than Against.");
+    expect(model.verdict).not.toContain("most active");
   });
 });
 

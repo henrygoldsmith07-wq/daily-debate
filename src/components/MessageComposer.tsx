@@ -93,6 +93,10 @@ export default function MessageComposer({
   async function submit() {
     const trimmed = displayValue.trim();
     if (!trimmed || busy) return;
+    // Stop the mic before the async parent update remounts this composer on a
+    // successful turn; otherwise dictation keeps running with no indicator.
+    // Commit exactly what was sent first, so a failed request keeps the draft.
+    if (listening) { setText(trimmed); stop(); }
     setSubmitting(true);
     try {
       const accepted = await onSubmit({

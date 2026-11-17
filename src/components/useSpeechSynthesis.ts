@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 function subscribeNoop() {
   return () => {};
@@ -33,6 +33,12 @@ export function useSpeechSynthesis() {
   }, []);
 
   const cancel = useCallback(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  }, []);
+
+  // Stop reading aloud when the speaker leaves the page; otherwise the
+  // opponent's turn keeps talking into a component that no longer exists.
+  useEffect(() => () => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
   }, []);
 

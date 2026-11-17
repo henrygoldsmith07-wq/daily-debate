@@ -25,6 +25,16 @@ describe("political identifier view", () => {
     expect(s).not.toContain("compass");
   });
 
+  it("labels For and Against for assistive tech and on mobile", () => {
+    const s = source("src/components/PoliticalIdentifierView.tsx");
+    expect(s).toContain('<span className="sr-only">For: </span>');
+    expect(s).toContain('<span className="sr-only">Against: </span>');
+    expect(s).toContain('<span className="pid-mobile-label" aria-hidden="true">For</span>');
+    expect(s).toContain('<span className="pid-mobile-label" aria-hidden="true">Against</span>');
+    const css = source("src/app/globals.css");
+    expect(css).toContain(".pid-mobile-label { display: inline; }");
+  });
+
   it("keeps its styles scoped and respects reduced motion", () => {
     const css = source("src/app/globals.css");
     expect(css).toContain(".pid-verdict-line {");
