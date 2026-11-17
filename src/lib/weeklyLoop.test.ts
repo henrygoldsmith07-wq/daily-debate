@@ -20,6 +20,19 @@ describe("buildWeeklyLoop", () => {
     expect(w.repairsSucceeded).toBe(1);
   });
 
+  it("counts active days by UTC instant, not the timestamp's string prefix", () => {
+    const w = buildWeeklyLoop({
+      debates: [
+        // Same UTC day (28 Oct), but the offset form's prefix says 27 Oct.
+        { completedAt: "2026-10-27T23:30:00-05:00" },
+        { completedAt: "2026-10-28T01:00:00Z" },
+      ],
+      repairs: [],
+      retests: [],
+    }, now);
+    expect(w.activeDays).toBe(1);
+  });
+
   it("gates the demonstrated rate on all-time observable retests", () => {
     const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ completedAt: ago((i + 1) * DAY * 3), observable: true, demonstrated: i % 2 === 0 }));
     const low = buildWeeklyLoop({ debates: [], repairs: [], retests: mk(MIN_RETESTS_FOR_RATE - 1) }, now);

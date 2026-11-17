@@ -49,7 +49,9 @@ export interface ChallengeTurnState {
 export function effectiveInviteStatus(status: string, expiresAt: string, now: Date = new Date()): string {
   if (status !== "open") return status;
   const ms = Date.parse(expiresAt);
-  return !Number.isFinite(ms) || ms < now.getTime() ? "expired" : "open";
+  // Match migration 023's `expires_at <= now()`: at the exact expiry instant
+  // the DB has already lapsed the invite, so the UI must not still call it open.
+  return !Number.isFinite(ms) || ms <= now.getTime() ? "expired" : "open";
 }
 
 /**

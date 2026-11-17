@@ -46,7 +46,11 @@ export function buildWeeklyLoop(
 ): WeeklyLoop {
   const debates = input.debates.filter((d) => inWindow(d.completedAt, now)).length;
   const activeDays = new Set(
-    input.debates.filter((d) => inWindow(d.completedAt, now)).map((d) => (d.completedAt as string).slice(0, 10)),
+    input.debates
+      .filter((d) => inWindow(d.completedAt, now))
+      // Count UTC days from the parsed instant, not the raw string prefix: a
+      // timestamp with a timezone offset can spell a different local date.
+      .map((d) => new Date(Date.parse(d.completedAt as string)).toISOString().slice(0, 10)),
   ).size;
   const previousDebates = input.debates.filter((d) => {
     const t = d.completedAt ? Date.parse(d.completedAt) : NaN;
