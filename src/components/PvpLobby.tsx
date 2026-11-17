@@ -20,6 +20,7 @@ export default function PvpLobby() {
   const [position, setPosition] = useState<MotionPosition | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const searchStatusRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // Surface an already-active match so a returning player doesn't try to
@@ -42,6 +43,12 @@ export default function PvpLobby() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    // The "Find" button unmounts when searching starts; move focus to the new
+    // status region so keyboard users can reach Cancel without tabbing from the top.
+    if (searching) searchStatusRef.current?.focus();
+  }, [searching]);
 
   async function findOpponent() {
     setSearching(true);
@@ -128,7 +135,7 @@ export default function PvpLobby() {
         </Link>
       )}
       {searching ? (
-        <div role="status" className="flex flex-col items-center gap-4">
+        <div ref={searchStatusRef} tabIndex={-1} role="status" className="flex flex-col items-center gap-4">
           <p className="text-sm text-ink3">Looking for someone who {position === "for" ? "disagrees" : "agrees"} with the motion…</p>
           <button type="button" onClick={cancelSearch} className="btn btn-ghost px-4 py-2 text-sm">
             Cancel
