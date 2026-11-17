@@ -24,7 +24,8 @@ export default function WeaknessLibraryPanel({ chain }: { chain: ChainEntry[] })
             {g.redrillSuggested && (
               <>
                 {" "}
-                <Link href="/solo" className="underline" data-testid="weakness-redrill">Practise again</Link>
+                {/* Today is where a new debate starts; there is no /solo route. */}
+                <Link href="/" className="underline" data-testid="weakness-redrill">Practise again</Link>
               </>
             )}
           </li>

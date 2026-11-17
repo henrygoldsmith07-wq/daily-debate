@@ -4,8 +4,9 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { getTodayTopic } from "@/lib/dailyTopic";
 
 export async function GET(request: Request) {
-  // First request of the day triggers a paid model call; keep that path
-  // rate-limited like every other route.
+  // A fresh-day request may write the curated fallback topic to the store;
+  // getTodayTopic() makes no AI call at request time. Rate-limit this path like
+  // every other route.
   const limited = await checkRateLimit(request, { name: "daily-topic", limit: 30, windowMs: 60_000 });
   if (limited) return limited;
 
