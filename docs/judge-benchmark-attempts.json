@@ -150,5 +150,41 @@
         "outcome": "FAIL"
       }
     ]
+  },
+  {
+    "at": "2026-11-23T17:47:12.047Z",
+    "limit": 24,
+    "outcome": "gate-failure",
+    "reason": null,
+    "judges": [
+      {
+        "model": "unorouter:nemotron-3-super-120b-a12b:free",
+        "attempted": 288,
+        "successful": 22,
+        "reliability": 0.076,
+        "outcome": "FAIL"
+      },
+      {
+        "model": "cerebras:gpt-oss-120b",
+        "attempted": 24,
+        "successful": 0,
+        "reliability": 0,
+        "outcome": "FAIL"
+      },
+      {
+        "model": "openrouter:nvidia/nemotron-3-super-120b-a12b:free",
+        "attempted": 24,
+        "successful": 0,
+        "reliability": 0,
+        "outcome": "FAIL"
+      },
+      {
+        "model": "kiraai:qwen3.8-flash",
+        "attempted": 24,
+        "successful": 0,
+        "reliability": 0,
+        "outcome": "FAIL"
+      }
+    ]
   }
 ]
